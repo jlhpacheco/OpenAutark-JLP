@@ -216,6 +216,10 @@ async function run(t, type, executablePath) {
 
   // ── the fallbacks: each a fresh session, each stays silently on the tunnel
   const fallback = async (mode, block, outcome, ms) => {
+    // Stop the old session before switching fixture behaviour. Wait for its
+    // relay channel to close on the PC, not just for the browser to request it.
+    await page.evaluate(() => window.rtcTest.stop());
+    await until(() => !counts().via, 'the previous phone channel closed at the PC', 10_000);
     pc.state.mode = mode;
     await page.evaluate((b) => { window.__block = b; window.rtcTest.start(); }, block);
     const s = await until(async () => { const now = await state(); return [outcome].flat().includes(now.last) && now; }, `${mode}: ${outcome}`, ms)
