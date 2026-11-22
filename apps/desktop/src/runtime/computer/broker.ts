@@ -82,7 +82,7 @@ export function seal(session: Buffer, id: number, op: string, text: string): { i
   return { iv: iv.toString('base64'), data: data.toString('base64'), mac: mac(mac(session, 'mac'), `${id}\n${op}\n`, iv, data).toString('base64') };
 }
 
-/** One request line with its typed text sealed ('type' → 'type_secret'; 'act' value); other lines unchanged. */
+/** One request line with its typed text sealed ('type' → 'type_secret'; 'act' value; 'signin_store' password); other lines unchanged. */
 export function sealLine(line: string, session: Buffer): string {
   const request = JSON.parse(line) as { id: number; op: string; args?: Record<string, unknown> };
   const args = { ...(request.args ?? {}) };
@@ -95,6 +95,11 @@ export function sealLine(line: string, session: Buffer): string {
     const value = args.value;
     delete args.value;
     return `${asciiJson({ id: request.id, op: 'act', args: { ...args, sealed: seal(session, request.id, 'act', value) } })}\n`;
+  }
+  if (request.op === 'signin_store' && typeof args.password === 'string') { // 22.11.2026: the Windows password (computer/signin.ts)
+    const password = args.password;
+    delete args.password;
+    return `${asciiJson({ id: request.id, op: 'signin_store', args: { ...args, sealed: seal(session, request.id, 'signin_store', password) } })}\n`;
   }
   return line.endsWith('\n') ? line : `${line}\n`;
 }

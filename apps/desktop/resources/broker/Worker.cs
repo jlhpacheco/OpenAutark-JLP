@@ -11,7 +11,8 @@
 // from the session key HMAC(key,"session"|sn|cn), ids strictly increasing): it is decrypted right before
 // SendInput / set_value and zeroed after, and never echoed, logged or returned.
 // Owns: the pipe, the handshake, opening the sealed text, the desktop switch per request and the request queue.
-// Never: starts processes, writes typed text anywhere, or runs two requests at once.
+// 22.11.2026: signin_* ops (SignIn.cs) keep the Windows password for the sign-in after a restart as an LSA private datum.
+// Never: starts processes, writes typed text anywhere (but that LSA datum), or runs two requests at once.
 
 using System;
 using System.Collections.Concurrent;
@@ -36,6 +37,7 @@ namespace AutarkBroker
         static readonly object dispatchGate = new object();
         static byte[] key;
         static bool dpiAware;
+        static string brokerUser;
 
         public static int Run(string userSid, string keyFile)
         {
@@ -44,6 +46,7 @@ namespace AutarkBroker
                 key = Convert.FromBase64String(File.ReadAllText(keyFile).Trim());
                 if (key.Length != 32) throw new InvalidDataException("broker.key must hold 32 bytes.");
                 SecurityIdentifier user = new SecurityIdentifier(userSid);
+                brokerUser = user.Value;
                 dpiAware = WorkforceHelper.Native.InitDpi();
                 Program.Log("worker " + System.Diagnostics.Process.GetCurrentProcess().Id + " listening");
                 while (true)
@@ -156,6 +159,7 @@ namespace AutarkBroker
             string op = Args.Str(request, "op", "");
             if (op == "ocr") return WithDesktop(Dispatcher.Fail(id, "unavailable", "Text recognition is not available through the desktop broker."), InputDesktopName());
             Dictionary<string, object> args = Args.Obj(request, "args");
+            if (SignInOps.Handles(op)) return WithDesktop(SignInAnswer(id, op, args, sealer), InputDesktopName());
             string opened = null;
             try
             {
@@ -175,6 +179,26 @@ namespace AutarkBroker
             {
                 Zero(opened);
             }
+        }
+
+        /// The signin_* ops (SignIn.cs): the password of 'signin_store' arrives sealed and is zeroed after use; only for the broker's user.
+        static string SignInAnswer(object id, string op, Dictionary<string, object> args, Sealer sealer)
+        {
+            string password = null;
+            try
+            {
+                if (args != null && args.ContainsKey("sealed"))
+                {
+                    try { password = sealer.Open(id, op, Args.Obj(args, "sealed")); }
+                    catch (Exception) { return Dispatcher.Fail(id, "bad_request", "The sealed text could not be opened."); }
+                }
+                object wish = args == null ? null : Args.Get(args, "lockAfter");
+                bool? lockAfter = wish is bool ? (bool?)(bool)wish : null;
+                return Dispatcher.Ok(id, SignInOps.Run(op, brokerUser, password, lockAfter));
+            }
+            catch (SignInException e) { return Dispatcher.Fail(id, e.Code, e.Message); }
+            catch (Exception e) { Program.Log("sign-in op failed: " + e.GetType().Name); return Dispatcher.Fail(id, "internal", "The sign-in op failed (" + e.GetType().Name + ")."); }
+            finally { Zero(password); }
         }
 
         /// Runs `work` on a fresh MTA thread attached to the input desktop (a fresh thread owns no window, so SetThreadDesktop works).

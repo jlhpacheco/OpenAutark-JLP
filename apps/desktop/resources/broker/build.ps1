@@ -30,12 +30,12 @@ $references = @(
   (Join-Path $framework 'System.ServiceProcess.dll'),
   (Join-Path $wpf 'UIAutomationClient.dll'), (Join-Path $wpf 'UIAutomationTypes.dll'), (Join-Path $wpf 'WindowsBase.dll')
 ) | ForEach-Object { "/reference:$_" }
-$sources = @((Join-Path $here 'Broker.cs'), (Join-Path $here 'Worker.cs'), $helperCs)
+$sources = @((Join-Path $here 'Broker.cs'), (Join-Path $here 'Worker.cs'), (Join-Path $here 'SignIn.cs'), $helperCs)
 
 & $csc /nologo /target:exe /platform:anycpu /optimize+ /unsafe /warn:4 "/out:$out" $references $sources
 if ($LASTEXITCODE -ne 0) { throw "csc failed with exit code $LASTEXITCODE" }
 Remove-Item -Recurse -Force $obj
 
-foreach ($file in @($helper, (Join-Path $here 'Broker.cs'), (Join-Path $here 'Worker.cs'), $out)) {
+foreach ($file in @($helper, (Join-Path $here 'Broker.cs'), (Join-Path $here 'Worker.cs'), (Join-Path $here 'SignIn.cs'), $out)) {
   '{0}  {1}' -f (Get-FileHash -Algorithm SHA256 $file).Hash.ToLowerInvariant(), (Split-Path -Leaf $file)
 }

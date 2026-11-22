@@ -23,7 +23,9 @@ import { FeedbackService } from '../feedback/service.ts';
 import { Onboarding } from '../onboarding/service.ts';
 import { createTeamStart } from './team-start.ts';
 import { ComputerService } from '../computer/service.ts';
-import { followBrokerSetup } from '../computer/broker.ts';
+import { followBrokerSetup, localBroker } from '../computer/broker.ts';
+import { RestartSignIn, signInTool } from '../computer/signin.ts';
+import { KvRepo } from '../store/kv.ts';
 import { BrowserService } from '../browser/service.ts';
 import { startBrowserView } from '../browser/view.ts';
 import { PointerHub } from '../pointers/hub.ts'; // B-055
@@ -75,6 +77,11 @@ export function createNetwork(options: NetworkOptions): Network {
   s.pointers = new PointerHub({ bus: s.bus, now: () => s.clock.now() }); // B-055: named pointers (browsers, screens)
   const computer = new ComputerService({ host: s.host, supervisor: core.supervisor, resourcesDir: s.paths.resources, log: s.log, services });
   followBrokerSetup(s.bus); // F03: how the desktop broker's setup at the app's start ended (main/broker-setup.ts)
+  if (process.platform === 'win32' && s.host.app.packaged) { // 22.11.2026: sign-in after a restart through the desktop broker (computer/signin.ts)
+    const signIn = new RestartSignIn({ broker: () => localBroker(), secrets: s.secrets, kv: new KvRepo(s.db), log: s.log, now: () => s.clock.now() });
+    s.tools.register(signInTool(signIn));
+    void signIn.start();
+  }
   const browser = new BrowserService({ paths: s.paths, log: s.log });
   startBrowserView(services, browser); // the person's live view of agent browsers (rpc browser.*)
   registerSideView(core.mesh, services); // B-076: this PC's side-browser tabs for the owner's other PCs (mesh side.*)

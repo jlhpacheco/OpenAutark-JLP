@@ -1,11 +1,15 @@
 // Autark desktop broker (B-077): one small exe, two roles.
 //   AutarkDesktopBroker.exe service <userSid>          – the Windows service (LocalSystem, Session 0, auto start)
 //   AutarkDesktopBroker.exe worker <userSid> <keyFile> – the worker in the console session (see Worker.cs)
+//   AutarkDesktopBroker.exe signin <userSid>           – one sign-in after a restart (SignIn.cs), started by the service
 // The service shows nothing and types nothing (Session 0 cannot reach the interactive session). It duplicates its
 // own LocalSystem token, sets TokenSessionId to WTSGetActiveConsoleSessionId and starts the worker with
 // CreateProcessAsUser on "winsta0\winlogon". On SERVICE_CONTROL_SESSIONCHANGE it starts the worker again when the
 // console session changed; when the worker exits it starts it again (1 s, doubling up to 30 s while it keeps dying).
-// Owns: the service lifetime, the worker process and the short broker.log in %ProgramData%\AutarkDesktopBroker.
+// Sign-in after a restart (22.11.2026, SignIn.cs): at its start and at each console session change the service asks
+// SignInPolicy whether to sign the user in (a password stored, not suspended, nobody signed in, shortly after boot, not yet
+// tried this boot) and then starts the role "signin" in the console session on winsta0\winlogon; its exit code is recorded.
+// Owns: the service lifetime, the worker process, the sign-in process and the short broker.log in %ProgramData%\AutarkDesktopBroker.
 // Never: reads the key, opens the pipe or handles input (Worker.cs), or writes anything typed into the log.
 
 using System;
@@ -36,7 +40,8 @@ namespace AutarkBroker
                 return 0;
             }
             if (role == "worker" && args.Length >= 3) return Worker.Run(args[1], args[2]);
-            Console.Error.WriteLine("usage: AutarkDesktopBroker.exe service <userSid> | worker <userSid> <keyFile>");
+            if (role == "signin" && args.Length >= 2) return SignInRunner.Run(args[1]);
+            Console.Error.WriteLine("usage: AutarkDesktopBroker.exe service <userSid> | worker <userSid> <keyFile> | signin <userSid>");
             return 2;
         }
 
@@ -69,6 +74,7 @@ namespace AutarkBroker
         int quickExits;
         DateTime startedAt;
         Timer retry;
+        Process signIn;
 
         public BrokerService(string userSid)
         {
@@ -83,7 +89,7 @@ namespace AutarkBroker
         protected override void OnStart(string[] args)
         {
             Program.Log("service started");
-            lock (gate) StartWorker();
+            lock (gate) { StartWorker(); MaybeSignIn(); }
         }
 
         protected override void OnStop()
@@ -99,6 +105,7 @@ namespace AutarkBroker
             lock (gate)
             {
                 if (stopping) return;
+                MaybeSignIn();
                 uint console = Native.WTSGetActiveConsoleSessionId();
                 bool alive = worker != null && !worker.HasExited;
                 if (alive && console == workerSession) return; // lock/unlock: the worker follows the input desktop itself
@@ -132,6 +139,45 @@ namespace AutarkBroker
                 Program.Log("worker start failed: " + e.Message);
                 ScheduleRetry();
             }
+        }
+
+        /// Starts the sign-in process when SignInPolicy says so (see SignIn.cs); one at a time, never twice per boot.
+        void MaybeSignIn()
+        {
+            if (stopping || (signIn != null && !signIn.HasExited)) return;
+            try
+            {
+                SignInState state = SignInStore.Load();
+                long boot = SignInFacts.Boot();
+                string why = SignInPolicy.Decide(SignInVault.Exists(), state, SignInFacts.ConsoleUser().Length > 0, SignInFacts.Uptime(), boot);
+                if (why != null) { if (why != "no_password" && why != "user_present") Program.Log("no sign-in now: " + why); return; }
+                uint session = Native.WTSGetActiveConsoleSessionId();
+                if (session == NoSession) return;
+                state.LastAttemptBoot = boot; // claimed before the start: a crash never brings a second attempt
+                SignInStore.Save(state);
+                string exe = Process.GetCurrentProcess().MainModule.FileName;
+                int pid = Native.StartInSession(session, "\"" + exe + "\" signin " + userSid, "winsta0\\winlogon");
+                Process process = Process.GetProcessById(pid);
+                process.EnableRaisingEvents = true;
+                process.Exited += (sender, e) => OnSignInExit((Process)sender, boot);
+                signIn = process;
+                Program.Log("sign-in " + pid + " started in session " + session);
+            }
+            catch (Exception e) { Program.Log("sign-in start failed: " + e.GetType().Name + ": " + e.Message); }
+        }
+
+        void OnSignInExit(Process process, long boot)
+        {
+            int code = 1;
+            try { code = process.ExitCode; } catch (Exception) { }
+            try
+            {
+                SignInState state = SignInStore.Load();
+                SignInPolicy.Record(state, SignInResults.FromExitCode(code), boot, SignInFacts.NowUtc());
+                SignInStore.Save(state);
+                if (state.Suspended) Program.Log("sign-in after restart suspended: " + state.Reason);
+            }
+            catch (Exception e) { Program.Log("sign-in result not saved: " + e.GetType().Name); }
         }
 
         void OnWorkerExit(Process process)
