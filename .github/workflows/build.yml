@@ -55,5 +55,7 @@ jobs:
           node-version: '24.22.2'
           package-manager-cache: false
       - run: npm ci --no-fund --no-audit
+      - name: Restart sign-in unit tests (no real login)
+        run: node --test test/unit/computer/signin.test.ts
       - name: Real TCP port and company binds
         run: npm run test:native-tcp
