@@ -170,6 +170,7 @@ test('the broker\'s copy follows the catalog: a changed value is handed over aga
   const signIn = new RestartSignIn({ broker: () => accessTo(fake), secrets, kv, log: new MemoryLogger(), now: () => 1000 });
   try {
     await signIn.enable({ secretId: 'sec_win', agentId: 'ag_1' });
+    assert.equal(fake.vault.lockAfter, true, 'locking right after the sign-in is the default');
     await signIn.start();
     fake.ops.length = 0;
     secrets.tell('sec_other');

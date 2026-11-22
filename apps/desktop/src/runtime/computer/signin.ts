@@ -159,7 +159,7 @@ export class RestartSignIn {
     const info = this.deps.secrets.list().find((secret) => secret.id === input.secretId);
     if (!info) throw new WorkforceError('not_found', 'That secret is not in the catalog.');
     const access = this.access();
-    const lockAfter = input.lockAfter ?? this.config()?.lockAfter ?? false;
+    const lockAfter = input.lockAfter ?? this.config()?.lockAfter ?? true; // default: lock right after the sign-in (owner 22.11.: no PC open to whoever switches it on)
     const password = await this.deps.secrets.use(input.secretId, input.agentId, 'windows-sign-in');
     const status = await brokerCall<SignInStatus>(access, this.deps.log, 'signin_store', { password, lockAfter });
     this.deps.kv.set(SIGNIN_NS, 'config', { secretId: input.secretId, ...(info.group ? { groupId: info.group.id } : {}), lockAfter } satisfies SignInConfig, this.deps.now());
@@ -246,7 +246,7 @@ export function signInTool(signIn: RestartSignIn): ToolDef {
       properties: {
         secret: { type: 'string', maxLength: 140, description: 'The catalog secret holding the Windows password of this PC\'s user, e.g. secret://<id>. Windows checks it before it is kept; the broker keeps its own copy, bound to this PC.' },
         off: { type: 'boolean', description: 'true: turn it off; the broker forgets the password.' },
-        lockAfter: { type: 'boolean', description: 'Lock the screen right after such a sign-in (once Autark runs).' },
+        lockAfter: { type: 'boolean', description: 'Lock the screen right after such a sign-in, once Autark runs (default true).' },
       },
       additionalProperties: false,
     },
