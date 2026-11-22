@@ -7,8 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import os from 'node:os';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createDecipheriv, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { brokerLease, sealLine, type BrokerAccess } from '../../../src/runtime/computer/broker.ts';
@@ -234,17 +233,9 @@ test('the broker never uses Windows autologon: no AutoAdminLogon, no Winlogon De
 const csc = path.join(process.env.WINDIR ?? 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
 
 test('the broker\'s policy and sign-in screen planner (C#, SignIn.cs)', { skip: process.platform !== 'win32' || !existsSync(csc) }, () => {
-  const framework = path.dirname(csc);
-  const out = mkdtempSync(path.join(os.tmpdir(), 'autark-signin-cs-'));
-  try {
-    const exe = path.join(out, 'SignInTests.exe');
-    const refs = ['System.dll', 'System.Core.dll', path.join('WPF', 'UIAutomationClient.dll'), path.join('WPF', 'UIAutomationTypes.dll'), path.join('WPF', 'WindowsBase.dll')]
-      .map((file) => `/reference:${path.join(framework, file)}`);
-    const build = spawnSync(csc, ['/nologo', '/target:exe', '/unsafe', '/warn:4', `/out:${exe}`, ...refs, path.join('resources', 'broker', 'SignIn.cs'), path.join('test', 'unit', 'computer', 'signin-cs', 'SignInTests.cs')], { encoding: 'utf8', windowsHide: true });
-    assert.equal(build.status, 0, build.stdout + build.stderr);
-    const run = spawnSync(exe, [], { encoding: 'utf8', windowsHide: true });
-    assert.equal(run.status, 0, run.stdout + run.stderr);
-    assert.match(run.stdout, /ALL PASS/);
-    assert.ok((run.stdout.match(/^PASS /gm) ?? []).length >= 25, run.stdout);
-  } finally { rmSync(out, { recursive: true, force: true }); }
+  // Compiled in memory and run inside PowerShell (signin-cs/run.ps1): a fresh unsigned test exe may be held by Smart App Control.
+  const run = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join('test', 'unit', 'computer', 'signin-cs', 'run.ps1')], { encoding: 'utf8', windowsHide: true });
+  assert.equal(run.status, 0, `${run.error?.message ?? ''}${run.stdout}${run.stderr}`);
+  assert.match(run.stdout, /ALL PASS/);
+  assert.ok((run.stdout.match(/^PASS /gm) ?? []).length >= 25, run.stdout);
 });
