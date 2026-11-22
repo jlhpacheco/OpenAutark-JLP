@@ -18,6 +18,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { RuntimeServices } from '../contracts.ts';
 import type { Settings } from '../../shared/model/system.ts';
 import { KvRepo } from '../store/kv.ts';
+import { loopbackOnly } from '../root/test-network.ts';
 
 /** Default port of the runtime HTTP server. */
 export const DEFAULT_PORT = 47811;
@@ -26,8 +27,8 @@ export const DEFAULT_PORT = 47811;
  * Listen address for `settings.pwa.bind`: this computer only, or every interface for LAN /
  * tailnet access (the Host allowlist and tokens still apply to every request).
  */
-export function bindHostFor(bind: Settings['pwa']['bind']): string {
-  return bind === 'localhost' ? '127.0.0.1' : '0.0.0.0';
+export function bindHostFor(bind: Settings['pwa']['bind'], env: NodeJS.ProcessEnv = process.env): string {
+  return loopbackOnly(env) || bind === 'localhost' ? '127.0.0.1' : '0.0.0.0';
 }
 
 const KV_NS = 'http';

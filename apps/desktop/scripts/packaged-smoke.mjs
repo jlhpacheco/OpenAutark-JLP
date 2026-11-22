@@ -1,5 +1,6 @@
 // Owns: exact packaged executable smoke in a newly allocated disposable profile.
 // Never: starts the source Electron binary or loads production accounts.
+import { testNetworkEnv } from './test-network-env.mjs';
 import { pathToFileURL } from 'node:url';
 import { _electron } from 'playwright-core';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
@@ -10,7 +11,7 @@ import { readFile } from 'node:fs/promises';
 export async function packagedSmoke(executable, electron = _electron) {
 const executablePath = path.resolve(executable);
 const profile = await mkdtemp(path.join(tmpdir(), 'autark-packaged-smoke-'));
-const env = { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1' };
+const env = testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1' });
 delete env.ELECTRON_RUN_AS_NODE;
 let desktop;
 try {

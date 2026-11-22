@@ -5,6 +5,7 @@
 // SCREENSHOTS names the folder. A temp profile, the demo engine, a local fixture server, no real sites.
 // Owns: these user paths. Never: touches the person's profile or external websites.
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -34,7 +35,7 @@ test('Chrome features: history, reopen, keys, zoom, mute, DevTools, Mark a regio
   const launch = () => electron.launch({
     executablePath: path.join(root, 'node_modules/electron/dist', process.platform === 'win32' ? 'electron.exe' : 'electron'),
     args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1' }),
   });
   let app = await launch();
   let rpc;

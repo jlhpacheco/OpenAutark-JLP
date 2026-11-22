@@ -4,6 +4,7 @@
 // the change log carries the agent's id, not the person's. Photos (SCREENSHOTS=<dir>) at 1280 and 390 px, light and dark; the window really is that wide.
 // Owns: this check. Never: a real model or a signed package.
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
@@ -22,7 +23,7 @@ test('My day: what an agent closed or moved is said under Next and Undo takes it
   await mkdir(shots, { recursive: true });
   const app = await electron.launch({
     executablePath: electronPath, args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }),
   });
   let rpc;
   t.after(async () => {

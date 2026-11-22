@@ -16,6 +16,7 @@
 // Run: node scripts/build.mjs && node --test test/ui/b058-dictation-window.test.mjs
 //   SCREENSHOTS=<dir> keeps the screenshots; B058_RESULTS=<file> writes the measured numbers as JSON.
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
@@ -76,7 +77,7 @@ test('B-058 live: dictation through the fake microphone, a voice message, abilit
   const app = await electron.launch({
     executablePath: electronPath, cwd: root, timeout: 300_000,
     args: [root, '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${micFile}%noloop`],
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }),
   });
   let rpc;
   const logs = async (pattern) => {

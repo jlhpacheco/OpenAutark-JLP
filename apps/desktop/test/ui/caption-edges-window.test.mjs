@@ -4,6 +4,7 @@
 // cells, and the chat's cells stay left of the pane.
 // Owns: one-row headers and control clearance across desktop/compact/PWA layouts.
 // Never: touches the person's profile or claims to emulate native macOS/Linux button rendering.
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
@@ -23,7 +24,7 @@ test('caption edges share the existing header row', { timeout: 180_000 }, async 
   const app = await electron.launch({
     executablePath: path.join(root, 'node_modules/electron/dist', process.platform === 'win32' ? 'electron.exe' : 'electron'),
     args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1' }),
   });
   let rpc;
   t.after(async () => {

@@ -11,7 +11,7 @@
 // - no console line of the page names an address or SDP.
 // WebKit runs the same when Playwright has it installed; on this PC it has not (the test says so and skips).
 // Not proven: a real iPhone (Safari's mDNS names in another WLAN, iOS background kills), mobile networks, STUN in the
-// field. Run: node --test test/e2e/hosted-rtc.test.mjs
+// field. Run: node --test test/native/hosted-rtc.test.mjs
 // Owns: these assertions. Never: the user's data, the real meeting server, or the website build.
 
 import { test } from 'node:test';
@@ -55,6 +55,7 @@ async function until(read, what, timeoutMs = 30_000) {
 /** Playwright's browser, or the newest headless shell installed here when the pinned one is missing. */
 function executable(type) {
   try { if (existsSync(type.executablePath())) return undefined; } catch { /* none pinned */ }
+  if (process.env.CI === 'true') throw new Error('Pinned Playwright browser missing in CI');
   if (type !== chromium) return null;
   const store = path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), '.cache'), 'ms-playwright');
   const shell = existsSync(store) ? readdirSync(store).filter((name) => name.startsWith('chromium_headless_shell-')).sort().at(-1) : undefined;

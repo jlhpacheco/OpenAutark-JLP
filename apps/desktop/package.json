@@ -19,6 +19,8 @@
     "test": "node --test --test-concurrency=2 \"test/unit/**/*.test.ts\"",
     "test:ui": "node scripts/build.mjs && node --test --test-concurrency=1 \"test/ui/**/*.test.mjs\"",
     "test:e2e": "node --test --test-concurrency=1 \"test/e2e/**/*.test.mjs\"",
+    "test:real-rtc": "node --test --test-concurrency=1 test/native/rendezvous/phone-rtc.test.ts test/native/rendezvous/pc-rtc.test.ts test/native/hosted/rtc.test.ts test/native/hosted-rtc.test.mjs",
+    "test:native-tcp": "node --test --test-concurrency=1 test/native/http/listen-ports.test.ts test/native/http/listen-companies.test.ts",
     "test:live": "node --test --test-concurrency=1 \"test/live/*.test.ts\"",
     "check": "npm run typecheck && npm run boundaries && npm test",
     "package": "npm run build && node scripts/package-desktop.mjs --publish never",

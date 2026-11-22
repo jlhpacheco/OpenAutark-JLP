@@ -12,6 +12,7 @@
 // Talk (press and hold) is not exercised here: it would open the PC's real microphone
 // (test/unit/ui/feedback-press.test.ts and feedback-dictation.test.ts cover it).
 // Never: publishes anything, opens a browser or touches the person's profile (isolated demo profile).
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -67,7 +68,7 @@ test('the feedback cell: one place in every view, the frozen window, the shot be
   await mkdir(shots, { recursive: true });
   const site = createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end('<title>Pink site</title><body style="margin:0;background:#ff00c8"></body>'); });
   await new Promise((resolve) => site.listen(0, '127.0.0.1', resolve));
-  const env = { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' };
+  const env = testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' });
   delete env.WORKFORCE_FEEDBACK_ORIGIN; // nothing is sent: Save keeps the report on this PC
   // the build ships the team's receiver (resources/feedback/receiver.json) since 16.11.2026: point at none, so this run
   // stays "not set up" and never drops a letter into the real mailbox

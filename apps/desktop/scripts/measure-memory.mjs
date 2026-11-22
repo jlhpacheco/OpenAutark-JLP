@@ -5,6 +5,7 @@
 // Run (after npm run build): node scripts/measure-memory.mjs [--idle <seconds>] [--json <file>] [--flags "<switches>"]
 // Owns: nothing in the app. Never: runs against the person's profile.
 
+import { testNetworkEnv } from './test-network-env.mjs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -23,7 +24,7 @@ const flags = arg('--flags', '').split(' ').filter(Boolean);
 const profile = await mkdtemp(path.join(os.tmpdir(), 'workforce-mem-'));
 const app = await electron.launch({
   executablePath: electronPath, args: [root, ...flags], cwd: root, timeout: 90_000,
-  env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' },
+  env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }),
 });
 let rpc;
 try {

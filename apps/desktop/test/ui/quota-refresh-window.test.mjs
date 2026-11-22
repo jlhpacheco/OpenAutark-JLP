@@ -4,6 +4,7 @@
 // names the windows with the shared labels (ui/lib/limits.ts) and the Codex plan's banked resets;
 // not a real-provider test.
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
@@ -43,7 +44,7 @@ test('quota badges follow 72 → 36 on events without hover or reload', { timeou
   const shots = path.resolve(process.env.SCREENSHOTS ?? path.join(profile, 'shots'));
   await mkdir(shots, { recursive: true });
   const app = await electron.launch({ executablePath, args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }),
   });
   t.after(async () => {
     await app.close().catch(() => undefined);

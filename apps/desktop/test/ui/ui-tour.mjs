@@ -4,6 +4,7 @@
 // screenshots of every main view in light, dark and phone width.
 // Run: npm run build && node test/ui/ui-tour.mjs <screenshot-dir>
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { mkdtemp, mkdir, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,7 +18,7 @@ await mkdir(shots, { recursive: true });
 const profile = await mkdtemp(path.join(os.tmpdir(), 'workforce-tour-'));
 const app = await electron.launch({
   executablePath: path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron'),
-  args: [root], cwd: root, env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1' },
+  args: [root], cwd: root, env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1' }),
 });
 const page = await app.firstWindow();
 const problems = [];

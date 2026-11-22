@@ -1,6 +1,7 @@
 // Owns: the real-window feedback privacy notice and owner's inbox: encrypted fetch, readable text/image,
 // stable selection, a visible right-click menu in the dialog, deletion, empty/error states and narrow themes.
 // Never: uses a real account, reaches Google or touches the person's profile. Needs a current local build.
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
@@ -31,7 +32,7 @@ test('feedback privacy is available before sending; the team inbox reads text an
     if (!process.env.SCREENSHOTS) await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }).catch(() => undefined);
   }, { timeout: 30_000 });
   app = await electron.launch({ executablePath: electronPath, args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, ...delivery.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' } });
+    env: testNetworkEnv(profile, { ...delivery.env, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }) });
   const page = await app.firstWindow();
   page.setDefaultTimeout(15_000);
   const errors = [];

@@ -6,6 +6,7 @@
 // Screenshots light and dark; no renderer errors.
 // Run: npm run test:ui   (needs a fresh build)   SCREENSHOTS=<dir> keeps the screenshots.
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync } from 'node:fs';
@@ -46,7 +47,7 @@ test('restore from a backup and "Restart now" applies it without closing the win
 
   app = await electron.launch({
     executablePath: electronPath, args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }),
   });
   const page = await app.firstWindow();
   const errors = [];

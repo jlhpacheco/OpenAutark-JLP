@@ -9,6 +9,7 @@
 // folder. A temp profile, the demo engine, a local fixture server, no real sites.
 // Owns: these user paths. Never: touches the person's profile or external websites.
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -42,7 +43,7 @@ test('a browser per chat: shared tabs, global untouched, agents with the window 
   const launch = () => electron.launch({
     executablePath: path.join(root, 'node_modules/electron/dist', process.platform === 'win32' ? 'electron.exe' : 'electron'),
     args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', WORKFORCE_TAB_IDLE_MS: '30000' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', WORKFORCE_TAB_IDLE_MS: '30000' }),
   });
   let app = await launch();
   let rpc;

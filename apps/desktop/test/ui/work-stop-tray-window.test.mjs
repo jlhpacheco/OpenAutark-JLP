@@ -9,6 +9,7 @@
 // same WorkStopControl.stop() the unit tests cover (test/unit/main/work-stop.test.ts).
 // Run: npm run test:ui   (needs a fresh build)
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -26,7 +27,7 @@ test('Emergency stop shortcut: registered only while agents work, also with the 
   const profile = await mkdtemp(path.join(os.tmpdir(), 'workforce-work-stop-'));
   const app = await electron.launch({
     executablePath: electronPath, args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }),
   });
   let rpc;
   t.after(async () => {

@@ -10,6 +10,7 @@
 // chat's area opens as the first part of its column, right under the row, beside the details panel, in the chat's colour.
 // Owns: the integrated user paths. Never: touches the person's profile or external websites.
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -36,7 +37,7 @@ test('persistent desktop columns and real browser pane tabs', { timeout: 180_000
   const app = await electron.launch({
     executablePath: path.join(root, 'node_modules/electron/dist', process.platform === 'win32' ? 'electron.exe' : 'electron'),
     args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1' }),
   });
   let rpc;
   t.after(async () => {

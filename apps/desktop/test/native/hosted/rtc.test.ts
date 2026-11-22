@@ -5,8 +5,8 @@
 // send buffer), the plan (30 s → 2 min → 10 min, at once after a resume, never after refused), the try's answers on A
 // (no answer = older PC, no, end before an offer, an offer past the limit), and one whole run with werift standing in
 // for the browser's RTCPeerConnection against the real PhoneBridge: ready on B, the page's streams there (counted rtc),
-// the WebSocket moved, and the way's end when the PC stops (the page's move back to A: test/e2e/hosted-rtc.test.mjs).
-// The same against real Chromium: test/e2e/hosted-rtc.test.mjs. Owns: these assertions. Never: a browser or a handset.
+// the WebSocket moved, and the way's end when the PC stops (the page's move back to A: test/native/hosted-rtc.test.mjs).
+// The same against real Chromium: test/native/hosted-rtc.test.mjs. Owns: these assertions. Never: a browser or a handset.
 
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,7 +24,7 @@ import { httpFetch } from '../../../src/ui/hosted/http.ts';
 import { AGAIN_MS, MAX_BUFFERED, PIECE, RtcPipe, RtcPlan, RtcWay, type DataChannelLike, type PeerLike, type RtcEnv } from '../../../src/ui/hosted/rtc.ts';
 import { MAX_SDP, allowedAddress, ownCandidate, pcCandidate, readOffer, rtcConfig, stunOf } from '../../../src/ui/hosted/rtc-signal.ts';
 import { StreamMux } from '../../../src/ui/hosted/streams.ts';
-import { pcIdentity, phoneKey, tunnelPair, until } from './rig.ts';
+import { pcIdentity, phoneKey, tunnelPair, until } from '../../unit/hosted/rig.ts';
 
 type Message = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 

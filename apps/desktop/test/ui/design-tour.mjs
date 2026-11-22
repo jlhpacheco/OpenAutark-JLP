@@ -5,6 +5,7 @@
 // Starts the real desktop app with the demo engine in an isolated profile; prints problems.
 // Run: npm run build && node test/ui/design-tour.mjs <dir>   (the profile stays in <dir>/profile)
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,7 +19,7 @@ await mkdir(profile, { recursive: true });
 
 const app = await electron.launch({
   executablePath: path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron'),
-  args: [root], cwd: root, timeout: 60_000, env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1' },
+  args: [root], cwd: root, timeout: 60_000, env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1' }),
 });
 const page = await app.firstWindow();
 const problems = [];

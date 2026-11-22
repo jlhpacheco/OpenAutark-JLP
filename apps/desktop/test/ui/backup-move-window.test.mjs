@@ -8,6 +8,7 @@
 // Screenshots light, dark, 640×480 and phone width; no horizontal scroll; no renderer errors.
 // Run: npm run build && node --test test/ui/backup-move-window.test.mjs   SCREENSHOTS=<dir> keeps the screenshots.
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync } from 'node:fs';
@@ -23,7 +24,7 @@ const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process
 async function launch(profile) {
   const app = await electron.launch({
     executablePath: electronPath, args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }),
   });
   const page = await app.firstWindow();
   const errors = [];

@@ -15,6 +15,7 @@
 // Discovery stays on loopback (WORKFORCE_DISCOVERY_TARGETS, each runtime on its own 127.0.0.x).
 // Run: npm run test:ui   (needs a fresh build)   SCREENSHOTS=<dir> keeps the screenshots.
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
@@ -37,7 +38,7 @@ test('Settings › Devices: Remote ID, nearby PCs, a request with the same code,
   const tower = await startRuntime({ env: { WORKFORCE_DISCOVERY_TARGETS: '127.0.0.6,127.0.0.5' } });
   const app = await electron.launch({
     executablePath: electronPath, args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0', WORKFORCE_DISCOVERY_TARGETS: '127.0.0.5,127.0.0.6' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }, { discovery: '127.0.0.5,127.0.0.6' }),
   });
   let rpc;
   t.after(async () => {

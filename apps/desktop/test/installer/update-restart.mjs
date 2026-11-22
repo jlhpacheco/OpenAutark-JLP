@@ -31,9 +31,13 @@ const marker = path.join(out, 'installed-version.txt');
 const launches = path.join(profile, 'launches.jsonl');
 const menuLink = path.join(process.env.APPDATA, 'Microsoft/Windows/Start Menu/Programs', product + '.lnk');
 const desktop = path.join(os.homedir(), 'Desktop', product + '.lnk');
-const env = { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: 'false', ELECTRON_BUILDER_COMPRESSION_LEVEL: '1' };
+// The fixture's main must exercise the updater without a test-profile marker.
+function stripTestNetworkEnv(source) {
+  return Object.fromEntries(Object.entries(source ?? {}).filter(([key]) =>
+    !/^WORKFORCE_(TEST_(DATA|LAN)|DISCOVERY_TARGETS|INSTALLER_LOOPBACK_POLICY)$/i.test(key)));
+}
+const env = { ...stripTestNetworkEnv(process.env), CSC_IDENTITY_AUTO_DISCOVERY: 'false', ELECTRON_BUILDER_COMPRESSION_LEVEL: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
-delete env.WORKFORCE_TEST_DATA;
 await mkdir(profile, { recursive: true });
 await mkdir(project, { recursive: true });
 const say = text => console.log(new Date().toISOString() + ' ' + text);
@@ -109,14 +113,18 @@ if (!resume) {
   assert.ok(debugPort > 0 && oldConfig.productName === product);
 }
 const fixtureName = `workforce-update-test-${id}`;
-const bootstrap = `process.env.WORKFORCE_FAKE_ENGINE='1';delete process.env.WORKFORCE_TEST_DATA;
+const bootstrap = `${stripTestNetworkEnv.toString()}
+for (const key of Object.keys(process.env)) if (!Object.hasOwn(stripTestNetworkEnv({[key]:process.env[key]}),key)) delete process.env[key];
+process.env.WORKFORCE_FAKE_ENGINE='1';
 const {app,utilityProcess}=require('electron'),fs=require('node:fs');app.setPath('userData',${JSON.stringify(profile)});
 const fork=utilityProcess.fork.bind(utilityProcess);
-utilityProcess.fork=(module,args,options)=>fork(module,args,{...options,env:{...options.env,WORKFORCE_TEST_DATA:${JSON.stringify(profile)}}});
+utilityProcess.fork=(module,args,options)=>fork(module,args,{...options,env:{...stripTestNetworkEnv(options?.env),WORKFORCE_TEST_DATA:${JSON.stringify(profile)},WORKFORCE_TEST_LAN:'0'}});
 app.commandLine.appendSwitch('remote-debugging-port',${JSON.stringify(String(debugPort))});
 app.on('browser-window-created',(_e,w)=>w.webContents.once('did-finish-load',()=>fs.appendFileSync(${JSON.stringify(launches)},JSON.stringify({version:app.getVersion(),pid:process.pid})+'\\n')));
 require('./app/main.cjs');`;
-if (!resume) await writeFile(path.join(project, 'bootstrap.cjs'), bootstrap);
+const bootstrapPath = path.join(project, 'bootstrap.cjs');
+if (resume) assert.equal(await readFile(bootstrapPath, 'utf8'), bootstrap, 'stale fixture bootstrap; rebuild instead of resuming');
+else await writeFile(bootstrapPath, bootstrap);
 const builder = path.join(root, 'scripts/package-desktop.mjs');
 const hook = /!macro customInstall\s+([\s\S]*?)!macroend/.exec(await readFile(path.join(root, 'assets/installer.nsh'), 'utf8'))?.[1];
 assert.ok(hook, 'the production direct-launch hook exists');

@@ -111,9 +111,9 @@ test('/mcp refuses non-loopback callers before touching the hub', async () => {
 
 test('bind setting maps to the listen address', () => {
   assert.equal(DEFAULT_PORT, 47811);
-  assert.equal(bindHostFor('localhost'), '127.0.0.1');
-  assert.equal(bindHostFor('lan'), '0.0.0.0');
-  assert.equal(bindHostFor('tailscale'), '0.0.0.0');
+  assert.equal(bindHostFor('localhost', {}), '127.0.0.1');
+  assert.equal(bindHostFor('lan', {}), '0.0.0.0');
+  assert.equal(bindHostFor('tailscale', {}), '0.0.0.0');
 });
 
 test('busy configured port falls back to another port and remembers it; close frees it', async () => {

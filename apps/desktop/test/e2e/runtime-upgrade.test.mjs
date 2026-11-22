@@ -12,6 +12,7 @@
 //     test/unit/repair/*; the headless runtime has no window).
 // Run: npm run build && node --test test/e2e/runtime-upgrade.test.mjs
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -124,7 +125,7 @@ test('data saved by a newer app: the runtime refuses to start, says why, and lea
   const db = new DatabaseSync(path.join(dataDir, 'workforce.db'));
   db.prepare(`UPDATE meta SET value = '9999' WHERE key = 'schema'`).run();
   db.close();
-  const run = spawnSync(process.execPath, [path.join(root, 'app', 'runtime-cli.mjs'), '--data', dataDir, '--resources', path.join(root, 'resources'), '--ui', path.join(root, 'app', 'ui'), '--port', '0', '--fake'], { cwd: root, encoding: 'utf8', timeout: 60_000 });
+  const run = spawnSync(process.execPath, [path.join(root, 'app', 'runtime-cli.mjs'), '--data', dataDir, '--resources', path.join(root, 'resources'), '--ui', path.join(root, 'app', 'ui'), '--port', '0', '--fake'], { cwd: root, encoding: 'utf8', timeout: 60_000, env: testNetworkEnv(dataDir) });
   assert.equal(run.status, 1);
   assert.match(run.stderr, /saved by a newer version of Autark \(schema 9999/);
   assert.equal(schemaOf(dataDir), 9999, 'nothing migrated');

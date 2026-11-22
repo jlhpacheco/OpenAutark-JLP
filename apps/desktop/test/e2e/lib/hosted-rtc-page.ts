@@ -1,4 +1,4 @@
-// Page code for test/e2e/hosted-rtc.test.mjs (F25 P3): the iPhone web app's own pairing and Connection (src/ui/hosted),
+// Page code for test/native/hosted-rtc.test.mjs (F25 P3): the iPhone web app's own pairing and Connection (src/ui/hosted),
 // bundled by the test with esbuild and run in real Chromium, reachable from the test as window.rtcTest. Besides the
 // app's code it only reports: the way the page's streams take (Connection.via), how the last try ended, the status
 // lines, and a WebSocket's opens and closes. The test's init script wraps RTCPeerConnection (window.__peers, __block).

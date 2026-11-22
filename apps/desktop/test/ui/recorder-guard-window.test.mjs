@@ -18,6 +18,7 @@
 // fresh app; every other failure, and a second crash, fails the test.
 // Run: npm run test:ui   (needs a fresh build)   SCREENSHOTS=<dir> keeps the screenshots.
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
@@ -45,7 +46,7 @@ async function launch() {
     // shows which camera is really open.
     args: [root, '--use-fake-device-for-media-stream=device-count=4'],
     cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }),
   });
   await app.evaluate(({ app: main }) => {
     globalThis.captureCrashes = [];

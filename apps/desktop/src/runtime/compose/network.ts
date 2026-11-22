@@ -17,6 +17,7 @@ import { importV7 } from '../db/import-v7.ts';
 import { createPolicyApi } from '../routing/policies.ts';
 import { RpcServer } from '../rpc/server.ts';
 import { HttpServer } from '../http/server.ts';
+import { DEFAULT_PORT, bindHostFor } from '../http/listen.ts';
 import type { PeerMode, PeerServer } from '../http/peer-server.ts';
 import { FeedbackService } from '../feedback/service.ts';
 import { Onboarding } from '../onboarding/service.ts';
@@ -159,10 +160,7 @@ export function createNetwork(options: NetworkOptions): Network {
   const http = new HttpServer({
     services, rpc, mcp: core.mcp, pwa: devices.pwa, pairing: devices.http, mesh: core.mesh,
     staticDir: options.staticDir, launchToken: options.launchToken, log: s.log,
-    bind: () => {
-      const bind = s.settings.get().pwa.bind;
-      return { host: bind === 'localhost' ? '127.0.0.1' : '0.0.0.0', port: options.port ?? 47811 };
-    },
+    bind: () => ({ host: bindHostFor(s.settings.get().pwa.bind), port: options.port ?? DEFAULT_PORT }),
     peerMode: () => options.peer ?? s.settings.get().devices.peer,
   });
   const listen = http.listen.bind(http);

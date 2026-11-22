@@ -20,19 +20,20 @@ function fakeSocket() {
   const handlers: Record<string, Array<(...args: never[]) => void>> = {};
   const sent: Array<{ message: string; port: number; address: string }> = [];
   let closed = false;
+  let enabledBroadcast = false;
   let bound: number | undefined;
   let boundAddress: string | undefined;
   const socket: UdpSocket = {
     on: ((event: string, listener: (...args: never[]) => void) => { (handlers[event] ??= []).push(listener); return socket; }) as UdpSocket['on'],
     bind: (port: number, address?: string, callback?: () => void) => { bound = port; boundAddress = address; callback?.(); return socket; },
-    setBroadcast: () => undefined,
+    setBroadcast: (value) => { enabledBroadcast = value; },
     send: (message, port, address) => { sent.push({ message: Buffer.from(message).toString('utf8'), port, address }); },
     close: () => { closed = true; },
     unref: () => undefined,
   };
   const deliver = (value: unknown, from = { address: '192.168.1.30', port: 50000 }) =>
     handlers.message?.forEach((fn) => (fn as (message: Buffer, remote: typeof from) => void)(Buffer.from(typeof value === 'string' ? value : JSON.stringify(value)), from));
-  return { socket, sent, deliver, closed: () => closed, bound: () => bound, boundAddress: () => boundAddress };
+  return { socket, sent, deliver, broadcast: () => enabledBroadcast, closed: () => closed, bound: () => bound, boundAddress: () => boundAddress };
 }
 
 test('responder: answers hello with the public identity only while answering, from this network only', () => {
@@ -112,7 +113,9 @@ test('test-only override: probes go to loopback only, the responder listens ther
   assert.deepEqual([responderSocket.bound(), responderSocket.boundAddress()], [47813, '127.0.0.1']);
   responder.close();
   const joiner = fakeSocket();
-  const found = discover({ socket: () => joiner.socket, env, timeoutMs: 10 });
+  const found = discover({ socket: () => joiner.socket, env, targets: () => ['192.0.2.255'], timeoutMs: 10 });
+  assert.equal(joiner.boundAddress(), '127.0.0.1');
+  assert.equal(joiner.broadcast(), false);
   assert.deepEqual(joiner.sent.map((item) => item.address), ['127.0.0.1', '127.0.0.2']);
   assert.deepEqual(await found, []);
 });

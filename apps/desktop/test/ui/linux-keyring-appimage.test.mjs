@@ -1,6 +1,7 @@
 // Linux packaged-only smoke. Run under Xvfb with an unlocked disposable GNOME keyring:
 //   WORKFORCE_APPIMAGE=dist/autark-linux-x64.AppImage node --test test/ui/linux-keyring-appimage.test.mjs
 // APPIMAGE_EXTRACT_AND_RUN=1 is supported for runners without FUSE. No production data or secrets.
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
@@ -25,7 +26,7 @@ test('AppImage guides setup without a keyring; a real keyring preserves and read
   delete isolated.ELECTRON_RUN_AS_NODE;
 
   async function launch(profile, withKeyring, check) {
-    const env = { ...isolated, WORKFORCE_TEST_DATA: profile };
+    const env = testNetworkEnv(profile, undefined, { inherited: isolated });
     if (!withKeyring) env.DBUS_SESSION_BUS_ADDRESS = 'unix:path=' + path.join(root, 'no-bus');
     const args = withKeyring ? ['--password-store=gnome-libsecret'] : [];
     const deadline = Date.now() + 30_000;

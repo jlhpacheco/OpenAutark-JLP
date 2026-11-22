@@ -23,6 +23,7 @@
 //       no renderer errors.
 // Run: npm run build && node --test test/ui/splits-window.test.mjs   SCREENSHOTS=<dir> keeps the screenshots.
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -133,7 +134,7 @@ test('splits: step line, live block, sidebar rows, split page, worktree merge an
 
   const app = await electron.launch({
     executablePath: electronPath, args: [root], cwd: root, timeout: 60_000,
-    env: { ...gitEnv, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }, { inherited: gitEnv }),
   });
   let rpc;
   t.after(async () => {

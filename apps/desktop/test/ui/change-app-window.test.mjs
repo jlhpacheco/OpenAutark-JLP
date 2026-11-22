@@ -3,6 +3,7 @@
 // response keeps the report on this PC with the reason (the window has no retry control any more – Settings › Feedback
 // went; feedback.send sends the same report again).
 // Never: publishes an issue or opens the browser; uses an isolated demo profile.
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
@@ -22,7 +23,7 @@ test('app-change entry points are removed; feedback publishes marked images dire
   const shots = process.env.SCREENSHOTS ? path.resolve(process.env.SCREENSHOTS) : path.join(profile, 'shots');
   await mkdir(shots, { recursive: true });
   const app = await electron.launch({ executablePath: electronPath, args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, ...delivery.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' } });
+    env: testNetworkEnv(profile, { ...delivery.env, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }) });
   let rpc;
   t.after(async () => {
     rpc?.close?.(); await app.close().catch(() => undefined);

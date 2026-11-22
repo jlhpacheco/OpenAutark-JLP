@@ -13,6 +13,7 @@
 // Screenshots of both sheets at 390×844 light and dark and 640×480; no horizontal scroll; no renderer errors.
 // Run: npm run build && node --test test/ui/away-sign-in-window.test.mjs   SCREENSHOTS=<dir> keeps the screenshots.
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
@@ -76,7 +77,7 @@ test('B-091 sign-in sheet: Codex code and Claude Code paste, failure line, close
   await mkdir(shots, { recursive: true });
   const app = await electron.launch({
     executablePath: electronPath, args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }),
   });
   t.after(async () => {
     await app.close().catch(() => undefined);

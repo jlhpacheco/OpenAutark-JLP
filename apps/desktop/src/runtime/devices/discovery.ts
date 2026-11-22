@@ -7,7 +7,7 @@
 // Devices lists them; "Connect" by Remote ID looks here first). An answer is only a hint where to
 // try: the connect request proves the key (remote/sas.ts) and the person compares the code.
 // Test-only override (two runtimes on one machine): WORKFORCE_DISCOVERY_TARGETS – loopback addresses
-// (127.0.0.0/8), comma separated – replaces the broadcast list and binds the responder to the first.
+// (127.0.0.0/8), comma separated – replaces the broadcast list and binds both sockets to loopback.
 // Owns: the probe/answer format, the sockets and which sources are answered.
 // Never: answers while this PC does not accept requests, answers a probe from beyond this network,
 // or sends anything beyond the public identity.
@@ -18,6 +18,8 @@ import { networkInterfaces } from 'node:os';
 import { validAddress } from './pair-proof.ts';
 import { chainEnd } from '../remote/code.ts';
 import { remoteIdOf } from '../remote/id.ts';
+import { loopbackOnly } from '../root/test-network.ts';
+export { loopbackOnly } from '../root/test-network.ts';
 
 export const DISCOVERY_PORT = 47813;
 export const DISCOVER_MS = 1500;
@@ -60,14 +62,6 @@ export interface DiscoveryDeps {
 }
 
 const LOOPBACK = /^127(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
-
-/**
- * 18.11.2026 (Windows Firewall asked on the shared screen while window tests ran): a test profile (WORKFORCE_TEST_DATA, set by every window test)
- * never opens a socket beyond this PC – no LAN listener, no broadcast – unless the test says WORKFORCE_TEST_LAN=1 for a real network check.
- */
-export function loopbackOnly(env: Record<string, string | undefined> = process.env): boolean {
-  return Boolean(env.WORKFORCE_TEST_DATA) && env.WORKFORCE_TEST_LAN !== '1';
-}
 
 /** The loopback targets (see the header, or a test profile's own 127.0.0.1), or undefined for normal LAN discovery. */
 export function loopbackTargets(env: Record<string, string | undefined> = process.env): string[] | undefined {
@@ -195,11 +189,13 @@ export function discover(deps: DiscoveryDeps & { self?: string; timeoutMs?: numb
       const key = candidate && `${candidate.deviceId}:${candidate.fingerprint}`;
       if (candidate && key && candidate.deviceId !== deps.self && !found.has(key) && found.size < MAX_HELLO_ANSWERS) found.set(key, candidate);
     });
-    const own = loopbackOnly(deps.env) ? '127.0.0.1' : undefined; // the asking socket of a test profile stays on this PC, too
-    socket.bind(0, own, () => {
-      try { socket.setBroadcast(true); } catch { /* sending to unicast targets still works */ }
+    const loopback = loopbackTargets(deps.env);
+    socket.bind(0, loopback ? '127.0.0.1' : undefined, () => {
+      if (!loopback) {
+        try { socket.setBroadcast(true); } catch { /* sending to unicast targets still works */ }
+      }
       const probe = Buffer.from(JSON.stringify({ q: 'wf-hello', v: 1, n: nonce }));
-      const targets = deps.targets?.() ?? loopbackTargets(deps.env) ?? broadcastAddresses();
+      const targets = loopback ?? deps.targets?.() ?? broadcastAddresses();
       for (const target of targets) socket.send(probe, deps.port ?? DISCOVERY_PORT, target, () => undefined);
     });
   });

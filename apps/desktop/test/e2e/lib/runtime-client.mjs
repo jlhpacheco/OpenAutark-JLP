@@ -2,6 +2,7 @@
 // to it over the real WebSocket RPC (owner token), exactly like the PWA/desktop clients do.
 // Owns: process lifecycle, JSON-RPC calls, event waiting. Never: touches the user's data.
 
+import { testNetworkEnv } from '../../../scripts/test-network-env.mjs';
 import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
@@ -16,7 +17,7 @@ export async function startRuntime(options = {}) {
   const dataDir = options.dataDir ?? await mkdtemp(path.join(os.tmpdir(), 'workforce-e2e-'));
   const args = [path.join(root, 'app', 'runtime-cli.mjs'), '--data', dataDir, '--resources', path.join(root, 'resources'), '--ui', path.join(root, 'app', 'ui'), '--port', String(options.port ?? 0)];
   if (options.fake !== false) args.push('--fake');
-  const child = spawn(process.execPath, args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, WORKFORCE_TEST_DATA: dataDir, ...options.env } }); // an isolated test profile: no automatic speech-model download (voice/local/auto.ts)
+  const child = spawn(process.execPath, args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: testNetworkEnv(dataDir, options.env, { discovery: options.env?.WORKFORCE_DISCOVERY_TARGETS }) }); // an isolated test profile: no automatic speech-model download (voice/local/auto.ts)
   let stderr = '';
   child.stderr.on('data', (chunk) => { stderr += chunk; if (stderr.length > 200_000) stderr = stderr.slice(-100_000); });
   const info = await new Promise((resolve, reject) => {

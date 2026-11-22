@@ -11,7 +11,7 @@ import { DeviceIdentity } from '../../../src/runtime/devices/identity.ts';
 import { acceptSecure, connectSecure, socketPair, type SocketLike } from '../../../src/runtime/devices/channel.ts';
 import { PcRtc, pcOffer, SKIP_MS } from '../../../src/runtime/devices/rendezvous/pc-rtc.ts';
 import { systemClock } from '../../../src/runtime/system/clock.ts';
-import { fakeHost, memoryDb, silentLog } from '../devices/fakes.ts';
+import { fakeHost, memoryDb, silentLog } from '../../unit/devices/fakes.ts';
 
 const identity = (name: string) => DeviceIdentity.load({ db: memoryDb(), host: fakeHost(), clock: systemClock, name });
 const ends: PcRtc[] = [];

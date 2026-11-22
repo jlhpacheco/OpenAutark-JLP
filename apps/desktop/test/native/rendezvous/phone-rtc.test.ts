@@ -35,7 +35,7 @@ import { systemClock } from '../../../src/runtime/system/clock.ts';
 import { defaultSettings } from '../../../src/runtime/settings/defaults.ts';
 import { validateSettings } from '../../../src/runtime/settings/validate.ts';
 import type { Logger } from '../../../src/runtime/contracts.ts';
-import { fakeHost, memoryDb } from '../devices/fakes.ts';
+import { fakeHost, memoryDb } from '../../unit/devices/fakes.ts';
 
 type Message = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 

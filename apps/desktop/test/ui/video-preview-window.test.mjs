@@ -6,6 +6,7 @@
 // Skipped without WF_TEST_VIDEO (the file is private, 30 MB; the logic is unit-tested without it: test/unit/media/preview.test.ts, test/unit/main/media-preview.test.ts).
 // Run: npm run build && WF_TEST_VIDEO=<file.mp4> node --test test/ui/video-preview-window.test.mjs   SCREENSHOTS=<dir> keeps the screenshots.
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm, stat } from 'node:fs/promises';
@@ -40,7 +41,7 @@ test('a heavy video in a chat gets a light preview copy that the Video tab plays
   await mkdir(shots, { recursive: true });
   const app = await electron.launch({
     executablePath: electronPath, args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }),
   });
   let rpc;
   t.after(async () => {

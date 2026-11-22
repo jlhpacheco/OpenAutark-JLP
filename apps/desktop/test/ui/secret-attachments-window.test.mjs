@@ -2,6 +2,7 @@
 // is the composer's secret mode above the text (no dialog): Name | Value rows, a pasted .env splits into rows and each row
 // becomes a chip; × or Esc leaves it and stores nothing.
 // Never: uses real credentials, the user's profile, or a live model.
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
@@ -21,7 +22,7 @@ test('secret attachment: desktop capture, durable draft, send, four layouts and 
   const shots = process.env.SCREENSHOTS || path.join(profile, 'screenshots');
   await mkdir(shots, { recursive: true });
   const app = await electron.launch({ executablePath, args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' } });
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }) });
   let rpc, browser;
   t.after(async () => {
     await browser?.close(); rpc?.close(); await app.close().catch(() => {});

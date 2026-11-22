@@ -15,6 +15,7 @@
 // Real speech and realtime voice are not claimed here (unit tests: test/unit/voice/*).
 // Run: npm run test:ui (needs a fresh build). SCREENSHOTS=<dir> keeps the shots.
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -62,7 +63,7 @@ test('call cell: two voice conversations, the focused chat listens, End per chat
   await writeFile(quiet, silence(30));
   const app = await electron.launch({
     executablePath: electronPath, args: [root, '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${quiet}`], cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }),
   });
   let rpc;
   t.after(async () => {

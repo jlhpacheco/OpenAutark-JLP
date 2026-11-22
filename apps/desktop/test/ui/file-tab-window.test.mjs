@@ -5,6 +5,7 @@
 // memory opens a skill and a memory; an agent's SYSTEM.md opens; light and dark, 640×480. A temp profile, the demo engine.
 // Owns: these user paths. Never: touches the person's profile.
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -25,7 +26,7 @@ test('the file tab: folder list, editor, changes on disk, settings and skills op
   const app = await electron.launch({
     executablePath: path.join(root, 'node_modules/electron/dist', process.platform === 'win32' ? 'electron.exe' : 'electron'),
     args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1' }),
   });
   let rpc;
   t.after(async () => {

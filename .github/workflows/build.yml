@@ -1,5 +1,5 @@
 # Owns: checking every push and pull request from the sources of this repository – the desktop app's typecheck per
-# layer, its import boundaries and its unit tests (`npm run check` in apps/desktop) on a clean Linux runner.
+# layer, its import boundaries and its unit tests on Linux; real RTC on Linux and real TCP binds on Windows.
 # Never: uses a secret, writes to the repository, builds or publishes a release package.
 name: Build from source
 
@@ -34,3 +34,26 @@ jobs:
           cache-dependency-path: apps/desktop/package-lock.json
       - run: npm ci --no-fund --no-audit
       - run: npm run check # typecheck, boundaries and the unit tests
+
+      - name: Install RTC test browsers
+        run: node node_modules/playwright/cli.js install --with-deps chromium webkit
+      - name: Real RTC (Node, Chromium and WebKit)
+        run: npm run test:real-rtc
+
+  native-tcp-windows:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.22.2'
+          package-manager-cache: false
+      - run: npm ci --no-fund --no-audit
+      - name: Real TCP port and company binds
+        run: npm run test:native-tcp

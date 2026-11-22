@@ -13,6 +13,7 @@
 //   * light, dark and 640x480 screenshots, no horizontal scroll in the pane, no renderer errors.
 // Run through the lock: run.sh npm run build, then node --test test/ui/day-overview-window.test.mjs.  SCREENSHOTS=<dir> keeps them.
 
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -32,7 +33,7 @@ test('the leftovers: models cells, skill title, settings.json in the tab, Ctrl+L
   const app = await electron.launch({
     executablePath: path.join(root, 'node_modules/electron/dist', process.platform === 'win32' ? 'electron.exe' : 'electron'),
     args: [root], cwd: root, timeout: 60_000,
-    env: { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1' },
+    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1' }),
   });
   let rpc;
   t.after(async () => {

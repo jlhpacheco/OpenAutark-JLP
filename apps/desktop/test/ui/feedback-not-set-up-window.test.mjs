@@ -3,6 +3,7 @@
 // report locally and never attempts a delivery (opened from the header's feedback cell – Settings has no Feedback
 // group any more). Light, dark, 640×480 and phone width. Needs a build without WORKFORCE_FEEDBACK_ORIGIN (the default `npm run build`).
 // Never: publishes anything or opens the browser; uses an isolated demo profile.
+import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
@@ -19,7 +20,7 @@ test('feedback without a configured sender: Save keeps the report on this PC and
   const profile = await mkdtemp(path.join(os.tmpdir(), 'workforce-feedback-local-'));
   const shots = process.env.SCREENSHOTS ? path.resolve(process.env.SCREENSHOTS) : path.join(profile, 'shots');
   await mkdir(shots, { recursive: true });
-  const env = { ...process.env, WORKFORCE_TEST_DATA: profile, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' };
+  const env = testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' });
   delete env.WORKFORCE_FEEDBACK_ORIGIN; // no operator endpoint for this start
   const app = await electron.launch({ executablePath: electronPath, args: [root], cwd: root, timeout: 60_000, env });
   let rpc;
