@@ -275,6 +275,8 @@ li.tasks-sec.later { margin-top: 6px; list-style: none; }
   .tasks-seg button { min-height: 44px; border: 8px solid transparent; border-inline-width: 4px; background-clip: padding-box; border-radius: 11px / 15px; } /* the fill keeps its 7 px corners inside the border */
   .tasks-seg button.on { box-shadow: none; }
   .tasks-seg.icons button { width: 44px; height: 44px; }
+  .tasks-seg.icons::before { right: 12px; } /* the pill keeps 12 px to the screen's edge, its last target reaches it */
+  .tasks-seg.icons button:last-child { width: 56px; border-right-width: 16px; }
   .month-head .icon-button.small { width: 44px; height: 44px; }
   .month-today { min-height: 44px; }
   .month-foot { padding-bottom: 8px; } /* air above the system bar (the sheet adds its safe-area inset) */
