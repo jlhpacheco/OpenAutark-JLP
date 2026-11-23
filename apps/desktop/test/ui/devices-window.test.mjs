@@ -1,7 +1,7 @@
 // Electron window check of Settings › Devices – the one connect surface (Umbau Einfachheit, B5) – with the demo engine
 // in an isolated profile and a second headless runtime ("Tower") on this machine:
 //   * #/settings/devices (and the old #/settings/remote link) scrolls to the Devices group: Eine-ID 22.11.2026 – the
-//     "Company ID" and "My ID" rows (groups of three, Copy), "Connect a phone" with its fixed QR box, "Connect with an ID"
+//     "Company ID" and "My ID" rows (groups of three, Copy), the phone QR in its fixed box beside My ID (two IDs 23.11.2026), "Connect with an ID"
 //     (a company's ID, my ID or an address – no role choice) and one row per device;
 //   * the Company ID hint says "only this network (meeting server off)" – no meeting server is set in a test profile;
 //   * Tower, which is findable, is listed among the PCs on this network with Connect;
@@ -77,6 +77,8 @@ test('Settings › Devices: Remote ID, nearby PCs, a request with the same code,
   assert.equal((await row('My ID').locator('.remote-id').textContent()).trim(), grouped(myId));
   await row('Company ID').locator('.set-row-hint', { hasText: 'only this network (meeting server off)' }).waitFor({ timeout: 10_000 });
   assert.equal(await devices.locator('.remote-phone-row .remote-qr').count(), 1, 'the phone QR box');
+  assert.equal(await row('My ID').locator('.remote-qr').count(), 1, 'two IDs: the QR sits beside My ID');
+  assert.equal(await devices.getByText('Connect a phone', { exact: true }).count(), 0, 'two IDs: no third number, no own row');
   const connectRow = devices.locator('.remote-connect-row');
   assert.equal(await connectRow.getByRole('textbox', { name: 'ID or address of the other PC' }).count(), 1);
   // Eine-ID: no role to pick anywhere – the ID typed decides.

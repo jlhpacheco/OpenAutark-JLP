@@ -65,7 +65,7 @@ test('Settings › Devices: the phone asks in its own words; its dot needs no sw
   const phone = { role: 'phone', name: 'Pixel 8', code: '4821' } as unknown as RemoteIncoming;
   assert.deepEqual(incomingText(phone), { label: 'Phone Pixel 8 asks to connect', hint: 'Accept only if the phone shows the code 4821' });
   assert.deepEqual(incomingText({ role: 'employee', name: 'Tower', code: '1234' }), { label: 'Tower wants to join as a new member', hint: 'Accept only if Tower shows the code 1234' });
-  assert.match(PHONE_QR_HINT, /^This PC · in the Autark app on Android scan this or type these digits/, 'F17: the digits are this PC\'s own');
+  assert.match(PHONE_QR_HINT, /^This PC · in the Autark app on Android scan this or type My ID/, 'F17 + two IDs: the QR is this PC\'s own, typing My ID works too');
   assert.match(PHONE_QR_HINT, /on an iPhone in the web app from openautark\.com, added to the Home Screen from Safari/, '16.11.: the iPhone way too');
   assert.equal(phoneDot({ lastSeenAt: 1_000 }, 1_000 + PHONE_IN_USE_MS - 1), 'online');
   assert.equal(phoneDot({ lastSeenAt: 1_000 }, 1_000 + PHONE_IN_USE_MS), 'offline');

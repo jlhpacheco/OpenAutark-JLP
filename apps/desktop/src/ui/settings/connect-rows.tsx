@@ -17,7 +17,7 @@
 // `personId` – the picker set to one in the team (their page's "Invite a device", team/PersonJoin.tsx).
 // Owns: these rows and hooks. Never: shows keys, or accepts without the person's click.
 
-import { Fragment } from 'preact';
+import { Fragment, type ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Person } from '../../shared/model/people.ts';
 import type { RelayState } from '../../shared/model/relay.ts';
@@ -72,25 +72,27 @@ const profileName = (): string => settings.value?.profile.name?.trim() ?? '';
  * only on this network) and "My ID" (the same on all my devices) with Copy – each only once it exists (the company set up
  * or connected), nothing in its place before.
  */
-export function IdRows(props: { remote?: RemoteState; relay?: RelayState }) {
+export function IdRows(props: { remote?: RemoteState; relay?: RelayState; myIdQr?: ComponentChildren }) {
   const self = props.remote?.self;
   return (
     <>
       {self?.companyId && <IdRow label="Company ID" id={self.companyId} hint={remoteIdHint(props.relay, self.findable, COMPANY_ID_BASE)} />}
-      {self?.myId && <IdRow label="My ID" id={self.myId} hint={MY_ID_HINT} />}
+      {self?.myId && <IdRow label="My ID" id={self.myId} hint={MY_ID_HINT} qr={props.myIdQr} />}
     </>
   );
 }
 
-function IdRow(props: { label: string; id?: string; hint: string }) {
+/** Two IDs, 23.11.2026 (owner: "ein QR-Code einfach neben My ID … man hat einfach diese zwei IDs"): Settings › Devices puts the phone QR into the My ID row. */
+function IdRow(props: { label: string; id?: string; hint: string; qr?: ComponentChildren }) {
   const { id } = props;
   const copy = () => {
     if (id) navigator.clipboard.writeText(groupDigits(id)).then(() => pushToast({ title: `${props.label} copied` }), (cause: unknown) => toastError(cause, 'Could not copy'));
   };
   return (
-    <Row label={props.label} hint={props.hint} reserve>
+    <Row class={props.qr ? 'remote-phone-row' : undefined} label={props.label} hint={props.hint} reserve>
       <span class="remote-id">{id ? groupDigits(id) : ''}</span>
       <button type="button" class="button ghost small" disabled={!id} onClick={copy}>Copy</button>
+      {props.qr}
     </Row>
   );
 }

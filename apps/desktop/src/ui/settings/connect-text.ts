@@ -93,11 +93,11 @@ export function phoneDot(device: { lastSeenAt?: number }, now = Date.now()): 'on
 }
 
 /**
- * The hint beside the "Connect a phone" QR (the Android app, or the iPhone web app from the website on the Home Screen –
- * chat sweep 16.11.2026: no App Store, no Apple account; F17: the digits before it are this PC's own, so the phone's
- * request lands here). An employee's phone asks the same way; Accept says whose it is.
+ * The hint on the phone QR beside My ID (the Android app, or the iPhone web app from the website on the Home Screen –
+ * chat sweep 16.11.2026: no App Store, no Apple account; F17: the QR carries this PC's own ID, so the phone's
+ * request lands here; typing My ID works too). An employee's phone asks the same way; Accept says whose it is.
  */
-export const PHONE_QR_HINT = 'This PC · in the Autark app on Android scan this or type these digits – on an iPhone in the web app from openautark.com, added to the Home Screen from Safari – then accept here when both show the same code';
+export const PHONE_QR_HINT = 'This PC · in the Autark app on Android scan this or type My ID – on an iPhone in the web app from openautark.com, added to the Home Screen from Safari – then accept here when both show the same code';
 
 /** A request is the owner's phone app (B-078; shared/model/remote.ts types the PC roles). */
 export const isPhoneRequest = (request: Pick<RemoteIncoming, 'role'>): boolean => request.role === 'phone';

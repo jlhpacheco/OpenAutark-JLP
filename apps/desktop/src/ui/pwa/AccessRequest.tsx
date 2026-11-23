@@ -67,7 +67,7 @@ function ConnectPhone(props: { removed?: boolean }) {
   return (
     <div class="boot boot-note access-request" role="dialog" aria-label={title}>
       <p>{title}</p>
-      <p class="muted">The usual way: the Autark app on Android, or the iPhone web app, with your PC's Remote ID (Settings › Devices › Connect a phone). Got a 6-digit code from your PC? Type it here.</p>
+      <p class="muted">The usual way: the Autark app on Android, or the iPhone web app, with My ID from your PC (Settings › Devices). Got a 6-digit code from your PC? Type it here.</p>
       <input class="set-input access-code-input" aria-label="Code from the PC" inputMode="numeric" autoComplete="one-time-code" placeholder="Code" maxLength={7} value={code}
         onInput={(event) => setCode((event.currentTarget as HTMLInputElement).value)}
         onKeyDown={(event) => { if (event.key === 'Enter') void send(); }} />

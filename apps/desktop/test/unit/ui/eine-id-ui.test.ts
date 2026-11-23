@@ -19,10 +19,14 @@ const code = (file: string) => read(file).replace(/^\s*\/\/.*$/gm, '').replace(/
 
 test('Settings › Devices: Company ID first, then My ID – each only when it is there; the phone QR only with the company\'s ID', () => {
   const rows = code('settings/connect-rows.tsx');
-  assert.match(rows, /\{self\?\.companyId && <IdRow label="Company ID" id=\{self\.companyId\} hint=\{remoteIdHint\(props\.relay, self\.findable, COMPANY_ID_BASE\)\} \/>\}\n\s*\{self\?\.myId && <IdRow label="My ID" id=\{self\.myId\} hint=\{MY_ID_HINT\} \/>\}/);
+  assert.match(rows, /\{self\?\.companyId && <IdRow label="Company ID" id=\{self\.companyId\} hint=\{remoteIdHint\(props\.relay, self\.findable, COMPANY_ID_BASE\)\} \/>\}\n\s*\{self\?\.myId && <IdRow label="My ID" id=\{self\.myId\} hint=\{MY_ID_HINT\} qr=\{props\.myIdQr\} \/>\}/);
+  assert.match(rows, /onClick=\{copy\}>Copy<\/button>\n\s*\{props\.qr\}/, 'two IDs: the QR sits in the My ID row, after Copy');
   assert.doesNotMatch(rows, /companyCode|My Remote ID|SEAT_ID_BASE|COMPANY_ID_HINT|RemoteIdRow/, 'the 21.11. seat variant is gone');
   const group = code('settings/DevicesGroup.tsx');
-  assert.match(group, /\{can\('remote\.state'\) && <IdRows remote=\{props\.remote\} relay=\{props\.relay\} \/>\}\n\s*\{can\('remote\.state'\) && props\.remote\?\.self\.companyId && <PhoneQr remote=\{props\.remote\} \/>\}/);
+  assert.match(group, /\{can\('remote\.state'\) && <IdRows remote=\{props\.remote\} relay=\{props\.relay\} myIdQr=\{props\.remote\?\.self\.companyId \? <MyIdQr remote=\{props\.remote\} \/> : undefined\} \/>\}/);
+  // two IDs, 23.11.2026: no third number and no own "Connect a phone" row – the QR beside My ID carries this PC's link
+  assert.doesNotMatch(group, /label="Connect a phone"|PhoneQr|remote-slot-code|groupDigits\(digits\)/);
+  assert.match(group, /rpc\.call\('phone\.pairLink'\)/);
 });
 
 test('no role anywhere a PC connects: the ID typed decides; my profile name goes with the request', () => {

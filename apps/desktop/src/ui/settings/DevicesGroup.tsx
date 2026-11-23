@@ -7,8 +7,9 @@
 // app "Forget this phone" (native.ts forgetThisPhone – the app asks first).
 // "Add a device": a PC or a phone asking here with its code (Accept / Decline) first; Eine-ID 22.11.2026: "Company ID"
 // and "My ID" (Copy, each once the company exists – connect-rows.tsx IdRows);
-// "Connect a phone" with its QR code in a fixed box, also once the company exists (B-078, D5: the QR carries only the
-// PC's Remote ID as the pair link, phone.pairLink; the Android app scans or types it, both screens show the same code) –
+// the phone QR in a fixed box beside My ID once the company exists (two IDs 23.11.2026: no own "Connect a phone" row;
+// B-078, D5: the QR carries only the PC's Remote ID as the pair link, phone.pairLink; the Android app scans it or types
+// My ID, both screens show the same code) –
 // an employee's phone asks the same way and Accept says whose it is (20.11.2026: the person-scoped invite here was a
 // second way, F13); the PCs on the PC's network with Connect; "Connect with an ID" – a company's ID, my ID or an address,
 // no role to pick: the ID decides (those rows are connect-rows.tsx, shared with the first run's Connect card).
@@ -46,7 +47,7 @@ import { disablePush, enablePush, installAvailable, isStandalone, promptInstall,
 import { act, ActionButton, Group, Row, Toggle, useAsync, useBusy } from './controls.tsx';
 import { forgetThisPhone, inHostedApp, isAndroidApp, isPhoneApp } from '../pwa/native.ts';
 import { IOS_PHONE_USE } from '../pwa/hosted.ts';
-import { deviceHint, FORGET_HINT, groupDigits, linkHint, phoneDot, PHONE_QR_HINT, pushHint } from './connect-text.ts';
+import { deviceHint, FORGET_HINT, linkHint, phoneDot, PHONE_QR_HINT, pushHint } from './connect-text.ts';
 import { ConnectRow, IdRows, IncomingRow, NearbyRows, useConnectState, usePeople } from './connect-rows.tsx';
 import { ConnectionGroup } from './devices-connection.tsx';
 import { rowAction, splitDevices, UPDATE_ALL_FROM, updateAllText, updateOffered, updateQueue, versionHint, type AnswerText } from './device-version.ts';
@@ -76,25 +77,20 @@ function useDevices() {
 // ------------------------------------------------------------------ phones
 
 /**
- * "Connect a phone": the QR of this PC's pair link (phone.pairLink – only the Remote ID; the Remote ID itself first in the
- * hint, so typing works as well). F17: the pair link's ID is this PC's own (not the person code the Remote ID row shows),
- * so the phone's request comes to the PC whose screen shows the QR; the hint's digits are that same ID.
+ * The phone QR beside My ID (two IDs, 23.11.2026 – owner: "nicht drei IDs … ein QR-Code einfach neben My ID"): the QR of
+ * this PC's pair link (phone.pairLink). F17: the link carries this PC's own ID, so a scanning phone's request comes to the
+ * PC whose screen shows the QR; that ID is no longer shown as digits – a phone that types My ID asks my PCs the same way
+ * and is accepted on the one that answers.
  */
-function PhoneQr(props: { remote?: RemoteState }) {
+function MyIdQr(props: { remote?: RemoteState }) {
   const remoteId = props.remote?.self.remoteId;
   const link = useAsync(() => (can('phone.pairLink') ? rpc.call('phone.pairLink') : Promise.resolve(null)), [remoteId]);
   const qr = link.data;
   const error = link.error ?? undefined;
-  const text = error ?? PHONE_QR_HINT;
-  const digits = !error ? qr?.remoteId ?? '' : '';
-  const code = digits && <><span class="remote-slot-code" aria-label={`Remote ID ${digits.split('').join(' ')}`}>{groupDigits(digits)}</span> · </>;
-  const hint = <span title={digits ? `${digits} · ${text}` : text}>{code}{text}</span>;
   return (
-    <Row class="remote-phone-row" label="Connect a phone" hint={hint}>
-      <div class={`remote-qr${qr || error || !remoteId ? '' : ' loading'}`} aria-busy={(!qr && !error) || undefined}>
-        {qr && <img class="remote-qr-code" src={qr.qrDataUrl} alt="QR code to connect a phone" width={96} height={96} />}
-      </div>
-    </Row>
+    <div class={`remote-qr${qr || error || !remoteId ? '' : ' loading'}`} aria-busy={(!qr && !error) || undefined} title={error ?? PHONE_QR_HINT}>
+      {qr && <img class="remote-qr-code" src={qr.qrDataUrl} alt="QR code to connect a phone" width={96} height={96} />}
+    </div>
   );
 }
 
@@ -189,7 +185,7 @@ function BrowserRows() {
   );
 }
 
-/** "Add a device": requests waiting here first, then the Company ID and My ID, the phone QR, PCs nearby and Connect with an ID. */
+/** "Add a device": requests waiting here first, then the Company ID and My ID with the phone QR beside it, PCs nearby and Connect with an ID. */
 function AddRows(props: { people: Person[]; remote?: RemoteState; relay?: RelayState }) {
   const [error, setError] = useState<string | null>(null);
   const incoming = props.remote?.incoming ?? [];
@@ -197,8 +193,7 @@ function AddRows(props: { people: Person[]; remote?: RemoteState; relay?: RelayS
   return (
     <Group title="Add a device" id="settings-add-device">
       {incoming.map((request) => <IncomingRow key={request.id} request={request} people={props.people} member={props.remote?.self.member === true} />)}
-      {can('remote.state') && <IdRows remote={props.remote} relay={props.relay} />}
-      {can('remote.state') && props.remote?.self.companyId && <PhoneQr remote={props.remote} />}
+      {can('remote.state') && <IdRows remote={props.remote} relay={props.relay} myIdQr={props.remote?.self.companyId ? <MyIdQr remote={props.remote} /> : undefined} />}
       {can('remote.nearby') && <NearbyRows onError={setError} />}
       {can('remote.connect') && <ConnectRow remote={props.remote} error={error} onError={setError} />}
     </Group>

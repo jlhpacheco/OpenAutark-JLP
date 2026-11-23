@@ -92,7 +92,7 @@ export class Screens {
     });
     ready();
     this.screen('Connect to your PC',
-      el('p', { class: 'hs-muted' }, 'On your PC: Settings › Devices › Connect a phone shows its Remote ID.'),
+      el('p', { class: 'hs-muted' }, 'On your PC: Settings › Devices shows My ID and its QR code.'),
       input,
       el('div', { class: 'hs-actions' }, connect, paste));
   }

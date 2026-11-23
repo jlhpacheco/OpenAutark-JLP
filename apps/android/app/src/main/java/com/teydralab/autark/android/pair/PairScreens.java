@@ -126,7 +126,7 @@ public final class PairScreens {
         page.addView(new View(activity), PairLook.fill());
         page.addView(look.icon(), look.centred(96));
         page.addView(look.text("Connect to your PC", 26, look.ink, true), look.spaced(24, 0));
-        page.addView(look.text("On your PC: Settings › Devices › Connect a phone", 15, look.muted, false), look.spaced(8, 0));
+        page.addView(look.text("On your PC: Settings › Devices › My ID", 15, look.muted, false), look.spaced(8, 0));
         Runnable play = tour;
         if (play != null) page.addView(look.quiet("How feedback works", look.link, play), look.spaced(8, 0));
         page.addView(new View(activity), PairLook.fill());
