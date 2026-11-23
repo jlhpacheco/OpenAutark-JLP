@@ -15,8 +15,10 @@ import { account, fakeFinder, fakeSpawn, testSupervisor, turnInput, type FakeChi
 
 const SOURCE = 'const r = await tools.tasks__create({title:"A"});\ntext(r);\n';
 const HEADER = 'Script completed\nWall time 0.1 seconds\nOutput:\n';
+/** A Codex CLI on managed-path.ts's verified list (its shell switches checked). */
+const VERIFIED_AGENT = 'workforce/0.167.0-alpha.3.2 (Windows)';
 
-interface Options { refuseRaw?: boolean; onTurn?: (child: FakeChild, threadId: string) => void; onAnswer?: (child: FakeChild, msg: any) => void; refuseCustom?: boolean }
+interface Options { userAgent?: string; refuseRaw?: boolean; onTurn?: (child: FakeChild, threadId: string) => void; onAnswer?: (child: FakeChild, msg: any) => void; refuseCustom?: boolean }
 
 function appServer(options: Options = {}) {
   const requests: any[] = [];
@@ -28,7 +30,7 @@ function appServer(options: Options = {}) {
       requests.push(msg);
       if (msg.id === undefined) return;
       switch (msg.method) {
-        case 'initialize': child.send({ id: msg.id, result: { userAgent: 'workforce/0.165.0-alpha.1.2 (x)' } }); break;
+        case 'initialize': child.send({ id: msg.id, result: { userAgent: options.userAgent ?? 'workforce/0.165.0-alpha.1.2 (x)' } }); break;
         case 'thread/start':
           if (options.refuseRaw && msg.params.experimentalRawEvents) { child.send({ id: msg.id, error: { code: -32602, message: 'unknown field `experimentalRawEvents`' } }); break; }
           child.send({ id: msg.id, result: { thread: { id: `thr_${++threads}` } } });
@@ -76,6 +78,7 @@ test('an agent thread/start asks for raw items; resume and helper threads do not
 
 test('a raw exec call becomes a native tool call; calls inside it are nested under it; injections and other raw items are ignored', async () => {
   const fake = appServer({
+    userAgent: VERIFIED_AGENT,
     onTurn: (child, threadId) => {
       raw(child, threadId, { type: 'custom_tool_call', name: 'exec', call_id: 'call_inj', input: 'old' }, 'auto-compact-0'); // an injection's item
       raw(child, threadId, { type: 'reasoning', summary: [] });
@@ -95,7 +98,7 @@ test('a raw exec call becomes a native tool call; calls inside it are nested und
   const { input, events, toolCalls } = turnInput();
   assert.equal((await engineOf(fake.spawn).run(input)).stop, 'done');
   const tools = events.filter((event: EngineEvent) => event.type === 'tool_start' || event.type === 'tool_end');
-  // 0.3.19: an agent thread runs without Codex's native shell, so its script call carries the managed-shell row mark (turn-attempt.ts journals it).
+  // 0.3.19: an agent thread runs without Codex's native shell, so under a verified CLI its script call carries the managed-shell row mark (turn-attempt.ts journals it).
   assert.deepEqual(tools[0], { type: 'tool_start', callId: 'call_x1', name: 'exec', args: { source: SOURCE }, own: true, managed: true });
   assert.deepEqual(tools[1], { type: 'tool_start', callId: 'exec-aaa', name: 'tasks.create', args: { title: 'A' }, own: false, nested: true, parent: 'call_x1' });
   assert.equal(toolCalls[0].callId, 'exec-aaa', 'our tool still runs');
@@ -105,6 +108,33 @@ test('a raw exec call becomes a native tool call; calls inside it are nested und
   const end = tools.find((event: any) => event.type === 'tool_end' && event.callId === 'call_x1');
   assert.deepEqual(end, { type: 'tool_end', callId: 'call_x1', ok: true, summary: 'Script completed', output: `${HEADER}created\nsecond line` });
   assert.equal(tools.filter((event: any) => event.callId === 'call_inj' || event.callId === 'call_top').length, 0, 'no duplicates, no injected items');
+});
+
+// 0.3.19 (Noah's review 24.11.2026): the row mark lets a script's output back into a rebuild, so it hangs on the CLI version like
+// the session mark – under a Codex not checked against the shell switches (0.171.0-alpha.13 ran on teydra-server unchecked)
+// Codex's own shell may still have run: the row stays legacy. A helper turn never carries it.
+test('a script call carries the row mark only on an agent thread under a verified Codex CLI', async () => {
+  const script = (child: FakeChild, threadId: string) => {
+    raw(child, threadId, { type: 'custom_tool_call', name: 'exec', call_id: 'call_v', input: 'text(1)' });
+    raw(child, threadId, { type: 'custom_tool_call_output', call_id: 'call_v', output: `${HEADER}1` });
+    done(child, threadId);
+  };
+  const startOf = async (userAgent: string, tools?: []) => {
+    const fake = appServer({ userAgent, onTurn: script });
+    const e = engineOf(fake.spawn);
+    const { input, events } = turnInput(tools ? { tools } : {});
+    assert.equal((await e.run(input)).stop, 'done');
+    await e.dispose();
+    return events.find((event: any) => event.type === 'tool_start' && event.callId === 'call_v') as any;
+  };
+  assert.equal((await startOf(VERIFIED_AGENT)).managed, true, 'verified CLI: the row is marked');
+  for (const agent of ['workforce/0.171.0-alpha.13 (Windows)', 'workforce/0.165.0-alpha.1.2 (x)', 'fake']) {
+    const start = await startOf(agent);
+    assert.ok(start, `${agent}: the script call is reported`);
+    assert.equal('managed' in start, false, `${agent}: unverified CLI, the row stays legacy`);
+  }
+  const helper = await startOf(VERIFIED_AGENT, []);
+  assert.equal(helper?.managed, undefined, 'a helper turn carries no row mark');
 });
 
 test('a script still open when the turn ends gets its tool_end there, with what it printed', async () => {

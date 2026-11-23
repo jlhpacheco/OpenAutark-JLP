@@ -33,6 +33,7 @@ import { CodeCalls, hostMissingText, nestedImageSteer } from '../code-mode.ts'; 
 import { codexHearsAudioNow } from './reads.ts'; // B-058 G7: recordings as localAudio for a model that hears them
 import { codexDown, providerDownMessage } from '../provider-outage.ts'; // B-059 #184
 import { orStopped } from './helper-thread.ts'; // B-080: turn/start waits on the turn's signal
+import { verifiedCli } from '../managed-path.ts'; // 0.3.19: the row mark only under a verified CLI
 
 const OWN_ITEMS: Record<string, (item: Record<string, unknown>) => { name: string; args: unknown }> = {
   commandExecution: (item) => ({ name: 'shell', args: { command: item.command, cwd: item.cwd } }),
@@ -201,7 +202,10 @@ export async function runCodexTurn(args: {
   let quiet: ReturnType<typeof setTimeout> | undefined; // a helper turn's cut, until the model's first sign
   let silent = false; // the cut ended the turn
   const early: RpcNote[] = []; // notifications that arrive before turn/start answers
-  const code = new CodeCalls(emit, (wire) => names.ours(wire) !== undefined, !args.helper); // B-049 F9: exec/wait calls and nested marking; 0.3.19: an agent thread's carry the row mark
+  // B-049 F9: exec/wait calls and nested marking. 0.3.19: an agent thread's script calls carry the row mark only under a CLI
+  // version checked against the shell switches (verifiedCli) – under any other one Codex's own shell may still have run, so its
+  // rows stay legacy and are withheld from a rebuild, like the session mark that same version would not get trusted.
+  const code = new CodeCalls(emit, (wire) => names.ours(wire) !== undefined, !args.helper && verifiedCli('codex', server.cliVersion));
 
   let finish!: (status: string, error: unknown) => void;
   const completed = new Promise<{ status: string; error: unknown }>((resolve) => { finish = (status, error) => resolve({ status, error }); });
