@@ -24,6 +24,7 @@ import type { StructuredRunner } from '../../../src/runtime/decision/types.ts';
 import type { AttemptResult } from '../../../src/runtime/agents/turn-types.ts';
 import { fakeSpawn, fakeFinder, testSupervisor, turnInput } from './fakes.ts';
 import { RESOURCES, fixture } from '../context/fixture.ts';
+import { openedBefore } from './managed-fixture.ts';
 
 /** A scripted app-server whose turn reports the given per-request usage updates, then completes. */
 function codexWith(updates: Array<Record<string, number>>) {
@@ -102,6 +103,9 @@ test('codex (real run 18.11.2026): the thread\'s usage sent again unchanged – 
     };
   });
   const fresh = new CodexEngine({ supervisor: testSupervisor(again), finder: fakeFinder({ codex: '/bin/codex' }), cwd: '/tmp', version: '0.2.0' });
+  // 0.3.19: a new process resumes a thread natively only on its persistent mark (managed-write-paths.test.ts covers that
+  // restart); here the thread's trust is given so the resume this test is about – the usage count – happens as before.
+  openedBefore(fresh, 'thr_1');
   const resumed = await fresh.run(turnInput({ session: { ref: 'thr_1', generation: 1, contextTokens: 4883 } }).input);
   assert.deepEqual(resumed.usage, { inputTokens: 5100, outputTokens: 30, cachedInputTokens: 4608 }, 'a new process: the repeat is known by the session\'s count');
   const other = new CodexEngine({ supervisor: testSupervisor(again), finder: fakeFinder({ codex: '/bin/codex' }), cwd: '/tmp', version: '0.2.0' });

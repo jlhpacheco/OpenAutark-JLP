@@ -72,6 +72,34 @@ that day's lines (a past day only to read) with a "Today" button back, a button 
 between Tasks and Calendar, "Next" shows the coming appointments (a run of close ones all of them), and view and day
 stay when you go to the chats and back. On a phone every control of the line is a full finger's size.
 
+Claude Code and Codex agents run commands only through Autark's masked shell (owner 18.11.2026: a Stripe live key that
+a command printed in Claude Code's own Bash reached the model provider). An agent turn on Claude Code no longer gets the
+Bash or PowerShell tool; a Codex agent thread opens, resumes and forks with its own shells off (shell_tool, unified_exec,
+shell_snapshot, shell_zsh_fork, js_repl). Commands go through shell.exec, whose output is masked before the model, the
+run journal and the chat see it: a value from the secrets catalog as its secret:// handle, a key by its shape (Stripe,
+GitHub, JWT, private key …) as ‹secret:…›. A command that times out, is stopped, loses a pipe or prints more than 1 MB
+returns "[command output withheld]" instead of a part that could end in the middle of a value, and the timeout review
+sees only how much it printed, no longer the output or the command. A rebuilt session leaves out native shell calls
+and Codex script calls from before 0.3.19 with a one-line note; Codex scripts run under the masked shell carry a mark
+in the journal and are replayed as before.
+A native session resumes after a restart only when Autark wrote it last: at the end of each turn, fork, revert and
+rebuild this PC notes the session's transcript (its exact size and the hash of its tail) with the masking and CLI
+version (table managed_paths, never synced). When anything differs – the transcript grew, a restart cut a turn,
+Claude Code older than 2.1.303, a Codex other than 0.167.0-alpha.3.2 – the session starts anew from the filtered
+history (one cold turn, nothing lost), and a fold planned on it is dropped instead of failing.
+What is not masked: Claude Code's own Read, Grep, Glob and WebSearch results and Codex's apply_patch diffs still reach
+the provider as the CLI sends them and stay in the native transcript – a key in a file an agent opens with Read is
+seen by the provider. A secret saved to the catalog later is not masked in transcripts written before it. The mark
+says only that Autark wrote a session last, not that it holds no secret.
+
+**A Claude or Codex session starts cold after each restart.** Shows as: the first turn after a restart rebuilds the
+session (run journal: a note with sessionRenewed "managed-shell"), every time. I check: `claude --version` of the CLI
+Autark runs is 2.1.303 or later, or `codex --version` is 0.167.0-alpha.3.2; the session's row in the table
+managed_paths of the data database is 'ready', not 'pending' (a turn the restart cut); nothing but Autark writes to
+that transcript. I fix it: a cold first turn after
+an update of Claude Code or Codex is expected until Autark lists the new version; a lasting 'pending' row comes from
+turns that end with the runtime – the next turn that ends normally seals the session again.
+
 ## 0.3.18
 
 What changed: linked PCs and phones keep each other current by themselves – a message a shaky connection lost arrives

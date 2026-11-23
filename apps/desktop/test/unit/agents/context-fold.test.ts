@@ -356,3 +356,31 @@ test('the hand-over\'s notes, its hides and the mark are one transaction: a fold
     assert.equal(h.binding('claude')!.foldedAt, undefined);
   } finally { h.cleanup(); }
 });
+
+// 0.3.19 (the masked engine shell): a fold resumes its session as it stands, so it asks the engine first whether that
+// native session may still resume under the managed shell (foldNow → Engine.managedResume). One that may not – after a
+// restart with no matching mark, say – drops the fold: no run that fails with "not there to resume", no turn on the session.
+test('0.3.19: a fold whose native session may no longer resume is dropped before its turn; one that may runs as before', async () => {
+  const h = world();
+  const engine = h.claude.engine as { managedResume?: (account: unknown, ref: string) => Promise<boolean> };
+  try {
+    h.send('Please build the export');
+    h.claude.state.reply = working(h, 150_000);
+    const worked = await h.turn('claude');
+    assert.equal(worked.fold, 'step');
+    const asked: string[] = [];
+    engine.managedResume = async (_account, ref) => { asked.push(ref); return false; };
+    const calls = h.claude.calls.length;
+    const dropped = await h.fold(worked.fold!);
+    assert.equal(dropped.status, 'skipped', 'dropped, not failed');
+    assert.deepEqual(asked, ['claude-s1'], 'the bound session was asked about');
+    assert.equal(h.claude.calls.length, calls, 'no turn on the session');
+    assert.equal(h.s.runs.get(h.lastFold())?.status === 'failed', false, 'no failed run');
+    assert.ok(h.items().every((item) => item.kind !== 'checkpoint'), 'nothing folded');
+
+    engine.managedResume = async () => true;
+    h.claude.state.reply = () => ({ text: HAND_OVER, contextTokens: 151_000 });
+    assert.equal((await h.fold(worked.fold!)).status, 'done', 'a session that may resume folds as before');
+    assert.equal(h.claude.calls.length, calls + 1);
+  } finally { delete engine.managedResume; h.cleanup(); }
+});

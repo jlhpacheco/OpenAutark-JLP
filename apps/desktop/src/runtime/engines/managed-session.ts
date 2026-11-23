@@ -98,17 +98,18 @@ export class ManagedSessions {
     return work;
   }
 
-  /** Whether `ref` may resume natively: opened or written by this process, else its mark matches the transcript exactly. */
+  /**
+   * Whether `ref` may resume natively: opened or written by this process, else its mark matches the transcript exactly – measured
+   * at each check and not remembered, so a transcript extended outside Autark after a restart stays cold until an own write.
+   */
   async trusted(account: Account, ref: string): Promise<boolean> {
     if (canContinueManaged(this.deps.engine, account.id, ref)) return true;
     const store = this.deps.store;
     if (!store) return false;
     const key = this.key(account, ref);
     try {
-      if (!(await store.warm(key, await this.deps.locate(account, ref, store.transcript(key))))) return false;
+      return await store.warm(key, await this.deps.locate(account, ref, store.transcript(key)));
     } catch { return false; }
-    rememberManaged(this.deps.engine, account.id, ref);
-    return true;
   }
 
   /** The session was deleted: neither memory nor mark trusts its ref again. */

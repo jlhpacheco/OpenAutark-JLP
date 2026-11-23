@@ -14,6 +14,10 @@ import { coreTools } from '../../../src/runtime/engines/claude/lean.ts';
 const FILES = new Set(['files.read', 'files.search', 'tasks.create']);
 const codex = (platform = 'win32', offered: ReadonlySet<string> = FILES): MapTarget => ({ engine: 'codex', offered, native: CODEX_NATIVE, platform });
 const claude = (platform: NodeJS.Platform = 'win32', offered: ReadonlySet<string> = FILES): MapTarget => ({ engine: 'claude', offered, native: new Set(coreTools(platform)), platform });
+/** 0.3.19: a Claude Code agent turn has no native Bash or PowerShell (lean.ts CORE_TOOLS), so `claude()` maps a shell call to a
+ * note (legacy shell rows are withheld before this mapping anyway); the shell rules are kept and checked against a target
+ * that still offers the shells. */
+const withShells = (platform: NodeJS.Platform = 'win32'): MapTarget => ({ ...claude(platform), native: new Set([...coreTools(platform), 'Bash', ...(platform === 'win32' ? ['PowerShell'] : [])]) });
 
 const PS_LINE = String.raw`"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '$ErrorActionPreference='"'Stop'; (Invoke-WebRequest -UseBasicParsing -Uri 'https://example.com/sitemap.xml').Content"`;
 const PS_SCRIPT = `$ErrorActionPreference='Stop'; (Invoke-WebRequest -UseBasicParsing -Uri 'https://example.com/sitemap.xml').Content`;
@@ -47,13 +51,16 @@ test('neutral calls: a shell call becomes Codex\'s own exec_command – the shel
   assert.deepEqual(mapNativeCall(bash, 'claude', { ...codex(), native: new Set() }), { as: 'note' }, 'no exec_command in the thread: a note');
 });
 
-test('neutral calls: a Codex shell call becomes Claude Code\'s Bash, or PowerShell on Windows for a PowerShell script', () => {
+test('neutral calls: a Codex shell call becomes Claude Code\'s Bash, or PowerShell on Windows for a PowerShell script – where the target offers them (0.3.19: an agent turn does not)', () => {
   const ps = { name: 'shell', args: { command: PS_LINE } };
-  assert.deepEqual(mapNativeCall(ps, 'codex', claude('win32')), { as: 'native', name: 'PowerShell', args: { command: PS_SCRIPT } });
-  assert.deepEqual(mapNativeCall(ps, 'codex', claude('linux')), { as: 'native', name: 'Bash', args: { command: PS_LINE } }, 'no PowerShell tool: the full line runs it from Bash');
-  assert.deepEqual(mapNativeCall({ name: 'shell', args: { command: `/bin/bash -lc 'npm test'` } }, 'codex', claude('linux')), { as: 'native', name: 'Bash', args: { command: 'npm test' } });
-  assert.deepEqual(mapNativeCall({ name: 'shell', args: { command: 'git status' } }, 'codex', claude('win32')), { as: 'native', name: 'Bash', args: { command: 'git status' } });
+  assert.deepEqual(mapNativeCall(ps, 'codex', withShells('win32')), { as: 'native', name: 'PowerShell', args: { command: PS_SCRIPT } });
+  assert.deepEqual(mapNativeCall(ps, 'codex', withShells('linux')), { as: 'native', name: 'Bash', args: { command: PS_LINE } }, 'no PowerShell tool: the full line runs it from Bash');
+  assert.deepEqual(mapNativeCall({ name: 'shell', args: { command: `/bin/bash -lc 'npm test'` } }, 'codex', withShells('linux')), { as: 'native', name: 'Bash', args: { command: 'npm test' } });
+  assert.deepEqual(mapNativeCall({ name: 'shell', args: { command: 'git status' } }, 'codex', withShells('win32')), { as: 'native', name: 'Bash', args: { command: 'git status' } });
   assert.deepEqual(mapNativeCall(ps, 'codex', { ...claude(), native: new Set() }), { as: 'note' });
+  for (const platform of ['win32', 'linux'] as const) {
+    assert.deepEqual(mapNativeCall(ps, 'codex', claude(platform)), { as: 'note' }, `0.3.19 ${platform}: no native shell in a Claude agent turn`);
+  }
 });
 
 test('neutral calls: Claude Read/Grep/Glob become our files.read/files.search on Codex; a note when the thread lacks them', () => {
@@ -87,12 +94,14 @@ test('neutral calls: edits stay notes with their diff or new content – Claude 
 });
 
 test('neutral calls: Claude Code\'s own core tools go back into Claude Code verbatim; Read falls back to files.read without the native tool', () => {
-  for (const name of ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'PowerShell']) {
-    const args = { command: 'x', file_path: 'a', pattern: 'p', old_string: 'o', new_string: 'n', content: 'c' };
-    assert.deepEqual(mapNativeCall({ name, args }, 'claude', claude('win32')), { as: 'native', name, args });
+  const args = { command: 'x', file_path: 'a', pattern: 'p', old_string: 'o', new_string: 'n', content: 'c' };
+  for (const name of ['Read', 'Edit', 'Write', 'Glob', 'Grep']) assert.deepEqual(mapNativeCall({ name, args }, 'claude', claude('win32')), { as: 'native', name, args });
+  for (const name of ['Bash', 'PowerShell']) {
+    assert.deepEqual(mapNativeCall({ name, args }, 'claude', claude('win32')), { as: 'note' }, `0.3.19: no native ${name} in a Claude agent turn`);
+    assert.deepEqual(mapNativeCall({ name, args }, 'claude', withShells('win32')), { as: 'native', name, args });
   }
-  assert.deepEqual(mapNativeCall({ name: 'PowerShell', args: { command: 'Get-Date' } }, 'claude', claude('linux')), { as: 'native', name: 'Bash', args: { command: 'powershell -Command Get-Date' } });
-  assert.deepEqual(mapNativeCall({ name: 'PowerShell', args: { command: "Get-Item 'a b'" } }, 'claude', claude('linux')),
+  assert.deepEqual(mapNativeCall({ name: 'PowerShell', args: { command: 'Get-Date' } }, 'claude', withShells('linux')), { as: 'native', name: 'Bash', args: { command: 'powershell -Command Get-Date' } });
+  assert.deepEqual(mapNativeCall({ name: 'PowerShell', args: { command: "Get-Item 'a b'" } }, 'claude', withShells('linux')),
     { as: 'native', name: 'Bash', args: { command: `powershell -Command 'Get-Item '\\''a b'\\'''` } }, 'quoted so Bash passes the script whole');
   const noRead: MapTarget = { ...claude(), native: new Set(['Bash']) };
   assert.deepEqual(mapNativeCall({ name: 'Read', args: { file_path: '/w/a.ts' } }, 'claude', noRead), { as: 'hub', name: 'files.read', args: { path: '/w/a.ts' } });
@@ -130,6 +139,7 @@ test('neutral calls: only calls the target tool can mean are mapped – regex/fi
   }
   assert.deepEqual(mapNativeCall({ name: 'Read', args: { file_path: '/w/a.txt', pages: '1-2' } }, 'claude', codex()), { as: 'note' });
   assert.deepEqual(mapNativeCall({ name: 'Bash', args: { command: 'npm run dev', run_in_background: true } }, 'claude', codex()), { as: 'note' }, 'its output names a Claude-only shell id');
-  assert.deepEqual(mapNativeCall({ name: 'Bash', args: { command: 'npm run dev', run_in_background: true } }, 'claude', claude()),
-    { as: 'native', name: 'Bash', args: { command: 'npm run dev', run_in_background: true } }, 'back into Claude Code it stays exact');
+  assert.deepEqual(mapNativeCall({ name: 'Bash', args: { command: 'npm run dev', run_in_background: true } }, 'claude', withShells()),
+    { as: 'native', name: 'Bash', args: { command: 'npm run dev', run_in_background: true } }, 'back into a Claude Code that offers Bash it stays exact');
+  assert.deepEqual(mapNativeCall({ name: 'Bash', args: { command: 'npm run dev', run_in_background: true } }, 'claude', claude()), { as: 'note' }, '0.3.19: an agent turn has no Bash');
 });

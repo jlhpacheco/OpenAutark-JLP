@@ -15,6 +15,7 @@ import { AGENT_ENV } from '../../../src/shared/api/protocol.ts';
 import { fakeFinder, fakeSpawn, testSupervisor, turnInput } from './fakes.ts';
 import { claudeAccount, claudeSetup } from './claude-fixture.ts';
 import { agentIdentity } from '../../../src/runtime/security/agent-proof.ts';
+import { openedBefore } from './managed-fixture.ts';
 
 test('asAgent, withShim and agentEnv drop an inherited AUTARK_AGENT and set the given one', () => {
   assert.equal(AGENT_ENV, 'AUTARK_AGENT');
@@ -54,6 +55,7 @@ test("a Codex thread's shells get its agent's id (start and resume); none withou
   });
   try {
     assert.equal((await engine.run(turnInput({ cwd: '/home/w', agentId: 'ag_ava' }).input)).stop, 'done');
+    openedBefore(engine, 'thr_9'); // 0.3.19: a thread resumes only with provenance – this runtime opened it before
     assert.equal((await engine.run(turnInput({ cwd: '/home/w', agentId: 'ag_bo', session: { ref: 'thr_9', generation: 1 } }).input)).stop, 'done');
     const set = (method: string) => requests.find((r) => r.method === method)?.params.config.shell_environment_policy.set;
     assert.deepEqual(set('thread/start'), { GIT_PAGER: 'cat', ...agentIdentity('ag_ava') });
