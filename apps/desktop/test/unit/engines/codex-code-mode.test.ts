@@ -111,7 +111,7 @@ test('a raw exec call becomes a native tool call; calls inside it are nested und
 });
 
 // 0.3.19 (Noah's review 24.11.2026): the row mark lets a script's output back into a rebuild, so it hangs on the CLI version like
-// the session mark – under a Codex not checked against the shell switches (0.171.0-alpha.13 ran on teydra-server unchecked)
+// the session mark – under a Codex not checked against the shell switches (here 0.173.0-alpha.4, npm's alpha on 24.11.2026)
 // Codex's own shell may still have run: the row stays legacy. A helper turn never carries it.
 test('a script call carries the row mark only on an agent thread under a verified Codex CLI', async () => {
   const script = (child: FakeChild, threadId: string) => {
@@ -128,7 +128,7 @@ test('a script call carries the row mark only on an agent thread under a verifie
     return events.find((event: any) => event.type === 'tool_start' && event.callId === 'call_v') as any;
   };
   assert.equal((await startOf(VERIFIED_AGENT)).managed, true, 'verified CLI: the row is marked');
-  for (const agent of ['workforce/0.171.0-alpha.13 (Windows)', 'workforce/0.165.0-alpha.1.2 (x)', 'fake']) {
+  for (const agent of ['workforce/0.173.0-alpha.4 (Windows)', 'workforce/0.165.0-alpha.1.2 (x)', 'fake']) {
     const start = await startOf(agent);
     assert.ok(start, `${agent}: the script call is reported`);
     assert.equal('managed' in start, false, `${agent}: unverified CLI, the row stays legacy`);

@@ -85,7 +85,7 @@ in the journal and are replayed as before.
 A native session resumes after a restart only when Autark wrote it last: at the end of each turn, fork, revert and
 rebuild this PC notes the session's transcript (its exact size and the hash of its tail) with the masking and CLI
 version (table managed_paths, never synced). When anything differs – the transcript grew, a restart cut a turn,
-Claude Code older than 2.1.303, a Codex other than 0.167.0-alpha.3.2 – the session starts anew from the filtered
+Claude Code older than 2.1.303, a Codex other than 0.167.0-alpha.3.2, 0.171.0-alpha.13 or 0.171.0 – the session starts anew from the filtered
 history (one cold turn, nothing lost), and a fold planned on it is dropped instead of failing.
 What is not masked: Claude Code's own Read, Grep, Glob and WebSearch results and Codex's apply_patch diffs still reach
 the provider as the CLI sends them and stay in the native transcript – a key in a file an agent opens with Read is
@@ -94,7 +94,7 @@ says only that Autark wrote a session last, not that it holds no secret.
 
 **A Claude or Codex session starts cold after each restart.** Shows as: the first turn after a restart rebuilds the
 session (run journal: a note with sessionRenewed "managed-shell"), every time. I check: `claude --version` of the CLI
-Autark runs is 2.1.303 or later, or `codex --version` is 0.167.0-alpha.3.2; the session's row in the table
+Autark runs is 2.1.303 or later, or `codex --version` is 0.167.0-alpha.3.2, 0.171.0-alpha.13 or 0.171.0; the session's row in the table
 managed_paths of the data database is 'ready', not 'pending' (a turn the restart cut); nothing but Autark writes to
 that transcript. I fix it: a cold first turn after
 an update of Claude Code or Codex is expected until Autark lists the new version; a lasting 'pending' row comes from

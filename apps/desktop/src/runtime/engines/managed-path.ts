@@ -21,8 +21,18 @@ export const MASKER_VERSION = 1;
 const MASKERS_VERIFIED: readonly number[] = [1];
 /** Claude Code from 2.1.303 on takes `--tools` as an allowlist: a session run under it never had the native Bash/PowerShell tool. */
 const CLAUDE_FROM = [2, 1, 303] as const;
-/** Codex turns its shells off feature by feature (a denylist): only versions checked against that list are verified. */
-const CODEX_VERIFIED: readonly string[] = ['0.167.0-alpha.3.2'];
+/**
+ * Codex turns its shells off feature by feature (a denylist): only versions checked against that list are verified – exact
+ * versions, never a range, and an entry only after its live control is green (it counts for marks already written under it).
+ * Each entry with its control (github.com/teydra/proactive-agent-runtime, isolated Windows runner, official npm package by its
+ * integrity, local Responses fixture, synthetic values): no native shell offered at start, resume, fork and after a restart,
+ * the managed tool's output masked, the seal still matching after the app-server exited, resume on the same rollout.
+ */
+const CODEX_VERIFIED: readonly string[] = [
+  '0.167.0-alpha.3.2', // runs 44901554743 (0.3.16 + draft) and 45290886874 (this mark, 57eee74)
+  '0.171.0-alpha.13', // run 45290886874 (57eee74)
+  '0.171.0', // run 45290886874 (57eee74); npm's latest on 24.11.2026, what the CLI update installs
+];
 const TAIL_BYTES = 64 * 1024;
 const KEEP_MS = 90 * 24 * 60 * 60 * 1000;
 
