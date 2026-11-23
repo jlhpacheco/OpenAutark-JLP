@@ -1,12 +1,13 @@
 // The Tasks page's day line and month view (src/ui/tasks/day-strip.ts): how many days fit, where the line starts (the
 // chosen day's week when seven fit, else from the day before; where the arrows left it), paging, the month's six weeks
 // Monday first across month and year edges, the span the calendar window must hold, and what the page keeps across a
-// switch to the chats (the view always, the day only on the day it was chosen).
+// switch to the chats (the view always, the day only on the day it was chosen); fewer days for larger letters; a day's
+// name with "(today)" and ", has entries".
 // Owns: these assertions only. Never: the DOM, signals or a real clock.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { autoStart, dayCount, lineDays, monthGrid, monthShort, monthTitle, pageLine, restoreView, shiftMonth, windowSpan } from '../../../src/ui/tasks/day-strip.ts';
+import { autoStart, dayCount, dayLabel, lineDays, monthGrid, monthShort, monthTitle, pageLine, restoreView, shiftMonth, windowSpan } from '../../../src/ui/tasks/day-strip.ts';
 
 test('the line holds as many days as fit, three to seven, five before it is measured', () => {
   assert.equal(dayCount(0), 5);
@@ -15,6 +16,20 @@ test('the line holds as many days as fit, three to seven, five before it is meas
   assert.equal(dayCount(190), 5); // a 390 px phone: about 190 px between the arrows and the buttons
   assert.equal(dayCount(266), 7);
   assert.equal(dayCount(2000), 7);
+});
+
+test('larger letters widen a day: fewer fit, never under the 36 px slot', () => {
+  assert.equal(dayCount(190, 36), 5);
+  assert.equal(dayCount(190, 47), 4); // 130 % labels: a day about 47 px wide
+  assert.equal(dayCount(190, 54), 3); // 150 %: three, the floor
+  assert.equal(dayCount(190, 20), 5); // a narrower measure keeps the slot
+  assert.equal(dayCount(190, NaN), 5);
+});
+
+test('a day in words: today and a dot said, not only drawn', () => {
+  assert.equal(dayLabel('2026-11-24', '2026-11-24'), 'Tuesday, November 24 (today)');
+  assert.equal(dayLabel('2026-11-24', '2026-11-23', true), 'Tuesday, November 24, has entries');
+  assert.equal(dayLabel('2026-11-23', '2026-11-23', true), 'Monday, November 23 (today), has entries');
 });
 
 test('unpaged, the line starts the day before the chosen day, or on its Monday when a week fits', () => {

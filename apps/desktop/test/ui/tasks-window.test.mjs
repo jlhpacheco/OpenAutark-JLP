@@ -84,7 +84,7 @@ test('Tasks page: head, quests, input line with time marks, For you, calendar sl
   await view.waitFor({ timeout: 15_000 });
   const header = view.locator('.tasks-header');
   assert.match((await header.locator('.day-line h2').textContent())?.trim() ?? '', /^[A-Z][a-z]+day, [A-Z][a-z]+ \d{1,2}$/, 'the day named for a screen reader: "Friday, November 20"');
-  assert.match(await header.locator('.day-dot.today.on').getAttribute('aria-label') ?? '', /^[A-Z][a-z]+day, [A-Z][a-z]+ \d{1,2} \(today\)$/, 'the day line: today chosen and marked');
+  assert.match(await header.locator('.day-dot.today.on').getAttribute('aria-label') ?? '', /^[A-Z][a-z]+day, [A-Z][a-z]+ \d{1,2} \(today\)(, has entries)?$/, 'the day line: today chosen and marked');
   assert.equal(await header.locator('.day-line-days .day-dot').count(), 7, 'a wide head holds a week of days');
   assert.deepEqual((await header.locator('.tasks-seg [role="tab"]').allTextContents()).map((text) => text.trim()), ['Day', 'Week']);
   assert.equal((await page.locator('.sidebar .frame-header-text').first().textContent())?.trim(), 'Quests');

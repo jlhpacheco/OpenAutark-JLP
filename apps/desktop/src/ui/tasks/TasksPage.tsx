@@ -148,7 +148,7 @@ export function TasksPage(props: { scope?: PageScope }) {
     ? <QuestDetail scope={scope} quest={questOpen} todos={children.get(questOpen.id) ?? []} schedules={schedules.value} now={now} onClose={close} />
     : <TodoDetail key={open} scope={scope} task={openTask} quest={parent?.kind === 'quest' ? parent : undefined} now={now} onClose={close} />);
   const calendar = (
-    <TaskCalendar scope={scope} date={date} today={today} span={wide ? calendarSpan.value : 'day'} lookup={lookup} hidden={hiddenSources.value} now={now} readOnly={past} {...(questOpen ? { quest: questOpen } : {})} />
+    <TaskCalendar scope={scope} date={date} today={today} span={wide ? calendarSpan.value : 'day'} lookup={lookup} hidden={hiddenSources.value} now={now} readOnly={past} todayButton={!wide} {...(questOpen ? { quest: questOpen } : {})} />
   );
   const list = (
     <section class="tasks-list" aria-label="Tasks">

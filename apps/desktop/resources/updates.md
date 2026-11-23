@@ -68,9 +68,9 @@ whether its last turn said the credit balance is too low (then it waits a day). 
 linked at claude.ai › Settings › Billing › API credits, I link it – else the person tops it up or waits for the month.
 
 The Tasks page has a day line under its title (owner 23.11.2026): ‹ the days as circles ›, today marked; a tap shows
-that day's lines (a past day only to read), a button opens a small month, two symbols switch between Tasks and
-Calendar, "Next" shows the coming appointments (a run of close ones all of them), and view and day stay when you go to
-the chats and back.
+that day's lines (a past day only to read) with a "Today" button back, a button opens a small month, two symbols switch
+between Tasks and Calendar, "Next" shows the coming appointments (a run of close ones all of them), and view and day
+stay when you go to the chats and back. On a phone every control of the line is a full finger's size.
 
 ## 0.3.18
 

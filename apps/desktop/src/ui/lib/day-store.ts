@@ -8,7 +8,8 @@
 // and the window is loaded again. Every call is gated with can(): a connection that may not call a method gets an
 // empty value, never a refused call. The day clock is one timeout to the next block start or end or the next local
 // midnight in the day's zone, re-armed when the window changes – never an interval.
-// Owns: these signals, their loader, the event apply, the clock and the sync on coming to the front.
+// Owns: these signals, their loader (and listEvents, a range read beside the window), the event apply, the clock and
+// the sync on coming to the front.
 // Never: renders, decides what the page shows (ui/tasks/calendar-model.ts), writes (the page's calls do), imports
 // the store (store.ts imports this) or polls.
 
@@ -116,6 +117,15 @@ export async function loadDay(range?: DayRange, options: LoadDayOptions = {}): P
     const list = readList(await call('calendar.list', { from: shown.from, to: shown.to }), zone.peek());
     if (request === calendarRequest) calendarWindow.value = list ? { ...shown, list } : null;
   } catch { /* keep what is shown (no calendar service yet, or the connection went away) */ }
+}
+
+/**
+ * calendar.list for a range beside the window – the small month's dots on the Tasks page: its events, or none. Never
+ * touches the window the page shows; never rejects.
+ */
+export async function listEvents(range: DayRange, call: LoadCall = rpc.call): Promise<CalendarEvent[]> {
+  if (!can('calendar.list')) return [];
+  try { return readList(await call('calendar.list', { from: range.from, to: range.to }), zone.peek())?.events ?? []; } catch { return []; }
 }
 
 // ------------------------------------------------------------------ events and the clock

@@ -1,13 +1,14 @@
 // What the Tasks page says about a day and what comes next (src/ui/tasks/day-preview.ts): "Next" – the first
 // appointment that has not ended (the one going on now says so), every one that follows it within NEXT_GAP_MIN, never
 // more than NEXT_MAX, a switched-off calendar, an all-day event, an agent's to-do, a done or day-only to-do left out; a
-// day's lines in order (without a time first); which days of the line hold something.
+// day's lines in order (without a time first, an all-day event "All day", a quest's to-do with its quest); which days of
+// the line hold something; a day's heading (no 0, "Read only" on a past day).
 // Owns: these assertions only. Never: the DOM, rpc or a real clock.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentRun, CalendarEvent } from '../../../src/shared/model/calendar.ts';
-import { busyDays, dayAgenda, nextUp, NEXT_MAX } from '../../../src/ui/tasks/day-preview.ts';
+import { ALL_DAY, busyDays, dayAgenda, dayHead, nextUp, NEXT_MAX } from '../../../src/ui/tasks/day-preview.ts';
 
 const TZ = 'Europe/Berlin';
 const H = 3_600_000;
@@ -25,6 +26,8 @@ const tasks: Record<string, { title: string; at?: number; minutes?: number; pare
   task_call: { title: 'Call Gerlinde', at: MIDNIGHT + 15 * H, minutes: 30 },
   task_day: { title: 'Belege sammeln', at: MIDNIGHT },
   task_agent: { title: 'Signed installer', at: MIDNIGHT + 12 * H, minutes: 30 },
+  task_offer: { title: 'Send the offer', at: MIDNIGHT + 9 * H, minutes: 30, parentId: 'task_q1' },
+  task_q1: { title: 'Clara project' },
 };
 const lookup = (id: string) => tasks[id];
 const todo = (id: string, patch: Partial<CalendarEvent> = {}) => row(id, { kind: 'todo', title: undefined, taskId: id, sourceId: 'local', ...patch });
@@ -94,4 +97,24 @@ test('busy days: an event or the person\'s to-do marks its days, a hidden calend
     todo('task_call', { startAt: MIDNIGHT + 15 * H, endAt: MIDNIGHT + 15 * H + 30 * M }),
   ];
   assert.deepEqual([...busyDays(rows, days, TZ, new Set(['ics2']))].sort(), ['2026-11-23', '2026-11-24']);
+});
+
+test('the lines of a day: an all-day event says "All day", a to-do without a time nothing; a to-do in a quest names it', () => {
+  const rows = [
+    row('trip', { allDay: true, startAt: MIDNIGHT, endAt: MIDNIGHT + 24 * H }),
+    todo('task_day', { startAt: MIDNIGHT, endAt: MIDNIGHT + 30 * M }),
+    todo('task_offer', { startAt: MIDNIGHT + 9 * H, endAt: MIDNIGHT + 9 * H + 30 * M }),
+    row('a'),
+  ];
+  const lines = dayAgenda(rows, [], DATE, TZ, lookup);
+  assert.deepEqual(lines.map((line) => [line.id, line.time, line.quest]), [
+    ['trip', ALL_DAY, undefined], ['task_day', '', undefined], ['task_offer', '09:00', 'Clara project'], ['a', '10:00', undefined],
+  ]);
+});
+
+test('the heading of a day: no count beside an empty day, "Read only" on a past day that holds something', () => {
+  assert.deepEqual(dayHead('2026-11-21', DATE, 0), { text: 'Saturday, November 21', count: null, readOnly: false });
+  assert.deepEqual(dayHead('2026-11-21', DATE, 2), { text: 'Saturday, November 21', count: 2, readOnly: true });
+  assert.deepEqual(dayHead('2026-11-22', DATE, 1), { text: 'Yesterday · Sunday, November 22', count: 1, readOnly: true });
+  assert.deepEqual(dayHead('2026-11-24', DATE, 5), { text: 'Tomorrow · Tuesday, November 24', count: 5, readOnly: false });
 });

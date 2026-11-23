@@ -91,6 +91,12 @@ export function showDay(scope: PageScope, date: string | null): void {
   navigate(date ? { ...rest, date } : rest, { replace: true });
 }
 
+/** "Today": the page's own day again, the line around it (also when the arrows paged it far away). */
+export function backToToday(scope: PageScope): void {
+  showDay(scope, null);
+  linePaged[scope].value = null;
+}
+
 /** A day the route brought (a link, a notification): the page keeps it like a chosen one. */
 export function followRouteDay(): void {
   const date = routePart().date;

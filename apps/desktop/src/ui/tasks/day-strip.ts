@@ -7,9 +7,9 @@
 // Owns: these rules. Never: the DOM, rpc, signals or a clock – callers pass dates (YYYY-MM-DD) and widths.
 
 import { weekOf } from './calendar-model.ts';
-import { shiftDate, weekdayOf } from './when-text.ts';
+import { headTitle, shiftDate, weekdayOf } from './when-text.ts';
 
-/** One day of the line: its slot is this wide (px) – the circle and the gap. */
+/** One day of the line: its slot is at least this wide (px) – the circle and the gap; larger letters widen it. */
 export const DAY_SLOT_PX = 36;
 /** Never fewer, never more days in the line. */
 export const MIN_DAYS = 3;
@@ -18,15 +18,24 @@ export const MAX_DAYS = 7;
 export const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-/** How many days fit into `widthPx` (MIN_DAYS … MAX_DAYS; nothing measured yet: five). */
-export function dayCount(widthPx: number): number {
+/**
+ * How many days fit into `widthPx` (MIN_DAYS … MAX_DAYS; nothing measured yet: five). `slotPx` is one day's measured
+ * width – larger text (the labels size, the system's font scale) widens a day, so fewer fit; never under DAY_SLOT_PX.
+ */
+export function dayCount(widthPx: number, slotPx = DAY_SLOT_PX): number {
   if (!(widthPx > 0)) return 5;
-  return Math.max(MIN_DAYS, Math.min(MAX_DAYS, Math.floor(widthPx / DAY_SLOT_PX)));
+  const slot = Math.max(DAY_SLOT_PX, Number.isFinite(slotPx) ? slotPx : DAY_SLOT_PX);
+  return Math.max(MIN_DAYS, Math.min(MAX_DAYS, Math.floor(widthPx / slot)));
 }
 
 /** The line's first day when the person did not page it: the chosen day's week (seven days), else the day before it. */
 export function autoStart(chosen: string, count: number): string {
   return count >= 7 ? weekOf(chosen)[0] : shiftDate(chosen, -1);
+}
+
+/** A day said in words (its button's name; the dot under it too): "Tuesday, November 24 (today), has entries". */
+export function dayLabel(date: string, today: string, busy = false): string {
+  return `${headTitle(date)}${date === today ? ' (today)' : ''}${busy ? ', has entries' : ''}`;
 }
 
 /** The days the line shows: from `paged` (where its arrows left it) or around the chosen day. */

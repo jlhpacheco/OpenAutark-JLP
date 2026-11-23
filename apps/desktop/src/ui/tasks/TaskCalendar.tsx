@@ -7,7 +7,7 @@
 // there; without text it puts the caret into the line. A click on a block opens its detail – where this calendar was.
 // A week's block shows its title whole words at a time (a long word is cut at the column's edge, never split letter by
 // letter; its tooltip has it all). The day's head names it ("Monday, November 23"; the page's head is the day line
-// now); a past day is only read (no slot clicks, no drags).
+// now); a past day is only read (no slot clicks, no drags). On one column another day's head carries "Today".
 // Owns: the grid's markup, the drag and the slot click. Never: what a day shows (calendar-model.ts) or the calls.
 
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
@@ -16,7 +16,7 @@ import { calendarWindow, dayZone } from '../lib/day-store.ts';
 import { agentName } from '../lib/store.ts';
 import { DAY_MINUTES, HOUR_PX, atMinute, clickSpan, dayView, dragged, spanClock, weekOf, type CalItem, type Laned, type Lookup } from './calendar-model.ts';
 import { moveRow } from './page-actions.ts';
-import { lineOf, openDetail, workOpen, type PageScope } from './page-state.ts';
+import { backToToday, lineOf, openDetail, workOpen, type PageScope } from './page-state.ts';
 import { submitLine } from './TaskInput.tsx';
 import { dayWord, headTitle, weekdayOf } from './when-text.ts';
 import { wallOf } from '../../shared/text/when.ts';
@@ -36,6 +36,8 @@ export interface CalendarProps {
   quest?: Task;
   /** A past day: only to read – a click into the hours adds nothing, a block does not move. */
   readOnly?: boolean;
+  /** One column (the list is not beside it): on another day its head carries "Today" (Mika's review 23.11.2026). */
+  todayButton?: boolean;
 }
 
 function Block(props: { entry: Laned; scope: PageScope; date: string; readOnly: boolean; drag: { id: string; dy: number } | null; onDrag: (id: string | null, dy: number) => void }) {
@@ -176,7 +178,9 @@ export function TaskCalendar(props: CalendarProps) {
     <section class="task-cal" aria-label="Calendar">
       <div class="cal-head">
         <span>{week ? `Week of ${dayWord(weekOf(props.date)[0], props.today)}` : `${headTitle(props.date)}${workOpen.value ? ' · AI lane on' : ''}`}</span>
-        <span>{week ? '✓ = done' : 'Logbook before now'}</span>
+        {props.todayButton && props.date !== props.today
+          ? <button type="button" class="day-list-today" onClick={() => backToToday(props.scope)}>Today</button>
+          : <span>{week ? '✓ = done' : 'Logbook before now'}</span>}
       </div>
       {week ? <WeekGrid {...props} /> : <DayGrid {...props} />}
     </section>
