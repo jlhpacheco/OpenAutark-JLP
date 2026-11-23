@@ -13,7 +13,7 @@ import { RECEIVER_KEY_ID, SERVICE_ACCOUNT_ID, SETUP_KEY } from '../../../src/run
 import { readReceiver } from '../../../src/runtime/feedback/receiver.ts';
 import { publicKeyOf } from '../../../src/runtime/feedback/seal.ts';
 import { SYSTEM_ID } from '../../../src/shared/ids.ts';
-import type { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import type { MemoryLogger } from '../fakes.ts';
 import { KvRepo } from '../../../src/runtime/store/kv.ts';
 import { fakeRuntime, wf } from '../cli/fake-runtime.ts';
 import { API_KEY, PROJECT, feedbackEnv, serviceAccount, type Env } from './fakes.ts';

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { WakeQueueImpl } from '../../../src/runtime/wakes/queue.ts';
 import { MailWaker, mailOrigin } from '../../../src/runtime/apps/mail-wake.ts';
 import type { Connector } from '../../../src/runtime/apps/types.ts';

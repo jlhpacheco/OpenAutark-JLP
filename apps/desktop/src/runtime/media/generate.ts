@@ -14,7 +14,7 @@ import type { RuntimeServices } from '../contracts.ts';
 import type { Account, ModelFunction, ProviderId } from '../../shared/model/providers.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import { functionStatus } from '../models/functions.ts';
-import { chargeOf } from '../models/pricing.ts';
+import { accountCharge } from '../../shared/model/charge.ts';
 import { adapterFor } from './providers/index.ts';
 import { speechRetired } from './providers/openai.ts';
 import type { Generated, GenerationKind, GenerationRequest, MediaAdapter, MediaFetch } from './providers/types.ts';
@@ -101,7 +101,7 @@ export function resolveTarget(s: GenerateServices, fn: ModelFunction | Generatio
   if (kind === 'speech' && speechRetired(account.provider, status.choice.model)) {
     return { error: unusable(`OpenAI turned ${status.choice.modelId} off on 06.01.2027. Choose another speech model (${where}).`) };
   }
-  return { target: { kind, account, model: status.choice.model, modelId: status.choice.modelId, paid: chargeOf(account) === 'paid', adapter } };
+  return { target: { kind, account, model: status.choice.model, modelId: status.choice.modelId, paid: accountCharge(account) === 'paid', adapter } };
 }
 
 /** The target, or the clear error. */

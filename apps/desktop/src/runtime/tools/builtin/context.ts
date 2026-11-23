@@ -6,7 +6,7 @@
 import type { ToolDef } from '../types.ts';
 import { text } from '../types.ts';
 import { threadKey } from '../../../shared/model/origin.ts';
-import { MAX_RESTORE_IDS, restoreItems } from '../../context/ledger/restore.ts';
+import { MAX_RESTORE_IDS, restoreFetched } from '../../context/ledger/restore.ts';
 import { PIN_TURNS } from '../../../shared/model/context-ledger.ts';
 import { defineTool, internal } from './util.ts';
 
@@ -24,7 +24,7 @@ const restore = defineTool<{ ids: string[]; keep?: boolean }>({
   category: 'read',
   describe: (args) => internal(`Restore ${args.ids.slice(0, 5).join(', ')}${args.keep ? ' (keep)' : ''}`),
   async run(args, ctx) {
-    return text(restoreItems(ctx.services, ctx.agent.id, threadKey(ctx), { ids: args.ids, ...(args.keep !== undefined ? { keep: args.keep } : {}) }));
+    return text(await restoreFetched(ctx.services, ctx.agent.id, threadKey(ctx), { ids: args.ids, ...(args.keep !== undefined ? { keep: args.keep } : {}) }));
   },
 });
 

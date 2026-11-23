@@ -44,10 +44,10 @@ const DEVICE_SETTINGS: ReadonlySet<string> = new Set(['preferences', 'notificati
 /** B-084: the sections a 'settings' device on a secure transport (my phone app's tunnel) changes as well; 16.11.2026
  * 'calendar' (Settings › Calendar › Use your own Google app on the phone). */
 const SECURE_DEVICE_SETTINGS: ReadonlySet<string> = new Set(['routing', 'voice', 'devices', 'profile', 'day', 'calendar']);
-/** Preferences that change the PC itself (window close, login item, updates). Owner 12.11.2026: my own securely paired
+/** Preferences that change the PC itself (login item, updates). Owner 12.11.2026: my own securely paired
  * phone reaches all my settings, so a secure 'settings' device changes them too (main applies them on change); a plain-LAN
  * device or a colleague does not. */
-const PC_PREFERENCES: ReadonlySet<string> = new Set(['closeToTray', 'openAtLogin', 'autoDownloadUpdates']);
+const PC_PREFERENCES: ReadonlySet<string> = new Set(['openAtLogin', 'autoDownloadUpdates']);
 const MAX_TOPICS = 256;
 const MAX_DRAFT = 100_000;
 /** The answer to every caller of system.prepareRestart but main's own link – read by the agent whose script called it. */
@@ -182,6 +182,18 @@ export function register(table: HandlerTable): void {
     return { ok: true };
   }, TODO);
 
+  table.add('todos.speechLanguage', (_params, ctx) => {
+    const value = ctx.services.settings.get().profile.language;
+    const raw = typeof value === 'string' && value.length <= 64 ? value.trim().replaceAll('_', '-') : '';
+    if (!raw || !/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/.test(raw)) return { language: null };
+    try {
+      // baseName excludes locale extensions/private-use parameters not needed for recognition.
+      const locale = new Intl.Locale(raw);
+      return { language: (!locale.language || locale.language === 'und') ? null : locale.baseName };
+    } catch {
+      return { language: null };
+    }
+  }, TODO);
   table.add('settings.get', (_params, ctx) => ctx.services.settings.get(), TODO);
   table.add('settings.update', (params, ctx) => updateSettings(params, ctx), SETTINGS);
   table.add('settings.securityLog', (_params, ctx) => readSecurityChanges(new KvRepo(ctx.services.db)), SETTINGS);

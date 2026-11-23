@@ -25,6 +25,7 @@ import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
 import { CELL_TIP, SENT_LINE, TOURS, TRANSCRIPT } from '../../src/ui/tour/timeline.ts';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const TOUR = TOURS.desktop;
 const DURATION = TOUR.duration;
@@ -61,7 +62,7 @@ test('feedback tour: choice card → dialog poster → play → seek through eve
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     assert.ok(overflow <= 1, `no horizontal page scroll at ${label} (${overflow}px)`);
   };
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   assert.deepEqual((await rpc.call('settings.get')).onboarding, { completed: false, step: 'tour' }, 'a new install starts with the choice card (step id tour)');
 
@@ -143,13 +144,12 @@ test('feedback tour: choice card → dialog poster → play → seek through eve
   await page.emulateMedia({ colorScheme: 'light' });
 
   // hold the dock's mic: it listens; let go: the words come into the field
-  await seek(firstOn('listen') + 900);
+  await seek(firstOn('listen') + 1800); // the ring first; "Listening…" 1.3 s into the hold (timeline.ts), let go at 3.3 s
   assert.ok(await player.locator('.tour-dock .tour-mic.active').isVisible(), 'the mic listens while held');
   assert.match(await player.locator('.tour-caption').textContent(), /Listening/);
   await shot('tour-05-listening-light');
   await seek(firstOn('sent') - 900);
   assert.equal((await player.locator('.tour-field').textContent()).trim(), TRANSCRIPT);
-  assert.match(await player.locator('.tour-rec-hint').textContent(), /^0:0\d – goes with the words\.$/);
   await shot('tour-06-transcript-light');
 
   await seek((PAINT_SPAN.start + PAINT_SPAN.end) / 2);

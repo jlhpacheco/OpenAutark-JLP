@@ -1,27 +1,29 @@
-// My day's calendar (B-041, the My day concept §4–§5): the local calendar is the source,
-// connected calendars (ICS, Google) are mirrors. A row is either an event (a meeting, an appointment – it has
-// its own title) or a time block of a task ('todo', taskId set – it has NO title: the view reads the task, so
-// task text is never copied). Rows are keyed by member (`ownerId` 'human' = the owner, or a person's per_… id)
-// from day one, although this build serves the owner only. Plus the task fields My day adds (estimate,
-// window, preparation) and the results of planning and the morning briefing.
-// Owns: these shapes and their small limits. Never: behaviour (runtime/calendar/*, runtime/day/*), task text
-// copies, or secrets (an ICS address or a refresh token lives in the vault; a source keeps only its handle).
+// The calendar of the Tasks page (B-041, Quests round 20.11.2026): the local calendar keeps appointments (kind 'event',
+// a row with its own title); connected calendars (ICS, Google) are mirrors. A to-do with a time (Task.at/minutes) shows
+// as a row of kind 'todo' that is never stored – the calendar reads it from the task (id = taskId = the task's id, no
+// title: the view reads the task, so task text is never copied). Rows are keyed by member (`ownerId` 'human' = the
+// owner, a person's per_… id, or an agent's id for its own to-dos on the AI lane).
+// Owns: these shapes and their small limits. Never: behaviour (runtime/calendar/*), task text copies, or secrets (an ICS
+// address or a refresh token lives in the vault; a source keeps only its handle).
 
-export type CalendarEventKind = 'event' | 'todo'; // 'todo' = a time block of a task (taskId set)
+import type { Task } from './tasks.ts';
+
+/** 'todo' = a to-do with a time, read from its task (never stored). */
+export type CalendarEventKind = 'event' | 'todo';
 export const CALENDAR_EVENT_KINDS: readonly CalendarEventKind[] = ['event', 'todo'];
-/** Who placed it: 'person' = pinned (the planner never moves it), the planner, an agent, a source sync. */
-export type CalendarSetBy = 'person' | 'planner' | 'agent' | 'sync';
-export const CALENDAR_SET_BY: readonly CalendarSetBy[] = ['person', 'planner', 'agent', 'sync'];
-/** 'cut' = ended early when its task was checked off during the block. */
-export type CalendarEventState = 'planned' | 'done' | 'cut';
-export const CALENDAR_EVENT_STATES: readonly CalendarEventState[] = ['planned', 'done', 'cut'];
+/** Who placed it: 'person' = pinned (an agent never moves it), an agent, a source sync. */
+export type CalendarSetBy = 'person' | 'agent' | 'sync';
+export const CALENDAR_SET_BY: readonly CalendarSetBy[] = ['person', 'agent', 'sync'];
+/** 'done' = a finished to-do, kept at the time it was done (the logbook). */
+export type CalendarEventState = 'planned' | 'done';
+export const CALENDAR_EVENT_STATES: readonly CalendarEventState[] = ['planned', 'done'];
 
 export interface CalendarEvent {
   id: string;
-  ownerId: string; // 'human' (owner) or per_… – keyed by member from day one
+  ownerId: string; // 'human' (owner), per_… or (a to-do row) the agent that owns the to-do
   kind: CalendarEventKind;
   taskId?: string;
-  title?: string; // events only; todo blocks have NO title (read from the task)
+  title?: string; // events only; to-do rows have NO title (read from the task)
   notes?: string;
   startAt: number;
   endAt: number;
@@ -30,7 +32,7 @@ export interface CalendarEvent {
   sourceId: string; // 'local' or a calendar_sources id
   externalId?: string;
   etag?: string;
-  setBy: CalendarSetBy; // 'person' = pinned: planner never moves it
+  setBy: CalendarSetBy; // 'person' = pinned: an agent never moves it
   state: CalendarEventState;
   readOnly?: boolean; // from an ICS/Google read-only source
   createdBy: string;
@@ -41,6 +43,9 @@ export interface CalendarEvent {
 
 /** The id of the local calendar (CalendarEvent.sourceId of everything made in the app). */
 export const LOCAL_SOURCE_ID = 'local';
+
+/** A to-do's length on the calendar when it names no minutes. */
+export const DEFAULT_MINUTES = 30;
 
 export type CalendarSourceKind = 'ics' | 'google';
 export const CALENDAR_SOURCE_KINDS: readonly CalendarSourceKind[] = ['ics', 'google'];
@@ -68,9 +73,14 @@ export interface AgentRun {
   at: number;
 }
 
-/** calendar.list: the window's rows, the agents' runs (the optional lane), the zone all day math uses, sources not synced for > 24 h. */
+/**
+ * calendar.list: the window's rows (events, and a 'todo' row per to-do with a time – the person's, the agents' on the AI
+ * lane, and finished ones at the time they were done), the tasks those rows show, the agents' runs, the zone all day math
+ * uses, sources not synced for > 24 h.
+ */
 export interface CalendarList {
   events: CalendarEvent[];
+  tasks: Task[];
   agentRuns: AgentRun[];
   tz: string;
   staleSources: string[];
@@ -87,63 +97,8 @@ export interface CalendarAddInput {
   clientId?: string;
 }
 
-// ---------------------------------------------------------------- task fields of My day
-
-/** Where a to-do's estimate came from: said in the text > the person's correction > learned > model > the default 30 min. */
-export type EstimateSource = 'said' | 'person' | 'learned' | 'model' | 'default';
-export const ESTIMATE_SOURCES: readonly EstimateSource[] = ['said', 'person', 'learned', 'model', 'default'];
-/** The estimate when nothing else is known (minutes). */
-export const DEFAULT_ESTIMATE_MIN = 30;
-
-/** When a to-do can be done: 'HH:MM' bounds, local weekdays (0 = Sunday), one local day 'YYYY-MM-DD' – all in the profile zone. */
-export interface TaskWindow {
-  notBefore?: string;
-  notAfter?: string;
-  days?: number[];
-  date?: string;
-}
-
-/** An agent's preparation of a person's to-do (todos.prepare), shown by the host as "Prepared by …"; never a completion. */
-export interface TaskPrep {
-  byAgentId: string;
-  note: string; // ≤ TASK_PREP_LIMITS.note
-  links?: Array<{ label: string; url: string }>; // ≤ TASK_PREP_LIMITS.links
-  at: number;
-}
-export const TASK_PREP_LIMITS = Object.freeze({ note: 600, links: 5, label: 80, url: 2000 });
-
-// ---------------------------------------------------------------- planning and the morning briefing
-
-export type DayPlanMode = 'plan' | 'replan';
-export const DAY_PLAN_MODES: readonly DayPlanMode[] = ['plan', 'replan'];
-export type FocusAction = 'start' | 'stop';
-export const FOCUS_ACTIONS: readonly FocusAction[] = ['start', 'stop'];
-
-export interface DayPlanResult {
-  date: string;
-  placed: string[]; // event ids
-  moved: string[];
-  unplanned: Array<{ taskId: string; reason: string }>;
-  staleSources: string[];
-}
-
-export interface Briefing {
-  ownerId: string;
-  date: string;
-  at: number;
-  lines: string[]; // today's counts in one line (runtime/day/briefing.ts countLines; no model since 17.11.2026) – may be []
-  doneTaskIds: string[];
-  preparedTaskIds: string[];
-  waitingToStart: number;
-  planned: number;
-  needsYou: number;
-  chats: Array<{ conversationId: string; reason: string }>; // reason ≤ BRIEFING_LIMITS.reason
-  /** B-059: when the PC slept since last evening while agent work waited (runtime/day/keep-awake.ts); absent on older rows. */
-  slept?: SleepSpan[];
-}
-/** B-059: one sleep of the PC (suspend → resume, epoch ms). */
+/** B-059: one sleep of the PC (suspend → resume, epoch ms; runtime/day/keep-awake.ts). */
 export interface SleepSpan { from: number; to: number }
-export const BRIEFING_LIMITS = Object.freeze({ chats: 5, reason: 80 });
 
 // ---------------------------------------------------------------- B-078 (D20): a person's calendar on their page
 

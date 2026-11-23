@@ -1,4 +1,4 @@
-// What I, my task's giver or my subconscious asked a coming turn to run on (model.set, tasks.create / tasks.give, the
+// What I, my task's giver or my subconscious asked a coming turn to run on (model.set, tasks.add / tasks.update for, the
 // call before a turn) and the choice a turn starts from.
 // 17.11.2026 (the model settles; measured 15.–17.11.: 36 switches were the return to a model several runs old, 38 a task's
 // model request from its giver, re-resolved on every turn of an agent that worked on two things): the model I am on is
@@ -31,6 +31,7 @@
 // and availability bounds (routing/previous.ts).
 
 import type { Db } from '../db/database.ts';
+import { KvRepo } from '../store/kv.ts';
 import type { ModelCatalog, RouteRequest } from '../contracts.ts';
 import type { Effort, ModelInfo } from '../../shared/model/providers.ts';
 import { ROUTE_BY_REQUEST, type Run } from '../../shared/model/runs.ts';
@@ -54,20 +55,9 @@ function taskKey(agentId: string, taskId: string): string {
   return `${agentId}:${taskId}`;
 }
 
-function put(db: Db, ns: string, k: string, value: object, at: number): void {
-  db.run('INSERT INTO kv (ns, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(ns, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
-    [ns, k, JSON.stringify(value), at]);
-}
-
-function read(db: Db, ns: string, k: string): NextRoute | undefined {
-  const row = db.get<{ value: string }>('SELECT value FROM kv WHERE ns = ? AND key = ?', [ns, k]);
-  if (!row) return undefined;
-  try { return JSON.parse(row.value) as NextRoute; } catch { return undefined; }
-}
-
-function drop(db: Db, ns: string, k: string): void {
-  db.run('DELETE FROM kv WHERE ns = ? AND key = ?', [ns, k]);
-}
+const put = (db: Db, ns: string, k: string, value: object, at: number): void => new KvRepo(db).set(ns, k, value, at);
+const read = (db: Db, ns: string, k: string): NextRoute | undefined => new KvRepo(db).get<NextRoute>(ns, k);
+const drop = (db: Db, ns: string, k: string): void => { new KvRepo(db).delete(ns, k); };
 
 /** `value` without its undefined fields. */
 function set<T extends object>(value: T): T {
@@ -151,8 +141,7 @@ export type PendingRoute = Omit<NextRoute, 'by'> & { stepAt?: number; modelAt?: 
  */
 export function pendingRoute(db: Db, agentId: string, taskId: string | undefined, finished: (taskId: string) => boolean): PendingRoute | undefined {
   const prefix = `${agentId}:`;
-  const rows = db.all<{ key: string }>('SELECT key FROM kv WHERE ns = ? AND substr(key, 1, ?) = ?', [TASK_NS, prefix.length, prefix]);
-  for (const row of rows) if (finished(row.key.slice(prefix.length))) drop(db, TASK_NS, row.key);
+  for (const row of new KvRepo(db).list(TASK_NS, prefix)) if (finished(row.key.slice(prefix.length))) drop(db, TASK_NS, row.key);
   const step = read(db, NS, agentId);
   const model = read(db, MODEL_NS, agentId);
   const scoped = taskId ? read(db, TASK_NS, taskKey(agentId, taskId)) : undefined;

@@ -14,6 +14,8 @@
 // at once, its group already runs.
 // KI-Runde 17.11.2026 (managers' briefs lacked their parts, parts ran on the origin's model): the brief's description names
 // what a brief carries and the model's names the piece; a note from a part wakes the origin for a whole turn (nextText).
+// Halb 21.11.2026 (0 of 23 parts named a model live): a fresh part says its `needs` – what its hardest step asks – and the
+// router picks its model from that (splits/validate.ts requires it, routing/split-route.ts maps it).
 // Decision 10 (a lead needs a look-up inside its own turn): with `wait` the parts start at the call and it answers with
 // what each of them brought back – one tool call of the origin, the same brief, model, journal and cost as every part
 // (splits/wait.ts, splits/service.ts waitFor); a line for that turn ends the wait early, and the parts are gathered when
@@ -24,7 +26,7 @@
 import type { ToolContext, ToolDef } from '../types.ts';
 import { failure, json, text } from '../types.ts';
 import { WorkforceError } from '../../../shared/errors.ts';
-import { SPLIT_LIMITS, type SplitGroupView, type SplitPartInput } from '../../../shared/model/splits.ts';
+import { SPLIT_LIMITS, SPLIT_NEEDS, type SplitGroupView, type SplitPartInput } from '../../../shared/model/splits.ts';
 import type { SplitCreateContext } from '../../contracts/splits.ts';
 import { EFFORT_ORDER } from '../../models/efforts.ts';
 import { turnCwd } from '../../git/records.ts';
@@ -49,8 +51,9 @@ const PART_SCHEMA = {
     title: { type: 'string', minLength: 1, maxLength: SPLIT_LIMITS.titleChars },
     brief: { type: 'string', minLength: 1, maxLength: SPLIT_LIMITS.briefChars, description: 'All the part knows, in plain sentences: for whom and why, what good looks like, what is known and decided, how it checks its result itself.' },
     returns: { type: 'string', minLength: 1, maxLength: SPLIT_LIMITS.returnsChars, description: 'What I want back.' },
-    context: { type: 'string', enum: ['brief', 'fork'], description: 'brief (default): starts fresh from its brief, like a new session – a smaller model often fits; fork: starts as me up to now, for a piece that needs what I just learned.' },
-    model: { type: 'string', minLength: 1, maxLength: 200, description: 'The model the hardest step of this piece needs; unset, it runs on my model, a fresh part on the strong tier\'s best value when mine is above it.' },
+    context: { type: 'string', enum: ['brief', 'fork'], description: 'brief (default): starts fresh from its brief; fork: starts as me up to now, for a piece needing what I just learned.' },
+    needs: { type: 'string', enum: [...SPLIT_NEEDS], description: 'What the piece\'s hardest step asks of whoever does it. check: its result can be held line by line against what is given. chain: a long way over many sources, cases or steps, each needing care. judgment: it hangs on meaning, tone, a decision or edge cases that must hold.' },
+    model: { type: 'string', minLength: 1, maxLength: 200, description: 'A model by name instead; unset, needs decides.' },
     effort: { type: 'string', enum: [...EFFORT_ORDER] },
     temperature: { type: 'number', minimum: 0, maximum: TEMPERATURE_MAX },
     after: { type: 'array', items: { type: 'integer', minimum: 1, maximum: SPLIT_LIMITS.partsPerCall - 1 }, maxItems: SPLIT_LIMITS.partsPerCall - 1, description: 'Parts it waits for.' },
@@ -61,8 +64,9 @@ const PART_SCHEMA = {
 };
 
 const DESCRIPTION = 'Splits my work into parts of me that run in parallel and come back into me. '
-  + 'They start when my turn ends, so I end it; each comes back with its last words, a note from one wakes me for a whole turn, and agents.split_tell talks with them while they work. '
-  + 'With wait they start at once and this one call brings their last words back inside my turn – how I get a look-up or a check done on the model that piece needs while my own context stays small; a new line for me ends the wait early. From a part it answers at once. '
+  + 'They start when my turn ends, so I end it; each comes back with its last words; a note from one wakes me for a whole turn. '
+  + 'A fresh part runs on the model its needs asks for, not on mine. '
+  + 'With wait they start at once and this call brings their last words back inside my turn; a new line for me ends the wait. '
   + '4 run at once, more wait.';
 
 /** The turn's working folder (agents/turn-attempt.ts: turnCwd of its task and agent). */

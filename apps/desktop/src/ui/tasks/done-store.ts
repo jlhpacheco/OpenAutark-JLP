@@ -7,7 +7,7 @@
 import { signal } from '@preact/signals';
 import type { TaskFilter, TaskView } from '../../shared/model/tasks.ts';
 import { RpcError, rpc } from '../lib/rpc.ts';
-import { finishedAt, isFinished } from './model.ts';
+import { finishedAt, isFinished } from './work-model.ts';
 
 /** Finished (done/cancelled) top-level tasks known to this client. */
 export const doneTasks = signal<TaskView[]>([]);

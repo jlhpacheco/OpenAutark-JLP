@@ -4,10 +4,16 @@
 // app's own notifications) and "Forget this phone", and – B-078 – the "Connect a phone" hint and the words of a phone's
 // request (role 'phone'). F09: the PCs on this network grouped by PC (nearbyGroups: a PC's companies under it). F17: a
 // request waiting on another of my PCs names that PC; the QR hint says the digits are this PC's. F29: a phone's
-// connection row (direct or via the meeting server, bytes of each today) and the iPhone web app's line.
+// connection row (direct or via the meeting server, bytes of each today) and the iPhone web app's line. Sicher-Runde
+// 19.11.2026: a PC that said goodbye (device.bye, Device.away) reads "App closed · 14:02" / "Updating… · since 14:02" /
+// "Signed out or shut down · 14:02" instead of "Not reachable".
+// Eine-ID 22.11.2026 (owner: one ID per company, one per person, no role to pick): the "Company ID" and "My ID" rows'
+// hints, the waiting line by the role the PC asked answered ("Joining Dojo as a new member" / "Adding to your devices"),
+// a request's words by its role ("… wants to join Dojo as a new member" / "… wants to be one of your devices") and the ID
+// a nearby row's Connect asks with (its company's ID). Fest round 22.11.2026 (G): a device row's round trip (linkHint).
 // Owns: these pure formatters (test/unit/devices/connect-text.test.ts, test/unit/ui/push-hint.test.ts). Never: RPC or rendering.
 
-import type { Device } from '../../shared/model/devices.ts';
+import { LINK_STALE_MS, type Device } from '../../shared/model/devices.ts';
 import type { NearbyPc, RemoteIncoming, RemoteOutgoing } from '../../shared/model/remote.ts';
 import type { PhoneLink, RelayState } from '../../shared/model/relay.ts';
 import { fileSize } from '../lib/format.ts';
@@ -34,15 +40,25 @@ export interface ConnectLine {
   action?: 'cancel' | 'close';
 }
 
-export const CONNECT_HINT = 'PCs nearby are listed above; others by Remote ID or address';
+export const CONNECT_HINT = 'PCs nearby are listed above; others by ID or address';
+
+/** The company a request joins as the PC asked named it, else that PC. */
+const companyOf = (out: Pick<RemoteOutgoing, 'company' | 'name'>): string => out.company?.trim() || out.name;
 
 export function connectLine(out: RemoteOutgoing | undefined, error: string | null): ConnectLine {
   if (error) return { text: error, tone: 'error' };
   if (!out) return { text: CONNECT_HINT };
-  const as = out.role === 'employee' ? ' as an employee' : '';
   switch (out.status) {
-    case 'waiting': return { text: `Waiting for ${out.name} to accept${as} – it shows the same code`, code: out.code, action: 'cancel' };
-    case 'accepted': return { text: `Connected with ${out.name}${as}`, tone: 'ok', action: 'close' };
+    // Review H1: one of another person's devices only with this side's yes (remote.confirm); the code comes after it
+    case 'confirm': return { text: `Add this PC to ${out.person?.trim() || out.name}'s devices? Everything here is shared with them.`, action: 'cancel' };
+    case 'waiting': return {
+      text: out.role === 'employee' ? `Joining ${companyOf(out)} as a new member` : out.role === 'ceo' ? 'Adding to your devices' : `Asking ${out.name}`,
+      code: out.code, action: 'cancel',
+    };
+    case 'accepted': return {
+      text: out.role === 'employee' ? `Joined ${companyOf(out)} as a new member` : out.role === 'ceo' ? `${out.name} is one of your devices now` : `Connected with ${out.name}`,
+      tone: 'ok', action: 'close',
+    };
     case 'declined': return { text: `${out.name} declined${out.reason ? `: ${out.reason}` : ''}`, tone: 'error', action: 'close' };
     case 'expired': return { text: `Nobody accepted on ${out.name} in time`, tone: 'error', action: 'close' };
     case 'cancelled': return { text: 'Cancelled', action: 'close' };
@@ -51,9 +67,8 @@ export function connectLine(out: RemoteOutgoing | undefined, error: string | nul
 }
 
 /** The Remote ID row's hint: how other PCs find this one – through the meeting server, or only on this network. */
-export function remoteIdHint(relay: RelayState | undefined, findable: boolean | undefined): string {
+export function remoteIdHint(relay: RelayState | undefined, findable: boolean | undefined, base = 'Type it on another PC to connect'): string {
   if (findable === false) return 'This PC does not accept connection requests (settings.json devices.findable)';
-  const base = 'Type it on another PC to connect';
   if (!relay) return base;
   if (relay.status === 'connected') return `${base} · meeting server connected`;
   if (relay.status === 'off') return `${base} · only this network (meeting server off)`;
@@ -62,30 +77,40 @@ export function remoteIdHint(relay: RelayState | undefined, findable: boolean | 
   return `${base} · only this network for now (${why})`;
 }
 
+/** Eine-ID: the "Company ID" row's start (remoteIdHint adds the meeting server's state) and the "My ID" row's hint. */
+export const COMPANY_ID_BASE = 'New members type it';
+export const MY_ID_HINT = 'Type it on another PC of yours to add it · phones scan the QR';
+
+/** Eine-ID: while this PC's request waits as a new member, the "Your name" field shows (remote.name). */
+export const waitsAsMember = (out: Pick<RemoteOutgoing, 'status' | 'role'> | undefined): boolean => out?.status === 'waiting' && out.role === 'employee';
+
+/** Eine-ID: a nearby row's Connect asks with its company's ID (a new member there); an older PC's own Remote ID. */
+export const nearbyTarget = (pc: Pick<NearbyPc, 'companyId' | 'remoteId'>): string => pc.companyId ?? pc.remoteId;
+
 /** A paired phone's dot: 'online' while it was used in the last minutes. */
 export function phoneDot(device: { lastSeenAt?: number }, now = Date.now()): 'online' | 'offline' {
   return device.lastSeenAt !== undefined && now - device.lastSeenAt < PHONE_IN_USE_MS ? 'online' : 'offline';
 }
 
 /**
- * The hint beside the "Connect a phone" QR: my phone (the Android app, or the iPhone web app from the website on the Home
- * Screen – chat sweep 16.11.2026: no App Store, no Apple account; F17: the digits before it are this PC's own, so the
- * phone's request lands here) or an employee's invite.
+ * The hint beside the "Connect a phone" QR (the Android app, or the iPhone web app from the website on the Home Screen –
+ * chat sweep 16.11.2026: no App Store, no Apple account; F17: the digits before it are this PC's own, so the phone's
+ * request lands here). An employee's phone asks the same way; Accept says whose it is.
  */
-export function phoneQrHint(employee: boolean): string {
-  return employee
-    ? 'Scan with the phone camera, or type the code under “I was invited”: it joins as this employee'
-    : 'This PC · in the Autark app on Android scan this or type these digits – on an iPhone in the web app from openautark.com, added to the Home Screen from Safari – then accept here when both show the same code';
-}
+export const PHONE_QR_HINT = 'This PC · in the Autark app on Android scan this or type these digits – on an iPhone in the web app from openautark.com, added to the Home Screen from Safari – then accept here when both show the same code';
 
 /** A request is the owner's phone app (B-078; shared/model/remote.ts types the PC roles). */
 export const isPhoneRequest = (request: Pick<RemoteIncoming, 'role'>): boolean => request.role === 'phone';
 
-/** The label and hint of a request: a PC (as an employee, maybe) or my phone – waiting here or (F17) on `via`, another of my PCs. */
-export function incomingText(request: Pick<RemoteIncoming, 'role' | 'name' | 'code' | 'via'>): { label: string; hint: string } {
+/**
+ * The label and hint of a request: a new member of `company` (this company's name, where it has one), one of my devices,
+ * or my phone – waiting here or (F17) on `via`, another of my PCs.
+ */
+export function incomingText(request: Pick<RemoteIncoming, 'role' | 'name' | 'code' | 'via'>, company?: string): { label: string; hint: string } {
   const to = request.via ? ` ${request.via.name}` : '';
   if (isPhoneRequest(request)) return { label: `Phone ${request.name} asks${to} to connect`, hint: `Accept only if the phone shows the code ${request.code}` };
-  return { label: `${request.name} wants to connect${request.via ? ` to ${request.via.name}` : ''}${request.role === 'employee' ? ' as an employee' : ''}`, hint: `Accept only if ${request.name} shows the code ${request.code}` };
+  const wants = request.role === 'employee' ? `wants to join${company?.trim() ? ` ${company.trim()}` : ''} as a new member` : 'wants to be one of your devices';
+  return { label: `${request.name} ${wants}${request.via ? ` · on ${request.via.name}` : ''}`, hint: `Accept only if ${request.name} shows the code ${request.code}` };
 }
 
 /** F09: one PC on this network with the companies on it that answered (each its own key and Remote ID). */
@@ -110,9 +135,9 @@ export function nearbyGroups(list: readonly NearbyPc[]): NearbyGroup[] {
   return groups.map(({ key, name, pcs }) => ({ key, name, pcs }));
 }
 
-/** The hint of a nearby row: a PC alone ("On this network · Teydra Lab · Remote ID …"), or one company under its PC. */
-export function nearbyHint(pc: Pick<NearbyPc, 'company' | 'remoteId'>, underPc: boolean): string {
-  const id = `Remote ID ${groupDigits(pc.remoteId)}`;
+/** The hint of a nearby row: a PC alone ("On this network · Teydra Lab · Company ID …"), or one company under its PC. */
+export function nearbyHint(pc: Pick<NearbyPc, 'company' | 'companyId' | 'remoteId'>, underPc: boolean): string {
+  const id = `${pc.companyId ? 'Company ID' : 'ID'} ${groupDigits(nearbyTarget(pc))}`;
   return underPc ? id : ['On this network', pc.company, id].filter(Boolean).join(' · ');
 }
 
@@ -140,14 +165,39 @@ export function pushHint(status: PushStatus | undefined, who: { person: boolean;
 }
 
 const STATUS_TEXT: Partial<Record<Device['status'], string>> = { online: 'Online', connecting: 'Connecting…', offline: 'Not reachable' };
+/** An update that has not brought its PC back after this long did not land (the installer's own wait is far shorter). */
+export const UPDATE_BACK_MS = 20 * 60_000;
 
-/** "PC · Employee · Anna · Online", "Phone · Last used 09:12", "This PC". */
-export function deviceHint(device: Device, personName: (id: string) => string | undefined, time: (at: number) => string): string {
+/** What a PC that said goodbye is doing now ("App closed · 14:02"); '' while it is online or said nothing. */
+export function awayText(device: Pick<Device, 'away' | 'status'>, time: (at: number) => string, now = Date.now()): string {
+  const away = device.status === 'online' ? undefined : device.away;
+  if (!away) return '';
+  if (away.reason === 'update') return now - away.at < UPDATE_BACK_MS ? `Updating… · since ${time(away.at)}` : `Not back after its update · ${time(away.at)}`;
+  if (away.reason === 'session-end') return `Signed out or shut down · ${time(away.at)}`;
+  return `App closed · ${time(away.at)}`;
+}
+
+/** "PC · Employee · Anna · Online", "PC · App closed · 14:02", "Phone · Last used 09:12", "This PC". */
+export function deviceHint(device: Device, personName: (id: string) => string | undefined, time: (at: number) => string, now = Date.now()): string {
   if (device.self) return 'This PC';
   if (device.kind !== 'pc') return [device.kind === 'phone' ? 'Phone' : 'Browser', device.lastSeenAt ? `Last used ${time(device.lastSeenAt)}` : ''].filter(Boolean).join(' · ');
   const employee = device.personId ? `Employee · ${personName(device.personId) ?? 'a person'}` : '';
+  const away = awayText(device, time, now);
+  if (away) return ['PC', employee, away].filter(Boolean).join(' · ');
   const status = STATUS_TEXT[device.status] ?? device.status;
   return ['PC', employee, status, device.status !== 'online' && device.lastSeenAt ? `Last seen ${time(device.lastSeenAt)}` : ''].filter(Boolean).join(' · ');
+}
+
+/**
+ * G (22.11.2026): a device row's connection now – "45 ms", "1.2 s", "Slow connection · 450 ms" (runtime/devices/
+ * link-quality.ts decides `slow`); '' while unmeasured, for a PC that is not online and for a figure older than
+ * LINK_STALE_MS (a phone's kept list, device-wake.ts) – an old figure says nothing about now.
+ */
+export function linkHint(device: Pick<Device, 'kind' | 'status' | 'link'>, now = Date.now()): string {
+  const link = device.link;
+  if (!link || now - link.at > LINK_STALE_MS || (device.kind === 'pc' && device.status !== 'online')) return '';
+  const time = link.rttMs < 1000 ? `${link.rttMs} ms` : `${(link.rttMs / 1000).toFixed(1)} s`;
+  return link.slow ? `Slow connection · ${time}` : time;
 }
 
 /** F29: "Direct · 12.4 MB direct, 310 KB via the meeting server today" – a phone's way to this PC now and its bytes. */

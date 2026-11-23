@@ -1,6 +1,5 @@
 // Session renewal and catch-up over the real chat store, context service and run journal with
-// two recording engines (claude, codex): a seed binding left by an earlier version, the renewal
-// retry after an ended session (once per run), the catch-up of a session that missed another
+// two recording engines (claude, codex): the renewal retry after an ended session (once per run), the catch-up of a session that missed another
 // engine's turns, the dropped binding when too much was missed, and the engine-reported window. 13.11.2026: a renewed session
 // never gets a chat's history – only the new lines, after the agent's own record when it has one (none in this fixture).
 
@@ -10,8 +9,6 @@ import { fixture, model } from '../context/fixture.ts';
 import { account } from '../models/harness.ts';
 import { TurnExecutor } from '../../../src/runtime/agents/turn.ts';
 import { SessionStore } from '../../../src/runtime/agents/sessions.ts';
-import { SCHEMA_VERSION } from '../../../src/runtime/db/migrate.ts';
-import { sql as sessionRenewal } from '../../../src/runtime/db/migrations/005-session-renewal.ts';
 import type { Engine, EngineCaps, EngineTurnInput, EngineTurnResult } from '../../../src/runtime/engines/types.ts';
 import type { EngineId, ModelInfo, RouteDecision } from '../../../src/shared/model/providers.ts';
 
@@ -81,29 +78,6 @@ function setup() {
   };
 }
 
-test('a seed binding left by an earlier version is removed by migration 5; the next turn starts fresh without a chat history', async () => {
-  const h = setup();
-  h.send('Earlier question');
-  await h.turn('claude');
-  assert.equal(h.binding('claude')?.ref, 'claude-s1');
-  assert.ok(SCHEMA_VERSION >= 5);
-
-  // The database of an earlier version: no context_window yet, and a rebase seed that only
-  // lived in that process's memory (lost with the restart).
-  h.db.exec('ALTER TABLE engine_sessions DROP COLUMN context_window');
-  h.db.run(`UPDATE engine_sessions SET session_ref = 'seed:3f1c', generation = 0 WHERE agent_id = ?`, [h.agent.id]);
-  h.db.exec(sessionRenewal);
-  assert.equal(h.binding('claude'), undefined, 'the seed binding is gone');
-
-  h.send('New question');
-  const outcome = await h.turn('claude');
-  assert.equal(outcome.status, 'done');
-  const input = h.claude.calls[1];
-  assert.equal(input.session, undefined, 'a fresh native session');
-  assert.ok(textOf(input).includes('New question') && !textOf(input).includes('Earlier question'), textOf(input));
-  assert.equal(h.binding('claude')?.ref, 'claude-s2', 'a real session ref is saved');
-});
-
 test('an ended session is renewed once in the same run (dropped binding, no chat history); never twice', async () => {
   const h = setup();
   h.send('Hello');
@@ -145,6 +119,23 @@ test('an ended session is renewed once in the same run (dropped binding, no chat
   await h.turn('claude');
   assert.equal(h.claude.calls.length, 7, 'no retry after a tool call');
   assert.equal(h.binding('claude'), undefined);
+});
+
+test('a renewed run keeps the ended attempt\'s tokens and cost: every attempt the run made counts (each its own share)', async () => {
+  const h = setup();
+  const paid = account('acc_codex', 'codex', { plan: 'api' }); // a Codex login with an API key: its cost is a real charge
+  Object.assign(h.s, { accounts: { ...h.s.accounts, get: (id: string) => (id === 'acc_codex' ? paid : undefined) } });
+  h.send('Hello');
+  await h.turn('codex');
+  h.codex.state.reply = (input) => (input.session
+    ? { ...ENDED, usage: { inputTokens: 700, outputTokens: 5, costUsd: 0.02 } }
+    : { usage: { inputTokens: 300, outputTokens: 40, costUsd: 0.01 } });
+  h.send('Next step');
+  assert.equal((await h.turn('codex')).status, 'done');
+  assert.equal(h.codex.calls.length, 3, 'the ended attempt and its renewal');
+  const run = h.s.runs.get('run_2')!;
+  assert.deepEqual([run.inputTokens, run.outputTokens], [1_000, 45], 'both attempts\' tokens');
+  assert.equal(run.costUsd, 0.03, 'both attempts\' cost');
 });
 
 test('the engine-reported context window is stored and renews the session past 80 % when the catalog has none (B-080: the fit of the window)', async () => {

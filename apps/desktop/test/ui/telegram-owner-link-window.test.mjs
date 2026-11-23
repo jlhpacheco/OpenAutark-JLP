@@ -20,11 +20,13 @@ import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
 
 async function launch(profile) {
+  const launchedAt = Date.now(); // after a restart the start before left its runtime.json – wait for this start's (runtime-info.mjs)
   const app = await electron.launch({
     executablePath: electronPath, args: [root], cwd: root, timeout: 60_000,
     env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }),
@@ -34,7 +36,7 @@ async function launch(profile) {
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
   await page.waitForSelector('.shell', { timeout: 60_000 });
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile, 60_000, launchedAt);
   const rpc = await connect(info.port, info.token, 'cli');
   return { app, page, errors, rpc };
 }

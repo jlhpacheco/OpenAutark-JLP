@@ -50,7 +50,7 @@ const OPENED: Record<string, typeof SETTINGS> = {
   'privacy.providerHistories': SETTINGS, 'privacy.purgeProviderHistory': SETTINGS,
   // Settings › Feedback › Inbox
   'feedback.inboxList': SETTINGS, 'feedback.inboxFetch': SETTINGS, 'feedback.inboxRemove': SETTINGS, 'feedback.inboxMark': SETTINGS,
-  'feedback.inboxScreenshot': SETTINGS, 'feedback.inboxAudio': SETTINGS,
+  'feedback.inboxImage': SETTINGS,
   // Settings › Skills & memory
   'skills.delete': MANAGE, 'modes.save': MANAGE, 'modes.delete': MANAGE,
   // Settings › Secrets
@@ -61,7 +61,7 @@ const OPENED: Record<string, typeof SETTINGS> = {
 /** People of the organisation keep their own variants of these (their own calendars, people/rpc-calendar.ts). */
 const PERSON_VARIANTS = new Set(['calendar.addIcs', 'calendar.removeSource']);
 /** What opens a window on the PC's own screen stays with the PC (the phone opens the same file in its pane, files.readPath). */
-const PC_SCREEN = ['files.open', 'files.openPath', 'secrets.openFolder', 'modes.openFolder', 'agents.openHome', 'system.install', 'import.legacy', 'computer.preview'];
+const PC_SCREEN = ['files.open', 'files.openPath', 'secrets.openFolder', 'modes.openFolder', 'agents.openHome', 'system.install', 'computer.preview'];
 /** Methods the Settings pages name that stay off the phone, and why (each one's page says what happens instead). */
 const PAGE_EXCEPTIONS: Record<string, string> = {
   'files.openPath': "the PC's file manager; on the phone the same folder opens in the pane (open-file.ts openPathHere)",

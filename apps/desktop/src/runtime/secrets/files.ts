@@ -17,9 +17,7 @@
 //   - a section whose id the vault does not know is a "value missing" entry (missing(): written by hand or by an AI –
 //     storing its value in Settings, prefilled from the file, makes it the vault's entry); it stays in its file; a
 //     named section without a usable id gets one (entry-id.ts newEntryId, from its name) instead of being dropped;
-//   - start (reconcileAll) writes every route file, takes over what was edited while the app was closed and moves the
-//     legacy per-entry files <id>.md (before 29.10.2026) into their route files: an edited name or purpose is taken
-//     over, an entry without a vault entry becomes a "value missing" section, then the legacy file goes.
+//   - start (reconcileAll) writes every route file and takes over what was edited while the app was closed.
 // Every change is told as 'secrets.changed'. All work runs one after another.
 // Owns: these rules and the folder. Never: writes a value, decides who may use a secret (the database does),
 // treats file text as a permission, or polls.
@@ -28,12 +26,12 @@ import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import type { Bus } from '../bus.ts';
 import type { Clock, Logger, SecretService } from '../contracts.ts';
-import { autoSecretRoute, type SecretFileEntry, type SecretFileNotice, type SecretFileProblem, type SecretInfo } from '../../shared/model/security.ts';
+import { type SecretFileEntry, type SecretFileNotice, type SecretFileProblem, type SecretInfo } from '../../shared/model/security.ts';
 import { ROOT_SECRETS } from '../root/layout.ts';
 import { TextDoc, canonical, readText } from '../root/text-doc.ts';
 import type { RootWatcher } from '../root/watcher.ts';
 import {
-  FILE_LIMITS, fileName, fixedValues, groupEntry, idOfFile, parseLegacyFile, parseRouteFile, renderRouteFile, routeOfFile, singleEntry, touchesFixed,
+  FILE_LIMITS, fileName, fixedValues, groupEntry, idOfFile, parseRouteFile, renderRouteFile, routeOfFile, singleEntry, touchesFixed,
   type FixedValues, type ParsedEntry, type SecretEntry,
 } from './file-format.ts';
 import { newEntryId } from './entry-id.ts';
@@ -89,7 +87,7 @@ export class SecretFiles {
     return path.join(this.deps.dataDir, ROOT_SECRETS);
   }
 
-  /** Start-up: the folder, the watcher and the vault hook, then legacy files moved and every route reconciled. */
+  /** Start-up: the folder, the watcher and the vault hook, then every route reconciled. */
   async start(): Promise<Record<ReconcileOutcome, number>> {
     mkdirSync(this.folder, { recursive: true, mode: 0o700 });
     if (!this.off.length) {
@@ -112,13 +110,11 @@ export class SecretFiles {
     while (this.pending) await this.queue.catch(() => undefined);
   }
 
-  /** Every route: legacy files moved in first, then each route file reconciled (counted per route). */
+  /** Every route file reconciled (counted per route). */
   reconcileAll(): Promise<Record<ReconcileOutcome, number>> {
     return this.run(async () => {
       const counts: Record<ReconcileOutcome, number> = { written: 0, same: 0, taken: 0, problem: 0, missing: 0, skipped: 0 };
-      const moved = await this.moveLegacy();
       for (const route of this.routes()) counts[await this.reconcile(route)]++;
-      counts.taken += moved;
       return counts;
     });
   }
@@ -253,56 +249,6 @@ export class SecretFiles {
     }
   }
 
-  /**
-   * The legacy files <id>.md (one per entry, before 29.10.2026) into the route files: an edited name or purpose of a
-   * vault entry is taken over, a file without a vault entry becomes a "value missing" section of its route; then the
-   * legacy file is removed. Returns how many were moved.
-   */
-  private async moveLegacy(): Promise<number> {
-    let moved = 0;
-    for (const key of this.fileKeys()) {
-      if (routeOfFile(fileName(key)) !== undefined && this.isRouteFile(key)) continue;
-      const file = path.join(this.folder, fileName(key));
-      const read = readText(file, FILE_LIMITS);
-      if (read.kind !== 'ok') continue;
-      const legacy = parseLegacyFile(key, read.text);
-      if (!legacy) continue;
-      const entry = this.entry(legacy.id);
-      try {
-        if (entry) {
-          const name = legacy.name ?? entry.name;
-          if (name !== entry.name || legacy.purpose !== entry.purpose.trim()) await this.takeOver(entry, name, legacy.purpose, undefined);
-        } else if (legacy.name) {
-          const route = autoSecretRoute(legacy.kind ?? 'api_key', `${legacy.name} ${legacy.purpose}`, legacy.kind);
-          const list = this.unvalued.get(route) ?? this.readUnvalued(route);
-          if (!list.some((item) => item.id === legacy.id)) list.push({ id: legacy.id, name: legacy.name, purpose: legacy.purpose, kind: legacy.kind ?? 'api_key', route, tags: [], fields: [], group: false, missing: true });
-          this.unvalued.set(route, list);
-          this.write(route, this.entriesOf(route), list);
-        }
-      } catch (error) {
-        this.deps.log.warn('legacy secret file not taken over', { id: legacy.id, error: String(error) });
-      }
-      this.removeFile(file);
-      moved++;
-    }
-    return moved;
-  }
-
-  /** Is <key>.md a route file (its front matter names a route, or it is the app's own route file)? */
-  private isRouteFile(key: string): boolean {
-    const read = readText(path.join(this.folder, fileName(key)), FILE_LIMITS);
-    return read.kind !== 'ok' || parseLegacyFile(key, read.text) === undefined;
-  }
-
-  private readUnvalued(route: string): Unvalued[] {
-    const read = readText(path.join(this.folder, fileName(route)), FILE_LIMITS);
-    if (read.kind !== 'ok') return [];
-    const known = this.knownIds();
-    const parsed = parseRouteFile(read.text).entries;
-    this.giveIds(parsed, known);
-    return parsed.filter((entry) => entry.id && !known.has(entry.id) && entry.name).map((entry) => this.asUnvalued(route, entry as ParsedEntry & { id: string }));
-  }
-
   private asUnvalued(route: string, entry: ParsedEntry & { id: string }): Unvalued {
     return { id: entry.id, name: entry.name, purpose: entry.purpose, kind: entry.kind ?? 'api_key', route, tags: entry.tags ?? [], fields: [], group: false, missing: true };
   }
@@ -316,10 +262,10 @@ export class SecretFiles {
     return next;
   }
 
-  /** A watcher event below <data>/secrets: one route file, or (a legacy file, unknown or the folder itself) everything. */
+  /** A watcher event below <data>/secrets: one route file, or (unknown or the folder itself) everything. */
   private onDisk(parts: readonly string[] | undefined): void {
     const route = parts?.length === 1 ? routeOfFile(parts[0]) : undefined;
-    if (route && this.isRouteFile(route)) { void this.run(async () => { await this.reconcile(route); this.emit(); }); return; }
+    if (route) { void this.run(async () => { await this.reconcile(route); this.emit(); }); return; }
     void this.reconcileAll().then(() => this.emit());
   }
 
@@ -337,11 +283,6 @@ export class SecretFiles {
     } catch (error) {
       this.deps.log.warn('secret file not written', { route, error: String(error) });
     }
-  }
-
-  private removeFile(file: string): void {
-    try { rmSync(file, { force: true }); } catch (error) { this.deps.log.warn('legacy secret file not removed', { error: String(error) }); return; }
-    this.deps.root?.wrote(file, null);
   }
 
   private emit(): void {
@@ -387,9 +328,9 @@ export class SecretFiles {
     return [...new Set([...this.entries().map((entry) => entry.route), ...this.fileRoutes(), ...this.unvalued.keys()])].sort();
   }
 
-  /** The route files in the folder (legacy entry files left out). */
+  /** The route files in the folder. */
   private fileRoutes(): string[] {
-    return this.fileKeys().filter((key) => routeOfFile(fileName(key)) !== undefined && this.isRouteFile(key));
+    return this.fileKeys().filter((key) => routeOfFile(fileName(key)) !== undefined);
   }
 
   /** The keys of the .md files in the folder (rejected copies and other files left out), at most MAX_FILES. */

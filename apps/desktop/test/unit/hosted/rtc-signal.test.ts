@@ -23,14 +23,15 @@ test('the address filter: the PC\'s candidates only as IP literals; the phone\'s
   assert.equal(ownCandidate(line('192.168.1.20', 9, 'tcp')), undefined);
 });
 
-test('iceServers come only from the offer: stun: URLs, at most 4; an empty list stays empty', () => {
+test('iceServers come only from the offer and only as the one opted-in STUN server; an empty list stays empty', () => {
   assert.deepEqual(stunOf([]), []);
   assert.deepEqual(stunOf(undefined), []);
-  assert.deepEqual(rtcConfig([]).iceServers, [], 'no list, no server – never one of the browser\'s own');
+  assert.deepEqual(rtcConfig([]).iceServers, [], 'no list, no server – never one of the browser’s own');
   assert.deepEqual(stunOf([{ urls: ['stun:stun.cloudflare.com:3478', 'turn:evil.example', 'stun:u@x.example', 'stun:a.example?transport=tcp'] }, { urls: 'stun:[2001:db8::1]:3478' }]),
-    ['stun:stun.cloudflare.com:3478', 'stun:[2001:db8::1]:3478']);
-  assert.equal(stunOf([{ urls: ['stun:a', 'stun:b', 'stun:c', 'stun:d', 'stun:e'] }]).length, 4);
-  assert.deepEqual(rtcConfig(['stun:a.example']).iceServers, [{ urls: ['stun:a.example'] }]);
+    ['stun:stun.cloudflare.com:3478'], 'any other STUN, TURN or credentialed URL is dropped');
+  assert.deepEqual(stunOf([{ urls: ['stun:a', 'stun:b', 'stun:c', 'stun:d', 'stun:e'] }]), [], 'servers outside the opt-in give none');
+  assert.deepEqual(rtcConfig(['stun:a.example']).iceServers, [], 'the browser config reapplies the boundary');
+  assert.deepEqual(rtcConfig(['stun:stun.cloudflare.com:3478']).iceServers, [{ urls: ['stun:stun.cloudflare.com:3478'] }]);
 });
 
 test('an offer: SDP ≤ 16 KiB, an id, the version; its candidates through the filter, at most 32', () => {

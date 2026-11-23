@@ -13,16 +13,16 @@
 // only when it changes.
 // Owns: these texts. Never: ranks or decides (router.ts, model-list.ts do) or writes anything.
 
-import type { Account, Effort, ModelInfo } from '../../shared/model/providers.ts';
+import { isAcpPlan, type Account, type Effort, type ModelInfo } from '../../shared/model/providers.ts';
+import { accountCharge } from '../../shared/model/charge.ts';
+import { isPlanProvider } from '../../shared/model/plan-roles.ts';
 import { EFFORT_ORDER, effortRank } from '../models/efforts.ts';
 import { CATEGORIES } from '../models/priors.ts';
-import { chargeOf } from '../models/pricing.ts';
 import { LOCAL_PROVIDERS } from '../engines/http/common.ts';
 import { takesTemperature } from '../engines/http/temperature.ts'; // B-083
 import { categoryLabel } from './categories.ts';
 import { NEVER, strengthOf } from './score.ts';
 
-const PLAN_PROVIDERS: ReadonlySet<string> = new Set(['codex', 'claude']);
 /** Categories shown in a model's strong/weak overview (the specialist ones are not work agents do). */
 const WORK_CATEGORIES: readonly string[] = CATEGORIES.filter((category) => category !== 'decision' && category !== 'embeddings');
 const OVERVIEW = 3;
@@ -44,18 +44,19 @@ export function effortRange(efforts: readonly Effort[]): string | undefined {
   return ranks.map((rank) => EFFORT_ORDER[rank]).join(', ');
 }
 
-/** How a turn on this model is paid: a subscription plan, an API key, a local runtime or a keyless endpoint. */
+/**
+ * How a turn on this model is paid: a subscription plan, an API key, a local runtime or a keyless endpoint – the account's
+ * charge (shared/model/charge.ts accountCharge: a key holding plan credits is a plan, a CLI signed in with a key pays per use);
+ * without an account, by its provider (a plan CLI – Codex, Claude Code or one on the ACP engine – is a plan).
+ */
 export function sourceOf(model: ModelInfo, account?: Account): 'plan' | 'API key' | 'local' | 'endpoint' {
   if (account) {
-    if (account.auth === 'local') return 'local';
-    if (account.credits && chargeOf(account) === 'plan') return 'plan'; // B-083: a key holding a plan's monthly API credits
-    // A key from the environment (PR5) and a CLI signed in with an API key are pay-per-use too.
-    if (account.auth === 'api_key' || account.auth === 'env' || (account.auth === 'cli' && chargeOf(account) === 'paid')) return 'API key';
-    if (account.auth === 'cli') return 'plan';
-    return 'endpoint';
+    const charge = accountCharge(account);
+    if (charge !== 'free') return charge === 'paid' ? 'API key' : 'plan';
+    return account.auth === 'local' || LOCAL_PROVIDERS.has(account.provider) ? 'local' : 'endpoint';
   }
   if (LOCAL_PROVIDERS.has(model.provider)) return 'local';
-  return PLAN_PROVIDERS.has(model.provider) ? 'plan' : 'API key';
+  return isPlanProvider(model.provider) || isAcpPlan(model.provider) ? 'plan' : 'API key';
 }
 
 /**

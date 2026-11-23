@@ -40,6 +40,7 @@ test('a turn whose outcome calls for a fold is followed by the fold\'s turn: its
   assert.notEqual(fold.runId, h.executor.calls[0].request.runId, 'a run of its own');
   const row = h.dispatcher.activity().find((entry) => entry.runId === fold.runId)!;
   assert.equal(row.conversationId, h.chat.id, 'the live bar of the chat the work came from shows it');
+  assert.equal(row.fold, true, '22.11.2026: as a fold – the bar says so instead of its step');
   assert.equal(h.executor.maxRunning, 1, 'on the main lane: never beside another turn of the agent');
   assert.equal(openWakes(h.db).length, 0, 'it is no queued wake');
 

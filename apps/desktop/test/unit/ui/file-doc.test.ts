@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { PathRead } from '../../../src/shared/api/methods-files.ts';
-import { FileDoc, fileStatus } from '../../../src/ui/workspace/file-doc.ts';
+import { FileDoc, fileStatus, readable } from '../../../src/ui/workspace/file-doc.ts';
 import { appTabId, appTabsOf } from '../../../src/ui/workspace/browser-model.ts';
 
 class Conflict extends Error {}
@@ -224,4 +224,11 @@ test('file and folder tabs are one tab per path and come back from storage', () 
     { id: 'file:/other', kind: 'file', path: '/a/b.md' },
     { id: 'file:', kind: 'file' },
   ]).map((tab) => tab.id), ['file:/a/b.md', 'folder:/a']);
+});
+
+test('22.11.2026: a Markdown read page shows front matter as a yaml box, other text as it is', () => {
+  assert.equal(readable('---\ntitle: Supplier\n---\nCalls back on Fridays.\n'), '```yaml\ntitle: Supplier\n```\n\nCalls back on Fridays.\n');
+  assert.equal(readable('---\r\nname: x\r\n---\r\n# Head'), '```yaml\nname: x\n```\n\n# Head');
+  assert.equal(readable('# Report\n\n---\n\ntext'), '# Report\n\n---\n\ntext', 'a rule further down stays a rule');
+  assert.equal(readable('---\nnote: ```code```\n---\n'), '````yaml\nnote: ```code```\n````\n\n', 'a fence inside gets a longer fence');
 });

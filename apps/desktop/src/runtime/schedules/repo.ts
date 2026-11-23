@@ -52,8 +52,8 @@ export class ScheduleRepo {
 
   save(s: Schedule): void {
     this.db.run(
-      'UPDATE schedules SET title = ?, spec = ?, payload = ?, next_at = ?, last_at = ?, runs = ?, active = ? WHERE id = ?',
-      [s.title, toJson(s.spec), payloadColumn(s), nul(s.nextAt), nul(s.lastAt), s.runs, int(s.active), s.id],
+      'UPDATE schedules SET conversation_id = ?, title = ?, spec = ?, payload = ?, next_at = ?, last_at = ?, runs = ?, active = ? WHERE id = ?',
+      [nul(s.conversationId), s.title, toJson(s.spec), payloadColumn(s), nul(s.nextAt), nul(s.lastAt), s.runs, int(s.active), s.id],
     );
   }
 

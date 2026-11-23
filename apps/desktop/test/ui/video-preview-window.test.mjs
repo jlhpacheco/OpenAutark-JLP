@@ -9,12 +9,16 @@
 import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { mkdtemp, mkdir, readFile, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { durationLabel } from '../../src/ui/workspace/media-facts.ts';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -31,6 +35,12 @@ function boxes(bytes) {
     at += size;
   }
   return names;
+}
+
+async function sha256(stream) {
+  const hash = createHash('sha256');
+  for await (const chunk of stream) hash.update(chunk);
+  return hash.digest('hex');
 }
 
 test('a heavy video in a chat gets a light preview copy that the Video tab plays, the phone\'s route serves with ranges, and the original stays', {
@@ -57,7 +67,7 @@ test('a heavy video in a chat gets a light preview copy that the Video tab plays
   const size = (width, height) => app.evaluate(({ BrowserWindow }, [w, h]) => { const win = BrowserWindow.getAllWindows().find((entry) => entry.isVisible()) ?? BrowserWindow.getAllWindows()[0]; if (win.isMaximized()) win.unmaximize(); if (win.isFullScreen()) win.setFullScreen(false); win.setMinimumSize(320, 300); win.setSize(w, h); }, [width, height]);
   const shot = async (name) => { await page.waitForTimeout(500); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
   await size(1280, 800);
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('settings.update', { onboarding: { step: 'done' } });
 
@@ -87,7 +97,7 @@ test('a heavy video in a chat gets a light preview copy that the Video tab plays
   assert.equal(row.size, sourceBytes, 'the original is as it was');
 
   // The phone's route: the copy with ranges; light; MP4 with its index in front.
-  const get = (range) => fetch(`http://127.0.0.1:${info.port}/files/${row.previewFileId}`, { headers: { Authorization: `Bearer ${info.token}`, ...(range ? { Range: range } : {}) } });
+  const get = (range, fileId = row.previewFileId) => fetch(`http://127.0.0.1:${info.port}/files/${fileId}`, { headers: { Authorization: `Bearer ${info.token}`, ...(range ? { Range: range } : {}) } });
   const whole = await get();
   assert.equal(whole.status, 200);
   assert.equal(whole.headers.get('content-type'), 'video/mp4');
@@ -100,6 +110,12 @@ test('a heavy video in a chat gets a light preview copy that the Video tab plays
   assert.ok(bytes.length < sourceBytes / 2, `lighter: ${bytes.length} of ${sourceBytes} bytes`);
   t.diagnostic(`${path.basename(VIDEO)}: ${sourceBytes} B → ${bytes.length} B (${(sourceBytes / bytes.length).toFixed(1)}×), copy linked ${madeMs} ms after the upload (probe + queue + conversion, in the background)`);
 
+  const servedOriginal = await get(undefined, original.id);
+  assert.equal(servedOriginal.status, 200, 'the original is still served by its own id');
+  assert.equal(await sha256(servedOriginal.body), await sha256(createReadStream(VIDEO)), 'original download is byte-for-byte the input');
+  assert.ok(row.durationMs > 0, 'the runtime learned the source duration');
+  const clock = durationLabel(row.durationMs);
+
   // Mika's installed-build finding: the same bytes appear in a second chat, but the media row still
   // belongs to the first. Visit the second chat first, so the chip cannot rely on the first chat's cache.
   const forwarded = await rpc.call('chats.create', { title: 'Second cut review', agentIds: [manager.id] });
@@ -109,7 +125,7 @@ test('a heavy video in a chat gets a light preview copy that the Video tab plays
   });
   assert.deepEqual(await rpc.call('media.list', { conversationId: forwarded.id, kind: 'video' }), [], 'the deduplicated video is not owned by this chat');
   await page.evaluate((id) => { location.hash = `#/chat/${id}`; }, forwarded.id);
-  const forwardedChip = page.locator('.attachments .file-chip-open', { hasText: original.name }).filter({ hasText: '0:14' });
+  const forwardedChip = page.locator('.attachments .file-chip-open', { hasText: original.name }).filter({ hasText: clock });
   await forwardedChip.waitFor({ timeout: 30_000 });
   await forwardedChip.click();
   const forwardedPlayer = page.locator('video.pane-video-player');
@@ -122,8 +138,9 @@ test('a heavy video in a chat gets a light preview copy that the Video tab plays
   const chip = page.locator('.attachments .file-chip-open', { hasText: original.name });
   await chip.waitFor({ timeout: 30_000 });
   assert.match(await chip.locator('.icon').first().getAttribute('style'), /icons\/play\.svg/, 'a play mark, not a paperclip');
-  assert.match(await chip.innerText(), /0:14/, 'and says how long the video plays, as the player clock shows it (a play mark and 0:14, not a paperclip)');
+  assert.ok((await chip.innerText()).includes(clock), 'the chip shows the source duration');
   await shot('video-preview-chat-1280');
+  const opened = performance.now();
   await chip.click();
   const player = page.locator('video.pane-video-player');
   await player.waitFor({ timeout: 30_000 });
@@ -132,7 +149,13 @@ test('a heavy video in a chat gets a light preview copy that the Video tab plays
   const played = await player.evaluate((v) => ({ w: v.videoWidth, h: v.videoHeight, d: v.duration }));
   assert.ok(Math.min(played.w, played.h) <= 720, `the copy's picture ${played.w}×${played.h}`);
   assert.ok(played.d > 1, `its length ${played.d} s`);
-  await player.evaluate((v) => { v.muted = true; return v.play(); });
+  await player.evaluate((v) => new Promise((resolve, reject) => {
+    v.muted = true;
+    const handle = v.requestVideoFrameCallback(() => { clearTimeout(timer); resolve(); });
+    const timer = setTimeout(() => { v.cancelVideoFrameCallback(handle); reject(new Error('No video frame presented')); }, 15_000);
+    v.play().catch((error) => { clearTimeout(timer); v.cancelVideoFrameCallback(handle); reject(error); });
+  }));
+  t.diagnostic(`desktop chip open to first observed playing frame: ${Math.round(performance.now() - opened)} ms (includes the harness's checks; not a phone measurement)`);
   await page.waitForFunction(() => document.querySelector('video.pane-video-player').currentTime > 0.3, null, { timeout: 15_000 });
   await shot('video-preview-pane-1280');
   // A video an agent shows as a media block plays the copy too.

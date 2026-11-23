@@ -6,7 +6,10 @@
 // renamed, only with enough free disk space) and then migrates; a finished migration stamps the
 // copy's `migratedAt`. A copy made from data an incomplete update left behind is `partial`.
 // Pruning keeps the newest KEEP_BACKUPS copies and always the newest clean (not partial) one – the
-// real rollback point a released version can open. Every failure closes the database and throws
+// real rollback point a released version can open. Data older than this version updates (migrate.ts OLDEST_SCHEMA) is
+// refused before any copy, with the release that updates it and where to get it (olderData); so is a first start in "Autark"
+// while the folder of the old name still holds the data (it never moved – olderFolder): no empty database is made over it.
+// Every failure closes the database and throws
 // an UpgradeError whose stage the start guard (repair/journal.ts) turns into the repair screen.
 // Owns: the pre-migration copies, their manifests and pruning, the failure stages.
 // Never: migrates without the copy, overwrites an existing copy, deletes the newest clean copy or
@@ -19,7 +22,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { UpgradeBackupInfo } from '../../shared/model/repair.ts';
 import type { Logger } from '../contracts.ts';
 import { Db } from './database.ts';
-import { migrate, SCHEMA_VERSION } from './migrate.ts';
+import { migrate, OLD_FOLDER, OLDEST_SCHEMA, olderData, olderFolder, SCHEMA_VERSION } from './migrate.ts';
 
 export type UpgradeStage = 'schema_newer' | 'migration_failed' | 'backup_failed' | 'data_unreadable';
 
@@ -93,6 +96,7 @@ function defaultFree(dir: string): number | undefined {
  * Throws UpgradeError (database closed) when the start must not go on.
  */
 export function openDatabase(options: OpenOptions): Db {
+  if (unmoved(options)) throw new UpgradeError('migration_failed', olderFolder());
   probe(options.file);
   let db: Db | undefined;
   let from: number;
@@ -107,6 +111,10 @@ export function openDatabase(options: OpenOptions): Db {
   if (from > SCHEMA_VERSION) {
     closeQuietly(db);
     throw new UpgradeError('schema_newer', `The data was saved by a newer version of Autark (schema ${from}; this version knows ${SCHEMA_VERSION}).`, { dataSchema: from });
+  }
+  if (from > 0 && from < OLDEST_SCHEMA) { // older than this version updates: the bridge release updates it first, nothing is copied or changed here
+    closeQuietly(db);
+    throw new UpgradeError('migration_failed', olderData(from), { dataSchema: from });
   }
   if (from > 0 && from < SCHEMA_VERSION) {
     try {
@@ -130,7 +138,7 @@ export function openDatabase(options: OpenOptions): Db {
   return db;
 }
 
-/** True when `file` holds older data this version will copy and migrate (read-only peek; false when unreadable or new). */
+/** True when `file` holds older data this version will copy and migrate (read-only peek; false when unreadable, new or refused). */
 export function upgradePending(file: string): boolean {
   if (!existsSync(file)) return false;
   let raw: DatabaseSync | undefined;
@@ -138,7 +146,7 @@ export function upgradePending(file: string): boolean {
     raw = new DatabaseSync(file, { readOnly: true });
     const row = raw.prepare(`SELECT value FROM meta WHERE key = 'schema'`).get() as { value?: string } | undefined;
     const schema = Number(row?.value ?? 0);
-    return schema > 0 && schema < SCHEMA_VERSION;
+    return schema >= OLDEST_SCHEMA && schema < SCHEMA_VERSION;
   } catch {
     return false;
   } finally {
@@ -151,6 +159,12 @@ export function upgradePending(file: string): boolean {
  * (data_unreadable) instead of inside Db's constructor, whose half-open handle would keep the file
  * locked on Windows (the repair screen must be able to move it aside).
  */
+/** No data here yet, this is the "Autark" folder and the folder of the old name beside it still holds a database. */
+function unmoved(options: Pick<OpenOptions, 'file' | 'dataDir'>): boolean {
+  return !existsSync(options.file) && path.basename(path.resolve(options.dataDir)) === 'Autark'
+    && existsSync(path.join(path.dirname(path.resolve(options.dataDir)), OLD_FOLDER, path.basename(options.file)));
+}
+
 function probe(file: string): void {
   if (!existsSync(file)) return;
   let raw: DatabaseSync | undefined;

@@ -11,11 +11,13 @@ import { appWidgetOf } from '../../../src/shared/blocks/app-todo.ts';
 import { uiBlocksOf } from '../../../src/shared/blocks/parse.ts';
 import { HUMAN_ID, SYSTEM_ID } from '../../../src/shared/ids.ts';
 import type { TaskView } from '../../../src/shared/model/tasks.ts';
+import type { QuickTaskResult } from '../../../src/shared/model/task-center.ts';
+import { createHandlerTable } from '../../../src/runtime/rpc/handlers/index.ts';
 import { agent } from '../chat/harness.ts';
 import { TODO_ONLY, TestClient, rpcFixture } from '../rpc/s1-helpers.ts';
 
 function askFixture(t: { after: (fn: () => void) => void }) {
-  const f = rpcFixture();
+  const f = rpcFixture({ table: createHandlerTable() }); // the whole table: the person's line is tasks.quickCreate (task-center.ts)
   t.after(f.cleanup);
   f.org.add(agent('ag_ava', 'Ava'));
   const chat = f.chats.create({ agentIds: ['ag_ava'], createdBy: HUMAN_ID });
@@ -83,7 +85,7 @@ test('a decline needs no reason; a finished or cancelled to-do cannot be decline
 
 test('todos.remove deletes a to-do the person added and refuses an agent\'s', async (t) => {
   const { f, ask, phone } = askFixture(t);
-  const mine = await phone.call<TaskView>('todos.add', { text: 'Buy stamps' });
+  const { task: mine } = await phone.call<QuickTaskResult>('tasks.quickCreate', { text: 'Buy stamps' });
   assert.equal(mine.createdBy, HUMAN_ID);
   assert.deepEqual(await phone.call('todos.remove', { id: mine.id }), { ok: true });
   assert.equal(f.tasks.get(mine.id), undefined);

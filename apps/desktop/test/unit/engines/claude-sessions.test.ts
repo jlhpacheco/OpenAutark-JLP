@@ -5,7 +5,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ClaudeEngine, type FileOps } from '../../../src/runtime/engines/claude/engine.ts';
+import { ClaudeEngine } from '../../../src/runtime/engines/claude/engine.ts';
+import { nodeFiles, type FileOps } from '../../../src/runtime/engines/claude/rebuild.ts';
 import { ClaudeStreamParser } from '../../../src/runtime/engines/claude/stream.ts';
 import { fakeSpawn, fakeFinder, testSupervisor, turnInput, account } from './fakes.ts';
 
@@ -25,6 +26,7 @@ function claudeCli(result: (session: string) => Record<string, unknown>) {
 
 function engine(spawn: ReturnType<typeof fakeSpawn>['spawn'], written: Map<string, string>) {
   const files: FileOps = {
+    ...nodeFiles,
     writeFile: async (file, data) => { written.set(file, data); },
     readFile: async () => new Uint8Array(),
     rm: async () => {},

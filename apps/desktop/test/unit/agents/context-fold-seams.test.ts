@@ -4,7 +4,7 @@
 //   - the engine's compaction is recorded for every main-lane turn it happens in, whatever its end (r2-3 #7, r2-4 #8);
 //   - a fold whose rebuild falls back (a failed probe) holds further folds back as a refusal does (r2-3 #4);
 //   - lines I posted through a block in mid-turn commentary stay in view through a fold (r2-3 #3);
-//   - at my first fold only the tasks.finish calls of the run that just ended stay (r2-3 #11);
+//   - at my first fold only the finishing tasks.update calls of the run that just ended stay (r2-3 #11);
 //   - a cut fold leaves no words of mine in the record, and its session's next turn hears nothing was folded (r2-3 #10);
 //   - a fold on a session from before the start record keeps the session's own key (r2-4 #9);
 //   - the fold and compaction marks belong to one session ref (r2-4 #7);
@@ -51,9 +51,12 @@ function working(h: ReturnType<typeof world>, tokens: number): (input: EngineTur
   return (input) => {
     input.onEvent({ type: 'tool_start', callId: 'sh1', name: 'Bash', args: { command: 'npm run export' }, own: true });
     input.onEvent({ type: 'tool_end', callId: 'sh1', ok: true, summary: 'exit 0', output: `export written\n${'row\n'.repeat(200)}` });
-    input.onEvent({ type: 'tool_start', callId: 'fin1', name: 'tasks.finish', args: { id: 'tsk_export' }, own: false });
-    h.s.runs.item(input.runId, { kind: 'tool_call', name: 'tasks.finish', data: { callId: 'fin1', args: JSON.stringify({ id: 'tsk_export', summary: `done in ${input.runId}` }), summary: 'Finished' }, effectStatus: 'none', idemKey: `${input.runId}:fin1` });
-    journalResult(h.s, input.runId, 'tasks.finish', 'fin1', `${input.runId}:fin1`, { content: [{ type: 'text', text: 'Task done.' }] }, []);
+    const task = h.s.tasks.create({ title: 'Export', assigneeKind: 'agent', assigneeId: h.agent.id, createdBy: 'human' });
+    const args = { id: task.id, status: 'done', result: `done in ${input.runId}` };
+    input.onEvent({ type: 'tool_start', callId: 'fin1', name: 'tasks.update', args, own: false });
+    h.s.runs.item(input.runId, { kind: 'tool_call', name: 'tasks.update', data: { callId: 'fin1', args: JSON.stringify(args), summary: 'Finished' }, effectStatus: 'none', idemKey: `${input.runId}:fin1` });
+    h.s.tasks.finish(task.id, { status: 'done', summary: `done in ${input.runId}` }, h.agent.id);
+    journalResult(h.s, input.runId, 'tasks.update', 'fin1', `${input.runId}:fin1`, { content: [{ type: 'text', text: 'Task done.' }] }, []);
     input.onEvent({ type: 'tool_end', callId: 'fin1', ok: true, summary: 'Task done.' });
     return { text: 'The export is written.', contextTokens: tokens };
   };
@@ -139,7 +142,7 @@ test('a line I posted through a block in mid-turn commentary stays in view throu
   } finally { h.cleanup(); }
 });
 
-test('at my first fold only the tasks.finish calls of the run that just ended stay', async () => {
+test('at my first fold only the finishing tasks.update calls of the run that just ended stay', async () => {
   const h = world();
   try {
     h.send('Build the export');
@@ -151,7 +154,7 @@ test('at my first fold only the tasks.finish calls of the run that just ended st
     h.claude.state.reply = () => ({ text: HAND_OVER });
     await h.fold('step');
     assert.ok(h.binding('claude')?.foldedAt !== undefined, 'folded');
-    const finishes = h.items().filter((item) => item.kind === 'tool' && /^tasks\.finish/.test(item.title));
+    const finishes = h.items().filter((item) => item.kind === 'tool' && /^tasks\.update/.test(item.title));
     assert.deepEqual(finishes.map((item) => [item.runId, item.state]), [['run_1', 'hidden'], ['run_2', 'keep']]);
   } finally { h.cleanup(); }
 });

@@ -37,7 +37,7 @@ export function sttSetup(options: { stt?: 'ready' | 'off' | 'missing'; respond?:
       get: () => ({
         profile: { name: 'Alex', timezone: 'Europe/Berlin' },
         voice: { vocabulary: [] },
-        routing: { functions: state === 'off' ? { stt: 'off' } : {} },
+        routing: state === 'off' ? { stt: 'off' } : {},
       }),
     },
     catalog: { list: () => (state === 'missing' ? [] : [WHISPER]), get: (id: string) => (id === WHISPER.id ? WHISPER : undefined) },

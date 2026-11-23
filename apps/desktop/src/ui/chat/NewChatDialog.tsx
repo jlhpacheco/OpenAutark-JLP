@@ -4,7 +4,8 @@
 // shows its other members' names per viewer until its first message names it (K1/K2). Revised 12.11.2026:
 // one member without a topic used to open the pair's default 1:1 instead – the person saw no new chat; that
 // 1:1 is reached by "Message" (chat/direct.ts).
-// Owns: the dialog. Never: invents titles or fills the topic.
+// Owns: the dialog and startChat (creating and opening a planned chat; also "New chat" on an agent's or a person's
+// page, team/MemberChats.tsx). Never: invents titles or fills the topic.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { AgentAvatar, Button, Dialog, Icon } from '../lib/ui.tsx';
@@ -15,8 +16,27 @@ import { navigate } from '../lib/router.ts';
 import { newChatOpen } from '../lib/shell-state.ts';
 import { toastError } from '../lib/toasts.ts';
 import { newChatPlan } from './new-chat.ts';
+import type { NewChatPlan } from './new-chat.ts';
 
 interface Choice { id: string; name: string; line: string; search: string }
+
+/** Creates the planned chat and opens it (this dialog's "Start chat" and, Team-Call 21.11.2026, "New chat" on an agent's
+ *  or a person's page – one path); false when it could not be created (a toast says why). */
+export async function startChat(plan: NewChatPlan): Promise<boolean> {
+  try {
+    const chat = await rpc.call('chats.create', {
+      ...(plan.title ? { title: plan.title } : {}), agentIds: plan.agentIds, ...(plan.people.length ? { people: plan.people } : {}),
+    });
+    // The summary arrives via conversation.upserted; fetch it now so the row exists at once.
+    const summary = await rpc.call('chats.get', { id: chat.id }).catch(() => null);
+    if (summary) upsertById(conversations, summary);
+    navigate({ view: 'chat', id: chat.id });
+    return true;
+  } catch (error) {
+    toastError(error, 'Chat could not be created');
+    return false;
+  }
+}
 
 export function NewChatDialog() {
   const request = newChatOpen.value;
@@ -51,20 +71,8 @@ export function NewChatDialog() {
   const create = async () => {
     if (!plan || busy) return;
     setBusy(true);
-    try {
-      const chat = await rpc.call('chats.create', {
-        ...(plan.title ? { title: plan.title } : {}), agentIds: plan.agentIds, ...(plan.people.length ? { people: plan.people } : {}),
-      });
-      // The summary arrives via conversation.upserted; fetch it now so the row exists at once.
-      const summary = await rpc.call('chats.get', { id: chat.id }).catch(() => null);
-      if (summary) upsertById(conversations, summary);
-      close();
-      navigate({ view: 'chat', id: chat.id });
-    } catch (error) {
-      toastError(error, 'Chat could not be created');
-    } finally {
-      setBusy(false);
-    }
+    if (await startChat(plan)) close();
+    setBusy(false);
   };
 
   const searchLabel = people.length ? 'Search agents and people' : 'Search agents';

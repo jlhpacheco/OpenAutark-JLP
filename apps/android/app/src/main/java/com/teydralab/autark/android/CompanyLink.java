@@ -6,7 +6,8 @@
 // Also where the company list and the entrance's gate secret are kept (SharedPreferences under Companies).
 // Events go to the activity on screen (MainActivity forwards them); the connection's state shows in the page's status
 // line only (the KeepAlive notice is fixed). stop() ends the sockets on a thread of its own – Android refuses network
-// writes on the main thread (16.11.2026 crash on a company switch). Never: decides a pairing's record (Companies does),
+// writes on the main thread (16.11.2026 crash on a company switch). W (19.11.2026): wake() wakes a PC whose app is closed
+// through the connection's own meeting-server link, on a thread of its own. Never: decides a pairing's record (Companies does),
 // touches the WebView, or keeps two companies' links at once.
 package com.teydralab.autark.android;
 
@@ -66,7 +67,7 @@ final class CompanyLink {
         PhoneConnection connection = new PhoneConnection(paired, events::status, new WebRtc(app)); // F25: WebRTC way
         connection.onLinked(events::linked);
         String origin = connection.start(port, gate);
-        UseLink use = new UseLink(app, origin, gate, paired.token, paired.deviceId, (pcs) -> {
+        UseLink use = new UseLink(app, origin, gate, paired.token, paired.deviceId, Crypto.fromB64url(paired.seed), (pcs) -> {
             connection.updatePcs(pcs);
             events.pcs(company, connection.paired().pcs);
         });
@@ -90,6 +91,17 @@ final class CompanyLink {
 
     /** The page's PC refused its token: the page goes to the next PC of the company that has not refused in this link. */
     void refused() { connection.refused(); }
+
+    /** W (19.11.2026): wakes a PC of this company whose app is closed (its wake helper key) on a thread of its own –
+     *  network never on the main thread; `done` hears null (woken) or the sentence why not. */
+    void wake(String key, String name, java.util.function.Consumer<String> done) {
+        Thread waker = new Thread(() -> {
+            try { connection.wake(key, name == null ? "Your PC" : name); done.accept(null); }
+            catch (IOException | RuntimeException error) { done.accept(error.getMessage() == null ? "The wake did not go through." : error.getMessage()); }
+        }, "autark-wake");
+        waker.setDaemon(true);
+        waker.start();
+    }
 
     /** The name of the PC the link goes to now, or null. */
     String pcName() { return connection.pcName(); }

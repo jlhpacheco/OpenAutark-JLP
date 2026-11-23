@@ -3,12 +3,24 @@
 // only, so opaque-origin agent frames never get it), keeps the other and drops the previous one. Messages are JSON
 // {t, …} both ways. Page → app: 'colors' (SystemBars), 'speak'/'stopSpeech' (PhoneSpeech), 'download' (PhoneDownloads),
 // 'haptic' and 'shot' (16.11.2026: a picture of the app's own window for a feedback report – PixelCopy, longest side
-// SHOT_SIDE, JPEG 85, answered as 'shot' {data} or {error}) are handled here; 'card', 'switch', 'add', 'forget', 'pcs'
-// and 'refused' (the PC refused the page's token) go to the activity (Listener). App → page: send(), with the latest
+// SHOT_SIDE, JPEG 85, answered as 'shot' {data} or {error}) are handled here; 'card', 'switch', 'add', 'forget', 'pcs',
+// 'refused' (the PC refused the page's token) and 'wake' {id, key, name} (W 19.11.2026: wake a closed PC through the
+// phone's own meeting-server link, answered 'woken' {id} or {id, error}; 'status' says wake:true so the page knows) go to
+// the activity (Listener). App → page: send(), with the latest
 // 'companies' and 'status' sent again to every new page, a crash report the person chose to send ('crash' {text},
 // CrashReport's Report) once, to the first page that has its port – then the report's file goes –, and 'feedback'
-// {down} (16.11.2026: volume up and down pressed together, MainActivity/VolumePair – the feedback cell's press). Never:
-// addJavascriptInterface, a second port, a message from another origin, or a picture of anything but the app's window.
+// {down} (16.11.2026: volume up and down pressed together, MainActivity/VolumePair – the feedback cell's press). Owner
+// 19.11.2026 (a call or recording goes on outside the app): the page's 'voice.live' {on, kind} – any voice capture of
+// the page started or ended, kind 'call' or 'dictation' – goes to the activity (Listener.voiceLive; KeepAlive), a page
+// that goes away ends it, and 'voice.stop' asks the page to end its voice (the voice notice's End). Owner 19.11.2026
+// (the way back to the to-do bubble): the page's 'bubble.pull' {x, y}, 'bubble.move' {x, y} and 'bubble.drop' {x, y}
+// (CSS px of the page; a pull without x is a press without a finger) go to phoneuse/BubblePull in screen px, and
+// 'bubble.state' {available, out} goes to every new page and on every change, so its header icon knows. STIMME 21.11.2026
+// (the phone hears dictation itself): the page's 'hear' {id, data (base64), mime, language} – a dictation piece – goes to
+// the person's ChatGPT plan from here (phoneuse/PlanHearing over the company's UseLink, on a thread of its own) and is
+// answered 'heard' {id, text} or {id, error} (the page then sends it to the PC as before); 'status' says hear:true so
+// the page knows. Never: addJavascriptInterface, a second port, a message from another origin, a picture of anything but
+// the app's window, or the plan login to the page.
 package com.teydralab.autark.android;
 
 import android.app.Activity;
@@ -27,6 +39,9 @@ import android.webkit.WebMessagePort;
 import android.webkit.WebView;
 import java.io.ByteArrayOutputStream;
 import java.util.function.Supplier;
+import com.teydralab.autark.android.phoneuse.BubblePull;
+import com.teydralab.autark.android.phoneuse.PlanHearing;
+import com.teydralab.autark.android.phoneuse.UseLink;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -46,6 +61,10 @@ final class NativePort {
         void pickPc();
         /** The PC refused the page's token (4401): the page goes to the next PC of the company that has not refused. */
         void refused();
+        /** W: wake the PC `id` whose wake helper key is `key`; the answer goes back with woken(). */
+        void wake(String id, String key, String name);
+        /** The page's voice capture went live (on) or ended; kind 'call', 'dictation' or null. */
+        void voiceLive(boolean on, String kind);
     }
 
     private static final String TAG = "AutarkPort";
@@ -53,6 +72,8 @@ final class NativePort {
     static final int SHOT_SIDE = 1600;
     /** As much of a crash report as a feedback report carries (the PC keeps clientDiagnostics to 12 000 characters). */
     static final int CRASH_CHARS = 12_000;
+    /** The largest dictation piece the page hands over to hear (base64 chars of 25 MB). */
+    static final int HEAR_CHARS = 34 * 1024 * 1024;
     private final Activity activity;
     private final Supplier<String> origin;
     private final Listener listener;
@@ -64,6 +85,12 @@ final class NativePort {
     private JSONObject companies;
     private JSONObject status;
     private String crash;
+    /** The page reported live voice (and has not ended it yet). */
+    private boolean voice;
+    /** The bubble's state to the page ('bubble.state'). */
+    private final BubblePull.State bubble = (available, out) -> {
+        try { send(new JSONObject().put("t", "bubble.state").put("available", available).put("out", out)); } catch (JSONException ignored) { /* never for booleans */ }
+    };
 
     NativePort(Activity activity, Supplier<String> origin, Listener listener) {
         this.activity = activity;
@@ -91,6 +118,7 @@ final class NativePort {
         view = loaded;
         if (companies != null) send(companies);
         if (status != null) send(status);
+        BubblePull.listen(activity, bubble); // sends the current state to this page at once
         sendCrash();
     }
 
@@ -123,13 +151,18 @@ final class NativePort {
 
     /** The connection line: the PC tunnelled to (or null) and whether the link is up – kept and sent again to every new page. */
     void status(String pc, boolean connected) {
-        try { status = new JSONObject().put("t", "status").put("connected", connected); if (pc != null) status.put("pc", pc); } catch (JSONException error) { return; }
+        try { status = new JSONObject().put("t", "status").put("connected", connected).put("wake", true).put("hear", true); if (pc != null) status.put("pc", pc); } catch (JSONException error) { return; }
         send(status);
     }
 
     /** Shared into Autark: the text (or null) and how many files wait for the page's next file chooser. */
     void share(String text, int files) {
         try { JSONObject out = new JSONObject().put("t", "share").put("files", files); if (text != null) out.put("text", text); send(out); } catch (JSONException ignored) { /* never for these values */ }
+    }
+
+    /** W: how the wake of PC `id` went – null: woken, else the sentence why not. Any thread. */
+    void woken(String id, String error) {
+        try { JSONObject out = new JSONObject().put("t", "woken").put("id", id); if (error != null) out.put("error", error); send(out); } catch (JSONException ignored) { /* never for strings */ }
     }
 
     /** The link came back after a pause or a network change: the page refreshes its data. */
@@ -140,15 +173,21 @@ final class NativePort {
         try { send(new JSONObject().put("t", "feedback").put("down", down)); } catch (JSONException ignored) { /* never for these values */ }
     }
 
+    /** The voice notice's End: the page ends its call or recording (and answers 'voice.live' off); false without a page. */
+    boolean voiceStop() { return send(message("voice.stop")); }
+
     PhoneDownloads downloads() { return downloads; }
 
     /** The page is gone (renderer gone, forget, onDestroy): ends the port, the voice and a half-received file. */
     void dispose() {
+        BubblePull.unlisten(bubble);
         close();
         speech.shutdown();
     }
 
-    private void close() {
+    /** The page goes (a new document, the app page left, dispose): its port, voice, speech and half-received file end. */
+    void close() {
+        if (voice) voice(false, null);
         if (port != null) { try { port.close(); } catch (IllegalStateException ignored) { /* already closed */ } }
         port = null;
         view = null;
@@ -171,9 +210,44 @@ final class NativePort {
             case "forget": listener.forget(); break;
             case "pcs": listener.pickPc(); break;
             case "refused": listener.refused(); break;
+            case "wake": { String id = text(in, "id"); if (id != null) listener.wake(id, text(in, "key"), text(in, "name")); break; }
             case "shot": shot(); break;
+            case "hear": hear(text(in, "id"), text(in, "data"), text(in, "mime"), text(in, "language")); break;
+            case "voice.live": voice(in.optBoolean("on"), text(in, "kind")); break;
+            case "bubble.pull": { int[] at = onScreen(in); BubblePull.pull(activity, at == null ? -1 : at[0], at == null ? -1 : at[1]); break; }
+            case "bubble.move": case "bubble.drop": { int[] at = onScreen(in); if (at != null) BubblePull.move(at[0], at[1], "bubble.drop".equals(in.optString("t"))); break; }
             default: Log.w(TAG, "unknown message " + in.optString("t"));
         }
+    }
+
+    private void voice(boolean on, String kind) {
+        voice = on;
+        listener.voiceLive(on, kind);
+    }
+
+    /** A dictation piece heard by the person's plan from this phone (a thread of its own); answered 'heard' by id. */
+    private void hear(String id, String data, String mime, String language) {
+        if (id == null) return;
+        UseLink link = UseLink.linked();
+        if (link == null || data == null || data.length() > HEAR_CHARS) { send(message("heard", "id", id, "error", "missed")); return; }
+        Thread worker = new Thread(() -> {
+            JSONObject answer;
+            try {
+                byte[] audio = Base64.decode(data, Base64.DEFAULT);
+                answer = message("heard", "id", id, "text", link.hearing().hear(audio, mime, language));
+            } catch (PlanHearing.Missed missed) {
+                Log.i(TAG, "dictation goes over the PC: " + missed.getMessage()); // a reason, never a value
+                answer = message("heard", "id", id, "error", "missed");
+            } catch (InterruptedException stopped) {
+                Thread.currentThread().interrupt();
+                answer = message("heard", "id", id, "error", "missed");
+            } catch (IllegalArgumentException | OutOfMemoryError broken) {
+                answer = message("heard", "id", id, "error", "missed");
+            }
+            send(answer);
+        }, "autark-hear");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     /** A picture of the app's own window (main thread): PixelCopy, then scaled and encoded off the main thread. */
@@ -209,6 +283,16 @@ final class NativePort {
         } finally {
             full.recycle();
         }
+    }
+
+    /** The page's {x, y} (CSS px of its viewport) in screen px, or null without them. */
+    private int[] onScreen(JSONObject in) {
+        WebView page = view;
+        if (page == null || !in.has("x") || !in.has("y")) return null;
+        int[] origin = new int[2];
+        page.getLocationOnScreen(origin);
+        float density = activity.getResources().getDisplayMetrics().density;
+        return new int[] { origin[0] + Math.round((float) in.optDouble("x") * density), origin[1] + Math.round((float) in.optDouble("y") * density) };
     }
 
     private static String text(JSONObject in, String key) { return in.isNull(key) ? null : in.optString(key, null); }

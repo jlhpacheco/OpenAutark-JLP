@@ -1,7 +1,12 @@
 // Graceful quit: ordered steps (renderer drafts, updater timers, runtime drain), each
-// bounded by a timeout so a hung part can never keep the app alive.
+// bounded by a timeout so a hung part can never keep the app alive. Sicher-Runde 19.11.2026: before the runtime stops it
+// says goodbye to the linked PCs (devices.bye – "App closed · 14:02" there instead of "Not reachable"), and after it
+// stopped the wake helper starts when the person quit and the runtime wrote its file (main/sleeper.ts).
 // Owns: the quit order, running the steps and the overall cap. Never: calls app.quit itself
 // or touches Electron (the actions are passed in).
+
+import type { QuitBy } from '../shared/model/launch.ts';
+import { sleeperAtQuit } from './sleeper.ts';
 
 export interface ShutdownStep {
   name: string;
@@ -49,7 +54,16 @@ export interface QuitActions {
   stopRuntime(): unknown;
   releasePower(): unknown;
   destroyTray(): unknown;
+  /** Who quit (launcher.ts RunStateMarks): the person's quit may leave the wake helper running. */
+  by?: QuitBy;
+  /** devices.bye over main's link ('quit', or 'session-end' when Windows ends the session); its answer says whether the helper starts. */
+  bye?(): Promise<{ sleeper?: boolean } | undefined>;
+  /** Starts the wake helper (main/sleeper.ts startSleeper) – after the runtime stopped. */
+  startSleeper?(): unknown;
 }
+
+/** The goodbye waits this long at most (the runtime's own wait is shorter, runtime/devices/away.ts BYE_MS). */
+export const BYE_STEP_MS = 3_000;
 
 /** Quit order: drafts → updater timers → runtime drain → leftovers. */
 export function quitSteps(actions: QuitActions): ShutdownStep[] {
@@ -58,10 +72,14 @@ export function quitSteps(actions: QuitActions): ShutdownStep[] {
     { name: 'tray', run: actions.destroyTray },
   ];
   if (actions.drained) return [{ name: 'updates', run: actions.disposeUpdates }, ...final];
+  let bye: { sleeper?: boolean } | undefined;
+  const { bye: sayBye, startSleeper } = actions;
   return [
     { name: 'drafts', run: actions.flushDrafts, timeoutMs: 4000 },
     { name: 'updates', run: actions.disposeUpdates },
+    ...(sayBye ? [{ name: 'bye', run: async () => { bye = await sayBye(); }, timeoutMs: BYE_STEP_MS }] : []),
     { name: 'runtime', run: actions.stopRuntime, timeoutMs: 10_000 },
+    ...(startSleeper ? [{ name: 'wake helper', run: () => (sleeperAtQuit(actions.by, bye) ? startSleeper() : undefined) }] : []),
     ...final,
   ];
 }

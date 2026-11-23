@@ -1,7 +1,7 @@
 // B-081: the status line's call lines (src/ui/chat/call/call-notices.ts, pure provider): a ring gives Accept (primary –
 // it opens the chat first when another one is open) and Decline; a call running on another device gives Take over and
-// Open (Open only when that chat is not open); a call this device talks in and a ring whose time is over give nothing;
-// never more than the line's two actions.
+// Join (owner 19.11.2026: this device joins beside the others – it opens the chat first when another one is open); a call
+// this device talks in and a ring whose time is over give nothing; never more than the line's two actions.
 // Owns: these assertions only. Never: audio or a runtime.
 
 import { test } from 'node:test';
@@ -16,7 +16,7 @@ const running: LiveCall = { callId: 'call_x', rowId: 'm_x', conversationId: 'ch_
 
 function actions() {
   const done: string[] = [];
-  return { done, actions: { answer: (chat: string, call: string) => done.push(`answer ${chat} ${call}`), decline: (call: string) => done.push(`decline ${call}`), open: (chat: string) => done.push(`open ${chat}`) } };
+  return { done, actions: { answer: (chat: string, call: string, join?: boolean) => done.push(`${join ? 'join' : 'answer'} ${chat} ${call}`), decline: (call: string) => done.push(`decline ${call}`), open: (chat: string) => done.push(`open ${chat}`) } };
 }
 
 test('a ring: "<Agent> calls · <why>" with Accept (primary, opens its chat first) and Decline, above the voice lines', async () => {
@@ -36,15 +36,19 @@ test('a ring: "<Agent> calls · <why>" with Accept (primary, opens its chat firs
   assert.equal(inChat.id, 'ring:call_r');
 });
 
-test('a call on another device: "Call on <device> · <name>: <line>" with Take over and Open; Open only when its chat is not open', async () => {
+test('a call on another device: "Call on <device> · <name>: <line>" with Take over and Join; Join opens its chat first when another one is open', async () => {
   const { done, actions: run } = actions();
   const [notice] = callNotices([running], { now: NOW, open: 'ch_a', talking: () => false }, run);
   assert.equal(notice.text, 'Call on Pixel · Ava: Das Budget reicht.');
   assert.equal(notice.priority, NOTICE_PRIORITY.call);
-  assert.deepEqual(notice.actions?.map((action) => action.label), ['Take over', 'Open']);
+  assert.deepEqual(notice.actions?.map((action) => action.label), ['Take over', 'Join']);
   await notice.actions![0].run();
-  assert.deepEqual(done, ['answer ch_b call_x']);
-  assert.deepEqual(callNotices([running], { now: NOW, open: 'ch_b', talking: () => false }, run)[0].actions?.map((action) => action.label), ['Take over']);
+  await notice.actions![1].run();
+  assert.deepEqual(done, ['answer ch_b call_x', 'open ch_b', 'join ch_b call_x']);
+  const here = actions();
+  await callNotices([running], { now: NOW, open: 'ch_b', talking: () => false }, here.actions)[0].actions![1].run();
+  assert.deepEqual(here.done, ['join ch_b call_x'], 'its chat is open: it only joins');
+  assert.equal(callNotices([{ ...running, device: 'Pixel and laptop' }], { now: NOW, open: null, talking: () => false }, run)[0].text, 'Call on Pixel and laptop · Ava: Das Budget reicht.');
 });
 
 test('nothing for a call this device talks in or a ring whose time is over; at most two actions', () => {
@@ -53,4 +57,14 @@ test('nothing for a call this device talks in or a ring whose time is over; at m
   assert.deepEqual(ringingHere([ring], { now: NOW + 30_000, talking: () => false }), [], 'rang out');
   assert.deepEqual(callNotices([{ ...ring, why: undefined, agentName: undefined }], { now: NOW, open: null, talking: () => false }, actions().actions).map((notice) => notice.text), ['An agent calls']);
   for (const notice of callNotices([ring, running], { now: NOW, open: null, talking: () => false }, actions().actions)) assert.ok((notice.actions?.length ?? 0) <= MAX_NOTICE_ACTIONS);
+});
+
+test('Team-Call: another person\'s call says who is in and offers Join only (primary) – it opens the chat first', async () => {
+  const { done, actions: run } = actions();
+  const others: LiveCall = { ...running, callId: 'call_o', device: 'Dominik', others: true };
+  const [notice] = callNotices([others], { now: NOW, open: 'ch_other', talking: () => false }, run);
+  assert.equal(notice.text, 'Call with Dominik · Ava: Das Budget reicht.');
+  assert.deepEqual(notice.actions?.map((action) => [action.label, action.primary ?? false]), [['Join', true]]);
+  await notice.actions![0].run();
+  assert.deepEqual(done, ['open ch_b', 'join ch_b call_o']);
 });

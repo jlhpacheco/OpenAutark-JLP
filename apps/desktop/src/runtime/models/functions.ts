@@ -11,8 +11,9 @@
 
 import type { RuntimeServices } from '../contracts.ts';
 import { functionCandidates, type Account, type ModelFunction, type ModelInfo, type ProviderId } from '../../shared/model/providers.ts';
-import { chargeOf } from './pricing.ts';
-import { USE_AUTO, USE_OFF, useValue } from '../../shared/model/models-uses.ts';
+import { accountCharge } from '../../shared/model/charge.ts';
+import { PLAN_DICTATION, USE_AUTO, USE_LOCAL, USE_OFF, useValue } from '../../shared/model/models-uses.ts';
+import { runnableAccounts, spillOver } from '../routing/pool.ts';
 
 export interface FunctionModel {
   modelId: string;
@@ -37,13 +38,11 @@ export interface FunctionStatus {
 type Services = Pick<RuntimeServices, 'catalog' | 'accounts' | 'settings'>;
 
 /** Pay-per-use connection (API key, key from the environment, CLI signed in with an API key); local runtimes and plans are free at the margin. */
-const paid = (account: Account) => chargeOf(account) === 'paid';
+const paid = (account: Account) => accountCharge(account) === 'paid';
 
-/** Healthy accounts that can run this catalog model, free ones first (stable within each group). */
+/** Healthy accounts that can run this catalog model (routing/pool.ts), free ones first (stable within each group). */
 function accountsFor(s: Services, model: ModelInfo): Account[] {
-  let candidates: Account[];
-  try { candidates = s.accounts.candidates(model.engine, model.model); } catch { return []; }
-  const usable = candidates.filter((account) => account.provider === model.provider && (!model.accounts.length || model.accounts.includes(account.id)));
+  const usable = runnableAccounts(s, model);
   return [...usable.filter((account) => !paid(account)), ...usable.filter(paid)];
 }
 
@@ -51,10 +50,7 @@ type Reachable = { model: ModelInfo; source: 'settings' | 'auto'; accounts: Acco
 
 /** Automatic candidates under the money rule: free connections first, API keys only as spill-over. */
 function autoOrder(candidates: Reachable[], allowPaid: boolean): Reachable[] {
-  let pool = candidates;
-  if (!allowPaid && pool.some((entry) => entry.accounts.some((account) => !paid(account)))) {
-    pool = pool.map((entry) => ({ ...entry, accounts: entry.accounts.filter((account) => !paid(account)) })).filter((entry) => entry.accounts.length > 0);
-  }
+  const pool = spillOver(candidates, allowPaid).entries;
   // accountsFor lists free accounts first, so accounts[0] is paid only when the model has no free one.
   return [...pool.filter((entry) => !paid(entry.accounts[0])), ...pool.filter((entry) => paid(entry.accounts[0]))];
 }
@@ -64,7 +60,8 @@ export function functionStatus(s: Services, fn: ModelFunction): FunctionStatus {
   const routing = s.settings.get().routing;
   const value = useValue(routing, fn);
   const off = value === USE_OFF;
-  const setting = value === USE_AUTO ? undefined : value;
+  // stt "codex" (the plan's dictation) and "local" (this PC's model) name no function model: after them the automatic order
+  const setting = value === USE_AUTO || (fn === 'stt' && (value === PLAN_DICTATION || value === USE_LOCAL)) ? undefined : value;
   let models: ModelInfo[];
   try { models = s.catalog.list(); } catch { models = []; }
   const reachable: Reachable[] = functionCandidates(fn, setting, models)
@@ -78,7 +75,3 @@ export function functionStatus(s: Services, fn: ModelFunction): FunctionStatus {
   return { choice, setting, settingUnavailable: Boolean(setting) && !off && !chosen, off };
 }
 
-/** Model and account for a media function, or undefined when none is connected (or it is off). */
-export function functionModel(s: Services, fn: ModelFunction): FunctionModel | undefined {
-  return functionStatus(s, fn).choice;
-}

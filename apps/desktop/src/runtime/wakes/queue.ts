@@ -4,9 +4,6 @@
 // encoded in the row id (`wk_c<hash>`) so no extra column is needed; claiming renames the row
 // to a unique id (`wk_c<hash>.<unique>`), which frees the key for the next wake while the
 // claimed one runs – and lets release()/reconcile() put it back under its own key.
-// Report wakes (T08, org/reports.ts): two 'report' wakes merge line by line – each line once, the
-// first line (the instruction) stays first, the oldest result lines go first past the size cap –
-// so one manager turn reports a bundle of results; the earliest due time wins as for every merge.
 // Provisional wakes (C3, chat/delivery.ts): cancelKey() withdraws the one unclaimed row under a
 // coalesce key (a claimed one keeps running) – the lead's fallback wake once a decision is made.
 // Origin (B-054, shared/model/origin.ts): stored in source/source_label (migration 082). On a merge the older
@@ -25,7 +22,7 @@ type Row = Record<string, unknown>;
 
 /** Higher wins when two wakes merge (a piece's end beats a plain task wake under the same key, so it keeps rank 1). */
 const STRENGTH: Record<WakeReason, number> = {
-  answer: 9, message: 8, approval: 7, child: 6, task: 5, event: 5, handoff: 4, schedule: 3, review: 2, report: 2, retry: 1, manual: 0, setup: 0,
+  answer: 9, message: 8, child: 6, task: 5, event: 5, schedule: 3, review: 2, retry: 1, manual: 0,
   split: 0, // B-057: a split's run – never a queued wake
   fold: 0, // KI-Runde 17.11.2026: a context fold's run – never a queued wake
 };
@@ -256,8 +253,7 @@ export class WakeQueueImpl implements WakeQueue {
     }
     const old = toWake(existing);
     const reason = STRENGTH[wake.reason] > STRENGTH[old.reason] ? wake.reason : old.reason;
-    const join = wake.reason === 'report' && old.reason === 'report' ? joinLines : joinNotes;
-    const note = released ? join(wake.note, old.note) : join(old.note, wake.note);
+    const note = released ? joinNotes(wake.note, old.note) : joinNotes(old.note, wake.note);
     const origin = old.origin ?? wake.origin; // the older origin wins, like the chat and the task
     this.db.run(
       `UPDATE wakes SET reason = ?, note = ?, due_at = ?, conversation_id = ?, task_id = ?, created_at = ?, attempts = ?, source = ?, source_label = ?, mail_origin = ?
@@ -293,17 +289,6 @@ export class WakeQueueImpl implements WakeQueue {
       try { listener({ agentId, dueAt }); } catch { /* listeners must not break writers */ }
     }
   }
-}
-
-/** Report notes: `a`'s lines, then `b`'s new ones; past the cap the oldest lines after the first go. */
-function joinLines(a: string | undefined, b: string | undefined): string | undefined {
-  if (!a) return b;
-  if (!b) return a;
-  const lines = a.split('\n');
-  for (const line of b.split('\n')) if (!lines.includes(line)) lines.push(line);
-  while (lines.length > 2 && lines.join('\n').length > MAX_NOTE) lines.splice(1, 1);
-  const joined = lines.join('\n');
-  return joined.length > MAX_NOTE ? joined.slice(0, MAX_NOTE) : joined;
 }
 
 function joinNotes(a: string | undefined, b: string | undefined): string | undefined {

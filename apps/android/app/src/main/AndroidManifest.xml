@@ -5,8 +5,9 @@
      the small foreground service while paired (KeepAlive, type remoteMessaging), the camera app's files for a capture the
      page asked for (CaptureFiles, not exported, a one-time grant per file), the phone's text-to-speech engines
      (PhoneSpeech), the phone-use AccessibilityService (reads
-     nothing until the PC asks; phoneuse/UseService – it also carries the person's to-do button, phoneuse/TodoButton, with
-     its dictation through the phone's speech recognition) with its one enable notification (which opens the in-app disclosure
+     nothing until the PC asks; phoneuse/UseService – it also carries the person's to-do button, phoneuse/TodoButton, whose
+     dictation and call the PC hears, and whose field types through phoneuse/BubbleTyping: an invisible one-pixel activity
+     in a task of its own, not in Recents, so the keyboard stays under the navigation bar) with its one enable notification (which opens the in-app disclosure
      UseDisclosure first) and the AI's question as a notification with ✓ / ✕ (phoneuse/AskNotice, not exported), an agent's
      ring as an incoming call notice with Accept / Decline (CallNotice, not exported), the crash report that needs no PC (CrashReport: the last uncaught exception's trace, shown on
      the next start), and plain http only to the app's own 127.0.0.1 entrance. A theme switch (uiMode) recreates the
@@ -21,6 +22,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -33,10 +36,6 @@
         <!-- Android 11+ shows TextToSpeech only the engines named here (PhoneSpeech, the call's phone voice). -->
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
-        </intent>
-        <!-- Android 11+ binds SpeechRecognizer only to the recognition services named here (the to-do button's dictation, phoneuse/TodoButton). -->
-        <intent>
-            <action android:name="android.speech.RecognitionService" />
         </intent>
     </queries>
     <application android:name=".CrashReport" android:label="@string/app_label" android:icon="@mipmap/autark_launcher"
@@ -66,11 +65,16 @@
             </intent-filter>
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
-        <service android:name=".KeepAlive" android:exported="false" android:foregroundServiceType="remoteMessaging" />
+        <service android:name=".KeepAlive" android:exported="false" android:foregroundServiceType="remoteMessaging|microphone" />
         <provider android:name=".CaptureFiles" android:authorities="${applicationId}.capture"
             android:exported="false" android:grantUriPermissions="true" />
         <activity android:name=".phoneuse.UseDisclosure" android:exported="false" android:excludeFromRecents="true"
             android:launchMode="singleTop" />
+        <activity android:name=".phoneuse.BubbleTyping" android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" android:launchMode="singleInstance"
+            android:taskAffinity="" android:excludeFromRecents="true" android:noHistory="true"
+            android:windowSoftInputMode="stateAlwaysVisible|adjustNothing"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|screenLayout|smallestScreenSize" />
         <receiver android:name=".phoneuse.AskNotice" android:exported="false" />
         <receiver android:name=".CallNotice" android:exported="false" />
         <service android:name=".phoneuse.UseService" android:exported="true"

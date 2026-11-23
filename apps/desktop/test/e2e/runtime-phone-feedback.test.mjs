@@ -1,5 +1,5 @@
 // Owns: paired-phone feedback sealed for the team and dropped into a local fake of the Firestore mailbox (B-055),
-// the team PC's setup and inbox fetch (open → store → delete). (The overlay plugins and customize requests went with
+// the team PC's setup and inbox fetch (open → store; 16.11.2026 the letter leaves the mailbox when the report is removed). (The overlay plugins and customize requests went with
 // the self-change machinery – Umbau Einfachheit.)
 // Never: contacts Google, Firebase or GitHub, prints pairing secrets or opens a browser.
 
@@ -89,12 +89,13 @@ test('a phone reports with a screenshot; the team PC fetches it from the mailbox
     assert.equal(JSON.stringify(setup).includes('PRIVATE KEY'), false);
     assert.deepEqual(await owner.call('feedback.status'), { sending: true, receiving: true });
     assert.deepEqual(await phone.call('feedback.status'), { sending: true, receiving: false }, 'a phone never learns of the inbox');
-    await assert.rejects(phone.call('feedback.inboxList'), (error) => error.code === 'forbidden');
+    // 16.11.2026 (W2-PH): the owner's own phone with 'settings' on a secure transport (loopback here) reaches the inbox, too.
+    assert.deepEqual(await phone.call('feedback.inboxList'), [], 'the owner\'s phone reads the (still empty) inbox');
     const second = await phone.call('feedback.create', { kind: 'idea', text: 'Please add dark charts.', screenshotFileId: report.screenshotFileId });
     await phone.call('feedback.send', { id: second.id }); // sealed for the new team key
     const fetched = await owner.call('feedback.inboxFetch');
     assert.deepEqual(fetched, { added: 1, unreadable: 1, more: false, total: 1 }, 'the first letter was sealed for the fixture key');
-    assert.equal(delivery.docs.size, 0, 'feedback ends up only with the team');
+    assert.equal(delivery.docs.size, 2, 'a fetch takes no letter away from the other team PCs (16.11.2026): both stay in the mailbox');
     const items = await owner.call('feedback.inboxList');
     assert.equal(items.length, 1);
     assert.equal(items[0].text, 'Please add dark charts.');
@@ -103,8 +104,11 @@ test('a phone reports with a screenshot; the team PC fetches it from the mailbox
     assert.deepEqual(await owner.call('feedback.inboxScreenshot', { id: items[0].id }), { mime: 'image/png', dataBase64: png().toString('base64') });
     const files = (await readdir(path.join(runtime.dataDir, 'feedback-inbox'))).sort();
     assert.deepEqual(files, [`${items[0].id}.json`, `${items[0].id}.png`, 'unreadable']);
-    assert.ok(delivery.log.indexOf(`delete ${items[0].id}`) > delivery.log.indexOf(`get ${items[0].id}`));
     await owner.call('feedback.inboxRemove', { id: items[0].id });
     assert.deepEqual(await owner.call('feedback.inboxList'), []);
+    for (let i = 0; i < 50 && delivery.docs.has(items[0].id); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(delivery.docs.has(items[0].id), false, 'removing the report takes its letter out of the mailbox');
+    assert.ok(delivery.log.indexOf(`delete ${items[0].id}`) > delivery.log.indexOf(`get ${items[0].id}`));
+    assert.equal(delivery.docs.size, 1, 'the letter this key cannot open stays for a team PC with the newer key');
   });
 });

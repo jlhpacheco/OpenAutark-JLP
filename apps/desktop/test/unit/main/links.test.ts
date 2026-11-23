@@ -165,12 +165,12 @@ test('settings view: defaults before the runtime answers, change notification af
   await view.start();
   assert.deepEqual(topics, ['system']);
   assert.equal(view.preferences().theme, 'dark');
-  assert.equal(seen[0].length, 4, 'first load reports everything');
+  assert.equal(seen[0].length, 3, 'first load reports everything');
   await view.update({ preferences: { autoDownloadUpdates: true } });
   assert.deepEqual(seen[1], ['autoDownloadUpdates']);
-  updatedListener!(settings({ theme: 'dark', autoDownloadUpdates: true, closeToTray: false }));
-  assert.deepEqual(seen[2], ['closeToTray']);
-  assert.equal(view.preferences().closeToTray, false);
+  updatedListener!(settings({ theme: 'dark', autoDownloadUpdates: true, openAtLogin: true }));
+  assert.deepEqual(seen[2], ['openAtLogin']);
+  assert.equal(view.preferences().openAtLogin, true);
   await view.start(); // a runtime restart: reload only, no second subscription
   assert.deepEqual(topics, ['system']);
 });

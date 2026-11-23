@@ -7,21 +7,23 @@
 // B-055: the header cell's talk (press.ts recognizes the hold) drives a DictationButton through
 // beginHold/endHold; the window shot includes the side browser (main/capture.ts composites it).
 // Feedback 16.11.2026: the Android app (0.3.15+) takes the shot of its own window over the port
-// (native-port.ts requestNativeShot, at most 2 s); the iPhone web app and a browser offer the picker
-// ("Add photo"). The feedback dictation also keeps its voice (recording.ts recordingDictation, while
-// "Recording" is on): the take's recording joins the draft before its words are heard, so a take that
-// could not be transcribed still reaches the report.
+// (native-port.ts requestNativeShot, at most 2 s); the picker ("Add photo", the form's +) works everywhere.
+// Owner 20.11.2026: a report is its words – the feedback dictation gives text, never a recording. Its cancel
+// (the form's + turned into ×) drops a take while it records and while it is transcribed: the words of a
+// dropped take never reach the field.
 // Owns: the screenshot and picked-image helpers and the dictation button. Never: uploads anything
-// (the panel does, on its action button) or sends audio itself.
+// (the panel does, on its action button) or keeps audio.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { bridge } from '../lib/platform.ts';
-import { DictationCancelled, dictation, dictationNote } from '../lib/dictation.ts';
+import { DictationCancelled, TakeNotTranscribed, dictation, dictationNote, type KeptPiece } from '../lib/dictation.ts';
+import { errorText } from '../lib/rpc.ts';
+import { settings } from '../lib/store.ts';
+import { pushToast } from '../lib/toasts.ts';
+import { appendDraftText } from './draft.ts';
 import { hasNativePort, requestNativeShot } from '../pwa/native-port.ts';
 import { androidShell, versionAtLeast } from './client.ts';
-import { addRecording, feedbackDraft } from './draft.ts'; // a cycle (draft.ts takes the capture from here): a function and a signal read in calls
 import { HOLD_MS } from './press.ts';
-import { feedbackRecorder, recordingDictation } from './recording.ts';
 
 /** The first Android app that answers {t:'shot'} (older ones would only let the request time out). */
 export const NATIVE_SHOT_SINCE = '0.3.15';
@@ -116,24 +118,54 @@ const CLICK_AFTER_RELEASE_MS = 500;
 export interface ButtonDictation {
   /** `onEnded` fires when the take ends without finish/cancel (another dictation took the microphone). */
   start(onEnded: (error?: string) => void): Promise<void>;
-  /** Stops the take and returns its text ('' when nothing was understood). */
-  finish(language?: string): Promise<string>;
+  /** Stops the take and returns its text ('' when nothing was understood) – or, when part of it was not heard, a PartlyHeard. */
+  finish(language?: string): Promise<string | PartlyHeard>;
   cancel(): void;
 }
 
-/** The feedback mics' dictation: the page's words and, while "Recording" is on, the same take's voice (recording.ts). */
-const pageButton: ButtonDictation = recordingDictation({
+/** A take part of which was not heard: its words, what the form says, and the offer to hear the rest again. */
+export interface PartlyHeard {
+  text: string;
+  note: string;
+  /** Offers "Transcribe again" for the pieces not heard – only for a take that was not cancelled. */
+  unheard(): void;
+}
+
+/** The form's line when part of a take was not heard (review 20.11.2026: never lost in silence). */
+export const PART_NOT_HEARD = 'Part of the dictation was not transcribed – "Transcribe again" waits in the status line.';
+
+/**
+ * The composer's offer for a piece not heard (chat/composer/voice.ts offerRetry), for the feedback text: a lasting
+ * status-line toast whose "Transcribe again" hears the stored piece once more and appends its words to the draft. The
+ * piece stays a file on this PC for that – a report never carries it. A piece held in this page (no link) has no button.
+ */
+function offerAgain(pieces: readonly KeptPiece[], error?: string): void {
+  for (const piece of pieces) {
+    const fileId = piece.ref?.id;
+    const run = fileId ? () => void dictation.hear(fileId, { language: settings.peek()?.profile.language }).then(
+      (heard) => { if (heard.text.trim()) appendDraftText(heard.text.trim()); else pushToast({ title: 'Nothing heard in the recording' }); },
+      (failed: unknown) => offerAgain([piece], errorText(failed))) : undefined;
+    const body = `${error ? `${error} ` : ''}${fileId ? 'The recording is kept.' : 'The recording waits in this page.'}`;
+    pushToast({ title: 'Dictation not transcribed', tone: 'error', body, ...(run ? { action: { label: 'Transcribe again', run } } : {}) }, 0);
+  }
+}
+
+/** The feedback mics' dictation: the page's words (lib/dictation.ts); pieces not heard come back as a PartlyHeard. */
+const pageButton: ButtonDictation = {
   start: (onEnded) => dictation.start(onEnded),
-  get stream() { return dictation.stream; },
-  finish: (language) => dictation.finish(language, { attachable: false }), // text; the voice comes from the recorder
+  finish: async (language) => {
+    try {
+      const heard = await dictation.finish(language);
+      const kept = heard.kept ?? [];
+      if (!kept.length) return heard.text;
+      return { text: heard.text, note: PART_NOT_HEARD, unheard: () => offerAgain(kept, kept.find((piece) => piece.error)?.error) };
+    } catch (error) {
+      if (!(error instanceof TakeNotTranscribed) || !error.kept.length) throw error;
+      return { text: '', note: `${error.message} "Transcribe again" waits in the status line.`, unheard: () => offerAgain(error.kept, error.message) };
+    }
+  },
   cancel: () => dictation.cancel(),
-}, {
-  wanted: () => feedbackDraft.peek().withAudio,
-  begin: (stream) => feedbackRecorder.begin(stream),
-  keep: () => feedbackRecorder.keep(),
-  cancel: () => feedbackRecorder.cancel(),
-  add: addRecording,
-});
+};
 
 /** The panel can dictate to text here now (reactive). */
 export function panelDictationAvailable(): boolean {
@@ -212,9 +244,10 @@ export class DictationButton {
     this.end();
   }
 
-  /** Discards this button's take (never another caller's). */
+  /** Discards this button's take (never another caller's) – while it records, and while it is transcribed (its words are dropped). */
   cancel(): void {
     if (this.phase === 'starting') { this.drop = true; return; }
+    if (this.phase === 'transcribing') { this.ticket += 1; this.show('idle'); return; }
     if (this.phase !== 'listening') return;
     this.running?.cancel();
     this.running = null;
@@ -261,15 +294,19 @@ export class DictationButton {
     const engine = this.running;
     if (this.phase !== 'listening' || !engine) return;
     this.running = null;
+    const ticket = this.ticket;
     this.show('transcribing');
     try {
       // A take without words comes back as '' (the runtime's answer, SM9): nothing to show.
-      const text = (await engine.finish(this.view.language())).trim();
-      if (text && !this.disposed) this.view.text(text);
+      const heard = await engine.finish(this.view.language());
+      if (ticket !== this.ticket || this.disposed) return; // cancelled meanwhile: no words, no offer
+      const text = (typeof heard === 'string' ? heard : heard.text).trim();
+      if (text) this.view.text(text);
+      if (typeof heard !== 'string') { heard.unheard(); this.view.error(heard.note); }
     } catch (error) {
-      if (!this.disposed) this.view.error(failure(error));
+      if (ticket === this.ticket && !this.disposed) this.view.error(failure(error));
     } finally {
-      this.show('idle');
+      if (ticket === this.ticket) this.show('idle'); // a cancelled take showed idle already (a new one may run)
     }
   }
 

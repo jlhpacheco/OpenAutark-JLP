@@ -4,7 +4,7 @@
 // (test/ui/lib/stable.mjs expectStable):
 //   * Search chats and Search the team: the field takes the title's place in the side header row,
 //     the magnifier keeps its cell, no row is inserted and the sidebar never scrolls sideways;
-//   * switching My day ↔ Team ↔ Chats in the rail: rail, side header row, main zone and the workspace
+//   * switching Tasks ↔ Team ↔ Chats in the rail: rail, side header row, main zone and the workspace
 //     cell keep their boxes;
 //   * the workspace cell and the chat's header cells: one place whether the pane is open or closed;
 //   * an open side panel keeps the message list at the newest message;
@@ -30,6 +30,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -61,7 +62,7 @@ test('nothing moves: searches, rail, workspace cell, details panel, chat area, c
   await size(1280, 820);
   await page.waitForTimeout(400);
   const shot = async (name) => { await page.waitForTimeout(300); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
 
   const agents = await rpc.call('agents.list');
@@ -85,11 +86,11 @@ test('nothing moves: searches, rail, workspace cell, details panel, chat area, c
   await expectStable(page, side.filter((selector) => selector !== '.sidebar .chat-rows'), () => page.keyboard.press('Escape'));
   assert.equal(await page.locator('.sidebar .frame-header-search').count(), 0, 'Esc closes the field');
 
-  // Rail: My day ↔ Team ↔ Chats keep the rail, the side header row, the main zone and the workspace cell.
+  // Rail: Tasks ↔ Team ↔ Chats keep the rail, the side header row, the main zone and the workspace cell.
   // (the side header's title track may differ between views: each view has its own cells; the title starts at one place)
   const frame = ['.rail', '.rail-header', '.sidebar', '.sidebar .frame-header', '.main-slot', '.main-slot .frame-header', '.frame-workspace-cell'];
   const rail = (name) => page.locator('.rail').getByRole('button', { name, exact: true });
-  await expectStable(page, frame, async () => { await rail('My day').click(); await page.locator('.day-view').waitFor(); });
+  await expectStable(page, frame, async () => { await rail('Tasks').click(); await page.locator('.main-slot :is(.tasks-page, .first-run-view)').waitFor(); }); // the page, or the first run in its place
   await expectStable(page, frame, async () => { await rail('Team').click(); await page.locator('.team-nav').waitFor(); });
 
   // Search the team: the same in-place swap.

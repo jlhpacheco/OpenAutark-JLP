@@ -1,6 +1,7 @@
 // Waits on tasks: a task that comes after other tasks (Task.dependsOn) waits on them (waitingOn on 'task'), and so does a
 // task its owner set waiting on tasks (tasks.update on: task). When the last of them is done, dropped or removed it is
-// open again – a quiet "Ready: …" line, its agent owner hears how it ended. It orders work and holds nothing back: anyone
+// open again – a quiet "Ready: …" line, its agent owner hears how it ended (once for all of its tasks that one end opened:
+// fifteen asks after a release are one turn, not fifteen). It orders work and holds nothing back: anyone
 // may open such a task at any time.
 // Owns: the checks of a list, the wait it causes and its end. Never: replaces another wait or a pause, or wakes anyone for
 // a task that was finished meanwhile.
@@ -10,7 +11,6 @@ import { WorkforceError } from '../../shared/errors.ts';
 import { excerpt } from '../../shared/text/chat-names.ts';
 import { isFinished, isPaused, type Task } from '../../shared/model/tasks.ts';
 import type { TaskServiceImpl } from './service.ts';
-import { nextLook } from './next.ts';
 import { tell } from './give.ts';
 
 export const MAX_DEPENDS = 20;
@@ -59,36 +59,55 @@ export function applyDepends(repo: Repo, draft: Task, ids: readonly string[], no
   delete draft.waitingOn;
 }
 
-/** `ended` finished or went: every task that waits on it waits for one less, or is open again (its owner told unless `tell` is false). */
+/**
+ * `ended` finished or went: every task that waits on it waits for one less, or is open again – and the agent owner of
+ * those that opened hears it once, all of its opened tasks in one word (R1.10), unless `tell` is false.
+ */
 export function waitsEnded(t: TaskServiceImpl, ended: Task, how: 'done' | 'dropped' | 'removed', tell = true): void {
   const rows = t.s.db.all<{ id: string }>(
     `SELECT id FROM tasks WHERE status IN ('open', 'waiting') AND (depends_on LIKE ? OR (status = 'waiting' AND waiting_on LIKE ?))`,
     [`%"${ended.id}"%`, `%"${ended.id}"%`]);
+  const owners = new Map<string, Task[]>();
   for (const { id } of rows) {
-    try { stepOn(t, id, ended, how, tell); } catch (error) {
+    try {
+      const opened = stepOn(t, id, ended);
+      if (opened?.assigneeKind === 'agent' && opened.assigneeId) owners.set(opened.assigneeId, [...(owners.get(opened.assigneeId) ?? []), opened]);
+    } catch (error) {
       t.s.log?.warn('a task waiting on another was not released', { taskId: id, after: ended.id, error: String(error) });
     }
   }
+  if (tell) for (const [owner, opened] of owners) tellOpened(t, owner, ended, how, opened);
 }
 
-function stepOn(t: TaskServiceImpl, id: string, ended: Task, how: 'done' | 'dropped' | 'removed', tellOwner: boolean): void {
+/** One step on: a shorter wait, or – after the last one – the task open again (returned). */
+function stepOn(t: TaskServiceImpl, id: string, ended: Task): Task | undefined {
   const task = t.repo.get(id);
-  if (!task || isPaused(task) || !waitsOnTasks(task)) return; // a pause, or a wait on something else, stays
+  if (!task || isPaused(task) || !waitsOnTasks(task)) return undefined; // a pause, or a wait on something else, stays
   const left = unfinished(t.repo, [...new Set([...(task.dependsOn ?? []), ...(task.waitingOn!.ids ?? [])])]).filter((item) => item.id !== ended.id);
   const now = t.s.clock.now();
   if (left.length) {
     t.emit(t.mutate(id, (draft) => { draft.waitingOn = { ...draft.waitingOn!, ids: left.map((item) => item.id) }; }));
-    return;
+    return undefined;
   }
   const opened = t.mutate(id, (draft) => {
     draft.status = 'open';
     delete draft.waitingOn;
-    draft.ledger = { ...draft.ledger, movedAt: now, stalls: 0 };
-    draft.nextAt = nextLook(draft, now, t.openPieces(draft));
+    draft.ledger = { ...draft.ledger, movedAt: now };
   });
   t.line(opened, { type: 'note', text: `Ready: ${excerpt(opened.title, 60)}`, details: { taskId: id } }, SYSTEM_ID);
   t.emit(opened);
-  if (!tellOwner || opened.assigneeKind !== 'agent' || !opened.assigneeId) return;
+  return opened;
+}
+
+/** The owner hears how `ended` went and which of its tasks are free now: one task – with that task; several – in one wake. */
+function tellOpened(t: TaskServiceImpl, owner: string, ended: Task, how: 'done' | 'dropped' | 'removed', opened: Task[]): void {
   const word = how === 'done' ? `done${ended.result?.summary ? `: ${excerpt(ended.result.summary, 400)}` : ''}` : how;
-  tell(t.s, opened.assigneeId, { reason: 'child', taskId: id, conversationId: opened.conversationId, note: `"${excerpt(ended.title, 80)}", which my task "${excerpt(opened.title, 80)}" waited on, is ${word}. Nothing else is ahead of it.` });
+  const [first] = opened;
+  if (opened.length === 1) {
+    tell(t.s, owner, { reason: 'child', taskId: first.id, conversationId: first.conversationId, note: `"${excerpt(ended.title, 80)}", which my task "${excerpt(first.title, 80)}" waited on, is ${word}. Nothing else is ahead of it.` });
+    return;
+  }
+  const quest = opened.every((task) => task.parentId && task.parentId === first.parentId) ? first.parentId : undefined; // their one quest, else none
+  const list = opened.map((task) => `"${excerpt(task.title, 80)}" (${task.id})`).join(', ');
+  tell(t.s, owner, { reason: 'child', key: `after:${ended.id}`, ...(quest ? { taskId: quest } : {}), note: `"${excerpt(ended.title, 80)}", which ${opened.length} of my tasks waited on, is ${word}. Nothing else is ahead of them: ${list}.` });
 }

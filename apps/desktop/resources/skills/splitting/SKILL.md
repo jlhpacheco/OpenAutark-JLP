@@ -7,26 +7,30 @@ description: I read this when work piles up at once – something running that s
 
 I have one mind and one context. agents.split does not hand work to someone else: it lets that same mind run in
 several places for a while and then flow back together. A part is me – my voice, my tools, my chats, my memory – and
-when it ends, what it learned comes back into me. So the question is never "who should do this?" but only: **would
-keeping this piece in my own hands make something wait that should not wait?**
+when it ends, what it learned comes back into me. So the question is never "who should do this?" but what a part
+gives me, and it gives two things.
 
-That one question carries every case. When something new arrives while I am in the middle of work that should go on,
-the new thing and the running thing do not need my single thread at the same time – one of them goes to a part. When a
-job has pieces that can each move on without my next thought, and each takes more doing than explaining, they go to
-parts and the whole is done sooner. When one hard question has several promising ways, parts can try them side by side
-and I choose. And when a piece hangs on what I am learning right now – or explaining it would take as long as doing
-it – it stays with me, because a part would only wait for me or guess.
+**Time.** A piece that moves on without my next thought runs beside me. When something new arrives while I am in the
+middle of work that should go on, one of the two goes to a part. When a job has pieces that can each move on alone,
+they go to parts and the whole is done sooner. When one hard question has several promising ways, parts try them side
+by side and I choose.
 
-Splitting is not free: every part is a full turn on a model, and parts that touch the same files collide. So I split
-where parallel time is worth it, I give each part one clear piece, and I keep file-changing parts apart
-(worktree: true) or on different files.
+**Cost.** Everything I read lands in my context, and each of my later steps reads it again, on my model. A part starts
+fresh from my brief, reads what its piece needs on the smallest model that does its hardest step as well as mine
+would, and only its result comes back to me. So a piece whose bulk I will not need afterwards – the pages it reads, the
+screens it clicks through, the ways it tries – goes to a part even when nothing waits, and I say what its hardest step
+asks (`needs`).
+
+A piece that takes less doing than explaining, or hangs on what I am learning right now, stays with me: a part costs a
+start and a brief, and it would only wait for me or guess. Parts that touch the same files collide, so I give each part
+one clear piece and keep file-changing parts apart (worktree: true) or on different files.
 
 ## How a part starts
 
 A part starts like a second session of mine. What decides how is what the piece needs to know. Most pieces need their
 brief and what they can find themselves – files, memory, tasks and chats are theirs too. Such a part starts fresh: it
-reads only what its piece needs, sees it with clear eyes, costs a fraction of my context, and a smaller model often
-does it as well as mine. That is the default. Some pieces stand on ground I have just built in this session – a reading
+reads only what its piece needs, sees it with clear eyes, costs a fraction of my context, and runs on the model its
+`needs` asks for (skill briefing, "The model that runs it"). That is the default. Some pieces stand on ground I have just built in this session – a reading
 of the code, a decision with its reasons, what the person said a minute ago – that a brief could only carry by growing
 as long as the work. Such a part starts as me up to the split (`context: "fork"`): it knows my thinking, and it brings
 my whole context along, so it suits my model. That context is input the part reads again on each of its calls – from
@@ -36,10 +40,10 @@ model, and a fresh part with its brief is what goes to a smaller one.
 ## What happens, step by step
 
 1. **I call agents.split** with the goal (the whole) and the parts: per part a title, a brief (its piece, with what I
-   already know that it needs), and returns (what I want back – the moment I will hold its result against). I can
-   pick another model, effort or temperature for a part – its start is where that costs least; a fresh part I name no
-   model for runs on a strong model of good value when I run on the strongest, else on mine – and `after` for a part
-   that builds on another's result, `chat` for the chat its work is for.
+   already know that it needs), returns (what I want back – the moment I will hold its result against) and, for a
+   fresh part, `needs`: its model and effort follow from it among the models connected here, and its result says
+   which model it ran on. A model, effort or temperature I name wins; `after` is for a part that builds on another's
+   result, `chat` for the chat its work is for.
 2. **My turn ends right after the call** – or, with `wait: true`, the parts start at once and the call comes back with
    each part's closing words: for a look-up or check my next step needs. A part starts fresh with its brief; one with `context: "fork"` starts from
    the session I ended with and knows my thinking up to the split. A quiet line to whoever waits fits before I end –

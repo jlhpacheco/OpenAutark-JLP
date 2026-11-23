@@ -77,7 +77,7 @@ async function rt2Setup() {
   const runs = new Journal({ db: h.db, bus: h.bus, clock: h.clock });
   Object.assign(h.services, {
     settings: { get: () => settings }, accounts, runs, secrets: { use: async () => { throw new Error('no secret'); } },
-    engines: { get: (id: EngineId) => engines.get(id)!, all: () => [...engines.values()], disposeIdle: async () => {} },
+    engines: { get: (id: EngineId) => engines.get(id)!, all: () => [...engines.values()] },
     modes: { get: (key: string) => { if (!MODES[key]) throw new Error(`unknown mode ${key}`); return MODES[key]; }, list: () => Object.values(MODES) },
   });
   const catalog = new Catalog({ services: () => h.services, priors: PRIORS, debounceMs: 0 });
@@ -103,7 +103,7 @@ async function rt2Setup() {
   /** More than an hour passes: my session's cache is cold, the next turn stands at a boundary. */
   const rest = () => h.clock.advance(HOUR + 60_000);
   /** One turn: plan, route, take what the plan read as turn.ts does before the engine (B-080) and record it the way turn-finish does. */
-  const turn = async (taskId?: string, note?: string, conversationId = chat.id, reason?: 'task' | 'message' | 'review' | 'handoff'): Promise<RouteDecision> => {
+  const turn = async (taskId?: string, note?: string, conversationId = chat.id, reason?: 'task' | 'message' | 'review'): Promise<RouteDecision> => {
     const plan = await planTurn(h.services, {
       runId: `plan_${seq + 1}`, agentId: AGENT, conversationId, taskId, reason: reason ?? (taskId ? 'task' : 'message'), notes: note ? [{ text: note, at: Date.now() }] : [],
       signal: new AbortController().signal, control: { lastSeq: 0, steeredSeq: 0 },
@@ -262,9 +262,10 @@ test('another kind of work: the effort is not carried, the model I am on stays �
   h.seed(SOL, 'high', 'coding');
   h.setMode('cheap-chat');
   const live = await h.turn();
-  assert.deepEqual([pair(live), live.by, live.reason], [`${SOL}/low`, 'previous', 'continues on my model · cheap chat'], 'at the new work\'s default effort');
+  // Runde „Halb“ 21.11.2026: at medium, not at the category's default (cheap chat: low)
+  assert.deepEqual([pair(live), live.by, live.reason], [`${SOL}/medium`, 'previous', 'continues on my model · cheap chat · not weighed · effort medium'], 'at medium, the unweighed effort, and the reason says so');
   h.rest();
-  assert.equal(pair(await h.turn()), `${SOL}/low`, 'not weak at it and of my kind\'s tier: it stays at a boundary too');
+  assert.equal(pair(await h.turn()), `${SOL}/medium`, 'not weak at it and of my kind\'s tier: it stays at a boundary too');
 
   // Coding → research: at research's default effort, not xhigh; then its own effort is carried.
   const r = await rt2Setup();
@@ -433,7 +434,7 @@ test('B-083: the person\'s suggestion is information – my effort is stored and
   const mine = await h.turn();
   assert.deepEqual([mine.effort, mine.by], ['xhigh', 'request'], 'my request runs for one step');
   says('And the tests too.');
-  assert.equal((await h.turn()).effort, 'high', 'then my settled effort again, raised by the person\'s line – never the suggested medium');
+  assert.equal((await h.turn()).effort, 'low', 'then my settled effort again – never the suggested medium (Runde „Halb“: the person\'s line lifts nothing)');
   assert.equal((ok(await h.ask({ effort: 'medium' })) as unknown as { suggestion?: string }).suggestion, undefined, 'the suggestion\'s own effort: no line');
   takeNextRoute(h.db, AGENT);
 
@@ -534,13 +535,13 @@ test('B-083 D4: an effort the named model lacks is asked as is – the answer na
   assert.equal(pair(await h.turn()), `${LUNA}/high`);
 });
 
-test('tasks.create to a colleague with an effort: the task request exists before its wake is claimed', async () => {
+test('tasks.add for a colleague with an effort: the task request exists before its wake is claimed', async () => {
   const h = await rt2Setup();
   h.org.add(agent('ag_bo', 'Bo', { mode: 'research' }));
   const ctx = { agent: h.org.get(AGENT)!, runId: 'run_d', conversationId: h.chat.id, mode: 'coding', services: h.services, signal: new AbortController().signal, status() {} } as unknown as ToolContext;
-  const create = taskTools.find((tool) => tool.name === 'tasks.create')!;
+  const create = taskTools.find((tool) => tool.name === 'tasks.add')!;
   const textOf = (result: { content: unknown[] }) => String((result.content[0] as { text?: string }).text);
-  const out = JSON.parse(textOf(await create.run({ title: 'Compare the parsers', to: 'ag_bo', effort: 'xhigh' } as never, ctx)));
+  const out = JSON.parse(textOf(await create.run({ title: 'Compare the parsers', for: 'ag_bo', effort: 'xhigh' } as never, ctx)));
   const row = h.db.get<{ value: string }>("SELECT value FROM kv WHERE ns = 'next_route_task' AND key = ?", [`ag_bo:${out.taskId}`]);
   assert.equal(JSON.parse(row!.value).effort, 'xhigh', 'stored before anything claims the wake');
   assert.match(JSON.parse(row!.value).reason, /^given by Ada$/, 'with who gave it – the route\'s reason names it');

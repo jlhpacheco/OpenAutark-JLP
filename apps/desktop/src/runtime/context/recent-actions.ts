@@ -18,6 +18,7 @@
 
 import type { RuntimeServices } from '../contracts.ts';
 import type { Run, RunItem } from '../../shared/model/runs.ts';
+import { copiedRun } from '../devices/sync/ledger-wire.ts';
 
 export const RECAP_LIMITS = { lines: 15, chars: 3000, runs: 30, action: 180 } as const;
 export const RECAP_TITLE = 'What it already did:';
@@ -114,13 +115,14 @@ export function recentActions(s: Services, scope: RecapScope, currentRunId?: str
 }
 
 /** Unfinished attempts since the last successful turn in this scope, newest first (including the current run). */
-export function unfinishedRuns(s: Pick<RuntimeServices, 'runs'>, scope: RecapScope, currentRunId?: string): Run[] {
+export function unfinishedRuns(s: Pick<RuntimeServices, 'runs'> & Partial<Pick<RuntimeServices, 'db'>>, scope: RecapScope, currentRunId?: string): Run[] {
   if (!scoped(scope)) return [];
   let runs: Run[];
   try { runs = scopeRuns(s, scope).filter((run) => inScope(run, scope) || run.id === currentRunId); } catch { return []; }
   const open: Run[] = [];
   for (const run of runs) { // newest first: stop at the last done one
     if (run.status === 'done' && run.id !== currentRunId) break;
+    if (s.db && copiedRun(s.db, run.deviceId)) continue; // Umzug 21.11.2026: a copy of another PC's run is never my cut-off turn
     open.push(run);
   }
   return open;

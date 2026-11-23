@@ -17,7 +17,7 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tempDir } from '../store/helpers.ts';
 
-const OWNER: ClientScope = { kind: 'owner' };
+const OWNER: ClientScope = { kind: 'owner', person: true }; // FX1: the person
 const PHONE: ClientScope = { kind: 'device', deviceId: 'dev_phone0000001', capabilities: ['todo'] };
 const BROWSER: ClientScope = { kind: 'device', deviceId: 'dev_browser00001', capabilities: ['chat'] };
 /** DEV2 tiers: a full-access phone with the opt-in 'permissions' capability, on a secure transport or plain LAN http. */
@@ -90,7 +90,6 @@ function setup() {
     computer: { preview: recordAsync('computer.preview', { dataUrl: 'data:', width: 1, height: 1, at: 0 }) },
     feedback: { create: record('feedback.create', { id: 'fb_1' }), list: record('feedback.list', []), send: recordAsync('feedback.send', { id: 'fb_1' }), dismiss: record('feedback.dismiss', { id: 'fb_1', status: 'dismissed' }) },
     onboarding: { reset: record('onboarding.reset'), start: record('onboarding.start', { conversationId: 'cv_1' }) },
-    importLegacy: recordAsync('importLegacy', { agents: 1, chats: 2, messages: 3 }),
     voice: { transcribe: recordAsync('voice.transcribe', { text: 'hallo' }) },
   } as unknown as RpcExtras;
 
@@ -126,7 +125,7 @@ test('all S2 methods are registered once with the specified scopes', () => {
     'catalog.status',
     'accounts.useReset', 'accounts.test', // B-044 (owner)
     'accounts.try', // B-051 (owner): one tiny real turn on one account (handler: accounts/try-rpc.test.ts)
-    'models.uses', // what each use resolves to now (models/uses.test.ts) – the owner and the secure phone, like accounts.*
+    'models.uses', 'models.setUse', // what each use resolves to now (models/uses.test.ts) – the owner and the secure phone, like accounts.*
     'spend.list',
     'secrets.list', 'secrets.save', 'secrets.delete', 'secrets.capture',
     'secrets.fromMessage', // 16.11.2026: a key or a marked piece of a message into the catalog (secrets/text-capture.test.ts)
@@ -135,11 +134,11 @@ test('all S2 methods are registered once with the specified scopes', () => {
     'secrets.import', // 29.10.2026: a password export into the catalog
     'secrets.export', // B-075 (owner 04.11.2026): the chosen entries into one CSV file
     'secrets.fillChoices', 'secrets.fillLogin', // B-078 (D20): Fill login in this PC's own browser (owner)
-    'devices.list', 'devices.rename', 'devices.revoke',
+    'devices.list', 'devices.rename', 'devices.revoke', 'devices.bye', 'devices.wake', // 19.11.2026: the goodbye (main) and Wake
     'pwa.state', 'pwa.enable', 'pwa.link', 'pwa.revoke', 'pwa.pushSubscribe', 'pwa.pushConfig', 'pwa.pushUnsubscribe', 'pwa.exchange', 'computer.preview',
     'computer.activity', 'computer.stop', 'computer.resume',
     'feedback.create', 'feedback.list', 'feedback.send', 'feedback.dismiss', 'feedback.status',
-    'theme.get', 'import.legacy', 'voice.transcribe', 'voice.retranscribe', // B-082: Transcribe again on a sent recording
+    'theme.get', 'voice.transcribe', 'voice.retranscribe', // B-082: Transcribe again on a sent recording
     'onboarding.reset', 'onboarding.start', // B-044 first run
     'voice.localModels', 'voice.pullLocal', 'voice.speak', // B-047 D14 local speech
   ];
@@ -150,7 +149,7 @@ test('all S2 methods are registered once with the specified scopes', () => {
   const ACCOUNTS = { capability: 'settings', secure: true }; // B-078: plans and keys from the owner's phone app
   const special: Record<string, unknown> = {
     ...Object.fromEntries(['accounts.list', 'accounts.detect', 'accounts.add', 'accounts.update', 'accounts.login', 'accounts.loginCode', 'accounts.logout', 'accounts.remove',
-      'accounts.install', 'accounts.useReset', 'accounts.test', 'accounts.try', 'accounts.useFound', 'accounts.declineFound', 'models.uses'].map((method) => [method, ACCOUNTS])), // B-084: models.uses for the phone's Settings › Models
+      'accounts.install', 'accounts.useReset', 'accounts.test', 'accounts.try', 'accounts.useFound', 'accounts.declineFound', 'models.uses', 'models.setUse'].map((method) => [method, ACCOUNTS])), // B-084: models.uses for the phone's Settings › Models
     'secrets.capture': { capability: 'chat', secure: true },
     'secrets.fromMessage': { capability: 'chat', secure: true },
     'pwa.pushSubscribe': 'any', 'pwa.pushConfig': 'any', 'pwa.pushUnsubscribe': 'any', 'pwa.exchange': 'any',
@@ -168,7 +167,7 @@ test('all S2 methods are registered once with the specified scopes', () => {
     'voice.transcribe': CHAT, 'voice.retranscribe': CHAT,
     'voice.localModels': CHAT, 'voice.speak': CHAT, // B-047 D14
     // B-084 (D6): Settings › Devices and the voice download from the owner's phone app (secure transport, 'settings')
-    'devices.list': ACCOUNTS, 'devices.rename': ACCOUNTS, 'devices.revoke': ACCOUNTS, 'voice.pullLocal': ACCOUNTS,
+    'devices.list': ACCOUNTS, 'devices.rename': ACCOUNTS, 'devices.revoke': ACCOUNTS, 'devices.wake': ACCOUNTS, 'voice.pullLocal': ACCOUNTS,
   };
   for (const method of expected) assert.deepEqual(table.get(method)!.scope, special[method] ?? 'owner', method);
 });
@@ -322,15 +321,14 @@ test('pwa: exchange infers the client kind, pushSubscribe binds the caller scope
 test('app: feedback authored by the human, onboarding, import, voice', async () => {
   const { call, named } = setup();
   await call('feedback.create', { kind: 'idea', text: 'Dark mode for charts', view: 'chat', conversationId: 'ch_01jab3k9z7mx2c4q' });
-  assert.deepEqual(named('feedback.create')[0][1], { kind: 'idea', text: 'Dark mode for charts', screenshotFileId: undefined, annotationFileId: undefined, view: 'chat', conversationId: 'ch_01jab3k9z7mx2c4q', author: 'human' });
+  assert.deepEqual(named('feedback.create')[0][1], { kind: 'idea', text: 'Dark mode for charts', view: 'chat', conversationId: 'ch_01jab3k9z7mx2c4q', author: 'human' });
   await rejectsCode(call('feedback.create', { kind: 'rant', text: 'x' }), 'bad_request');
   await rejectsCode(call('feedback.create', { kind: 'bug', text: 'x', author: 'ag_evil' }), 'bad_request');
-  await rejectsCode(call('feedback.create', { kind: 'bug', text: 'x', screenshotFileId: '../etc' }), 'bad_request');
+  await rejectsCode(call('feedback.create', { kind: 'bug', text: 'x', imageFileIds: ['../etc'] }), 'bad_request');
 
   assert.deepEqual(await call('onboarding.reset'), { ok: true });
   assert.deepEqual(await call('onboarding.start'), { conversationId: 'cv_1' }); // B-044: the app's start text in the Manager's chat
   await rejectsCode(call('onboarding.start', { chat: 'x' }), 'bad_request');
-  assert.deepEqual(await call('import.legacy'), { imported: { agents: 1, chats: 2, messages: 3 } });
 
   assert.deepEqual(await call('voice.transcribe', { fileId: 'c'.repeat(64), language: 'de-DE' }), { text: 'hallo' });
   await rejectsCode(call('voice.transcribe', { fileId: 'nope' }), 'bad_request');
@@ -429,7 +427,7 @@ test('DEV2: feedback and dictation from a chat device; onboarding and the import
   assert.deepEqual(await call('voice.transcribe', { fileId: 'c'.repeat(64) }, BROWSER), { text: 'hallo' });
   await rejectsCode(call('voice.transcribe', { fileId: 'c'.repeat(64) }, PHONE), 'forbidden'); // todo only
   await rejectsCode(call('voice.pullLocal', { id: 'kokoro' }, FULL_LAN), 'forbidden'); // B-084: the secure phone may download, plain LAN not
-  for (const method of ['onboarding.reset', 'onboarding.start', 'import.legacy']) {
+  for (const method of ['onboarding.reset', 'onboarding.start']) {
     await rejectsCode(call(method, undefined, FULL_SECURE), 'forbidden');
   }
 });

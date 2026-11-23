@@ -18,7 +18,7 @@
   --caption-start-space: var(--caption-left); --caption-space: var(--caption-reserve);
 }
 /* a pushed screen's own row names it in the phone title style, as the settings sections' rows do */
-.mobile-shell.own-header > .mobile-main > * > .frame-header:not(.two-line) .frame-header-text { font-size: 20px; font-weight: 600; line-height: 26px; letter-spacing: -.3px; }
+.mobile-shell.own-header > .mobile-main > * > .frame-header:not(.two-line) .frame-header-text { font-size: calc(20px * var(--ui-text, 1)); font-weight: 600; line-height: max(26px, calc(26px * var(--ui-text, 1))); letter-spacing: -.3px; }
 /* the update item takes no room while it shows nothing; it is the row's first cell (MobileShell.tsx), so an
    update that comes shortens only the title track – search and the profile stay at the caption controls */
 .mobile-shell > .mobile-top [data-cell=update]:empty { display: none; }
@@ -52,13 +52,13 @@
 .mobile-main > .chat-view { flex: 1 1 0; min-height: 0; height: auto; }
 .mobile-shell.pushed .mobile-main:not(:has(> .chat-view)) { padding-bottom: env(safe-area-inset-bottom); }
 
-/* bottom tabs: Home · My day · Work · Chats · Team – one column per shown tab (MobileShell sets --tabs) */
+/* bottom tabs: Tasks · Chats · Team – one column per shown tab (MobileShell sets --tabs) */
 .tab-bar {
   --tabs: 5;
   display: grid; grid-template-columns: repeat(var(--tabs), minmax(0, 1fr)); flex: none;
   padding-bottom: env(safe-area-inset-bottom); border-top: 1px solid var(--line); background: var(--sidebar);
 }
-.tab-bar > .tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 0; min-height: 56px; color: var(--muted); font-size: 11px; }
+.tab-bar > .tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 0; min-height: 56px; color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); }
 .tab-bar > .tab.active { color: var(--text); }
 .tab-bar > .tab:active { background: var(--hover); }
 .tab-icon { position: relative; display: grid; }
@@ -66,21 +66,19 @@
 .tab-badge {
   position: absolute; top: -4px; left: calc(100% - 8px); min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
   background: var(--badge-bg); color: var(--badge-fg); box-shadow: 0 0 0 2px var(--sidebar);
-  font-size: 10px; font-weight: 600; line-height: 16px; text-align: center;
+  font-size: calc(10px * var(--ui-text, 1)); font-weight: 600; line-height: max(16px, calc(16px * var(--ui-text, 1))); text-align: center;
 }
 
 /* ---------------------------------------------------------------- views inside the stack */
-/* one small top inset for every body in the stack (Home, My day, Work, Team, an agent, a person, Settings, the
+/* one small top inset for every body in the stack (Tasks, Team, an agent, a person, Settings, the
    first run, the navs) */
 .mobile-shell { --stack-body-top: 4px; }
-.mobile-shell > .mobile-main :is(.tasks-column, .day-listpane, .team-column, .agent-column, .first-run-column) { padding-top: var(--stack-body-top); }
+.mobile-shell > .mobile-main :is(.agent-column, .first-run-column) { padding-top: var(--stack-body-top); }
 .mobile-shell > .mobile-main .settings-body { padding-top: var(--stack-body-top); }
 .mobile-main > .settings-nav { padding: 0 0 calc(16px + env(safe-area-inset-bottom)); } /* the reserved notice line above is its top air */
 .mobile-main .settings-nav-item { min-height: 48px; }
-.mobile-shell .day-toolbar-row { padding-top: var(--stack-body-top); } /* My day's first row: the same inset, not 8 px more */
 .mobile-shell .tour-top { height: 40px; } /* the tour's title row holds its 40 px phone buttons (Connect, Skip) inside it */
 /* a flat row first (the chat list's New chat): its own air above the label is the inset */
-.mobile-shell .team-column > .team-top-row { margin-top: calc(-1 * var(--stack-body-top)); }
 .mobile-main > .chat-list, .mobile-main > .sidebar-section { padding-top: 0; }
 .mobile-main .chat-row { min-height: calc(var(--row-h) + 6px); padding-inline: 16px; }
 .mobile-main .search-hits > .search-hit { padding-right: 16px; } /* a message hit's time ends where a chat row's does */
@@ -90,10 +88,10 @@
 .mobile-shell .message.human .message-content { max-width: 85%; }
 .mobile-shell .composer-area { width: auto; max-width: none; margin: 0 10px calc(10px + env(safe-area-inset-bottom)); } /* as far from the bottom as from the sides */
 .mobile-shell .composer { padding: 10px; border-radius: 18px; }
-.mobile-shell .composer-input { font-size: 16px; } /* ≥ 16 px: no zoom-on-focus on iOS */
+.mobile-shell .composer-input { font-size: calc(16px * var(--ui-text, 1)); } /* ≥ 16 px: no zoom-on-focus on iOS */
 /* ≥ 16 px fields only where a phone browser would zoom on focus; the desktop window at phone width keeps the
    13 px fields under 14 px labels (B-044 visual pass: no field heavier than its label) */
-:root:not([data-platform=desktop]) .mobile-shell :is(.input, .set-input, .set-textarea, .set-select, .palette-input) { font-size: 16px; }
+:root:not([data-platform=desktop]) .mobile-shell :is(.input, .set-input, .set-textarea, .set-select, .palette-input) { font-size: calc(16px * var(--ui-text, 1)); }
 .mobile-shell .set-group { max-width: none; }
 
 /* a chat's area (chat-area.css): open, its tabs take the chat body above the composer – the message list stays
@@ -171,7 +169,7 @@ body:has(.mobile-shell) .palette-row { min-height: 48px; }
 /* ---------------------------------------------------------------- 44 px touch targets */
 .mobile-shell .icon-button:not(.small) { width: 40px; height: 40px; }
 .mobile-shell :is(.chip:not(.small), .button) { min-height: 40px; }
-.mobile-shell :is(.w-option, .nav-row, .segmented button, .b-segmented button) { min-height: 44px; }
+.mobile-shell :is(.w-option, .segmented button, .b-segmented button) { min-height: 44px; }
 .mobile-shell .w-checklist li > button { min-height: 44px; }
 /* small controls keep their look; an invisible ring grows the hit area to 44 × 44 */
 :where(.mobile-shell, body:has(.mobile-shell) .popover, body:has(.mobile-shell) dialog) :where(.icon-button, .chip, .send-button, .ask-why-toggle, .status-action) { position: relative; }

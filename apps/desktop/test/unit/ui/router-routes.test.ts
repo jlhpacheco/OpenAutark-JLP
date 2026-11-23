@@ -1,33 +1,32 @@
-// The B-041 routes of the hash router (src/ui/lib/router.ts): My day (#/day, #/day/<YYYY-MM-DD>,
-// an older #/tasks/for-you), the task open in Work's detail (?task=, next to ?owner=), a person's
-// page and a split – parsed and formatted both ways, unknown or broken parts falling back to the plain
-// view.
+// The routes of the hash router (src/ui/lib/router.ts) – Quests 20.11.2026: the Tasks page (#/tasks, a to-do or quest
+// open in its detail as #/tasks/<id>, the calendar's day as ?date=, "AI at work" narrowed by ?owner=), My day's older
+// links opening it, a person's page and a split – parsed and formatted both ways, unknown or broken parts falling back
+// to the plain view.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatRoute, parseRoute, SETTINGS_PAGES, settingsPage } from '../../../src/ui/lib/router.ts';
 import type { Route } from '../../../src/ui/lib/router.ts';
 
-test('#/day: today, a real date, and anything else opens today', () => {
-  assert.deepEqual(parseRoute('#/day'), { view: 'day' });
-  assert.deepEqual(parseRoute('#/day/2026-10-24'), { view: 'day', date: '2026-10-24' });
-  assert.deepEqual(parseRoute('#/day/2026-02-30'), { view: 'day' }, 'a day that does not exist');
-  assert.deepEqual(parseRoute('#/day/tomorrow'), { view: 'day' });
-  assert.equal(formatRoute({ view: 'day' }), '#/day');
-  assert.equal(formatRoute({ view: 'day', date: '2026-10-24' }), '#/day/2026-10-24');
+const TASK = 'task_0123456789ab';
+
+test('an older #/day link (My day before) opens the Tasks page – on its day when the date is real; it is no route of its own', () => {
+  assert.deepEqual(parseRoute('#/day'), { view: 'tasks' });
+  assert.deepEqual(parseRoute('#/day/2026-10-24'), { view: 'tasks', date: '2026-10-24' });
+  assert.deepEqual(parseRoute('#/day/2026-02-30'), { view: 'tasks' }, 'a day that does not exist');
+  assert.deepEqual(parseRoute('#/day/tomorrow'), { view: 'tasks' });
+  assert.equal(formatRoute(parseRoute('#/day/2026-10-24')), '#/tasks?date=2026-10-24');
 });
 
-test('#/tasks/for-you (For you, before B-041) opens My day', () => {
-  assert.deepEqual(parseRoute('#/tasks/for-you'), { view: 'day' });
-  assert.deepEqual(parseRoute('#/tasks/for-you?owner=ag_mara'), { view: 'day' });
-});
-
-test('#/tasks?task=: the open task, alone and next to the owner and a filter', () => {
-  assert.deepEqual(parseRoute('#/tasks?task=ta_1'), { view: 'tasks', task: 'ta_1' });
-  assert.deepEqual(parseRoute('#/tasks/done?owner=ag_mara&task=ta_1'), { view: 'tasks', filter: 'done', owner: 'ag_mara', task: 'ta_1' });
-  assert.deepEqual(parseRoute('#/tasks?task='), { view: 'tasks' });
-  assert.equal(formatRoute({ view: 'tasks', task: 'ta_1' }), '#/tasks?task=ta_1');
-  assert.equal(formatRoute({ view: 'tasks', filter: 'stuck', owner: 'team', task: 'ta 2' }), '#/tasks/stuck?owner=team&task=ta%202');
+test('#/tasks/<id>: the open to-do or quest; an older ?task= opens it too; an old Work filter is no task', () => {
+  assert.deepEqual(parseRoute(`#/tasks/${TASK}`), { view: 'tasks', task: TASK });
+  assert.deepEqual(parseRoute(`#/tasks?task=${TASK}`), { view: 'tasks', task: TASK });
+  assert.deepEqual(parseRoute('#/tasks/done?owner=ag_mara'), { view: 'tasks', owner: 'ag_mara' });
+  assert.deepEqual(parseRoute('#/tasks/for-you'), { view: 'tasks' });
+  assert.deepEqual(parseRoute(`#/tasks/${TASK}?date=2026-11-21&owner=ag_mara`), { view: 'tasks', task: TASK, date: '2026-11-21', owner: 'ag_mara' });
+  assert.deepEqual(parseRoute('#/tasks?date=2026-13-01'), { view: 'tasks' }, 'no such day: today');
+  assert.equal(formatRoute({ view: 'tasks', task: TASK }), `#/tasks/${TASK}`);
+  assert.equal(formatRoute({ view: 'tasks', date: '2026-11-21', owner: 'a b' }), '#/tasks?date=2026-11-21&owner=a%20b');
 });
 
 test('#/team/person/<id>; an agent page stays as it was', () => {
@@ -71,8 +70,8 @@ test('every page opens itself, an older name the page that holds its rows, an un
 
 test('every new route survives a round trip', () => {
   const routes: Route[] = [
-    { view: 'home' }, { view: 'day' }, { view: 'day', date: '2027-01-01' },
-    { view: 'tasks', task: 'ta_1' }, { view: 'tasks', filter: 'done', owner: 'a b&c', task: 't/1' },
+    { view: 'home' }, { view: 'tasks' }, { view: 'tasks', date: '2027-01-01' },
+    { view: 'tasks', task: TASK }, { view: 'tasks', task: TASK, date: '2027-01-01', owner: 'a b&c' },
     { view: 'team', personId: 'per_x y' }, { view: 'team', agentId: 'ag_1' }, { view: 'team', agentId: 'ag_1', splitId: 'sp_1' },
   ];
   for (const route of routes) assert.deepEqual(parseRoute(formatRoute(route)), route, formatRoute(route));

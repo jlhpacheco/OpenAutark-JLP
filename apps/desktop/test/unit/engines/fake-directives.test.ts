@@ -23,7 +23,7 @@ function turn(text: string, system: { stable: string; volatile: string } | undef
 }
 
 const STABLE = ['# Who you are', 'You are Ada, Acme lead.', 'Your area: Acme.', 'You report to Manager (Chief of staff).', 'Your direct reports: Bo (Writer), Cy (Designer).'].join('\n');
-const VOLATILE = ['## Now', 'Monday', '', '## Current task', 'tk_42 · working', 'Title: Build the landing page'].join('\n');
+const VOLATILE = ['## Now', 'Monday', '', '## Current to-do', 'tk_42 · working', 'Title: Build the landing page'].join('\n');
 const text = (value: string): ToolOutput => ({ content: [{ type: 'text', text: value }] });
 
 test('[[prompt:<text>]] quotes every system-prompt line with that text, stable before volatile', async () => {

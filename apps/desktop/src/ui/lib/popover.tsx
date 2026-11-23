@@ -7,6 +7,8 @@
 // data-keeps-popovers (the feedback cell, whose press snapshots the window as it is) leaves it open, so the snapshot
 // shows it; and Escape belongs to the layer that has the keyboard – a modal opened over the popover (the snapshot
 // overlay) takes it first.
+// 20.11.2026: a menu row may carry its own ⋯ (MenuItem.more) in a reserved slot at its end – shown on hover or keyboard
+// focus, always on touch; the arrows keep moving between the rows, Tab reaches it.
 // Owns: placement, dismissal, menu keyboard navigation. Never: holds business logic.
 
 import type { ComponentChildren, JSX } from 'preact';
@@ -122,6 +124,8 @@ export interface MenuItem {
   danger?: boolean;
   disabled?: boolean;
   onSelect: () => void;
+  /** 20.11.2026: the row's own ⋯ at its end (a company in the profile menu) – its slot always reserved, so nothing shifts. */
+  more?: { label: string; onSelect: () => void };
 }
 
 export interface MenuSection {
@@ -154,25 +158,37 @@ export function Menu(props: Omit<PopoverProps, 'children'> & { sections: MenuSec
         {props.sections.map((section, sectionIndex) => (
           <div class="menu-section" key={sectionIndex}>
             {section.title && <div class="menu-title">{section.title}</div>}
-            {section.items.map((item, index) => (
-              <button
-                type="button"
-                role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} // a row with a tick says whether it is ticked
-                aria-checked={item.checked}
-                class={`menu-item${item.danger ? ' danger' : ''}`}
-                disabled={item.disabled}
-                key={`${sectionIndex}:${index}`} // by place, not label: two rows can read the same (two companies of one name)
-                onClick={() => { props.onClose(); item.onSelect(); }}
-              >
-                {item.lead ?? (item.icon && <Icon name={item.icon} size={18} />)}
-                <span class="menu-label">
-                  <span>{item.label}</span>
-                  {item.description && <small>{item.description}</small>}
-                </span>
-                {item.hint && <span class="menu-hint">{item.hint}</span>}
-                {item.checked && <Icon name="check" size={16} class="menu-check" />}
-              </button>
-            ))}
+            {section.items.map((item, index) => {
+              const key = `${sectionIndex}:${index}`; // by place, not label: two rows can read the same (two companies of one name)
+              const row = (
+                <button
+                  type="button"
+                  role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} // a row with a tick says whether it is ticked
+                  aria-checked={item.checked}
+                  class={`menu-item${item.danger ? ' danger' : ''}`}
+                  disabled={item.disabled}
+                  key={key}
+                  onClick={() => { props.onClose(); item.onSelect(); }}
+                >
+                  {item.lead ?? (item.icon && <Icon name={item.icon} size={18} />)}
+                  <span class="menu-label">
+                    <span>{item.label}</span>
+                    {item.description && <small>{item.description}</small>}
+                  </span>
+                  {item.hint && <span class="menu-hint">{item.hint}</span>}
+                  {item.checked && <Icon name="check" size={16} class="menu-check" />}
+                </button>
+              );
+              const more = item.more;
+              return more ? (
+                <div class="menu-row" key={key}>
+                  {row}
+                  <button type="button" class="icon-button small menu-more" aria-label={more.label} title={more.label} aria-haspopup="menu" onClick={() => { props.onClose(); more.onSelect(); }}>
+                    <Icon name="dots-three" size={16} />
+                  </button>
+                </div>
+              ) : row;
+            })}
           </div>
         ))}
       </div>

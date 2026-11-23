@@ -5,9 +5,10 @@
 // refuses the rename, the pulled file is copied over the target; a pull that failed leaves the link-up incomplete, so
 // the next one offers the file again (B-087: so does a link that went during it – no page is sent, so none dials). A
 // stored file's bytes come from a CEO PC when first needed (blobs.ts); B-080: its arrival is reported to that store's
-// listener (the media library probes it). B-087: a failed pull is tried again while the PC stays linked; a file saved
-// here while its pull ran stays and goes out, so does a change here an older offer meets; a SYSTEM.md written again
-// with the same bytes is a new version (no other file), and a pulled one is taken over at once as an echo.
+// listener (the media library probes it). 22.11.2026: a failed pull comes again with the next catch-up in rhythm (no try
+// of its own); a file that keeps failing holds the cursor only before its page; B-087: a file saved here while its pull ran stays and goes out, so does a change here
+// an older offer meets; a SYSTEM.md written again with the same bytes is a new version (no other file), and a pulled
+// one is taken over at once as an echo.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -30,6 +31,9 @@ import { Stamps } from '../../../src/runtime/devices/sync/stamps.ts';
 import { deepMerge } from '../../../src/runtime/settings/validate.ts';
 import { RootWatcher, type WatchFn } from '../../../src/runtime/root/watcher.ts';
 import { ManualClock, memoryDb, recordingBus, silentLog } from './fakes.ts';
+import { securityTopics } from '../../../src/runtime/security/topics.ts';
+
+const RESOURCES = path.resolve(import.meta.dirname, '../../../resources');
 
 const record = (id: string, extra: Partial<DeviceRecord> = {}): DeviceRecord => ({
   id, name: id, kind: 'pc', role: 'home', fingerprint: `fp_${id}`, addresses: [], caps: {}, status: 'online', self: false, ...extra,
@@ -56,7 +60,7 @@ async function makePc(pcs: Map<string, { handlers: Handlers }>, id: string, sett
   const blobs = path.join(data, 'blobs');
   const fileRows = new Set<string>(); // the `files` rows here (blob metadata)
   const s = {
-    db, bus, clock: new ManualClock(), log: silentLog, paths: { data, workspace, blobs },
+    db, bus, clock: new ManualClock(), log: silentLog, paths: { data, workspace, blobs, resources: RESOURCES },
     files: { get: (fileId: string) => (fileRows.has(fileId) ? { id: fileId } : undefined), path: (fileId: string) => path.join(blobs, fileId.slice(0, 2), fileId.slice(2, 4), fileId) },
     settings: { get: () => store.current, update: (patch: unknown) => { store.current = deepMerge(store.current, patch); bus.emit('settings.updated', store.current); return store.current; } },
     devices: {
@@ -137,6 +141,46 @@ test('synced roots arrive whole, a removal follows, a watcher tap sends a change
   assert.equal(b.store.current.profile.name, 'Lena Berg', 'a settings change goes at once');
 });
 
+test('FX1 H5: a security text goes out only while it says what the app accepted – an edit not looked at (or put back) stays home', async (t) => {
+  const pcs = new Map<string, Pc>();
+  const a = await makePc(pcs, 'dev_a', settingsOf('Lena', 300));
+  const b = await makePc(pcs, 'dev_b', settingsOf('', 260));
+  t.after(async () => { for (const pc of [a, b]) await rm(pc.root, { recursive: true, force: true }); });
+  a.repo.upsert(record('dev_b'));
+  b.repo.upsert(record('dev_a', { joinedAs: 'ceo' }));
+  const put = async (rel: string, text: string) => { await mkdir(path.dirname(path.join(a.data, rel)), { recursive: true }); await writeFile(path.join(a.data, rel), text); };
+  await put('security/trust/publish.md', 'I post drafts only.\n');
+  const topics = securityTopics(a.s); // the first look: what is there is accepted
+  await put('security/trust/general.md', 'Ask me about everything.\n'); // an edit nobody looked at yet
+  assert.ok(await a.files.catchUp('dev_b', undefined));
+  assert.equal(await readFile(path.join(b.data, 'security/trust/publish.md'), 'utf8'), 'I post drafts only.\n');
+  assert.equal(existsSync(path.join(b.data, 'security/trust/general.md')), false, 'not the app\'s text yet');
+  topics.reconcile(); // Trust AI mode takes a Trust text over
+  assert.ok(await a.files.catchUp('dev_b', undefined));
+  assert.equal(await readFile(path.join(b.data, 'security/trust/general.md'), 'utf8'), 'Ask me about everything.\n');
+  assert.equal(securityTopics(b.s).isAccepted('security/trust/general.md', 'Ask me about everything.'), true, 'accepted where it landed');
+});
+
+test('REVIEW-2 12: a security text\'s entry is the hash of the text that was checked, and get serves it only while it is still the accepted one', async (t) => {
+  const pcs = new Map<string, Pc>();
+  const a = await makePc(pcs, 'dev_a', settingsOf('Lena', 300));
+  const b = await makePc(pcs, 'dev_b', settingsOf('', 260));
+  t.after(async () => { for (const pc of [a, b]) await rm(pc.root, { recursive: true, force: true }); });
+  a.repo.upsert(record('dev_b'));
+  b.repo.upsert(record('dev_a', { joinedAs: 'ceo' }));
+  const rel = 'security/trust/publish.md';
+  await mkdir(path.join(a.data, 'security/trust'), { recursive: true });
+  await writeFile(path.join(a.data, rel), 'I post drafts only.\n');
+  securityTopics(a.s); // the first look: what is there is accepted
+  assert.ok(await a.files.catchUp('dev_b', undefined));
+  const entry = new KvRepo(a.s.db).get<{ sha: string }>('sync.files', rel);
+  assert.equal(entry?.sha, createHash('sha256').update('I post drafts only.\n').digest('hex'));
+  const piece = await a.files.receive({ op: 'get', rel, offset: 0 }, 'dev_b') as { data: string };
+  assert.ok(piece.data, 'the accepted text is served');
+  await writeFile(path.join(a.data, rel), 'I post everything.\n'); // an edit landing after the look
+  await assert.rejects(a.files.receive({ op: 'get', rel, offset: 0 }, 'dev_b'), (error: unknown) => error instanceof WorkforceError && error.code === 'not_found');
+});
+
 test('the data folder watcher\'s tap hears every handed-over path – the app\'s own writes too – and never stops an owner', async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'sync-tap-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -189,7 +233,7 @@ test('where Windows refuses the rename the pulled file is copied over; a failed 
 
   const refuse = (code: string) => () => { throw Object.assign(new Error(`${code}: operation not permitted, rename`), { code }); };
   b.files.move = refuse('ENOSPC');
-  assert.equal(await a.files.catchUp('dev_b', undefined), false, 'a pull that failed: the link-up is incomplete');
+  assert.equal(typeof await a.files.catchUp('dev_b', undefined), 'number', 'a pull that failed: incomplete – the cursor stops before its page');
   assert.equal(await readFile(path.join(b.data, 'agents/ag_1/agent.json'), 'utf8'), '{}');
   assert.deepEqual((await readdir(path.join(b.data, 'agents/ag_1'))).filter((name) => name.endsWith('.tmp')), [], 'no temp file stays');
 
@@ -212,7 +256,7 @@ test('B-087: a link that goes during the link-up gets no further page (none dial
   const devices = a.s.devices as { call(peer: string, method: string, params: unknown): Promise<unknown> };
   const call = devices.call;
   devices.call = async (peer, method, params) => { ops.push((params as { op?: unknown }).op); const answer = await call(peer, method, params); pcs.delete('dev_b'); return answer; }; // the link goes after the settings
-  assert.equal(await a.files.catchUp('dev_b', undefined), false, 'incomplete: the cursor stays');
+  assert.equal(typeof await a.files.catchUp('dev_b', undefined), 'number', 'incomplete: the cursor stops before the first page');
   assert.deepEqual(ops, ['settings'], 'no page after it');
   devices.call = call;
   pcs.set('dev_b', b);
@@ -310,22 +354,31 @@ async function linkedPair(t: { after(fn: () => Promise<void>): void }) {
 }
 const OLD = new Date(2026, 0, 1);
 
-test('B-087: a pull that failed is tried again while its PC stays linked', async (t) => {
+test('22.11.2026: a pull that failed comes again with the next catch-up in rhythm, which looks at no folder', async (t) => {
   const { a, b, put, read } = await linkedPair(t);
   await put(a, 'agents/ag_1/agent.json', '{"name":"Mara"}');
   await put(b, 'agents/ag_1/agent.json', '{}', OLD);
-  b.files.retryMs = [30, 30];
   b.files.move = () => { b.files.move = undefined; throw Object.assign(new Error('ENOSPC: no space left on device, rename'), { code: 'ENOSPC' }); };
-  assert.equal(await a.files.catchUp('dev_b', undefined), false, 'the link-up is still incomplete');
-  await until(async () => await read(b, 'agents/ag_1/agent.json') === '{"name":"Mara"}');
-  assert.equal(await read(b, 'agents/ag_1/agent.json'), '{"name":"Mara"}', 'tried again without a new link-up');
+  assert.equal(typeof await a.files.catchUp('dev_b', undefined), 'number', 'incomplete: the files cursor stops before its page');
+  await settle(60);
+  assert.equal(await read(b, 'agents/ag_1/agent.json'), '{}', 'no try of its own in between');
+  assert.equal(await a.files.catchUp('dev_b', undefined, { scan: false }), true, 'the next catch-up offers it again');
+  assert.equal(await read(b, 'agents/ag_1/agent.json'), '{"name":"Mara"}');
+
+  const clock = a.s.clock as ManualClock;
+  const cursor = clock.now();
+  clock.set(cursor + 1_000);
+  await put(a, 'agents/ag_1/agent.json', '{"name":"Mara 2"}'); // changed here, and no watcher told it
+  assert.equal(await a.files.catchUp('dev_b', cursor, { scan: false }), true);
+  assert.equal(await read(b, 'agents/ag_1/agent.json'), '{"name":"Mara"}', 'in rhythm no folder is looked at');
+  assert.equal(await a.files.catchUp('dev_b', cursor), true);
+  assert.equal(await read(b, 'agents/ag_1/agent.json'), '{"name":"Mara 2"}', 'the link-up\'s rescan finds it');
 });
 
-test('B-087: a file saved here while its pull ran stays and goes out; a change here an older offer meets goes out too', async (t) => {
+test('B-087: a file saved here while its pull ran stays and goes out with the next catch-up; a change here an older offer meets goes out too', async (t) => {
   const { a, b, put, read } = await linkedPair(t);
   await put(a, 'agents/ag_1/agent.json', '{"name":"Mara"}');
   await put(b, 'agents/ag_1/agent.json', '{}', OLD);
-  b.files.retryMs = [30];
   const devices = b.s.devices as { call(peer: string, method: string, params: unknown): Promise<unknown> };
   const call = devices.call;
   devices.call = async (peer, method, params) => {
@@ -333,9 +386,10 @@ test('B-087: a file saved here while its pull ran stays and goes out; a change h
     if ((params as { op?: unknown }).op === 'get') { devices.call = call; await put(b, 'agents/ag_1/agent.json', '{"name":"Mara B"}'); } // saved here meanwhile
     return answer;
   };
-  await a.files.catchUp('dev_b', undefined);
-  await until(async () => await read(a, 'agents/ag_1/agent.json') === '{"name":"Mara B"}');
+  assert.equal(typeof await a.files.catchUp('dev_b', undefined), 'number', 'the pull met a save here');
   assert.equal(await read(b, 'agents/ag_1/agent.json'), '{"name":"Mara B"}', 'the save here stays');
+  await a.files.catchUp('dev_b', undefined, { scan: false }); // the next catch-up in rhythm: B meets A's older offer with its own state
+  await until(async () => await read(a, 'agents/ag_1/agent.json') === '{"name":"Mara B"}');
   assert.equal(await read(a, 'agents/ag_1/agent.json'), '{"name":"Mara B"}', 'and reaches the other PC');
 
   await put(b, 'agents/ag_1/agent.json', '{"name":"Mara C"}'); // not scanned yet when A offers its older state
@@ -374,7 +428,7 @@ test('B-087: a SYSTEM.md written again with the same bytes is a new version; a p
   assert.equal(await read(a, 'agents/ag_1/agent.json'), '{"x":1}');
 });
 
-test('B-087: two offers of one new file at once both end well; two failures at once keep the first quick try', async (t) => {
+test('B-087: two offers of one new file at once both end well; two failures at once both count, and the next offer takes it', async (t) => {
   const { a, b, put, read } = await linkedPair(t);
   const sha = (text: string) => createHash('sha256').update(text).digest('hex');
   const offer = (text: string) => ({ op: 'have', entries: [{ rel: 'agents/ag_1/agent.json', sha: sha(text), at: Date.now() + 60_000 }] });
@@ -387,29 +441,23 @@ test('B-087: two offers of one new file at once both end well; two failures at o
   assert.equal(await read(b, 'agents/ag_1/agent.json'), '{"name":"Mara 2"}');
 
   await put(a, 'agents/ag_1/agent.json', '{"name":"Mara 3"}');
-  b.files.retryMs = [40, 60_000];
   let refusals = 2;
   b.files.move = (from, to) => { if (refusals-- > 0) throw Object.assign(new Error('ENOSPC: no space left on device, rename'), { code: 'ENOSPC' }); renameSync(from, to); };
   const failed = await Promise.all([b.files.receive(offer('{"name":"Mara 3"}'), 'dev_a'), b.files.receive(offer('{"name":"Mara 3"}'), 'dev_a')]) as Array<{ failed: number }>;
-  assert.deepEqual(failed.map((answer) => answer.failed), [1, 1], 'both pulls failed');
-  await until(async () => await read(b, 'agents/ag_1/agent.json') === '{"name":"Mara 3"}');
-  assert.equal(await read(b, 'agents/ag_1/agent.json'), '{"name":"Mara 3"}', 'the first try after 40 ms, not the second step');
+  assert.deepEqual(failed.map((answer) => answer.failed), [1, 1], 'both pulls failed: the sender\'s catch-up stays incomplete');
+  assert.equal(await read(b, 'agents/ag_1/agent.json'), '{"name":"Mara 2"}');
+  assert.deepEqual(await b.files.receive(offer('{"name":"Mara 3"}'), 'dev_a'), { ok: true, taken: 1, failed: 0 }, 'the next catch-up\'s offer');
+  assert.equal(await read(b, 'agents/ag_1/agent.json'), '{"name":"Mara 3"}');
 });
 
-test('B-087: a planned try takes the newest offer; the same bytes with a later time are kept; a big copy waits for its next try', async (t) => {
+test('B-087: the same bytes with a later time are kept; a big copy waits for its next offer', async (t) => {
   const { a, b, put, read } = await linkedPair(t);
   const sha = (text: string) => createHash('sha256').update(text).digest('hex');
   const offer = (text: string, at: number) => ({ op: 'have', entries: [{ rel: 'agents/ag_1/agent.json', sha: sha(text), at }] });
   const now = Date.now();
-  b.files.retryMs = [1_000, 60_000]; // the second offer comes well before the first try
-  let refusals = 2;
-  b.files.move = (from, to) => { if (refusals-- > 0) throw Object.assign(new Error('ENOSPC: no space left on device, rename'), { code: 'ENOSPC' }); renameSync(from, to); };
-  await put(a, 'agents/ag_1/agent.json', '{"v":1}');
-  await b.files.receive(offer('{"v":1}', now + 1_000), 'dev_a'); // fails: a try is planned for v1
   await put(a, 'agents/ag_1/agent.json', '{"v":2}');
-  await b.files.receive(offer('{"v":2}', now + 2_000), 'dev_a'); // fails too: the planned try now takes v2
-  await until(async () => await read(b, 'agents/ag_1/agent.json') === '{"v":2}');
-  assert.equal(await read(b, 'agents/ag_1/agent.json'), '{"v":2}', 'the newest offer, at the first step');
+  await b.files.receive(offer('{"v":2}', now + 2_000), 'dev_a');
+  assert.equal(await read(b, 'agents/ag_1/agent.json'), '{"v":2}');
 
   const entry = () => new KvRepo(b.s.db).get<{ at: number }>('sync.files', 'agents/ag_1/agent.json')!.at;
   await b.files.receive(offer('{"v":2}', now + 9_000), 'dev_a');
@@ -423,4 +471,24 @@ test('B-087: a planned try takes the newest offer; the same bytes with a later t
   await writeFile(temp, 'small');
   replaceWithSync(temp, target, busy);
   assert.equal(await readFile(target, 'utf8'), 'small', 'a small one is copied over');
+});
+
+test('22.11.2026 review: a file that keeps failing holds the cursor only before its page – the next catch-up offers that page, not the whole backlog', async (t) => {
+  const { a } = await linkedPair(t);
+  const kv = new KvRepo(a.s.db);
+  for (let i = 0; i < 600; i++) kv.set('sync.files', `memory/n${i}.md`, { sha: '', size: 0, mtime: 0, at: i + 1 }, 1_000 + i); // stored at 1000 … 1599
+  const pages: number[] = [];
+  const devices = a.s.devices as { call(peer: string, method: string, params: unknown): Promise<unknown> };
+  devices.call = async (_peer, _method, params) => {
+    const p = params as { op?: string; entries?: Array<{ rel: string }> };
+    if (p.op !== 'have') return { ok: true };
+    pages.push(p.entries!.length);
+    return { ok: true, taken: 0, failed: p.entries!.some((entry) => entry.rel === 'memory/n550.md') ? 1 : 0 }; // that one cannot be put in place there
+  };
+  const done = await a.files.catchUp('dev_b', 999, { scan: false });
+  assert.deepEqual(pages, [500, 100]);
+  assert.equal(done, 1_499, 'every entry before the page that did not arrive did');
+  pages.length = 0;
+  assert.equal(await a.files.catchUp('dev_b', done as number, { scan: false }), 1_499);
+  assert.deepEqual(pages, [100], 'the next catch-up offers only that page');
 });

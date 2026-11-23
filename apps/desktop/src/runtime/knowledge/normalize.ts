@@ -47,14 +47,3 @@ export function ftsQuery(text: string, options: { maxTokens?: number } = {}): st
   if (tokens.length === 0) return undefined;
   return tokens.map(token => `"${token.replace(/"/g, '')}"*`).join(' OR ');
 }
-
-/** True when `text` contains any of the folded keywords (word-prefix match). */
-export function containsKeyword(foldedText: string, keywords: readonly string[]): boolean {
-  for (const keyword of keywords) {
-    const index = foldedText.indexOf(keyword);
-    if (index < 0) continue;
-    const before = index === 0 ? ' ' : foldedText[index - 1];
-    if (!/[\p{L}\p{N}]/u.test(before)) return true;
-  }
-  return false;
-}

@@ -65,6 +65,13 @@ function setup(options: { decision?: Scripted[]; embedder?: boolean } = {}) {
     },
   });
   Object.assign(f.services.knowledge as object, {
+    search: async (query: { text: string; folders?: string[] }) => { // vector.search's memory places
+      searches.push({ query: query.text, in: query.folders ?? [] });
+      return [
+        { item: { id: 'company:billing.md', title: 'Billing', body: 'Invoices go out on the 3rd.' }, score: 0.9, why: '' },
+        { item: { id: 'company:lunch.md', title: 'Lunch', body: 'Lunch is at noon.' }, score: 0.4, why: '' },
+      ];
+    },
     memoryWrite: (input: MemoryWriteInput) => { written.push(input); return { path: `${input.folder}/x.md`, outcome: 'created' as const }; },
     memoryBrowse: () => ({ path: '', folders: [], files: [] }),
     memoryRead: () => undefined,

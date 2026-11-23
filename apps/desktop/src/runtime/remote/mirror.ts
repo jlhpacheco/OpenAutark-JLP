@@ -7,6 +7,8 @@
 // the first answer wins, a later one hears that the request is no longer open, and the holder's next list removes the
 // row everywhere. Both methods are registered for 'ceo' links only, so an employer's or an employee's PC neither gets the
 // list nor answers a request here. readDecide is the one check of decide params (also the RPC's, rpc/handlers/remote.ts).
+// Eine-ID 22.11.2026: a new member's row carries the name they proposed (`proposedName`, plain), so Accept on my other PC
+// prefills it too.
 // Owns: the mirrored rows, the two peer methods and readDecide.
 // Never: decides a request itself, passes on rows it got (only this PC's own), or sends to a link that is not 'ceo'.
 
@@ -17,6 +19,7 @@ import { plainLabel } from '../../shared/text/device-label.ts';
 import type { Bus } from '../bus.ts';
 import type { LinkKind } from '../devices/mesh.ts';
 import type { PeerHandler } from '../devices/rpc-peer.ts';
+import { linkOf } from '../devices/sync/home.ts';
 import { bad, input, onlyKeys, optBool, optObj, optOneOf, optText, text } from '../rpc/params.ts';
 import { DELIVERY_GRACE_MS, MAX_OPEN, REQUEST_TTL_MS, type Timers } from './requests.ts';
 
@@ -53,10 +56,6 @@ export function readDecide(params: unknown, knows: (personId: string) => boolean
   return { id, accept, newPerson: { name, ...(title ? { title } : {}), ...(managerId ? { managerId } : {}), ...(role ? { role } : {}) } };
 }
 
-/** One of my own PCs: a linked PC that is neither an employee's nor my employer's. */
-export const isCeoLink = (device: Device): boolean =>
-  device.kind === 'pc' && !device.self && device.status !== 'revoked' && device.status !== 'pairing' && !device.personId && device.joinedAs !== 'employee';
-
 export interface MirrorMesh {
   register(method: string, handler: PeerHandler, kinds?: readonly LinkKind[]): void;
   call(deviceId: string, method: string, params: unknown, signal?: AbortSignal, timeoutMs?: number): Promise<unknown>;
@@ -83,8 +82,8 @@ const errorText = (error: unknown) => String((error as Error)?.message ?? error)
 
 /** What travels: the public view of a request (never a key or session secret). */
 function wire(request: RemoteIncoming): Record<string, unknown> {
-  const { id, role, deviceId, name, remoteId, fingerprint, code, address, expiresAt } = request;
-  return { id, role, deviceId, name, remoteId, fingerprint, code, ...(address ? { address } : {}), expiresAt };
+  const { id, role, deviceId, name, remoteId, fingerprint, code, address, expiresAt, proposedName } = request;
+  return { id, role, deviceId, name, remoteId, fingerprint, code, ...(address ? { address } : {}), expiresAt, ...(proposedName ? { proposedName } : {}) };
 }
 
 /** A received row, checked, its expiry moved onto this PC's clock (`left`: the holder's time left, capped). */
@@ -103,7 +102,8 @@ function parseRow(value: unknown, at: number, now: number, via: RemoteIncoming['
   if (left <= 0) return undefined;
   const name = plainLabel(row.name) || (role === 'phone' ? 'Phone' : 'PC');
   const from = typeof address === 'string' && /^[0-9a-fA-F.:]{2,45}$/.test(address) ? { address } : {};
-  return { id, role, deviceId, name, remoteId, fingerprint, code, ...from, expiresAt: now + left, ...(via ? { via } : {}) };
+  const proposedName = role === 'employee' ? plainLabel(row.proposedName, 80) : '';
+  return { id, role, deviceId, name, remoteId, fingerprint, code, ...from, expiresAt: now + left, ...(via ? { via } : {}), ...(proposedName ? { proposedName } : {}) };
 }
 
 export class RequestMirror {
@@ -164,7 +164,7 @@ export class RequestMirror {
     if (!only) this.sent = text;
     const body = { at: this.deps.now(), requests: rows };
     for (const device of this.deps.mesh.list()) {
-      if (!isCeoLink(device) || device.status !== 'online' || (only && device.id !== only)) continue;
+      if (linkOf(device)?.kind !== 'ceo' || device.status !== 'online' || (only && device.id !== only)) continue;
       void this.deps.mesh.call(device.id, REQUESTS_METHOD, body, undefined, SEND_MS).catch((error: unknown) => {
         if (error instanceof WorkforceError && error.code === 'not_found') return; // a PC before 0.3.9 has no such method
         this.deps.log.warn('connect requests not mirrored', { deviceId: device.id, error: errorText(error) });
@@ -183,7 +183,7 @@ export class RequestMirror {
   /** Another PC's whole list replaces what it sent before. */
   private received(params: unknown, from: string): { ok: true } {
     const device = this.deps.mesh.list().find((entry) => entry.id === from);
-    if (!device || !isCeoLink(device)) return { ok: true }; // the mesh already refuses other links; a removed one too
+    if (!device || linkOf(device)?.kind !== 'ceo') return { ok: true }; // the mesh already refuses other links; a removed one too
     const body = (params ?? {}) as { at?: unknown; requests?: unknown };
     const now = this.deps.now();
     const at = typeof body.at === 'number' && Number.isFinite(body.at) ? body.at : now;
@@ -202,7 +202,7 @@ export class RequestMirror {
    */
   private linkChanged(device: Device): void {
     if (device.self) return;
-    if (isCeoLink(device) && device.status === 'online') this.send(device.id);
+    if (linkOf(device)?.kind === 'ceo' && device.status === 'online') this.send(device.id);
     else this.drop(device.id);
   }
 

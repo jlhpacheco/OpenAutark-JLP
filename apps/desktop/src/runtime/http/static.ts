@@ -1,5 +1,5 @@
 // Static UI for the PWA/browser: files from the built UI directory (app/ui) with correct MIME
-// types, cache headers, ETags, the app CSP for HTML and an SPA fallback to index.html for
+// types (shared/files/mime.ts mimeForPath, the desktop's rule), cache headers, ETags, the app CSP for HTML and an SPA fallback to index.html for
 // navigation paths (no file extension). B-082: /turn/<name> – the conversation's turn detector files by fixed name
 // (onnxruntime-web's wasm and loader, Silero VAD, Smart Turn; turnFile), never a path from the client.
 // F29 (16.11.2026): UI_HASHES_PATH lists the SHA-256 of every file below `root` – the iPhone web app fetches it over its
@@ -14,6 +14,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
+import { mimeForPath } from '../../shared/files/mime.ts';
 import { TURN_ROUTE, turnFile } from '../../shared/model/local-speech-models.ts';
 import { UI_HASHES_PATH, type UiHashes } from '../../shared/model/ui-hashes.ts';
 import { modelDir } from '../voice/local/store.ts';
@@ -50,34 +51,6 @@ export const SANDBOX_CSP = [
   "base-uri 'none'",
   'sandbox allow-scripts allow-forms',
 ].join('; ');
-
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.webmanifest': 'application/manifest+json',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-  '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
-  '.woff': 'font/woff',
-  '.ttf': 'font/ttf',
-  '.map': 'application/json; charset=utf-8',
-  '.txt': 'text/plain; charset=utf-8',
-  '.wasm': 'application/wasm',
-  '.mp3': 'audio/mpeg',
-  '.wav': 'audio/wav',
-};
-
-export function mimeForPath(file: string): string {
-  return MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream';
-}
 
 /**
  * Maps a URL pathname to a file below `root`; null when it escapes the root, is malformed or

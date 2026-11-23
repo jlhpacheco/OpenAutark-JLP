@@ -10,7 +10,7 @@ import { FeedbackService, sendFailure } from '../../../src/runtime/feedback/serv
 import { generateReceiverKeys } from '../../../src/runtime/feedback/seal.ts';
 import { reportNumber } from '../../../src/shared/model/feedback-delivery.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
-import type { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import type { MemoryLogger } from '../fakes.ts';
 import { API_KEY, PROJECT, fakeMailbox, feedbackEnv, type Env } from './fakes.ts';
 
 const envs: Env[] = [];

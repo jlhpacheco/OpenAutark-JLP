@@ -37,7 +37,7 @@ test('connect: PKCE S256 consent on the loopback, opened in the browser; the tok
   assert.deepEqual(params.scope.split(' ').sort(), ['https://www.googleapis.com/auth/calendar.app.created', 'https://www.googleapis.com/auth/calendar.events.readonly']);
   assert.deepEqual(w.opened, [authUrl], 'opened in the system browser');
   assert.equal(page.status, 200);
-  assert.match(page.body, /connected/);
+  assert.match(page.body, /signed in/);
   assert.equal(w.loopback.isOpen(), false, 'the listener closed after the one answer');
   const exchange = google.tokenForms[0];
   assert.deepEqual([exchange.get('grant_type'), exchange.get('code'), exchange.get('client_secret'), exchange.get('redirect_uri')], ['authorization_code', 'code-1', 'GOCSPX-secret-1', 'http://127.0.0.1:50123']);
@@ -118,7 +118,7 @@ test('consent failures are reported without creating a source; a wrong client se
   const state = new URL(first.authUrl).searchParams.get('state')!;
   w.loopback.hit(`/?state=${state}&error=access_denied`);
   await until(() => !w.sources.google().waiting);
-  assert.deepEqual(w.sources.google(), { configured: true, connected: false, error: 'Google sign-in was cancelled.' });
+  assert.deepEqual(w.sources.google(), { configured: true, connected: false, error: 'The sign-in was cancelled.' });
   google.tokenForms.length = 0;
   const second = await w.sources.connectGoogle();
   assert.equal(w.sources.google().error, undefined, 'a new consent clears the last failure');

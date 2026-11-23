@@ -7,7 +7,8 @@
 //     the new body and "edited" show; the runtime's notice for agents is not shown;
 //   * Delete asks first; Cancel keeps it, Delete leaves "Message deleted" at its place and the
 //     reply's quote then reads "Deleted message";
-//   * phone width (420×860, the mobile shell): a long touch press opens the message menu (Reply,
+//   * phone width (420×860, the mobile shell): the message's "More" button opens the message menu (a finger's long press
+//     selects text natively since 17.11.2026 – lib/context-menu.tsx touchByButton) (Reply, Start thread,
 //     Copy, Edit, Remember why… – F-52, the person's own message – and Delete); the reply chip, the
 //     quote line and the inline editor fit the width; no horizontal page scroll;
 //   * screenshots light, dark and phone; no renderer errors.
@@ -22,6 +23,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -54,7 +56,7 @@ test('Reply, edit and delete: quote chip, inline editor, tombstone, long-press m
   await size(1280, 820);
   const shot = async (name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
   const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
 
   const manager = (await rpc.call('agents.list')).find((agent) => agent.template === 'manager');
@@ -62,7 +64,7 @@ test('Reply, edit and delete: quote chip, inline editor, tombstone, long-press m
   await rpc.call('events.subscribe', { topics: ['chats', `chat:${chat.id}`] });
   await page.evaluate((id) => { location.hash = `#/chat/${id}`; }, chat.id);
   await page.locator('.message-scroller').waitFor({ timeout: 15_000 });
-  const answerAfter = (seq) => rpc.waitFor('message.updated', (message) => message.conversationId === chat.id && message.authorId === manager.id
+  const answerAfter = (seq) => rpc.waitFor('message.created', (message) => message.conversationId === chat.id && message.authorId === manager.id
     && message.state === 'final' && message.seq > seq, 60_000);
   const item = (id) => page.locator(`[data-message-id="${id}"]`);
   const menu = page.locator('.menu[aria-label="Context menu"]');
@@ -145,17 +147,13 @@ test('Reply, edit and delete: quote chip, inline editor, tombstone, long-press m
   await shot('reply-04-deleted-dark');
   await page.emulateMedia({ colorScheme: 'light' });
 
-  // Phone width: a long touch press opens the menu; chip, quote and editor fit.
+  // Phone width: the message's More button opens the menu; chip, quote and editor fit.
   await size(420, 860);
   await page.waitForTimeout(800);
-  const target = item(reply.id).locator('.message-content');
-  await target.scrollIntoViewIfNeeded();
-  const box = await target.boundingBox();
-  assert.ok(box, 'the reply is on screen');
-  await page.evaluate(([id, x, y]) => {
-    const element = document.querySelector(`[data-message-id="${id}"] .message-content`);
-    element?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: x, clientY: y, isPrimary: true }));
-  }, [reply.id, box.x + 10, box.y + 10]);
+  const more = (id) => item(id).getByRole('button', { name: 'More', exact: true });
+  await more(reply.id).scrollIntoViewIfNeeded();
+  assert.ok(await item(reply.id).locator('.message-content').boundingBox(), 'the reply is on screen');
+  await more(reply.id).click();
   await menu.waitFor({ timeout: 3_000 });
   assert.deepEqual(await menuItems(), ['Reply', 'Start thread', 'Copy', 'Edit', 'Remember why…', 'Delete']);
   await shot('reply-05-menu-phone');
@@ -168,12 +166,8 @@ test('Reply, edit and delete: quote chip, inline editor, tombstone, long-press m
   assert.ok(await fits('.reply-quote'), 'the chip and the quote lines fit the phone width');
   await shot('reply-06-chip-phone');
   await page.locator('.composer-input').press('Escape');
-  await item(first.id).locator('.message-content').scrollIntoViewIfNeeded();
-  const firstBox = await item(first.id).locator('.message-content').boundingBox();
-  await page.evaluate(([id, x, y]) => {
-    document.querySelector(`[data-message-id="${id}"] .message-content`)
-      ?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: x, clientY: y, isPrimary: true }));
-  }, [first.id, firstBox.x + 10, firstBox.y + 10]);
+  await more(first.id).scrollIntoViewIfNeeded();
+  await more(first.id).click();
   await menu.waitFor({ timeout: 3_000 });
   await menu.getByRole('menuitem', { name: 'Edit' }).click();
   await editor.waitFor({ timeout: 5_000 });

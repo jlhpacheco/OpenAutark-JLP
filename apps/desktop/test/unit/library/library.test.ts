@@ -17,7 +17,7 @@ import type { StructuredRunner } from '../../../src/runtime/decision/types.ts';
 import type { LibraryItem } from '../../../src/shared/model/library.ts';
 import { SkillLibrary } from '../../../src/runtime/skills/service.ts';
 import { parseFrontMatter } from '../../../src/runtime/skills/frontmatter.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { carryFiles, skillTools } from '../../../src/runtime/tools/builtin/skills.ts';
 import { libraryTools } from '../../../src/runtime/tools/builtin/library.ts';
 

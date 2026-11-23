@@ -7,7 +7,8 @@
 //   plan's own search; web.fetch reads a page, so WebFetch stays out.
 // - `--disable-slash-commands`, `--settings {"disableAllHooks":true}`: no skills, commands or hooks; nothing is widened.
 // - LEAN_ENV: no CLAUDE.md of any level, no auto memory, no git workflow text. AGENT_ENV (an agent turn only): the prompt
-//   cache is asked for one hour, whatever login the account has.
+//   cache is asked for one hour, whatever login the account has. AGENT_ARGS (an agent turn only): `--autocompact`, once the
+//   CLI's own `--help` lists it (CeilingFlag) – an older CLI runs the turn without it.
 // - The hub entry loads its tools upfront (`alwaysLoad`) and a hub call runs up to HUB_CALL_MS.
 // What Claude Code still adds on its own (run1 recording 12.11.2026, 2.1.322, 191 requests): a billing header and its
 // identity line ("You are a Claude agent, built on Anthropic's Claude Agent SDK.") as two system blocks before ours; a
@@ -21,6 +22,7 @@
 // Owns: the start arguments, environment and hub config. Never: widens what a turn may do or drops the hub.
 
 import { HUB_SERVER } from './stream.ts';
+import { CLAUDE_AUTOCOMPACT } from '../../agents/compaction-policy.ts';
 
 /** Claude Code's built-in tools an agent turn keeps: the execution core and its own web search. Everything else comes from our hub. */
 export const CORE_TOOLS: readonly string[] = ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'WebSearch'];
@@ -30,10 +32,7 @@ export function coreTools(platform: NodeJS.Platform = process.platform): string[
   return platform === 'win32' ? [...CORE_TOOLS, 'PowerShell'] : [...CORE_TOOLS];
 }
 
-/**
- * Every turn process: no CLAUDE.md, no auto memory, no built-in git workflow text (documented variables). B-080: no compact
- * window of ours (the owner rejected a fixed threshold, 08.11.2026) – Claude Code keeps its own, as in the plain CLI.
- */
+/** Every turn process: no CLAUDE.md, no auto memory, no built-in git workflow text (documented variables). */
 export const LEAN_ENV: Readonly<Record<string, string>> = {
   CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS: '1',
 };
@@ -46,12 +45,43 @@ export const LEAN_ENV: Readonly<Record<string, string>> = {
  */
 export const AGENT_ENV: Readonly<Record<string, string>> = { CLAUDE_CODE_PROMPT_CACHE_TTL: '1h' };
 
-/** Session settings of every turn (`--settings`): only narrowing keys. */
+/**
+ * An agent turn's own flags (Runde "Halb" 21.11.2026): its session compacts near the run ceiling inside a run, not at about 967k
+ * of a 1M window (agents/compaction-policy.ts CLAUDE_AUTOCOMPACT). A helper turn is short and keeps the default.
+ */
+export const AGENT_ARGS: readonly string[] = ['--autocompact', String(CLAUDE_AUTOCOMPACT)];
+
+/**
+ * Whether the installed Claude Code takes AGENT_ARGS: its `--help` is read once per CLI version, after a turn named that version
+ * (system/init) and never in a turn's way (a read that fails is tried again after the next turn). Until it answered, and for a
+ * CLI that does not list the flag, an agent turn runs without it, as before.
+ */
+export class CeilingFlag {
+  private version: string | undefined;
+  private readonly takes = new Map<string, boolean>();
+  private readonly looking = new Set<string>();
+
+  /** The flags an agent turn starts with now. */
+  args(): readonly string[] {
+    return this.version && this.takes.get(this.version) ? AGENT_ARGS : [];
+  }
+
+  /** A turn named its CLI `version`; `help` reads that CLI's `--help` text. */
+  seen(version: string | undefined, help: () => Promise<string>): void {
+    if (!version) return;
+    this.version = version;
+    if (this.takes.has(version) || this.looking.has(version)) return;
+    this.looking.add(version);
+    void help().then((text) => { this.takes.set(version, text.includes(AGENT_ARGS[0])); }, () => undefined).finally(() => this.looking.delete(version));
+  }
+}
+
+/** Session settings of every turn (`--settings`): only narrowing keys. A Secure-mode agent turn adds its permission rules (permissions.ts). */
 export const LEAN_SETTINGS = '{"disableAllHooks":true}';
 
 /** The prompt and tool flags: our prompt file (none: Claude Code's own), exactly `tools` (none for a helper turn), no commands, no hooks. */
-export function promptArgs(promptFile: string | undefined, tools: readonly string[]): string[] {
-  return [...(promptFile ? ['--system-prompt-file', promptFile] : []), '--tools', tools.join(','), '--disable-slash-commands', '--settings', LEAN_SETTINGS];
+export function promptArgs(promptFile: string | undefined, tools: readonly string[], settings: string = LEAN_SETTINGS): string[] {
+  return [...(promptFile ? ['--system-prompt-file', promptFile] : []), '--tools', tools.join(','), '--disable-slash-commands', '--settings', settings];
 }
 
 /**

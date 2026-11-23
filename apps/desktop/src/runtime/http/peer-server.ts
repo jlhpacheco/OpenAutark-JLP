@@ -53,6 +53,8 @@ export interface PeerServerDeps {
   interfaces?: InterfacesFn;
   /** Extra Host names to accept (the MagicDNS name). */
   allowedHosts?: () => string[];
+  /** The addresses to advertise while open instead of this PC's interfaces (a test profile's loopback-only listener). */
+  advertise?: (port: number) => string[];
   /** Peer addresses to advertise while this listener is not open (the runtime server on the LAN). */
   fallbackAddresses?: () => string[];
   /** B-078: maps the port on the home router while open in 'lan' mode (http/portmap.ts); none in tests. */
@@ -157,7 +159,7 @@ export class PeerServer {
   /** Base URLs other PCs dial – read now (DHCP and VPNs change them); the fallback while closed. */
   addresses(): string[] {
     const mapped = this.open && this.keeper?.url();
-    if (this.open) return [...(mapped ? [mapped] : []), ...peerAddresses(this.open.port, this.deps.interfaces, this.open.mode)].slice(0, MAX_PEER_ADDRESSES);
+    if (this.open) return [...(mapped ? [mapped] : []), ...(this.deps.advertise?.(this.open.port) ?? peerAddresses(this.open.port, this.deps.interfaces, this.open.mode))].slice(0, MAX_PEER_ADDRESSES);
     try { return this.deps.fallbackAddresses?.() ?? []; } catch { return []; }
   }
 

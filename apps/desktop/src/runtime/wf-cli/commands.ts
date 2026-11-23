@@ -220,7 +220,7 @@ const send: Command = {
 
 const todos: Command = {
   usage: 'todos [--limit n]',
-  summary: 'List your to-dos (the My day list): what is due now, then the "Later" ones – snoozed, a repeating timer until its next time, or a timer (widget.at) more than 12 h ahead. --json prints the runtime\'s list unsplit.',
+  summary: 'List your to-dos ("For you" on the Tasks page): what is due now, then the "Later" ones – a time on a later day, or a timer more than 12 h ahead. --json prints the runtime\'s list unsplit.',
   options: ['limit'],
   arity: [0, 0],
   check: (parsed) => { integer(parsed, 'limit', 1, 200); },

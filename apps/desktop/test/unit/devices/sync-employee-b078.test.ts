@@ -1,6 +1,6 @@
 // B-078 employees (devices/sync/rows.ts, employee.ts): a person's status change of their task on their own PC runs the
 // task service's path on the company PC (the owner hears "done" like from her phone); her own open to-dos travel to
-// the company as tasks assigned to her – also those made before the link (first link-up), never an "Only me" one – and
+// the company as tasks assigned to her – also those made before the link (first link-up), "Only me" ones too (it hides nothing) – and
 // once there, their later changes follow; rows from the employer go on to her other PCs with their origin, so those
 // send her lines straight back to the company. A stale status in her row (an offline edit) or a row that loses moves
 // no status; a to-do an agent of her PC made reaches the company too, with her as its maker there.
@@ -37,7 +37,7 @@ test('her "done" on her own PC runs the completion on the company PC: status, re
   assert.equal(e.h.tasks.get(task.id)?.status, 'done', 'and it stays done on her PC');
 });
 
-test('her own open to-dos reach the company as hers; "Only me" stays on her PC; a done one follows once it went', async () => {
+test('her own open to-dos reach the company as hers; an "Only me" one too; a done one follows once it went', async () => {
   const { net, a, e } = company();
   const mine = e.h.tasks.create({ title: 'Prepare the slides', assigneeKind: 'human', createdBy: 'human' });
   await settle();
@@ -51,14 +51,13 @@ test('her own open to-dos reach the company as hers; "Only me" stays on her PC; 
 
   net.up = false;
   const before = e.h.tasks.create({ title: 'Book the train', assigneeKind: 'human', createdBy: 'human' });
-  const secret = e.h.tasks.create({ title: 'Dentist', assigneeKind: 'human', createdBy: 'human' });
-  e.h.db.run('UPDATE tasks SET private = 1 WHERE id = ?', [secret.id]);
+  const own = e.h.tasks.create({ title: 'Dentist', assigneeKind: 'human', createdBy: 'human', private: true });
   await settle();
   net.up = true;
   assert.ok(await e.sync.catchUp('dev_a', undefined));
   await settle();
   assert.ok(a.h.tasks.get(before.id), 'one made while the company was away goes at the link-up');
-  assert.equal(a.h.tasks.get(secret.id), undefined, '"Only me" stays on her PC');
+  assert.equal(a.h.tasks.get(own.id)?.private, true, 'her "Only me" one goes too, marked "Only me"');
 });
 
 test('a PC that held her own life before it joined keeps her own to-dos: only a seat PC sends them', async () => {

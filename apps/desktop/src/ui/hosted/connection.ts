@@ -12,6 +12,7 @@
 // browser's WebRTC; RtcPlan says when), once the PC has said something on A. Once the PC says ready on the data channel (B), B is the page's: new streams go
 // there, the PC UI's WebSocket on A ends and reopens there (the page hears autarkResume); HTTP requests on A run out. A
 // stays open and idle. When B ends (or A ends), the page is back on A at once. A browser without WebRTC stays on A.
+// W (19.11.2026): wake() sends a PC's wake over this same meeting-server link (wake.ts) – it needs no PC online.
 // Owns: connecting, reconnecting, the pins and the current mux. Never: stores anything itself (the shell does), polls the
 // PC, or talks to a PC it does not pin.
 
@@ -24,6 +25,7 @@ import { browserRtc, RtcPlan, RtcWay, type RtcEnv } from './rtc.ts';
 import { RelayLink, type WsFactory } from './relay.ts';
 import type { Saved } from './store.ts';
 import { StreamMux } from './streams.ts';
+import { wakeThrough } from './wake.ts';
 
 export const BACKOFF_MS = [1_000, 2_000, 5_000, 15_000, 30_000, 60_000];
 const HIDDEN_REDIAL_MS = 15_000;
@@ -122,6 +124,14 @@ export class Connection {
   get pc(): string | undefined { return this.mux ? this.pcFp : undefined; }
 
   get pcs(): PhonePc[] { return this.saved.pcs; }
+
+  /** W (19.11.2026): wakes a PC of mine whose app is closed – its helper key `wakePub` – through this phone's own
+   *  meeting-server link (wake.ts), also while none of my PCs is online. Without a link up it asks again and says so. */
+  async wake(wakePub: string, name: string): Promise<void> {
+    const link = this.link;
+    if (!link?.isUp()) { this.nudge(); throw new Error('This phone can’t reach the meeting server right now – try again in a moment.'); }
+    await wakeThrough(link, this.saved.key, wakePub, name);
+  }
 
   /** The mux once a channel is up, within `ms` (undefined when none came). Starts a try at once. */
   awaitMux(ms: number): Promise<StreamMux | undefined> {

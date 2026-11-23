@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { memoryDb } from '../store/helpers.ts';
-import { compactStamp, estimateTokens, kindOfId, ledgerTitle, normalizeItemId } from '../../../src/shared/model/context-ledger.ts';
+import { compactStamp, estimateTokens, ledgerTitle, normalizeItemId } from '../../../src/shared/model/context-ledger.ts';
 import { ledgerSetup } from './ledger-fixture.ts';
 
 test('ids: messages count apart, one counter for t/s/r/a/f, monotonic order', () => {
@@ -60,12 +60,9 @@ test('items: in order, since is inclusive, kinds filter; titles are one capped l
 });
 
 test('shared helpers: id shapes, stamp, estimate', () => {
-  assert.equal(kindOfId('t17'), 'tool');
-  assert.equal(kindOfId('m240'), 'message');
-  assert.equal(kindOfId('c12'), 'checkpoint');
   assert.equal(normalizeItemId('C12'), 'c12');
-  assert.equal(kindOfId('x1'), undefined);
-  assert.equal(kindOfId('t0'), undefined);
+  assert.equal(normalizeItemId('x1'), undefined);
+  assert.equal(normalizeItemId('t0'), undefined);
   assert.equal(normalizeItemId(' T17 '), 't17');
   assert.equal(normalizeItemId('#12'), 'm12');
   assert.equal(normalizeItemId('t-1'), undefined);

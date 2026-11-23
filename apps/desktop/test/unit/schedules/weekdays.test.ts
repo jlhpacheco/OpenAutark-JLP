@@ -12,9 +12,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { agent, harness } from '../chat/harness.ts';
 import { OWNER, TestClient, rpcFixture } from '../rpc/s1-helpers.ts';
-import { firesBetween, localParts, nextFire, nextLocalDay, validateSpec } from '../../../src/runtime/schedules/spec.ts';
+import { firesBetween, nextFire, nextLocalDay, validateSpec } from '../../../src/runtime/schedules/spec.ts';
+import { wallOf } from '../../../src/shared/text/when.ts';
 import { previewTimes } from '../../../src/runtime/schedules/preview.ts';
-import { scheduleTools } from '../../../src/runtime/tools/builtin/schedule.ts';
+import { taskTools } from '../../../src/runtime/tools/builtin/tasks.ts';
 import type { ToolContext } from '../../../src/runtime/tools/types.ts';
 import type { ScheduleSpec } from '../../../src/shared/model/tasks.ts';
 
@@ -31,7 +32,7 @@ const weekdayIn = (tz: string) => {
   return (ms: number) => NAMES.indexOf(format.format(ms));
 };
 const local = (ms: number, tz = TZ) => {
-  const parts = localParts(ms, tz);
+  const parts = wallOf(ms, tz);
   return `${parts.date} ${String(Math.floor(parts.minutes / 60)).padStart(2, '0')}:${String(parts.minutes % 60).padStart(2, '0')}`;
 };
 
@@ -122,8 +123,8 @@ test('DST at midnight: a day that starts at 01:00 (Santiago, Havana) and a repea
   for (const [tz, at, start] of cases) {
     const next = nextLocalDay(at, tz);
     assert.equal(new Date(next).toISOString(), start, `${tz} after ${new Date(at).toISOString()}`);
-    assert.notEqual(localParts(next, tz).date, localParts(at, tz).date);
-    assert.equal(localParts(next - MIN, tz).date, localParts(at, tz).date);
+    assert.notEqual(wallOf(next, tz).date, wallOf(at, tz).date);
+    assert.equal(wallOf(next - MIN, tz).date, wallOf(at, tz).date);
   }
 });
 
@@ -169,7 +170,7 @@ test('the scheduler arms the first run after the excluded day and re-arms past i
   assert.equal(h.chats.messages(chat.id).filter((m) => m.kind === 'text' && m.meta.via === 'schedule').length, 2);
   assert.equal(h.scheduler.get(schedule.id)!.nextAt, armed.nextAt! + 53 * MIN);
   const ctx = { agent: h.org.get('ag_tom'), runId: 'run_1', conversationId: chat.id, mode: 'general', services: h.services, signal: new AbortController().signal, status() {} } as unknown as ToolContext;
-  const listed = await scheduleTools.find((tool) => tool.name === 'schedules.list')!.run({ mine: true }, ctx);
-  assert.match(String((listed.content[0] as { text: string }).text), /Ping · every 53m on Mon, Tue, Wed, Thu, Fri, Sat · next \d{4}-\d{2}-\d{2}T/, 'agents see the weekdays');
+  const listed = await taskTools.find((tool) => tool.name === 'tasks.remind')!.run({ list: true }, ctx);
+  assert.match(String((listed.content[0] as { text: string }).text), /every 53m on Mon, Tue, Wed, Thu, Fri, Sat · next \d{4}-\d{2}-\d{2}T/, 'agents see the weekdays');
   h.scheduler.stop();
 });

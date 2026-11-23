@@ -1,8 +1,9 @@
 // Hardened Markdown for agent text: marked (GFM) → DOMPurify → innerHTML, plus a delegated
 // click handler so links open through the host, '#…' links navigate in the app (never by their
 // URL) and remote images load
-// only on click. B-081: an absolute path as a link target or code span carries `data-path`, and a
-// click or Enter on it opens it in the side pane (path-links.ts; the message body's `data-author`
+// only on click. B-081: an absolute path as a link target or code span – and since 20.11.2026 one
+// written bare in the text – is a file chip carrying `data-path`, and a click, tap or Enter on it
+// opens it in the side pane or the chat's area (path-links.ts; the message body's `data-author`
 // names whose PC to try first) – not while text is selected, so selecting still copies. Inside a
 // button or label (<Inline> in an option or card) the control keeps its click: the path is plain text.
 // Owns: the sanitizer config, the small render cache, <Markdown> and <Inline>.
@@ -12,7 +13,8 @@
 import { Marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { navigate, parseRoute } from '../lib/router.ts';
-import { openPathLink, pathRenderer, pathTokenizer, plainInControl } from '../workspace/path-links.ts';
+import { openPathLink, pathExtension, pathRenderer, pathTokenizer, plainInControl } from '../workspace/path-links.ts';
+import { pathStart } from '../workspace/path-text.ts';
 import { openLink } from './host.ts';
 
 const marked = new Marked({ gfm: true, breaks: false, async: false });
@@ -23,8 +25,8 @@ marked.use({
     html(token) { return escapeHtml(token.text); },
   },
 });
-// Links and code spans that hold an absolute path get data-path instead of an href.
-marked.use({ renderer: pathRenderer, tokenizer: pathTokenizer });
+// Links, code spans and bare text that hold an absolute path become a file chip with data-path instead of an href.
+marked.use({ renderer: pathRenderer, tokenizer: pathTokenizer, extensions: [pathExtension] });
 
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string));
@@ -73,7 +75,7 @@ const CONFIG = {
   FORBID_TAGS: ['style', 'form', 'button', 'textarea', 'select', 'iframe', 'object', 'embed', 'svg', 'math', 'video', 'audio', 'source', 'link', 'meta', 'base'],
   FORBID_ATTR: ['style', 'class', 'id', 'srcset', 'action', 'formaction'],
   ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|#|data:image\/)/i,
-  ADD_ATTR: ['data-remote-src', 'data-path'],
+  ADD_ATTR: ['data-remote-src', 'data-path', 'data-folder', 'data-dir'],
 };
 
 const cache = new Map<string, string>();
@@ -152,7 +154,7 @@ export function Markdown(props: { text: string; class?: string }) {
 /** Inline Markdown in a span (block titles, cells, option labels); in a button or label a path is plain text. */
 export function Inline(props: { text: string | undefined; class?: string }) {
   if (!props.text) return null;
-  // Plain strings skip the parser entirely (most cells and labels).
-  if (!/[*_`[~<&\\]/.test(props.text)) return <span class={props.class}>{props.text}</span>;
+  // Plain strings skip the parser entirely (most cells and labels); a bare posix path needs it.
+  if (!/[*_`[~<&\\]/.test(props.text) && pathStart(` ${props.text}`) < 0) return <span class={props.class}>{props.text}</span>;
   return <span ref={(span) => plainInControl(span)} class={props.class} onClick={onClick} onKeyDown={onKeyDown} dangerouslySetInnerHTML={{ __html: renderInline(props.text) }} />;
 }

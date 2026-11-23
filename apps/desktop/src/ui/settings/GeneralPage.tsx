@@ -1,12 +1,14 @@
 // Settings › General (B-078, D17 – owner 06.11.2026: only what is really worth it): profile (photo, name, company),
-// appearance (the theme, on the PC's window only – a phone follows its own light/dark; finer looks are <data>/theme.css),
+// appearance (the theme, on the PC's window only – a phone follows its own light/dark; finer looks are <data>/theme.css;
+// 21.11.2026 the Labels and Text sizes in px, kept on this device – lib/text-size.ts),
 // notifications (the sound – to-dos, blockers and important
-// messages always arrive, notify/service.ts) and behaviour (start at login and keep running when closed – desktop window
-// only –, keep the screen on while agents work, Enter sends). Language and time zone come from the PC; the AI notices the
+// messages always arrive, notify/service.ts) and behaviour (start at login – desktop window only; closing the window
+// always keeps agents running in the tray, the tray's Quit ends them (20.11.2026: no second toggle for that) –, keep the
+// screen on while agents work, Enter sends). Language and time zone come from the PC; the AI notices the
 // language the person speaks and keeps profile.language and profile.notes itself (skill app-settings). The removed rows'
 // keys stay in settings.json for the AI. Every row is a view on settings.json. A securely paired owner phone
-// also edits profile and day, and (owner 12.11.2026) the PC's own behaviour rows – start at login, keep running when
-// closed, automatic update download – each marked as changing the PC; colleagues and plain-LAN devices do not.
+// also edits profile and day, and (owner 12.11.2026) the PC's own start at login, marked as changing the PC (the automatic
+// update download sits in About, beside the version, on every device); colleagues and plain-LAN devices do not.
 // 16.11.2026: last, the companies on this PC like accounts – export, import, leave, delete (CompaniesGroup.tsx).
 // Owns: these rows and their mapping onto Settings fields. Never: invents options without effect.
 
@@ -20,7 +22,8 @@ import { bridge, os } from '../lib/platform.ts';
 import { canEditOwnerSettings, canUploadOwnerPhoto, HTTPS_NOTE, PC_NOTE, session } from '../lib/session.ts';
 import { settings, systemInfo, updateSettings } from '../lib/store.ts';
 import { CompaniesGroup } from './CompaniesGroup.tsx';
-import { act, CLEAR, Group, Row, Segmented, TextField, Toggle } from './controls.tsx';
+import { LABELS, labelPx, setSize, TEXT, textPx } from '../lib/text-size.ts';
+import { act, CLEAR, Group, PxField, Row, Segmented, TextField, Toggle } from './controls.tsx';
 
 const START_HINT = 'Opens the app when the PC starts and keeps agents working in the background';
 const THEMES = [{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }] as const;
@@ -72,13 +75,20 @@ export function GeneralPage() {
         <Row label="Company" hint="Used by your agents"><TextField label="Company" value={profile.company} disabled={locked} onCommit={(company) => void setProfile({ company: company.trim() })} /></Row>
       </Group>
 
-      {bridge && ( // feedback 16.11.2026 F15: a phone follows its own light/dark (lib/theme.ts), so the setting is the PCs'
-        <Group title="Appearance">
+      <Group title="Appearance">
+        {bridge && ( // feedback 16.11.2026 F15: a phone follows its own light/dark (lib/theme.ts), so the setting is the PCs'
           <Row label="Theme" hint="More of the look is theme.css in the data folder – ask your AI" reserve>
             <Segmented label="Theme" value={prefs.theme} options={[...THEMES]} onChange={(theme) => void setPrefs({ theme })} />
           </Row>
-        </Group>
-      )}
+        )}
+        {/* owner 21.11.2026: two text sizes in px, kept on this device (lib/text-size.ts) */}
+        <Row label="Labels size" hint={`Headings, chat names, setting names and other short texts · ${LABELS.min}–${LABELS.max} px, ${LABELS.base} by default`}>
+          <PxField label="Labels size" value={labelPx.value} min={LABELS.min} max={LABELS.max} onCommit={(px) => setSize(LABELS, px)} />
+        </Row>
+        <Row label="Text size" hint={`Chats, prompts and other long texts · ${TEXT.min}–${TEXT.max} px, ${TEXT.base} by default${bridge ? ` – also ${os === 'mac' ? '⌘' : 'Ctrl'} + and −` : ''}`}>
+          <PxField label="Text size" value={textPx.value} min={TEXT.min} max={TEXT.max} onCommit={(px) => setSize(TEXT, px)} />
+        </Row>
+      </Group>
 
       <Group title="Notifications">
         <Row label="Sound" hint="To-dos for you, blockers and important messages always arrive">
@@ -91,19 +101,9 @@ export function GeneralPage() {
 
       <Group title="Behavior">
         {(bridge || remote) && (
-          <>
-            <Row label={start} hint={onPc(installed ? START_HINT : `${START_HINT} – in the installed app`)} disabled={!installed}>
-              <Toggle label={start} checked={prefs.openAtLogin} disabled={!installed} onChange={(openAtLogin) => void setPrefs({ openAtLogin })} />
-            </Row>
-            <Row label="Keep running when the window is closed" hint={onPc('Agents and schedules continue in the tray')}>
-              <Toggle label="Keep running when closed" checked={prefs.closeToTray} onChange={(closeToTray) => void setPrefs({ closeToTray })} />
-            </Row>
-            {remote && (
-              <Row label="Download updates automatically" hint={onPc('Restarts only when you are idle')} disabled={!installed}>
-                <Toggle label="Download updates automatically" checked={prefs.autoDownloadUpdates} disabled={!installed} onChange={(autoDownloadUpdates) => void setPrefs({ autoDownloadUpdates })} />
-              </Row>
-            )}
-          </>
+          <Row label={start} hint={onPc(installed ? START_HINT : `${START_HINT} – in the installed app`)} disabled={!installed}>
+            <Toggle label={start} checked={prefs.openAtLogin} disabled={!installed} onChange={(openAtLogin) => void setPrefs({ openAtLogin })} />
+          </Row>
         )}
         <Row label="Keep the screen on while agents work" hint={locked ? lockNote : 'Also keeps this PC awake for agent work at night'}>
           <Toggle label="Keep the screen on while agents work" checked={day.keepAwake} disabled={locked} onChange={(keepAwake) => void setDay({ keepAwake })} />

@@ -10,7 +10,7 @@ import type { Agent } from '../../../src/shared/model/org.ts';
 import type { Person } from '../../../src/shared/model/people.ts';
 import type { Task, TaskView } from '../../../src/shared/model/tasks.ts';
 import {
-  ME_RECIPIENT, ME_TARGET, TO_MY_DAY, isMine, isReference, isUnassigned, openQuestions, postTitle, progressLine, recipientGroups, sameTarget,
+  ME_RECIPIENT, ME_TARGET, TO_TASKS, isMine, isReference, isUnassigned, openQuestions, progressLine, recipientGroups, sameTarget,
   targetLabel,
 } from '../../../src/ui/tasks/center-model.ts';
 
@@ -25,7 +25,7 @@ const names: Record<string, string> = { ag_mia: 'Mia', ag_vic: 'Vic', ag_ted: 'T
 const nameOf = (id: string) => names[id] ?? 'Former member';
 
 const view = (patch: Partial<TaskView> = {}): TaskView => ({
-  id: 'task_1', conversationId: 'ch_inbox', messageId: 'msg_1', title: 'Cut the intro', notes: '', status: 'open', assigneeKind: 'team',
+  id: 'task_1', kind: 'todo', conversationId: 'ch_inbox', messageId: 'msg_1', title: 'Cut the intro', notes: '', status: 'open', assigneeKind: 'team',
   createdBy: 'human', priority: 0, ledger: {}, sort: 0, rev: 1, createdAt: 10, updatedAt: 10,
   steps: [], progress: { done: 0, total: 0 }, conversationTitle: 'Inbox', running: false, ...patch,
 });
@@ -77,11 +77,11 @@ test("recipients: the active people only when passed (the owner's composer) – 
 });
 
 test('"Me" (B-041): a recipient right after Auto that names the person, its label, never a colleague', () => {
-  assert.deepEqual(ME_RECIPIENT, { target: { kind: 'me', id: 'human' }, label: 'Me', hint: '→ My day' });
+  assert.deepEqual(ME_RECIPIENT, { target: { kind: 'me', id: 'human' }, label: 'Me', hint: '→ Tasks' });
   assert.equal(targetLabel(ME_TARGET, ORG), 'Me');
   assert.equal(targetLabel({ kind: 'me', id: 'per_zoe' }, ORG, PEOPLE), undefined, '"me" names the person only');
   assert.equal(sameTarget(ME_TARGET, { kind: 'person', id: 'human' }), false);
-  assert.equal(TO_MY_DAY, '→ My day');
+  assert.equal(TO_TASKS, '→ Tasks');
   assert.equal(isMine({ assigneeKind: 'human' }), true);
   assert.equal(isMine({ assigneeKind: 'human', assigneeId: 'human' }), true);
   assert.equal(isMine({ assigneeKind: 'human', assigneeId: 'per_zoe' }), false, 'a colleague\'s to-do');
@@ -110,12 +110,8 @@ test('Unassigned: open or waiting top-level team work without an owner', () => {
   assert.equal(isUnassigned(view({ status: 'waiting', assigneeKind: 'agent', assigneeId: 'ag_vic' })), false);
 });
 
-test('a task message is a reference when the task is anchored elsewhere; the post title follows the runtime rule', () => {
+test('a task message is a reference when the task is anchored elsewhere', () => {
   assert.equal(isReference({ id: 'msg_inbox' }, view({ messageId: 'msg_owner' })), true, 'a task anchored in another chat');
   assert.equal(isReference({ id: 'msg_1' }, view()), false, 'the anchor is the task itself');
   assert.equal(isReference({ id: 'msg_x' }, view({ messageId: undefined })), true, 'B-054: a chat-free task shared here is a reference, never a second full card');
-  assert.equal(postTitle('  Fix the login\nwith details'), 'Fix the login');
-  assert.equal(postTitle('', ['brief.pdf']), 'brief.pdf');
-  assert.equal(postTitle(''), 'Files');
-  assert.equal(postTitle('x'.repeat(200)).length, 120);
 });

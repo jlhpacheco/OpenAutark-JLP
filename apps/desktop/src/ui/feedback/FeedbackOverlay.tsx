@@ -2,36 +2,32 @@
 // overlay, which replaced the menu popover, its screenshot row and "Paint over". A press on the feedback cell (or the
 // shortcut) froze the window (popover-state.ts snapshot); this modal <dialog> – opened after any open dialog, so it lies
 // above them, and the side browser's native view hides under it (workspace/native-surface.ts) – shows that shot over the
-// whole window at 1:1, so the app stands still. The person paints straight on it (AnnotationCanvas: Pen by default, Box,
-// Undo – opaque marks, flattened into the report's one JPEG at Send) and writes or talks in the slim dock at the bottom
-// (FeedbackPanel.tsx FeedbackForm, the paint tools and the screenshot box from here). Pressing the cell again – the
+// whole window at 1:1, so the app stands still. The person paints straight on it (AnnotationCanvas: the pen, and Undo –
+// opaque marks, flattened into the report's JPEGs at Send) and writes or talks in the slim dock at the bottom
+// (FeedbackPanel.tsx FeedbackForm; the attachments' first cells from here). Pressing the cell again – the
 // overlay draws its slot at the cell's spot (lib/dialog.tsx DialogSlot) – or the shortcut freezes the overlay itself:
 // a new snapshot with the old one and the dock in it, the words stay. The arrow or Escape closes it and keeps the draft.
-// On the phone the same, full screen, with the Android app's own shot; where nothing captures the window (the iPhone web
-// app, a browser) the dock lies over the live screen and "Add photo" picks a screenshot or photo to paint on. The phone
-// paints with the pen only – no Pen/Box choice, Undo stays (feedback 16.11.2026 C2CC3D50: "nur Pen und ein Zurück").
+// On the phone the same, full screen, with the Android app's own shot. Owner 21.11.2026: the form's + ("Add photo")
+// adds photos beside the shot (several); the attachments row shows the Screenshot chip and one thumbnail per photo (×
+// removes it), a click on either shows that image on the stage to paint on, and Undo takes the last mark of the image
+// shown. Everyone paints with the pen only (feedback 16.11.2026 C2CC3D50: "nur Pen und ein Zurück"). Where nothing
+// captures the window (the iPhone web app, a browser) there is no Screenshot chip: the photos alone, the dock over the
+// live screen until one is added.
 // While a send is on its way the overlay shows the draft as sent, its tools disabled (draft.ts sentDraft).
-// Owns: the overlay dialog, the frozen stage, the paint tools and the screenshot box. Never: the form's words, sending or
+// Owns: the overlay dialog, the frozen stage and the attachments' cells (Screenshot chip, photos, Undo). Never: the form's words, sending or
 // taking the snapshot (popover-state.ts).
 
-import { signal } from '@preact/signals';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { DialogSlot } from '../lib/dialog.tsx';
 import { Icon } from '../lib/icons.tsx';
-import { errorText } from '../lib/rpc.ts';
 import { AnnotationCanvas } from './AnnotationCanvas.tsx';
-import { canCaptureWindow, pickedImage } from './bridge.ts';
-import { PHOTO_ADD, PHOTO_HINT, SHOT_HINT, SHOT_LABEL, SHOT_MISSING } from './delivery.ts';
-import { feedbackDraft, sentDraft, shownDraft, updateDraft } from './draft.ts';
-import { isMobile } from '../lib/store.ts';
-import type { FeedbackDraft } from './draft.ts';
+import { canCaptureWindow } from './bridge.ts';
+import { PHOTO_HINT, SHOT_HINT, SHOT_LABEL, SHOT_MISSING, SHOT_NO_ROOM } from './delivery.ts';
+import { addMark, removePhoto, sentDraft, shotFits, shownDraft, stageImage, undoMark, updateDraft } from './draft.ts';
+import type { DraftImage, FeedbackDraft } from './draft.ts';
 import { FeedbackForm } from './FeedbackPanel.tsx';
-import type { PaintMark, PaintTool } from './paint.ts';
 import { loadImage } from './paint-image.ts';
-import { closeFeedback, frozen, overlayShown } from './popover-state.ts';
-
-/** What the screenshot box has to say beside the form's own messages (a picked file that could not be used). */
-const shotNote = signal<string | null>(null);
+import { closeFeedback, overlayShown } from './popover-state.ts';
 
 export function FeedbackOverlay(props: { onInbox: () => void }) {
   const shown = overlayShown.value;
@@ -43,7 +39,6 @@ export function FeedbackOverlay(props: { onInbox: () => void }) {
     if (shown && !dialog.open) dialog.showModal();
     if (!shown && dialog.open) dialog.close();
     setModal(dialog.open);
-    shotNote.value = null;
   }, [shown]);
   return (
     <dialog ref={ref} class="feedback-overlay" aria-label="Feedback"
@@ -58,85 +53,76 @@ export function FeedbackOverlay(props: { onInbox: () => void }) {
 
 function Frozen(props: { onInbox: () => void }) {
   const draft = shownDraft();
-  const [chosen, setTool] = useState<PaintTool>('pen');
-  const tool: PaintTool = isMobile.value ? 'pen' : chosen; // the phone has the pen only
-  // A mark belongs to the shot it was drawn on (a new snapshot meanwhile: it is dropped with that shot).
-  const paint = (mark: PaintMark, on: string) => {
-    const current = feedbackDraft.peek();
-    if (current.shot === on) updateDraft({ marks: [...current.marks, mark], painted: null });
-  };
   return (
     <>
-      <Stage draft={draft} tool={tool} onMark={paint} />
-      <FeedbackForm onClose={closeFeedback} onInbox={props.onInbox} note={shotNote.value}
-        tools={<ShotTools draft={draft} tool={tool} setTool={setTool} />} />
+      <Stage draft={draft} />
+      <FeedbackForm onClose={closeFeedback} onInbox={props.onInbox} tools={<ImageTools draft={draft} />} />
     </>
   );
 }
 
-/** The frozen screen: the shot at 1:1 (its own pixels, never upscaled past the window) with the marks' layer over it. */
-function Stage(props: { draft: FeedbackDraft; tool: PaintTool; onMark: (mark: PaintMark, on: string) => void }) {
-  const { shot, marks, withShot } = props.draft;
+/** The window shot is shown and does not go (its box is unticked): it dims and takes no paint. */
+const shotOff = (draft: FeedbackDraft, shown: DraftImage | null): boolean => !!shown && !shown.photo && !draft.withShot;
+
+/**
+ * The frozen screen: the image on the stage at 1:1 (its own pixels, never upscaled past the window) with the marks' layer
+ * over it. A mark joins the image it was drawn on (a new snapshot or a removed photo meanwhile: it is dropped).
+ */
+function Stage(props: { draft: FeedbackDraft }) {
+  const shown = stageImage(props.draft);
+  const src = shown?.src ?? null;
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   useEffect(() => {
     setImage(null);
-    if (!shot) return;
+    if (!src) return;
     let live = true;
-    loadImage(shot).then((loaded) => { if (live) setImage(loaded); }, () => undefined);
+    loadImage(src).then((loaded) => { if (live) setImage(loaded); }, () => undefined);
     return () => { live = false; };
-  }, [shot]);
-  if (!shot) return null; // nothing frozen (the iPhone web app before a photo): the dock lies over the live screen
+  }, [src]);
+  if (!shown) return null; // nothing frozen (the iPhone web app before a photo): the dock lies over the live screen
+  const dim = shotOff(props.draft, shown);
   return (
-    <div class={`feedback-stage${withShot ? '' : ' off'}`}>
+    <div class={`feedback-stage${dim ? ' off' : ''}`}>
       <div class="feedback-frame">
-        <img src={shot} alt="" draggable={false} />
-        {image && <AnnotationCanvas image={image} marks={marks} tool={props.tool} disabled={!withShot} onMark={(mark) => props.onMark(mark, shot)} />}
+        <img src={shown.src} alt="" draggable={false} />
+        {image && <AnnotationCanvas image={image} marks={shown.marks} disabled={dim || sentDraft.value !== null} onMark={(mark) => addMark(mark, shown)} />}
       </div>
     </div>
   );
 }
 
-/** The dock's first cells: where nothing captures the window "Add photo" (then "Other photo"), the Screenshot box (the
- *  frozen screen dims while it does not go), Pen, Box and Undo. */
-function ShotTools(props: { draft: FeedbackDraft; tool: PaintTool; setTool: (tool: PaintTool) => void }) {
-  const { draft, tool } = props;
-  const capture = canCaptureWindow();
-  const picker = useRef<HTMLInputElement>(null);
+/** The dock's first cells: the Screenshot chip (its box: whether it goes), one thumbnail per photo (× removes it), Undo. */
+function ImageTools(props: { draft: FeedbackDraft }) {
+  const { draft } = props;
+  const shown = stageImage(draft);
   const going = sentDraft.value !== null; // a send on its way: shown as sent, nothing to change
-  const painting = draft.shot !== null && draft.withShot && !going;
-  const pick = () => picker.current?.click();
-  const picked = async (input: HTMLInputElement) => {
-    const file = input.files?.[0];
-    input.value = ''; // the same file again is a new choice
-    if (!file) return;
-    try {
-      feedbackDraft.value = frozen(feedbackDraft.peek(), await pickedImage(file));
-      shotNote.value = null;
-    } catch (error) {
-      shotNote.value = errorText(error);
-    }
-  };
+  const full = !draft.withShot && !shotFits(draft); // ticking it would pass the image cap
   return (
     <div class="feedback-tools">
-      {!capture && ( // one fixed cell: "Add photo", then "Other photo"
-        <button type="button" class="feedback-chip feedback-photo" onClick={pick} title={PHOTO_HINT}>
-          <Icon name="camera" size={16} />{draft.shot ? 'Other photo' : PHOTO_ADD}
-        </button>
+      {canCaptureWindow() && (
+        <span class={`feedback-check feedback-chip${shown && !shown.photo ? ' on-stage' : ''}`} title={!draft.shot ? SHOT_MISSING : full ? SHOT_NO_ROOM : SHOT_HINT}>
+          <input type="checkbox" aria-label="Send the screenshot" checked={draft.withShot && draft.shot !== null} disabled={draft.shot === null || going || full}
+            onChange={(event) => updateDraft({ withShot: (event.currentTarget as HTMLInputElement).checked })} />
+          <button type="button" class="feedback-chip-show" disabled={draft.shot === null} aria-pressed={!!shown && !shown.photo}
+            onClick={() => updateDraft({ onStage: null })}>{SHOT_LABEL}</button>
+        </span>
       )}
-      <label class="feedback-check feedback-chip" title={draft.shot ? SHOT_HINT : capture ? SHOT_MISSING : PHOTO_HINT}>
-        <input type="checkbox" checked={draft.withShot && draft.shot !== null} disabled={draft.shot === null || going}
-          onChange={(event) => updateDraft({ withShot: (event.currentTarget as HTMLInputElement).checked })} />
-        {SHOT_LABEL}
-      </label>
-      {!isMobile.value && <div class="segmented feedback-paint" role="group" aria-label="Paint">
-        <button type="button" class={tool === 'pen' ? 'selected' : ''} aria-pressed={tool === 'pen'} disabled={!painting} onClick={() => props.setTool('pen')}>Pen</button>
-        <button type="button" class={tool === 'box' ? 'selected' : ''} aria-pressed={tool === 'box'} disabled={!painting} onClick={() => props.setTool('box')}>Box</button>
-      </div>}
-      <button type="button" class="icon-button small" aria-label="Undo" title="Undo" disabled={!painting || !draft.marks.length}
-        onClick={() => updateDraft({ marks: draft.marks.slice(0, -1), painted: null })}>
+      {draft.photos.map((photo, index) => (
+        <span key={photo.id} class={`feedback-photo${shown?.photo === photo.id ? ' on-stage' : ''}`}>
+          <button type="button" class="feedback-photo-show" aria-label={`Photo ${index + 1} – paint over it`} title={PHOTO_HINT}
+            aria-pressed={shown?.photo === photo.id} onClick={() => updateDraft({ onStage: photo.id })}>
+            <img src={photo.src} alt="" draggable={false} />
+          </button>
+          <button type="button" class="feedback-photo-remove" aria-label={`Remove photo ${index + 1}`} title="Remove" disabled={going}
+            onClick={() => removePhoto(photo.id)}>
+            <Icon name="x" size={10} />
+          </button>
+        </span>
+      ))}
+      <button type="button" class="icon-button small" aria-label="Undo" title="Undo"
+        disabled={going || !shown?.marks.length || shotOff(draft, shown)} onClick={undoMark}>
         <Icon name="arrow-counter-clockwise" size={16} />
       </button>
-      {!capture && <input ref={picker} type="file" accept="image/*" hidden onChange={(event) => void picked(event.currentTarget)} />}
     </div>
   );
 }

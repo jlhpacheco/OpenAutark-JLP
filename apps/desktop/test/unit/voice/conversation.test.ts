@@ -8,18 +8,20 @@
 // call (calls.start/end, its id on every line; a page without calls talks too); the wait for a reply goes on while an
 // agent of the chat works and opens again when one starts later. B-081: a start with a callId takes that call and reads
 // every new agent line (the opening first); another holder in the call row ends the chat quietly; the speaker's name
-// goes in front when the speaker changes.
+// goes in front when the speaker changes. Owner 19.11.2026: a device joined beside the holder reads nothing until it hears a
+// line; the device that heard the person's newest line of the call reads the reply, another one goes quiet; a quiet device
+// drops a take that repeats what others just said (the other device's voice); a joined device ends quietly when the call ends.
 // Owns: these assertions only. Never: a microphone, a speech output or a runtime.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_VOICE_SESSIONS, REPEAT_HINT, SESSIONS_FULL, VoiceSessions, speakable } from '../../../src/shared/voice/conversation.ts';
+import { MAX_VOICE_SESSIONS, REPEAT_HINT, SESSIONS_FULL, VoiceSessions, echoOf, speakable } from '../../../src/shared/voice/conversation.ts';
 import type { ConversationRpc, VoiceSessionEntry, VoiceSessionView } from '../../../src/shared/voice/conversation.ts';
 import type { Message } from '../../../src/shared/model/chat.ts';
 
 const tick = async () => { for (let i = 0; i < 6; i++) await new Promise<void>((resolve) => setImmediate(resolve)); };
 
-function setup(heard: string[] = [], options: { noCalls?: boolean; runtimeCall?: string; shown?: (conversationId: string) => Promise<Array<{ fileId: string; name: string; mime: string; size: number }>> } = {}) {
+function setup(heard: string[] = [], options: { noCalls?: boolean; joined?: boolean; runtimeCall?: string; shown?: (conversationId: string) => Promise<Array<{ fileId: string; name: string; mime: string; size: number }>> } = {}) {
   const listeners = new Map<string, Array<(message: Message) => void>>();
   const sent: Array<{ conversationId: string; body: string; live?: boolean; call?: string; attachments?: string[] }> = [];
   const transcribed: Array<Record<string, unknown>> = [];
@@ -41,7 +43,7 @@ function setup(heard: string[] = [], options: { noCalls?: boolean; runtimeCall?:
       if (method === 'calls.start') {
         starts.push(params);
         if (options.noCalls) throw new Error('forbidden');
-        return { callId: (params.callId as string | undefined) ?? `call_${params.conversationId as string}`, holder: '/device:pc' };
+        return { callId: (params.callId as string | undefined) ?? `call_${params.conversationId as string}`, ...(options.joined ? { holder: '/device:dev_phone', joined: true } : { holder: '/device:pc' }) };
       }
       if (method === 'calls.end') { ended.push(params.callId as string); return { ok: true }; }
       if (method === 'messages.send') {
@@ -75,8 +77,12 @@ function setup(heard: string[] = [], options: { noCalls?: boolean; runtimeCall?:
   const reply = (conversationId: string, body: string, state: Message['state'] = 'final', authorId?: string) => {
     emit('message.created', { id: `m${++seq}`, conversationId, seq, authorKind: 'agent', authorId, kind: 'text', state, body, meta: {} } as unknown as Message);
   };
+  /** The person's line of the call said on another device. */
+  const said = (conversationId: string, callId: string, body: string, authorId = 'human') => {
+    emit('message.created', { id: `m${++seq}`, conversationId, seq, authorKind: 'human', authorId, kind: 'text', state: 'final', body, meta: { call: { id: callId, participant: 'device:dev_other', name: 'Other' } } } as unknown as Message);
+  };
   return {
-    voice, sent, spoken, states, reply, emit, ended, starts, working, transcribed,
+    voice, sent, spoken, states, reply, emit, said, ended, starts, working, transcribed,
     /** The reply timers run out now. */
     elapse: async () => { for (const fn of timers.splice(0)) fn(); await tick(); },
     mic: () => voice.view(),
@@ -443,4 +449,95 @@ test('a picture shown on the call goes with the spoken line; a failing one stays
   await tick();
   assert.equal(t.sent[1]?.body, 'Und das?');
   assert.equal(t.sent[1]?.attachments, undefined);
+});
+
+// ------------------------------------------------------------------ owner 19.11.2026: several devices in one call
+
+test('owner 19.11.2026: a device joined beside the holder reads nothing until it hears a line; then the device that heard the newest line reads', async () => {
+  const t = setup(['Und wie sieht es aus?'], { joined: true });
+  const view = await t.voice.start('ch_a');
+  assert.deepEqual(t.starts, [{ conversationId: 'ch_a' }], 'it finds the call it joined');
+  t.reply('ch_a', 'Antwort an das Handy.');
+  assert.deepEqual(t.spoken, [], 'the holder heard the last line: it reads');
+  await t.voice.utterance(view.id, 'f1');
+  assert.deepEqual(t.sent.map((line) => [line.body, line.call]), [['Und wie sieht es aus?', 'call_ch_a']], 'its microphone feeds the call');
+  t.reply('ch_a', 'Antwort an den PC.');
+  assert.deepEqual(t.spoken, ['Antwort an den PC.']);
+  t.voice.spokenDone(view.id);
+  t.said('ch_a', 'call_ch_a', 'Am Handy gefragt');
+  t.reply('ch_a', 'Antwort ans Handy.');
+  assert.deepEqual(t.spoken, ['Antwort an den PC.'], 'quiet: the other device heard the newest line and reads');
+  assert.equal(t.voice.sessions()[0].status, 'listening');
+});
+
+test('owner 19.11.2026: a line heard on another device stops this one\'s reading; a take that repeats what others just said goes nowhere, a new sentence makes it the reader again', async () => {
+  const t = setup(['Erste Frage', 'Antwort ans Handy', 'Ganz neue Frage zum Logo']);
+  const view = await t.voice.start('ch_a');
+  await t.voice.utterance(view.id, 'f1');
+  t.reply('ch_a', 'Eine lange Antwort.');
+  assert.equal(t.mic()?.status, 'speaking');
+  t.said('ch_a', 'call_ch_a', 'Am Handy gefragt');
+  assert.equal(t.silenced(), 1, 'its reading stops at once');
+  assert.equal(t.mic()?.status, 'listening');
+  t.reply('ch_a', 'Antwort ans Handy.');
+  assert.deepEqual(t.spoken, ['Eine lange Antwort.']);
+  await t.voice.utterance(view.id, 'f2'); // its microphone hears the other device reading
+  assert.equal(t.sent.length, 1, 'the echo goes nowhere');
+  assert.equal(t.mic()?.hint, undefined, 'and asks nothing');
+  t.said('ch_a', 'call_other', 'Eine andere Leitung'); // a line of another call changes nothing
+  await t.voice.utterance(view.id, 'f3');
+  assert.deepEqual(t.sent.map((line) => line.body), ['Erste Frage', 'Ganz neue Frage zum Logo']);
+  t.reply('ch_a', 'Das Logo ist fertig.');
+  assert.deepEqual(t.spoken, ['Eine lange Antwort.', 'Das Logo ist fertig.'], 'it heard the newest line: it reads again');
+});
+
+test('owner 21.11.2026: another person\'s line in the call leaves my reading – every person hears the replies', async () => {
+  const t = setup(['Meine Frage']);
+  const view = await t.voice.start('ch_a');
+  await t.voice.utterance(view.id, 'f1');
+  t.reply('ch_a', 'Eine lange Antwort.');
+  t.said('ch_a', 'call_ch_a', 'Momo fragt auch', 'per_momo00001');
+  assert.equal(t.silenced(), 0, 'my reading goes on');
+  t.reply('ch_a', 'Antwort an Momo.');
+  t.voice.spokenDone(view.id);
+  assert.deepEqual(t.spoken, ['Eine lange Antwort.', 'Antwort an Momo.']);
+});
+
+test('owner 19.11.2026: a joined device ends quietly when the call ends, not when another device takes it over; the holder stays while devices join', async () => {
+  const row = (call: Record<string, unknown>) => ({ id: 'm_row', conversationId: 'ch_a', seq: 1, authorKind: 'system', kind: 'status', state: 'final', body: '', meta: { call: { id: 'call_ch_a', name: 'x', startedAt: 1, lines: [], ...call } } }) as unknown as Message;
+  const joined = setup([], { joined: true });
+  await joined.voice.start('ch_a');
+  joined.emit('message.updated', row({ participant: 'device:dev_laptop', joined: [{ participant: 'device:dev_phone', name: 'Pixel' }] }));
+  assert.equal(joined.voice.active, true, 'another device took the call over: this one is still in');
+  joined.emit('message.updated', row({ participant: 'device:dev_laptop', endedAt: 2 }));
+  assert.equal(joined.voice.active, false, 'the call is over');
+  assert.deepEqual(joined.ended, [], 'nothing left to end');
+  const holder = setup();
+  await holder.voice.start('ch_a');
+  holder.emit('message.updated', row({ participant: 'device:pc', joined: [{ participant: 'device:dev_phone', name: 'Pixel' }] }));
+  assert.equal(holder.voice.active, true);
+});
+
+test('owner 19.11.2026 echoOf: a take is an echo when most of its word pairs were just said by others; a new sentence with common words is not', () => {
+  assert.equal(echoOf('Das Budget reicht bis März', ['Das Budget reicht bis März, sagt Ben.']), true);
+  assert.equal(echoOf('das budget reicht bis', ['Das Budget reicht bis März.']), true, 'a piece of it, as the microphone caught it');
+  assert.equal(echoOf('Und was ist mit dem Logo für die Website?', ['Das Budget reicht bis März und die Website ist fertig.']), false);
+  assert.equal(echoOf('Ja', ['Ja, genau.']), true, 'one or two words: by word');
+  assert.equal(echoOf('Nein', ['Ja, genau.']), false);
+  assert.equal(echoOf('', ['Ja']), false);
+  assert.equal(echoOf('Das Budget reicht', []), false);
+});
+
+test('owner 19.11.2026 (review): a line whose chat ended while its picture was taken does not go out – it would bring the device back into the call', async () => {
+  let release: () => void = () => undefined;
+  const t = setup(['Noch ein Satz'], { shown: () => new Promise((resolve) => { release = () => resolve([]); }) });
+  const view = await t.voice.start('ch_a');
+  const said = t.voice.utterance(view.id, 'f1');
+  await tick();
+  t.voice.stop('ch_a');
+  release();
+  await said;
+  await tick();
+  assert.deepEqual(t.sent, []);
+  assert.deepEqual(t.ended, ['call_ch_a']);
 });

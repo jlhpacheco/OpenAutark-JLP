@@ -7,7 +7,11 @@
 // TURN_WAIT_MS more silence (speech in between asks again at the next pause). Without Smart Turn the old 1.1 s
 // silence ends the line. A model that fails is dropped for good and the fallback takes over; 120 s caps a line.
 // Model answers are async: an edge they cause is handed out by the next feed (the next block, <= ~85 ms later).
-// Today no page runs the models (the app page cannot run wasm yet), so the fallback decides everywhere.
+// Where the models run (VOICE 19.11.2026, checked): the desktop window (app://app/turn/) and the Android app's page
+// (the PC's /turn/ through the phone's link) load both (ui/lib/turn-models.ts) once the PC has them; the iPhone web
+// app's shell allows no WebAssembly, so the level fallback decides there and wherever a model is missing or fails.
+// The fallback's noise floor also creeps up under steady sound it took for speech (a tonal hum or fan: harmonic and
+// loud, so it never counted as noise and held a line open until the 120 s cap – measured on TTS speech + hum).
 // Owns: the speech/turn decision and its timing (sample time, never a clock). Never: loads models (the caller
 // injects them as TurnModels), touches the microphone or the DOM.
 
@@ -25,6 +29,8 @@ const MAX_TURN_MS = 120_000;
 const TURN_SAMPLES = 8 * 16_000; // Smart Turn hears the last 8 s
 const MAX_BACKLOG = 30; // frames waiting for the VAD model (~1 s): slower than real time -> the fallback takes over
 const FLOOR_RATIO = 3;
+/** Per frame under 'speech' the floor creeps up by this factor (never above the frame): a steady tone is noise after ~6 s at 0.03 RMS, a word's gaps pull it back down. */
+const FLOOR_RISE = 1.005;
 const FLAT_MAX = 0.45;
 
 /** The small models as the detector asks them; either may be missing. */
@@ -194,11 +200,12 @@ class Turns implements TurnDetector {
     this.onModelError?.(error);
   }
 
-  /** The fallback: loud against the absolute minimum and the noise floor, and not flat (harmonics, not noise). */
+  /** The fallback: loud against the absolute minimum and the noise floor, and not flat (harmonics, not noise); a steady sound becomes the floor. */
   private levelSpeech(frame: Float32Array): boolean {
     const level = rms(frame);
     const speech = level > Math.max(this.threshold, this.floor * FLOOR_RATIO) && flatness(frame) < FLAT_MAX;
     if (!speech) this.floor = level < this.floor ? level : this.floor + (level - this.floor) * 0.02;
+    else this.floor = Math.min(level, this.floor * FLOOR_RISE);
     return speech;
   }
 }

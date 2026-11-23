@@ -48,6 +48,3 @@ export function clampEffort(wanted: Effort, supported: readonly Effort[]): Effor
   return best;
 }
 
-export function raiseEffort(effort: Effort, steps = 1): Effort {
-  return EFFORT_ORDER[Math.min(EFFORT_ORDER.length - 1, effortRank(effort) + steps)];
-}

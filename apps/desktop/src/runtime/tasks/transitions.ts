@@ -1,8 +1,10 @@
 // What an ended task means for the work around it:
-//  - pieceEnded: a piece (child task) ended – the owner of the task it belongs to hears it (reason 'child', under the
-//    parent's key) with who finished it, its result and evidence, "I had asked: …" when that owner gave it, and what is
-//    still open; a parent never waits by itself on its pieces. endWaitOn: a wait on the one who ended it ends with it
-//    (for an answered ask too, whose asker hears the person's own line instead).
+//  - pieceEnded: a to-do of a quest ended – the quest's agent owner hears it (reason 'child', under the quest's key) with
+//    who finished it, its result and evidence, "I had asked: …" when that owner gave it, and what is still open; when it
+//    was the last open one, the note starts "Every to-do of <quest> is done – it is done when <doneWhen>." (once – also
+//    for the owner's own to-do someone else ended; never for the owner's own act). A quest never waits by itself on
+//    its to-dos; a person-owned quest gets nothing. endWaitOn: a wait on the one who ended it ends with it (for an
+//    answered ask too, whose asker hears the person's own line instead).
 //  - endNote: the note the giver of a finished task hears ("I had asked: …").
 //  - waitIn: the agent's one task that waits on whoever writes – in that chat, or anywhere when it is our 1:1
 //    (chat/delivery-route.ts gives their line that task; calls/talker-prompt.ts names the one waiting on a person).
@@ -15,7 +17,7 @@ import { isFinished, isPaused, type Task, type TaskResult, type TaskView } from 
 import type { TaskService } from '../contracts.ts';
 import type { TaskServiceImpl } from './service.ts';
 import { nameOf, tell } from './give.ts';
-import { giverOf } from './next.ts';
+import { giverOf } from './names.ts';
 
 const EVIDENCE_CAP = 8;
 
@@ -43,15 +45,23 @@ export function pieceEnded(t: TaskServiceImpl, piece: Task, by: string): boolean
   const parent = t.repo.get(piece.parentId);
   if (!parent || isFinished(parent.status) || isPaused(parent) || parent.assigneeKind !== 'agent' || !parent.assigneeId) return false;
   const owner = parent.assigneeId;
-  if (owner === by || (piece.assigneeKind === 'agent' && piece.assigneeId === owner)) return false; // it knows, or it was its own piece
-  const who = nameOf(t.s, piece.assigneeId ?? 'human');
   const open = t.repo.children(parent.id).filter((item) => item.id !== piece.id && !isFinished(item.status));
+  const own = piece.assigneeKind === 'agent' && piece.assigneeId === owner;
+  if (owner === by || (own && open.length)) return false; // it knows, or it was its own to-do and more are open
+  const who = nameOf(t.s, piece.assigneeId ?? 'human');
   const word = piece.status === 'dropped' ? 'dropped' : `finished (${verificationLabel(piece.result)})`;
-  const lines = [`${who} ${word} "${excerpt(piece.title, 120)}", a piece of my task "${excerpt(parent.title, 120)}".`, ...endNote(piece, giverOf(piece) === owner)];
+  const lines = [`${who} ${word} "${excerpt(piece.title, 120)}", a to-do of my quest "${excerpt(parent.title, 120)}".`, ...endNote(piece, giverOf(piece) === owner)];
   if (open.length) lines.push(`Still open: ${open.slice(0, 6).map((item) => `"${excerpt(item.title, 60)}" (${nameOf(t.s, item.assigneeId ?? 'human')})`).join(', ')}.`);
+  else lines.unshift(lastTodoNote(parent)); // the last one: the quest is ready to close
   endWaitOn(t, parent, piece, by);
   tell(t.s, owner, { reason: 'child', taskId: parent.id, conversationId: parent.conversationId, note: lines.join('\n') });
   return true;
+}
+
+/** The first line the quest's owner reads when its last open to-do ended. */
+export function lastTodoNote(quest: Pick<Task, 'title' | 'doneWhen'>): string {
+  const when = quest.doneWhen?.trim();
+  return `Every to-do of "${excerpt(quest.title, 120)}" is done${when ? ` – it is done when ${excerpt(when, 300).replace(/\.+$/, '')}.` : '.'}`;
 }
 
 /** A wait on the one who ended a piece ends with it – an answered ask too (its line is the news; answer-receipt.ts wakes the asker). */

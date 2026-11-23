@@ -1,8 +1,8 @@
 // B-085 T2: the spotlight tour's steps and its pure rules (Spotlight.tsx draws them). Six short steps over the
 // Manager's chat right after the first run's Start – only what people would not find themselves; each names an
 // existing selector of OUR markup (no data-tour attribute anywhere) and, where a class is shared, the text the
-// target carries. A step whose target is not on screen is left out, so "Give full access" shows only while the
-// status line offers it (the careful PC-access notice, ui/onboarding/pc-access.ts). The bubble sits below the
+// target carries. A step whose target is not on screen is left out, so "Security settings" shows only while the
+// status line offers it (the Secure-mode notice, ui/onboarding/ai-notice.ts). The bubble sits below the
 // target, else above it, else (no room, or a window under 560 px) as a sheet – at the top when the hole lies in the
 // bottom part (the composer's steps on a phone). A target gone by its turn is passed over in the direction the person
 // was going (passOver).
@@ -22,7 +22,7 @@ export const SPOTLIGHT_STEPS: readonly SpotlightStep[] = [
   { selector: '[data-cell="workspace"]', title: 'Side pane', body: 'A real browser, notes and files in tabs. Your agents work in the same tabs.' },
   { selector: '.composer .composer-plus', title: 'Add', body: 'Add files, hand over a secret, or make your message a task.' },
   { selector: '.composer .send-button', title: 'Send options', body: 'Right-click Send (or press and hold) to send it as important, silently or at a set time.' },
-  { selector: '.status-note .status-action', text: 'Give full access', title: 'Full access', body: 'The team checks with you before changes outside its folders. Give it full access to let it work anywhere on this PC.' },
+  { selector: '.status-note .status-action', text: 'Security settings', title: 'Secure mode', body: 'Your team works freely in its own folders, and the app asks you before anything else. Choose what is open in Settings › Security.' },
 ];
 
 export interface Box { left: number; top: number; width: number; height: number }

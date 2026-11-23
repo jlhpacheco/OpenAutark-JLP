@@ -4,17 +4,17 @@
 // (takeover.ts: while that flag is on, every agent step answers that the person has it).
 // Owns: through sessions.ts the browsers' lifetime; act-and-verify (steps answer with a change list against the
 // agent's last snapshot of the tab, diff.ts), screenshots, page text, tabs, and the runtime-only reads for the vault
-// (one field's value, the 2FA setup keys a page shows). Password field values never show in a snapshot. B-081: a batch
-// glides to each pointed step unless the caller passes another motion (motion.ts).
+// (one field's value, the 2FA setup keys a page shows). Password field values never show in a snapshot. A batch
+// moves like a hand to each pointed step unless the caller passes another motion (motion.ts).
 // Never: touches the person's own browser profile or opens non-http(s) pages.
 
 import type { Logger, Paths } from '../contracts.ts';
 import { WorkforceError } from '../../shared/errors.ts';
-import type { MotionStyle } from '../../shared/model/pointer-motion.ts';
+import { DEFAULT_MOTION, type MotionStyle } from '../../shared/model/pointer-motion.ts';
 import { findSetupKeys, type TotpParams } from '../secrets/totp.ts';
 import type { BrowserChannel } from './channel.ts';
 import type { Launcher } from './launch.ts';
-import { hiddenValues, hostOf, locate, maskPasswords, normaliseUrl, readField, safeTitle, snapshotText, translateError, type PageLike } from './page.ts';
+import { hiddenBoxes, hiddenValues, hostOf, locate, maskPasswords, normaliseUrl, readField, safeTitle, snapshotText, translateError, type PageLike } from './page.ts';
 import { workspaceFile } from './downloads.ts';
 import { activePage, BrowserSessions, openPages, type BrowserChange, type Session, type ViewSession } from './sessions.ts';
 import { PERSON_USING, Takeovers, type UseContext } from './takeover.ts';
@@ -104,7 +104,7 @@ export class BrowserService {
     const { session, page, tab } = await this.tabOf(agentId, input.tab, input.use);
     const before = this.mark(session, page);
     const run = await runSteps(page, input.steps, {
-      tab, motion: input.motion ?? 'glide', timeoutMs: this.timeout(), file: (file) => workspaceFile(this.deps.paths.workspace, file), secret: input.secret,
+      tab, motion: input.motion ?? DEFAULT_MOTION, timeoutMs: this.timeout(), file: (file) => workspaceFile(this.deps.paths.workspace, file), secret: input.secret,
       stop: () => (this.takeovers.active(agentId) ? PERSON_USING : undefined),
     });
     return { ...await this.review(session, page, before, input.full), ...run, total: input.steps.length };
@@ -156,7 +156,8 @@ export class BrowserService {
   async screenshot(agentId: string, input: { tab?: string; fullPage?: boolean; use?: UseContext } = {}): Promise<{ data: Uint8Array; mime: string; tab: string; url: string; title: string }> {
     const { page, tab } = await this.tabOf(agentId, input.tab, input.use);
     try {
-      const data = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: input.fullPage ?? false, scale: 'css', timeout: 20_000 });
+      const mask = await hiddenBoxes(page); // 22.11.2026: card, code and password fields are painted over (page.ts)
+      const data = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: input.fullPage ?? false, scale: 'css', timeout: 20_000, ...(mask.length ? { mask, maskColor: '#000000' } : {}) });
       if (data.byteLength > 8 * 1024 * 1024) throw new WorkforceError('conflict', 'The page screenshot is too large; take a viewport screenshot instead of fullPage.');
       return { data: new Uint8Array(data), mime: 'image/jpeg', tab, url: page.url(), title: await safeTitle(page) };
     } catch (error) {

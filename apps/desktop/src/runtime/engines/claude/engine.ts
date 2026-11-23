@@ -17,6 +17,7 @@
 // variant's catalog id `<id>-1m` runs as `--model <id>[1m]` (cliModel).
 //
 // Agent turns run with `--permission-mode bypassPermissions`: Claude Code never asks before its own tools. B-085: an agent turn's env names its agent (AUTARK_AGENT, wf-shim.ts asAgent).
+// Sicher-Runde 19.11.2026: in Secure mode (services.security) an agent turn runs `default` with its prompts sent to us and answered by the gate (permissions.ts).
 // B-083 (owner 09.11.): Claude Code always thinks, and thinking is never turned off for a temperature – its turns send none (older Claude models take one only without thinking, the newer ones none).
 // Login guard 03.11.: a turn's CLI is never hard-killed when the turn ends or is stopped (it may be saving a refreshed
 // sign-in): its stdin closes and it ends by itself; its tree is killed only after the grace (CLAUDE_EXIT_GRACE_MS). A
@@ -51,7 +52,6 @@
 // never lets project-level config in the workspace (.claude/settings*.json, .mcp.json, project
 // skills/agents/commands) add permissions, hooks, plugins or MCP servers to a turn.
 
-import { promises as fsp } from 'node:fs';
 import * as path from 'node:path';
 import type { Account, Effort, EngineId } from '../../../shared/model/providers.ts';
 import type { AccountCheck, Engine, EngineCaps, EngineEvent, EngineForkInput, EngineForkResult, EngineModel, EngineRebuildInput, EngineRebuildResult, EngineTurnInput, EngineTurnResult, KeepOpenInput, RebuildProbe } from '../types.ts';
@@ -60,7 +60,7 @@ import { rebuiltTurnFailed } from '../rebuild-text.ts';
 import { traceInput } from '../trace-text.ts';
 import type { Supervisor } from '../../system/supervisor.ts';
 import type { ExecutableFinder } from '../../accounts/executables.ts';
-import { CLAUDE_EXIT_GRACE_MS } from '../../accounts/cli.ts';
+import { CLAUDE_EXIT_GRACE_MS, runCli } from '../../accounts/cli.ts';
 import { ClaudeStatus, USER_SETTINGS_ONLY } from './status.ts';
 import { HUB_SERVER } from './stream.ts';
 import { claudeModels, cliModel, rememberWindows } from './models.ts';
@@ -69,10 +69,13 @@ import { purgeHistories } from './purge.ts';
 import { claudeDown, providerDownMessage } from '../provider-outage.ts'; // B-059 #184
 import { ClaudeForks } from './fork.ts'; // B-057
 import { ClaudeRebuilder } from './rebuilder.ts';
-import { AGENT_ENV, LEAN_ENV, coreTools, hubConfig, promptArgs } from './lean.ts';
+import { nodeFiles, type FileOps } from './rebuild.ts';
+import { AGENT_ENV, CeilingFlag, LEAN_ENV, coreTools, hubConfig, promptArgs } from './lean.ts';
 import { asAgent } from '../wf-shim.ts'; // B-085
 import { ClaudeKept, KEPT_GONE } from './kept.ts'; // KI-Runde 17.11.2026: a call voice's kept process
 import { ClaudeTurns, type Attempt } from './turns.ts';
+import { secureTurn } from './permissions.ts'; // Sicher-Runde 19.11.2026: Secure mode
+import { secureService, type SecurityLookup } from '../codex/native-gate.ts';
 
 export { CLAUDE_MODELS } from './models.ts';
 
@@ -80,26 +83,6 @@ export { CLAUDE_MODELS } from './models.ts';
 const MISSING_SESSION = /no conversation found|session .*not found/i;
 /** Session folders remembered per process (the oldest is dropped beyond this). */
 const MAX_FOLDERS = 500;
-
-export interface FileOps {
-  writeFile(file: string, data: string): Promise<void>;
-  readFile(file: string): Promise<Uint8Array>;
-  rm(file: string): Promise<void>;
-  mkdir(dir: string): Promise<void>;
-  /** B-048 (rebuilder.ts): folder removal, file size and sub-folder names; the disk when not given. */
-  rmDir?(dir: string): Promise<void>;
-  size?(file: string): Promise<number | undefined>;
-  folders?(dir: string): Promise<string[]>;
-  tail?(file: string, maxBytes: number): Promise<string | undefined>;
-  append?(file: string, data: string): Promise<void>;
-}
-
-const nodeFiles: FileOps = {
-  writeFile: (file, data) => fsp.writeFile(file, data, { mode: 0o600 }),
-  readFile: (file) => fsp.readFile(file),
-  rm: (file) => fsp.rm(file, { force: true }),
-  mkdir: async (dir) => { await fsp.mkdir(dir, { recursive: true }); },
-};
 
 export interface ClaudeEngineDeps {
   supervisor: Supervisor;
@@ -115,6 +98,8 @@ export interface ClaudeEngineDeps {
   accountsRoots?: readonly string[];
   /** Login guard 03.11.: how long an ended or stopped CLI may take to exit by itself before its tree is killed (CLAUDE_EXIT_GRACE_MS). */
   graceMs?: number;
+  /** Sicher-Runde 19.11.2026: services.security – in Secure mode an agent turn's permission prompts go through its gate (permissions.ts). */
+  security?: SecurityLookup;
 }
 
 export class ClaudeEngine implements Engine {
@@ -134,6 +119,7 @@ export class ClaudeEngine implements Engine {
   private readonly forks = new ClaudeForks({ files: () => this.rebuilds.files, uuid: () => this.uuid() }); // B-057: pending forks (fork.ts)
   private readonly kept: ClaudeKept; // KI-Runde 17.11.2026: the processes kept for calls' voices (kept.ts)
   private readonly turns: ClaudeTurns; // the running turns' processes (turns.ts)
+  private readonly ceiling = new CeilingFlag(); // Runde "Halb": whether this CLI takes --autocompact (lean.ts)
 
   constructor(deps: ClaudeEngineDeps) {
     this.deps = deps;
@@ -201,17 +187,21 @@ export class ClaudeEngine implements Engine {
     const promptFile = input.system.stable ? `${base}.prompt.md` : undefined; // none: a helper turn on Claude Code's own prompt
     const mcpFile = `${base}.mcp.json`;
     const temp = [promptFile, input.mcp ? mcpFile : undefined].filter((file): file is string => Boolean(file));
+    // Sicher-Runde 19.11.2026: an agent turn in Secure mode asks the gate (permissions.ts); Trust mode keeps bypassPermissions.
+    const security = input.mcp ? secureService(this.deps.security) : undefined;
+    const secure = security ? secureTurn(security, { agentId: input.agentId, runId: input.runId }) : undefined;
     let ran: Attempt;
     try {
       // The stable prompt only: Claude Code replays a session's first system prompt on resume, and all sessions of an agent share it in the cache.
       if (promptFile) await this.files.writeFile(promptFile, input.system.stable);
       const args = [...exe.prefixArgs, '-p', ...USER_SETTINGS_ONLY, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
-        '--model', cliModel(input.model), ...(this.noEffort.has(input.model) ? [] : ['--effort', input.effort === 'none' ? 'low' : input.effort]), ...promptArgs(promptFile, agentTurn ? coreTools() : []),
-        ...(agentTurn && this.rebuilds.thinkingDisplay() ? ['--thinking-display', 'summarized'] : [])]; // B-048: reasoning text to show
+        '--model', cliModel(input.model), ...(this.noEffort.has(input.model) ? [] : ['--effort', input.effort === 'none' ? 'low' : input.effort]), ...promptArgs(promptFile, agentTurn ? coreTools() : [], secure?.settings),
+        ...(agentTurn && this.rebuilds.thinkingDisplay() ? ['--thinking-display', 'summarized'] : []), // B-048: reasoning text to show
+        ...(agentTurn ? this.ceiling.args() : [])]; // Runde "Halb": the session compacts near the run ceiling where the CLI can (lean.ts)
       if (input.mcp) {
         // File (0600, deleted after the turn) instead of argv: argv is visible to other processes.
         await this.files.writeFile(mcpFile, hubConfig(input.mcp));
-        args.push('--mcp-config', mcpFile, '--strict-mcp-config', '--permission-mode', 'bypassPermissions');
+        args.push('--mcp-config', mcpFile, '--strict-mcp-config', ...(secure?.args ?? ['--permission-mode', 'bypassPermissions']));
       } else {
         args.push('--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--permission-prompts', 'none');
         // A runtime helper turn (decision, verifier, compaction) never resumes, so Claude Code keeps no transcript of it (the prompt may hold outside content).
@@ -222,7 +212,7 @@ export class ClaudeEngine implements Engine {
       const content = await this.content(traceRefused ? { ...input, input: [traceInput(input.trace!.calls), ...input.input] } : input);
       const env = asAgent({ ...this.status.envFor(input.account), ...LEAN_ENV, ...(agentTurn ? AGENT_ENV : {}), ...target?.env }, agentTurn ? input.agentId : undefined); // B-085: its wf writes as the agent; AGENT_ENV: a one-hour cache for an agent's session
       const fresh = !resume && agentTurn ? { ref: sessionId, generation } : undefined; // B-080: announced at the CLI's system/init
-      ran = await this.turns.attempt(exe.command, args, env, input, content, fresh);
+      ran = await this.turns.attempt(exe.command, args, env, input, content, fresh, secure);
     } finally {
       for (const file of temp) await this.files.rm(file).catch(() => {});
     }
@@ -230,6 +220,7 @@ export class ClaudeEngine implements Engine {
     const s = parser.state;
     this.forks.settle(resume, s.sessionId, s.done && !broken); // B-057: a fork the CLI took is no longer pending
     this.rebuilds.remember(s.version);
+    this.ceiling.seen(s.version, () => runCli(this.deps.supervisor, exe, ['--help'], { env: this.deps.env, cwd: this.deps.tempDir, timeoutMs: 30_000, owner: 'claude-help' }).then((help) => help.stdout));
     this.rememberWindows(input.account.id, s.contextWindows);
     const result: EngineTurnResult = {
       text: parser.answer(), stop: 'done', usage: s.usage, contextTokens: s.contextTokens,

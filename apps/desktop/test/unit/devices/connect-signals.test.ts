@@ -18,7 +18,7 @@ test('a connect request\'s notice opens Settings › Devices, on the event and o
   assert.equal(notice.route, '#/settings/devices');
   assert.equal(DEVICES_ROUTE, '#/settings/devices');
   assert.match(notice.title, /^Phone Pixel asks to connect · code 123$/);
-  assert.equal(connectNotice({ ...view, role: 'employee', name: 'Tower' } as RemoteIncoming).body, 'As an employee. Accept in Settings › Devices if Tower shows the same code.');
+  assert.equal(connectNotice({ ...view, role: 'employee', name: 'Tower' } as RemoteIncoming).body, 'As a new member. Accept in Settings › Devices if Tower shows the same code.');
 
   const { bus, events } = recordingBus();
   const settings = { get: () => ({ notifications: { enabled: true, sound: true, pushFor: [] } }) };

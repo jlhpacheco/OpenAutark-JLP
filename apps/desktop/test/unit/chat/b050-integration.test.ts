@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { HUMAN_ID, SYSTEM_ID } from '../../../src/shared/ids.ts';
-import { isConnectorSender, isExternalAgent } from '../../../src/shared/model/external-agents.ts';
+import { isExternalAgent } from '../../../src/shared/model/external-agents.ts';
 import { isPaused } from '../../../src/shared/model/tasks.ts';
 import { findOrCreateDirect } from '../../../src/runtime/chat/direct.ts';
 import { pickUpQuiet } from '../../../src/runtime/chat/quiet-pickup.ts';
@@ -66,8 +66,7 @@ test('K8 e: a sender behind a connector is an outside contact – its line wakes
   const h = setup();
   const bridge = 'ext:api:0123456789:Bridge';
   const anna = 'ext:api:0123456789:abcdef0123456789:Anna';
-  assert.deepEqual([isExternalAgent(bridge), isConnectorSender(bridge)], [true, false]);
-  assert.deepEqual([isExternalAgent(anna), isConnectorSender(anna)], [false, true]);
+  assert.deepEqual([isExternalAgent(bridge), isExternalAgent(anna)], [true, false], 'a sender behind a connector has five segments');
   assert.equal(isExternalAgent('ext:tg:42:Anna (Telegram)'), false);
   const room = h.chats.create({ title: 'WhatsApp', agentIds: ['ag_tom'], humans: false, createdBy: 'ag_tom' });
   h.chats.setMembers(room.id, { add: [bridge, anna] }, SYSTEM_ID);

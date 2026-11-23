@@ -2,12 +2,15 @@
 // on loopback): the server hands out the address it sees with the peer port and the PCs talk directly;
 // only when no direct path answers does a tunnel carry the link; revoking cuts it; Connect by Remote ID
 // finds the PC there and its request steps travel sealed; a lookup while the server is still connecting
-// waits for it; off or not reachable, the lookup says so.
+// waits for it; off or not reachable, the lookup says so. Eine-ID 22.11.2026: a findable PC is found under its My ID with the
+// chain that proves it; a PC that is not findable fixes no My ID (the me tree starts on first use only).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MEETING_OFF, MEETING_UNREACHABLE } from '../../../src/runtime/remote/find.ts';
+import { meFor } from '../../../src/runtime/remote/code.ts';
 import { remoteIdOf } from '../../../src/runtime/remote/id.ts';
+import { KvRepo } from '../../../src/runtime/store/kv.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import { link, makePc, reset, startRelay, stopAll, until } from './rig.ts';
 
@@ -93,4 +96,26 @@ test('a lookup while the server is still connecting waits for it; off or not rea
   const started = Date.now();
   await assert.rejects(away.meeting.find(remoteIdOf(tower.identity.fingerprint), AbortSignal.timeout(400)), unavailable(MEETING_UNREACHABLE), 'not up before the deadline');
   assert.ok(Date.now() - started < 3_000, 'it waits only until its signal ends');
+});
+
+test('Eine-ID: a findable PC is found under its My ID with the proving chain; one not findable yet fixes no My ID', async (t) => {
+  reset();
+  const relay = await startRelay();
+  t.after(() => relay.close());
+  const laptop = await makePc('Laptop', relay.url);
+  const tower = await makePc('Tower', relay.url);
+  const fresh = await makePc('Fresh', relay.url);
+  fresh.findable = false; // its first run is not done yet
+  t.after(() => stopAll([laptop, tower, fresh]));
+  laptop.meeting.start();
+  tower.meeting.start();
+  fresh.meeting.start();
+  await until(() => [laptop, tower, fresh].map((pc) => pc.meeting.state().status), (s) => s.every((v) => v === 'connected'), 'all connected');
+  assert.equal(new KvRepo(fresh.db).get('remote.me', 'tree'), undefined, 'not findable: no My ID made, none sent');
+  const myId = meFor(tower.identity.fingerprint)!.code();
+  const found = await laptop.meeting.find(myId, AbortSignal.timeout(5_000));
+  assert.deepEqual(found.map((entry) => entry.deviceId), [tower.identity.deviceId], 'found under My ID');
+  assert.deepEqual(found[0].chain, meFor(tower.identity.fingerprint)!.chain(), 'with the chain that proves it');
+  const own = await laptop.meeting.find(remoteIdOf(tower.identity.fingerprint), AbortSignal.timeout(5_000));
+  assert.equal(own[0].chain, undefined, 'its own ID needs none');
 });

@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { CodexEngine } from '../../../src/runtime/engines/codex/engine.ts';
 import { AGENT_FEATURES_KEPT, AGENT_FEATURES_OFF, HELPER_FEATURES_OFF, agentLeanConfig, agentThread } from '../../../src/runtime/engines/codex/helper-thread.ts';
 import { WORKSPACE_FEATURES, threadIsolation } from '../../../src/runtime/engines/codex/isolation.ts';
+import { RUN_CEILING } from '../../../src/runtime/agents/compaction-policy.ts';
 import { account, fakeFinder, fakeSpawn, testSupervisor, turnInput } from './fakes.ts';
 
 /** A scripted app-server; `refuse(msg)` answers a thread/start or thread/resume with an error. */
@@ -56,6 +57,7 @@ function assertLeanAgent(params: any, label: string): void {
   assert.deepEqual(params.config.skills, { include_instructions: false, bundled: { enabled: false } }, `${label}: no Codex skill list`);
   assert.deepEqual(params.config.agents, { enabled: false }, `${label}: no Codex sub-agents (role text, spawn tools)`);
   assert.deepEqual(params.config.tools, { experimental_request_user_input: { enabled: false } }, `${label}: no question tool nobody answers`);
+  assert.equal(params.config.model_auto_compact_token_limit, RUN_CEILING, `${label}: Runde "Halb" – Codex compacts near the run ceiling`);
   assert.equal(params.environments, undefined, `${label}: the agent keeps its environment (shell, patch)`);
   assert.equal(params.ephemeral, undefined, `${label}: and its history`);
   // isolation.ts exactly as before

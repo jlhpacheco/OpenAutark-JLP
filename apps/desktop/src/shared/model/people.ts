@@ -70,6 +70,8 @@ export interface Person {
   updatedAt: number;
   joinedAt?: number;
   revokedAt?: number;
+  /** On an employee's PC: a colleague its company named (devices/company-facts.ts) – shown, never managed here. */
+  fromEmployer?: true;
   /** Owner's view only: the person's connected devices; an open invite's expiry. */
   devices?: PersonDevice[];
   inviteOpenUntil?: number;
@@ -178,8 +180,6 @@ declare module '../api/methods.ts' {
     'people.audit': { params: { id: string; limit?: number }; result: PersonAudit[] };
     /** Owner (admin): a person's chats as metadata – titles and members, never messages. */
     'people.chats': { params: { id: string }; result: PersonChat[] };
-    /** Owner or a person: the 1:1 chat with that person (created on first use). */
-    'people.directChat': { params: { id: string }; result: { conversationId: string } };
     /** Tokenless: a person's browser asks to join with the invite's ticket (link / QR) or code. */
     'people.join': { params: { ticket?: string; code?: string; name?: string }; result: AccessTicket };
     /** Tokenless long request (≤ 55 s): the owner's decision on the join request. */

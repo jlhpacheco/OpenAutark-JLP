@@ -7,7 +7,7 @@ import { useRef, useState } from 'preact/hooks';
 import { Button, Icon, IconButton, Spinner } from '../../lib/ui.tsx';
 import { fileSize } from '../../lib/format.ts';
 import { toastError } from '../../lib/toasts.ts';
-import { uploadBlob } from '../host.ts';
+import { uploadBlob } from '../../lib/files.ts';
 import { Inline, Markdown } from '../markdown.tsx';
 import type { AskWidgetProps } from './ask-types.ts';
 import { useDraft } from './use-draft.ts';

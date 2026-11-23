@@ -2,41 +2,47 @@
    one hint line and two limit bars (one neutral colour for every provider), the one fixed action slot (the same width
    in every row, so all bars end at one x), the row of four buttons with the sign-in link cell and the status line, the
    one inline connection form, the phone's sign-in sheet, a connection's model list, the use rows and the
-   rename field of a device row.
+   rename field of a device row, its action slot (Update / Wake), "Update all" and the strip of the other devices.
    Owns: these looks. Never: the settings grammar (settings.css) or the bar's colours (tokens.css). */
 
 /* ---------------------------------------------------------------- account rows */
 .account-hint { min-height: 1.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-limits { display: grid; gap: 6px; margin-top: 4px; max-width: 460px; }
 .account-limit { display: grid; gap: 0; }
-.account-limit-line { overflow: hidden; color: var(--secondary); font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.account-limit-line { overflow: hidden; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); text-overflow: ellipsis; white-space: nowrap; }
 .account-limit .usage-bar { display: block; margin-top: 3px; }
 .account-limit .usage-bar > span { background: var(--muted); } /* one neutral colour for every provider (the rail carries the provider colours) */
 /* a connection's models (right-click › Show models): one quiet wrapped line under the hint */
-.account-models { margin-top: 4px; color: var(--secondary); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.account-models { margin-top: 4px; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); overflow-wrap: anywhere; }
 .account-slot { display: inline-flex; flex: none; align-items: center; justify-content: flex-end; width: 112px; height: 32px; }
 /* one line at the slot's height on every width (a phone's 40 px button minimum would stand above the label's line) */
 .set-row .account-slot > .button.button { width: 100%; min-height: 0; height: 30px; padding-block: 0; white-space: nowrap; }
+/* a speech model on this PC (settings/speech-models-rows.tsx): "In use" or its progress as quiet text in the slot */
+.account-slot.speech-model-state { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); }
 /* B-083: an API key's "Plan credits" switch – its quiet name and the switch on one line, the switch at the slot's right edge */
-.account-credits { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; width: 100%; color: var(--secondary); font-size: 12px; white-space: nowrap; cursor: pointer; }
+.account-credits { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; width: 100%; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); white-space: nowrap; cursor: pointer; }
 /* 17.11.2026 (Konrad task_bgykyzcx): the row's On/Off switch right of the slot, always in view (the right-click menu keeps Disable / Enable) */
-.account-power { display: inline-flex; flex: none; align-items: center; justify-content: flex-end; gap: 6px; min-width: 52px; color: var(--secondary); font-size: 12px; white-space: nowrap; cursor: pointer; }
+.account-power { display: inline-flex; flex: none; align-items: center; justify-content: flex-end; gap: 6px; min-width: 52px; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); white-space: nowrap; cursor: pointer; }
 /* a plan's "When the plan is empty: use extra usage" switch and its cost line under the bars; where the plan has none the switch is off and the line says why */
 .account-extra { display: grid; gap: 2px; margin-top: 8px; max-width: 460px; }
-.account-extra-switch { display: inline-flex; align-items: center; gap: 8px; color: var(--secondary); font-size: 12px; line-height: 18px; cursor: pointer; }
+.account-extra-switch { display: inline-flex; align-items: center; gap: 8px; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); cursor: pointer; }
 .account-extra[data-possible=false] .account-extra-switch { cursor: default; }
-.account-extra-hint { color: var(--muted); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; text-wrap: wrap; }
+.account-extra-hint { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); overflow-wrap: anywhere; text-wrap: wrap; }
 /* a plan login's "On all PCs of this company" switch (Account.thisPcOnly) and its line – the same look as the extra-usage switch */
 .account-share { display: grid; gap: 2px; margin-top: 8px; max-width: 460px; }
-.account-share-switch { display: inline-flex; align-items: center; gap: 8px; color: var(--secondary); font-size: 12px; line-height: 18px; cursor: pointer; }
-.account-share-hint { color: var(--muted); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; text-wrap: wrap; }
+.account-share-switch { display: inline-flex; align-items: center; gap: 8px; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); cursor: pointer; }
+.account-share-hint { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); overflow-wrap: anywhere; text-wrap: wrap; }
 /* before a plan's first limit reading: no empty bars (they would read as used up), one quiet line */
-.account-limit-pending { color: var(--muted); font-size: 12px; line-height: 18px; }
+.account-limit-pending { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); }
 /* the visible "Remove from this company": a quiet text button under the row's lines, in view without a right-click */
 .account-foot { display: flex; justify-content: flex-start; margin-top: 6px; }
-.set-row .account-foot > .button.account-remove { height: 28px; min-height: 0; margin-left: -13px; padding-block: 0; color: var(--secondary); font-size: 12px; }
+.set-row .account-foot > .button.account-remove { height: 28px; min-height: 0; margin-left: -13px; padding-block: 0; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); }
 .set-row .account-foot > .button.account-remove:hover:not(:disabled) { color: var(--danger); }
-@media (pointer: coarse) { .set-row .account-foot > .button.account-remove { min-height: 44px; } }
+@media (pointer: coarse) {
+  .set-row.account-row > .set-row-control { height: auto; }
+  .account-power, .account-credits, .account-extra-switch, .account-share-switch,
+  .set-row .account-foot > .button.account-remove, .set-row.found-row .found-actions > .button { min-height: 44px; }
+}
 /* a plan login on offer (ModelSetup FoundRow): the two choices side by side in the control column */
 .found-actions { display: inline-flex; flex: none; align-items: center; justify-content: flex-end; gap: 8px; }
 .set-row.found-row .set-row-label { font-weight: 500; }
@@ -56,7 +62,7 @@
 .model-setup-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 14px 0 6px; }
 .model-setup-buttons > .button { flex: none; }
 .model-setup-buttons > .button[aria-pressed=true] { background: var(--selected); }
-.model-setup-status { min-height: 18px; margin: 0 0 8px; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.model-setup-status { min-height: 18px; margin: 0 0 8px; overflow: hidden; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); text-overflow: ellipsis; white-space: nowrap; }
 .model-setup-status.error { color: var(--danger); }
 .model-setup-status.ok { color: var(--success); }
 .add-account.inline-form { display: grid; max-width: 480px; padding: 4px 0 12px; }
@@ -71,8 +77,8 @@
 .add-account.inline-form > .dialog-footer { margin: 14px 0 0; padding: 0; animation: none; } /* a form's footer outside a dialog */
 /* B-091: the phone's sign-in sheet (SignInSheet.tsx) – Codex's one-time code large and selectable with one quiet hint,
    or Claude Code's full-width "Open sign-in" above the code field */
-.sign-in-code { margin: 8px 0 6px; font-family: var(--mono); font-size: 30px; font-weight: 600; letter-spacing: .06em; text-align: center; user-select: all; }
-.sign-in-hint { margin: 0 0 4px; color: var(--secondary); font-size: 12px; line-height: 18px; text-align: center; text-wrap: balance; }
+.sign-in-code { margin: 8px 0 6px; font-family: var(--mono); font-size: calc(30px * var(--ui-text, 1)); font-weight: 600; letter-spacing: .06em; text-align: center; user-select: all; }
+.sign-in-hint { margin: 0 0 4px; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); text-align: center; text-wrap: balance; }
 .sign-in-sheet .sign-in-open { width: 100%; margin-bottom: 10px; }
 
 /* ---------------------------------------------------------------- the use rows: [label + hint] [provider] [model] [action], one width each */
@@ -93,3 +99,13 @@
 
 /* ---------------------------------------------------------------- devices: the rename field takes the name's line */
 .device-row .set-row-label > .set-input { height: 28px; }
+/* Sicher-Runde 19.11.2026: a PC row's one action slot – Update or Wake in the same box, empty when neither is offered (E1) */
+.device-slot { display: inline-flex; flex: none; align-items: center; justify-content: flex-end; width: 92px; height: 32px; }
+.set-row .device-slot > .button.button { width: 100%; min-height: 0; height: 30px; padding-block: 0; white-space: nowrap; }
+/* "Update all (n)" in the group head: its box is there whether the button shows or not */
+.device-all { display: inline-flex; flex: none; justify-content: flex-end; min-width: 128px; }
+/* the strip of the other devices under "This PC": about five rows (a device row with its reserved hint is ~66 px), then it
+   scrolls; its foot fades out (--mask-fade-foot) until the last row is in view (.at-end, set on scroll: paint only) */
+.device-strip { max-height: calc(5 * 66px); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-width: thin; -webkit-mask-image: var(--mask-fade-foot); mask-image: var(--mask-fade-foot); }
+.device-strip.at-end { -webkit-mask-image: none; mask-image: none; }
+.device-strip:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }

@@ -14,6 +14,8 @@
 // Forgotten (forgetSent) when the session's history stops holding it: a rebuild (a Codex revert keeps the ref but cuts
 // the turns that carried it) or a compaction inside the engine (EngineTurnResult.compacted) – then the stable changes
 // count from the session's start again.
+// Whether a turn's live block carries a section (carries) lets a reminder's note bring its quest only when the live block
+// leaves the "## Current quest" out (agents/turn-prepare.ts – one copy).
 // Owns: the deltas, their "No longer current" and "was / now" lines and that state. Never: leaves out a changed section,
 // or records a turn that did not finish (its sections count as unsent, so the next turn sends them again – more, never less).
 
@@ -85,6 +87,12 @@ export function volatileDelta(all: readonly VolatileSection[], sent: SentSection
   const gone = Object.entries(sent).filter(([name]) => !Object.hasOwn(held, name)).map(([, entry]) => entry.title);
   const line = gone.length ? `No longer current: ${gone.join(', ')}.` : '';
   return { text: [...changed.map((section) => section.text), line].filter(Boolean).join('\n\n'), sections: held };
+}
+
+/** Whether this turn's live block (`shown`, volatileDelta's) carries section `name` – so nothing else repeats it (FIXREAL). */
+export function carries(all: readonly VolatileSection[] | undefined, shown: { text: string } | undefined, name: string): boolean {
+  const section = all?.find((item) => item.name === name && !item.failed && item.text);
+  return Boolean(section && shown?.text.includes(section.text));
 }
 
 /** Said in front of the changed stable lines, in my voice. */

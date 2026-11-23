@@ -11,8 +11,10 @@ import { open, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { isErrorCode } from '../../shared/errors.ts';
+import { mimeForPath, sniffMime } from '../../shared/files/mime.ts';
+import { parseRange } from '../../shared/files/serving.ts';
 import {
-  APP_CSP, PAGE_CSP, SANDBOX_CSP, blobPath, mimeForPath, ortDirOf, parseBlobUrl, parseRange, resolveUnder, routeAppUrl, routeSandboxUrl, sniffMime, turnFilePath, wrapSandboxHtml,
+  APP_CSP, PAGE_CSP, SANDBOX_CSP, blobPath, ortDirOf, parseBlobUrl, resolveUnder, routeAppUrl, routeSandboxUrl, turnFilePath, wrapSandboxHtml,
 } from './rules.ts';
 
 /** Electron CustomScheme entries (structural: this module stays electron-free). Register before ready. */

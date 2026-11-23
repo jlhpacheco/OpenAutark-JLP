@@ -4,7 +4,7 @@
 // ([[hang:bash …]]) that never returns, and the runtime is killed (SIGKILL) mid-turn. After a
 // restart on the same data: the run is 'interrupted' and the command's effect 'unknown' (the chat's quiet
 // "Cut off by a restart" line went with the recovery notes); the agent is told to verify before
-// repeating, so the command is not started again, and the task completes (its tasks.finish
+// repeating, so the command is not started again, and the task completes (its tasks.update
 // call). The start notice says "Restarted after an interruption · 1 task continued".
 // Run: npm run build && node --test test/e2e/runtime-crash-resume.test.mjs
 
@@ -32,7 +32,7 @@ test('SIGKILL mid-turn: after the restart the unknown effect is named, not repea
 
   await before.call('messages.send', {
     conversationId: chat.id,
-    body: `Export it now [[hang:bash {"command":"export-report --month 10"}]] [[tool:tasks.finish {"taskId":"${task.id}","status":"done","summary":"Report exported once","evidence":[{"kind":"check","label":"Export log shows one run"}]}]]`,
+    body: `Export it now [[hang:bash {"command":"export-report --month 10"}]] [[tool:tasks.update {"id":"${task.id}","status":"done","result":"Report exported once","evidence":[{"kind":"check","label":"Export log shows one run"}]}]]`,
   });
   const started = await before.waitFor('run.item', (item) => item.kind === 'tool_call' && item.name === 'bash', 60_000);
   const crashedRun = started.runId;
@@ -46,7 +46,7 @@ test('SIGKILL mid-turn: after the restart the unknown effect is named, not repea
   const after = second.client;
   await after.call('events.subscribe', { topics: ['chats', `chat:${chat.id}`, `runs:${manager.id}`] });
 
-  // The task completes after the restart (its tasks.finish call), without starting the command again.
+  // The task completes after the restart (its tasks.update call), without starting the command again.
   let done;
   for (let i = 0; i < 120 && done?.status !== 'done'; i++) {
     done = await after.call('tasks.get', { id: task.id });

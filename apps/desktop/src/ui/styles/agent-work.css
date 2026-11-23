@@ -14,41 +14,41 @@
 .work-card-head { display: flex; align-items: center; gap: 8px; height: 28px; min-width: 0; }
 .work-card-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--success); animation: avatar-working 1.2s ease-in-out infinite alternate; }
 .work-card-note {
-  flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--text); font-size: 14px; line-height: 20px; text-align: left;
+  flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--text); font-size: calc(14px * var(--ui-text, 1)); line-height: max(20px, calc(20px * var(--ui-text, 1))); text-align: left;
   text-overflow: ellipsis; white-space: nowrap;
 }
 .work-card-note:hover { text-decoration: underline; text-underline-offset: 2px; }
-.work-card-time { flex: none; color: var(--muted); font-size: 12px; }
+.work-card-time { flex: none; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); }
 /* "Stop" and "Stopping…" in one width: the time beside it never moves */
 .work-card-head > .work-card-stop { width: 84px; height: 24px; justify-content: center; }
-.work-card-meta { display: flex; align-items: center; gap: 4px 14px; height: 22px; min-width: 0; padding-left: 16px; overflow: hidden; color: var(--secondary); font-size: 12px; white-space: nowrap; }
-.work-link { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 5px; min-width: 0; max-width: 45%; color: var(--secondary); font-size: 12px; }
+.work-card-meta { display: flex; align-items: center; gap: 4px 14px; height: 22px; min-width: 0; padding-left: 16px; overflow: hidden; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); white-space: nowrap; }
+.work-link { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 5px; min-width: 0; max-width: 45%; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); }
 .work-link > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .work-link > .icon { flex: none; opacity: .7; }
 button.work-link:hover { color: var(--text); }
 .work-card-model { flex: 0 1 auto; min-width: 0; margin-left: auto; overflow: hidden; color: var(--muted); text-overflow: ellipsis; }
 .work-card-parts { display: flex; flex-direction: column; margin: 4px 0 0 16px; padding: 0; list-style: none; }
-.work-card-parts > li { display: flex; align-items: center; gap: 10px; height: 24px; min-width: 0; font-size: 12px; }
+.work-card-parts > li { display: flex; align-items: center; gap: 10px; height: 24px; min-width: 0; font-size: calc(12px * var(--ui-text, 1)); }
 .work-card-parts .work-link { flex: none; max-width: 40%; color: var(--text); }
 .work-part-note { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
-.work-idle { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 4px 0; color: var(--secondary); font-size: 13px; }
-.work-idle-last { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.work-idle { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 4px 0; color: var(--secondary); font-size: calc(13px * var(--ui-text, 1)); }
+.work-idle-last { overflow: hidden; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------------------------------------------------------------- Active tasks */
 .work-task-list { margin: 0; padding: 0; list-style: none; }
 .work-task { display: flex; flex-direction: column; justify-content: center; gap: 1px; min-height: 44px; padding: 5px 6px; border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
-.work-task-title { min-width: 0; overflow: hidden; color: var(--text); font-size: 14px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.work-task-title { min-width: 0; overflow: hidden; color: var(--text); font-size: calc(14px * var(--ui-text, 1)); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 button.work-task-title:hover { text-decoration: underline; text-underline-offset: 2px; }
-.work-task-meta { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.work-task-meta { overflow: hidden; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); text-overflow: ellipsis; white-space: nowrap; }
 .work-task-list.folded .work-task-title { color: var(--secondary); }
-.work-empty { margin: 0; padding: 6px 0; color: var(--muted); font-size: 13px; }
-.work-all-tasks { margin-top: 2px; font-size: 12px; }
+.work-empty { margin: 0; padding: 6px 0; color: var(--muted); font-size: calc(13px * var(--ui-text, 1)); }
+.work-all-tasks { margin-top: 2px; font-size: calc(12px * var(--ui-text, 1)); }
 
 /* ---------------------------------------------------------------- Jump to now: over the page's foot, in one fixed spot */
 .work-jump {
   position: absolute; bottom: 16px; left: 50%; z-index: 2; height: 32px; padding: 0 14px; transform: translateX(-50%);
   border: 1px solid var(--line); border-radius: 16px; background: var(--elevated); box-shadow: var(--shadow-popover);
-  color: var(--text); font-size: 13px; white-space: nowrap;
+  color: var(--text); font-size: calc(13px * var(--ui-text, 1)); white-space: nowrap;
 }
 .work-jump:hover { background: var(--elevated-hover); }
 .mobile-shell .work-jump { bottom: calc(16px + env(safe-area-inset-bottom)); }

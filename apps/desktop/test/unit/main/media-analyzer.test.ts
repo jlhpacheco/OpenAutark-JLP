@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { KEYFRAME_LIMITS } from '../../../src/shared/api/host-bridge.ts';
 import type { Keyframes } from '../../../src/shared/api/host-bridge.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
-import { IDLE_MS } from '../../../src/main/media-analyzer.ts';
+import { HIDDEN_IDLE_MS } from '../../../src/main/hidden-jobs.ts';
 import { analyzerSetup, greyOf, settle } from './media-analyzer-fakes.ts';
 import type { Clip } from './media-analyzer-fakes.ts';
 
@@ -38,13 +38,13 @@ test('a job: the opening shot, the scene changes and even coverage as JPEGs ≤ 
 
     // The window stays for the next job and goes after 60 s without one.
     assert.equal(s.analyzer.windowOpen, true);
-    assert.equal(s.timers.live(IDLE_MS), 1);
+    assert.equal(s.timers.live(HIDDEN_IDLE_MS), 1);
     const again = await s.analyzer.analyze({ fileId: id, frames: 2 });
     assert.equal(again.frames.length, 2);
     assert.equal(s.windows.length, 1, 'the window was reused');
     assert.equal(window.loads[1], 'wf-file://media-analyzer/job/2/');
-    assert.equal(s.timers.live(IDLE_MS), 1, 'one idle timer, re-armed');
-    assert.equal(s.timers.fire(IDLE_MS), 1);
+    assert.equal(s.timers.live(HIDDEN_IDLE_MS), 1, 'one idle timer, re-armed');
+    assert.equal(s.timers.fire(HIDDEN_IDLE_MS), 1);
     assert.equal(window.destroyed, true);
     assert.equal(s.analyzer.windowOpen, false);
     assert.equal(s.timers.live(KEYFRAME_LIMITS.jobMs), 0, 'no job timer is left');
@@ -78,7 +78,7 @@ test('clear failures: bad request, missing blob, not decodable, sound only – a
     assert.equal(s.windows.length, 2, 'the next job opened a fresh window');
     assert.equal(s.windows[1].destroyed, true);
     assert.equal(s.analyzer.windowOpen, false);
-    assert.equal(s.timers.live(IDLE_MS), 0, 'no idle timer without a window');
+    assert.equal(s.timers.live(HIDDEN_IDLE_MS), 0, 'no idle timer without a window');
   } finally { s.temp.cleanup(); }
 });
 
@@ -136,6 +136,6 @@ test('one job at a time, at most three waiting; quit fails the running job and c
     assert.equal(s.windows[1].loads.length, 2, 'the waiting job never started');
     await rejectsWith(s.analyzer.analyze({ fileId: id }), 'unavailable', /closing/);
     assert.equal(s.analyzer.windowOpen, false);
-    assert.equal(s.timers.live(IDLE_MS), 0, 'no idle timer after quit');
+    assert.equal(s.timers.live(HIDDEN_IDLE_MS), 0, 'no idle timer after quit');
   } finally { s.temp.cleanup(); }
 });

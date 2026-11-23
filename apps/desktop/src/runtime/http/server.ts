@@ -85,6 +85,7 @@ export class HttpServer {
       rpc: deps.rpc,
       authenticate: (token, loopback, secure) => this.authenticate(token, loopback, secure),
       revoked: (token) => this.deps.pwa.revoked?.(token) === true || this.personRevoked(token),
+      known: (token) => tokensEqual(token, this.deps.launchToken) || this.isPersonToken(token), // 19.11.2026 (D5): a phone token this PC never issued closes 4404 – "not known here yet", never the pairing screen
       external: this.external,
       // B-085: an agent's own wf (Hello `agent`) opens only for an agent that exists and is not archived.
       agentLive: (agentId) => { const agent = deps.services().org.get(agentId); return Boolean(agent && agent.archivedAt === undefined); },
@@ -361,11 +362,13 @@ export class HttpServer {
   }
 
   /**
-   * Token → scope: the launch token is owner scope from this computer only; else a device token
-   * whose scope carries `secure` (loopback or tailnet peer) for the transport ceiling.
+   * Token → scope: the launch token is owner scope from this computer only, the person token (FX1 19.11.2026: in memory
+   * only, never in runtime.json) the same marked `person`; else a device token whose scope carries `secure` (loopback or
+   * tailnet peer) for the transport ceiling.
    */
   private authenticate(token: string | undefined, loopback: boolean, secure: boolean): ClientScope | undefined {
     if (!token) return undefined;
+    if (this.isPersonToken(token)) return loopback ? { kind: 'owner', person: true } : undefined;
     if (tokensEqual(token, this.deps.launchToken)) return loopback ? { kind: 'owner' } : undefined;
     try {
       const scope = this.deps.pwa.authenticate(token);
@@ -396,6 +399,11 @@ export class HttpServer {
       this.log().error('bearer token check failed', { error: errorText(error) });
     }
     return undefined;
+  }
+
+  /** The in-memory person token (absent: this runtime has none – the Electron window and main use their own ports). */
+  private isPersonToken(token: string): boolean {
+    return Boolean(this.deps.personToken) && tokensEqual(token, this.deps.personToken!);
   }
 
   /** F-52: a refused token of a removed person or device of a person (closed with 4403). */

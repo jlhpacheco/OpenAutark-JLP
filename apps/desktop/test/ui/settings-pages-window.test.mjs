@@ -30,6 +30,7 @@ import { connect } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
 import { localSpeechModel } from '../../src/shared/model/local-speech-models.ts';
 import { MODEL_USES, USE_LABELS } from '../../src/shared/model/models-uses.ts';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -65,7 +66,7 @@ test('settings: the pages, their nav and the use rows', { timeout: 300_000 }, as
   const size = (width, height) => app.evaluate(({ BrowserWindow }, [w, h]) => { const [win] = BrowserWindow.getAllWindows(); win.setMinimumSize(320, 480); win.setSize(w, h); }, [width, height]);
   await size(1280, 820);
   const shot = async (name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('settings.update', { onboarding: { step: 'done' } });
 
@@ -319,7 +320,11 @@ test('settings: the pages, their nav and the use rows', { timeout: 300_000 }, as
   const librarySetting = async () => (await rpc.call('settings.get')).library?.publish;
   await librarySwitch.click();
   await until(async () => (await librarySetting()) === false, 'library.publish false');
-  await page.locator('.set-row', { hasText: 'Share in the public library: On → Off' }).first().waitFor({ timeout: 15_000 });
+  const libraryChange = page.locator('.sec-change', { hasText: 'On → Off' }).filter({
+    has: page.locator('.set-row-label', { hasText: 'Share in the public library' }),
+  }).first();
+  await libraryChange.waitFor({ timeout: 15_000 });
+  assert.match(await libraryChange.textContent(), /Changed by: Person · /);
   await shot('settings-security-library-off');
   await librarySwitch.click();
   await until(async () => (await librarySetting()) === true, 'library.publish true again');

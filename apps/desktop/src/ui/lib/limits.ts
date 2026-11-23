@@ -43,7 +43,8 @@ export function countdown(resetsAt: number, now: number): string {
   return rest ? `in ${hours} h ${rest} min` : `in ${hours} h`;
 }
 
-/** B-078 (D17): the rail's short wait until a reset – "42m", "2h 5m", "2h", "<1m"; undefined once it has passed. */
+/** B-078 (D17): the rail's short wait until a reset – "42m", "2h 5m", "2h", "<1m", from a day on "3d 4h"/"3d" (the weekly
+ *  reset of a plan without a 5-hour limit, 21.11.2026); undefined once it has passed. */
 export function shortWait(resetsAt: number, now: number): string | undefined {
   const ms = resetsAt - now;
   if (ms <= 0) return undefined;
@@ -51,13 +52,15 @@ export function shortWait(resetsAt: number, now: number): string | undefined {
   if (minutes < 1) return '<1m';
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
+  if (hours >= 24) return hours % 24 ? `${Math.floor(hours / 24)}d ${hours % 24}h` : `${hours / 24}d`;
   const rest = minutes % 60;
   return rest ? `${hours}h ${rest}m` : `${hours}h`;
 }
 
 /**
- * B-078 (D17): a plan's 5-hour window for the rail's ring – undefined when the plan reports none (some Claude and Codex
- * plans have no 5-hour limit any more: no ring); `left` undefined once its reset has passed (the track alone).
+ * B-078 (D17): a plan's 5-hour window for the rail's ring – undefined when the plan's last whole reading sent none (some
+ * Claude and Codex plans have no 5-hour limit; the runtime then keeps none, accounts/limits.ts mergeLimits – the ring is the
+ * weekly limit); `left` undefined once its reset has passed (the track alone).
  */
 export function fiveHourOf(limits: AccountLimits | undefined, now: number): { left?: number; resetsAt?: number } | undefined {
   const window = limits?.windows.find((entry) => entry.name === '5h');

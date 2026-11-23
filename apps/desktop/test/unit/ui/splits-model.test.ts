@@ -1,8 +1,8 @@
 // B-057 S18 – splits in the UI: the words of split rows (splits/split-text.ts: "Split · 3 of 5 done", "3 of 5 parts
 // working", "#3 title", model · effort, status icon kinds, durations), the selectors the views share (sidebar groups,
 // a parent run's groups and which one belongs to which agents.split call, a chat's running groups, running splits per
-// agent), the store (splits/split-model.ts: applying groups, shared reads), the chat's live texts (one line and one
-// popover row per group, never one per split; no live block per split run) and the split route.
+// agent), the store (splits/split-model.ts: applying groups, shared reads), the chat's live texts (one line per group,
+// never one per split; no live block per split run) and the split route.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,11 +13,11 @@ import type { AgentActivity } from '../../../src/shared/model/runs.ts';
 import type { SplitGroupView, SplitStatus, SplitView } from '../../../src/shared/model/splits.ts';
 import type { SessionInfo } from '../../../src/shared/api/methods.ts';
 import {
-  RECENT_MS, SIDEBAR_GROUPS, changedAgents, elapsedText, groupCounts, groupDone, groupForCall, groupWorking, isActiveGroup, isLiveGroup,
+  RECENT_MS, SIDEBAR_GROUPS, changedAgents, elapsedText, groupCounts, groupDone, groupForCall, isActiveGroup, isLiveGroup,
   partLabel, partOf, runGroups, runningByAgent, sidebarGroups, splitDuration, splitIconKind, splitModelText, splitRunKeys, tokensText,
 } from '../../../src/ui/splits/split-text.ts';
 import { applyGroup, applyGroups, findSplit, groupsOfRun, loadSplits, splitGroups } from '../../../src/ui/splits/split-model.ts';
-import { liveStatus, workingIds, workingRows } from '../../../src/ui/chat/live-text.ts';
+import { liveStatus, workingIds } from '../../../src/ui/chat/live-text.ts';
 import { formatRoute, parseRoute } from '../../../src/ui/lib/router.ts';
 import { rpc } from '../../../src/ui/lib/rpc.ts';
 import { session } from '../../../src/ui/lib/session.ts';
@@ -47,8 +47,6 @@ const splitEntry = (runId: string, groupId: string, idx: number, patch: Partial<
 test('the step line, the live line and the part labels', () => {
   const five = group('sg_1', { splits: [split(1, 'done'), split(2, 'done'), split(3, 'done'), split(4, 'running'), split(5, 'queued')] });
   assert.equal(groupDone(five), '3 of 5 done', '"Split · 3 of 5 done"');
-  assert.equal(groupWorking(five), '1 of 5 parts working');
-  assert.equal(groupWorking(group('sg_2', { parts: 2, splits: [split(1, 'done'), split(2, 'failed')] })), '1 of 2 done', 'nothing runs: how many are done');
   assert.deepEqual(groupCounts(five), { total: 5, done: 3, running: 1, waiting: 1, failed: 0, settled: 3 });
   assert.equal(groupCounts(group('sg_3', { parts: 0, splits: [split(1, 'done')] })).total, 1, 'at least the listed splits');
   assert.equal(partLabel({ idx: 3, title: 'Check the invoices' }), '#3 Check the invoices');
@@ -67,6 +65,10 @@ test('model · effort: the run\'s when it ran, else what the agent asked for; no
   assert.equal(splitModelText({ run: { id: 'r', status: 'running', model: 'claude:claude-opus-5-5', effort: 'high' } }, nameOf), 'Claude Opus 5.5 · High');
   assert.equal(splitModelText({ model: 'cheap', effort: 'low' }, nameOf), 'Cheaper model · Low');
   assert.equal(splitModelText({ model: 'strong' }, nameOf), 'Stronger model');
+  // Halb 21.11.2026: a fresh part's needs, before it is routed
+  assert.equal(splitModelText({ model: 'check', effort: 'medium' }, nameOf), 'Small model · Medium');
+  assert.equal(splitModelText({ model: 'chain' }, nameOf), 'Strong model');
+  assert.equal(splitModelText({ model: 'judgment' }, nameOf), 'Strongest model');
   assert.equal(splitModelText({ model: 'codex:gpt-6', effort: 'xhigh' }, nameOf), 'GPT-6 · Very high');
   assert.equal(splitModelText({ model: 'same' }, nameOf), '');
   assert.equal(splitModelText({}, nameOf), '');
@@ -138,24 +140,16 @@ test('running splits per agent come from the live activity; a key changes only w
   assert.deepEqual(changedAgents(before, splitRunKeys([activityEntry('run_main')])).sort(), ['ag_ava', 'ag_mira'], 'all ended');
 });
 
-test('the chat: the header line and the popover fold a group into one', () => {
+test('the chat: the header line folds a group into one', () => {
   const active = [activityEntry('run_main', { agentId: 'ag_ava', startedAt: NOW + 1 }), splitEntry('run_s1', 'sg_1', 1, { startedAt: NOW + 5 }), splitEntry('run_s2', 'sg_1', 2, { startedAt: NOW + 6 })];
   const names: Record<string, string> = { ag_mira: 'Mira', ag_ava: 'Ava' };
   const nameOf = (id: string) => names[id];
   const chat = { id: 'c1', working: [] };
   assert.equal(liveStatus(chat, undefined, active, nameOf), 'Ava, Mira: 2 of 5 parts working');
   assert.equal(liveStatus(chat, 'ag_mira', [active[1]!, active[2]!], nameOf), '2 of 5 parts working', 'a 1:1: only what it does');
-  const rows = workingRows(chat, active, nameOf);
-  assert.deepEqual(rows.map((row) => [row.key, row.note]), [['run_main', 'Working'], ['split:sg_1', '2 of 5 parts working']]);
-  assert.equal(rows[1]!.groupId, 'sg_1');
-  const handed = workingRows(chat, [active[0]!], nameOf, [{ id: 'sg_7', agentId: 'ag_mira', startedAt: NOW, note: '3 of 4 parts working' }]);
-  assert.deepEqual(handed.map((row) => [row.key, row.name, row.model, row.note]), [['split:sg_7', 'Mira', '', '3 of 4 parts working'], ['run_main', 'Ava', '', 'Working']], 'in start order');
-  const named = workingRows(chat, [], nameOf, [{ id: 'sg_8', agentId: 'ag_mira', startedAt: NOW, note: '1 of 2 parts working', goal: 'Check the invoices' }]);
-  assert.equal(named[0]!.model, 'Check the invoices', 'a group row names its goal in the model slot');
   const two = [...active, splitEntry('run_t1', 'sg_2', 1, { startedAt: NOW + 9 })];
   assert.deepEqual(workingIds(chat, two), ['ag_ava', 'ag_mira'], 'who works: each agent once');
   assert.equal(liveStatus(chat, undefined, two, nameOf), 'Ava, Mira: 2 of 5 parts working +1', 'one line per group');
-  assert.deepEqual(workingRows(chat, two, nameOf).map((row) => row.key), ['run_main', 'split:sg_1', 'split:sg_2']);
 });
 
 test('the agent\'s ring and status line ignore its split runs; the sidebar counts them', () => {

@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { createPaths, engineCwd, ensurePaths } from '../../../src/runtime/system/paths.ts';
 import { FileLogger, redact } from '../../../src/runtime/system/log.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { tempDir } from './helpers.ts';
 
 test('paths: layout under data, default workspace under home, directories created', () => {

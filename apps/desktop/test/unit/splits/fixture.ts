@@ -14,7 +14,7 @@ import { WakeQueueImpl } from '../../../src/runtime/wakes/queue.ts';
 import { SplitServiceImpl } from '../../../src/runtime/splits/service.ts';
 import { splitAnswer } from '../../../src/runtime/agents/publishing.ts';
 import { SplitRepo } from '../../../src/runtime/store/splits.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import type { ModelInfo } from '../../../src/shared/model/providers.ts';
 import { SPLIT_LIMITS, type SplitPartInput, type SplitTurn } from '../../../src/shared/model/splits.ts';
 import { FakeOrg, agent } from '../chat/harness.ts';
@@ -136,7 +136,7 @@ export function world(options: WorldOptions = {}) {
   let splits: SplitServiceImpl;
   const lanes = new FakeLanes(() => ({ splits, runs, clock }));
   const dispatcher = options.lanes === false ? { activity: () => [] } : lanes;
-  const services = { db, bus, clock, log, runs, wakes, org, chats, catalog, permissions, dispatcher } as unknown as RuntimeServices;
+  const services = { db, bus, clock, log, runs, wakes, org, chats, catalog, permissions, dispatcher, secrets: { redact: (text: string) => text } } as unknown as RuntimeServices;
   const deps = {
     db, bus, clock, log, repo: new SplitRepo(db), runs, wakes, org: org as unknown as RuntimeServices['org'],
     dispatcher: () => services.dispatcher, services: () => services,
@@ -173,7 +173,8 @@ export function world(options: WorldOptions = {}) {
 
 export type World = ReturnType<typeof world>;
 
-export const part = (title: string, over: Partial<SplitPartInput> = {}): SplitPartInput => ({ title, brief: `Do ${title.toLowerCase()}.`, ...over });
+/** A part as the agent writes it – a fresh one says what its hardest step asks (Halb 21.11.2026: needs, splits/validate.ts). */
+export const part = (title: string, over: Partial<SplitPartInput> = {}): SplitPartInput => ({ title, brief: `Do ${title.toLowerCase()}.`, needs: 'chain', ...over });
 
 /** Parent turn ends 'done' after creating a group of these parts; the group's id. */
 export function splitAndEnd(w: World, parts: SplitPartInput[], goal = 'Review the release'): string {

@@ -1,26 +1,26 @@
 // Phone layout (PWA, narrow windows): the same frame as a stack – one top row, the status line
 // over the body's top, the body, the bottom tabs – all from shell/views.ts phoneView. Tabs in the rail's
-// order (My day – also the 'home' route – · Work – the task center – · Chats · Team; the For-you badge on My
-// day); a chat, an agent, a person or Team › Activity is pushed on top (Back, no tab bar) – and a task's
-// detail in Work, which takes the list's place (its Close leads back), and Settings (the list and a section,
+// order (Tasks – also the 'home' route, with the For-you badge – · Chats · Team); a chat, an agent, a person or Team ›
+// Activity is pushed on top (Back, no tab bar) – and a to-do's or quest's detail on the Tasks page, which takes the
+// list's place (its Close leads back), and Settings (the list and a section,
 // Back in the frame's row) have no tab bar either: every screen with Back looks the same (C3 D-3). The top
 // row (lib/header.tsx, zone 'phone', class mobile-top) is drawn by the frame unless the body draws
 // its own with Back as its lead (a chat, an agent, a person, Team › Activity – views.ts ownHeader):
 // Back where the settings list goes Home and a settings section to all settings, the title, and
 // fixed cells – on tab roots the compact update item (UpdateButton; only with the desktop bridge), search
 // and the profile, which ends the row at the caption controls as the desktop header's last cell does. Search
-// is the body's own in-place search where the body is a nav that has one (Chats, Work, the settings list),
+// is the body's own in-place search where the body is a nav that has one (Chats, Tasks, the settings list),
 // else the command palette. Every cell keeps its box while its control shows nothing, so nothing moves –
 // but the update item's, which takes no room while empty: it is the first cell, so when an update comes
 // only the title track gets shorter (search and the profile stay where they are).
 // The global space's tabs (the desktop's pane; none fits beside a phone screen) are one pushed full-screen sheet over
 // the stack (PhonePane, workspace/phone-pane.ts): its own row with Back, the tabs, no tab bar. A way in that lands in
-// global opens it (Watch on My day, say); so does the row's Browser cell – in the desktop app's narrow window, where
+// global opens it (Watch on a to-do, say); so does the row's Browser cell – in the desktop app's narrow window, where
 // websites live, and on the phone, whose pane is its PC's (B-076, workspace/phone-tabs.ts) – the frame's cell of the
 // wide window (its dot: an agent's new tab waits there). Back or any navigation closes it.
-// The status line (StatusLine.tsx) overlays the body's first line and never pushes it. A tab shows only
-// when this connection may load its list (session.can); the tab grid has as many columns as tabs are
-// shown (--tabs).
+// The status line (StatusLine.tsx) overlays the body's first line and never pushes it. The four tabs are always there
+// (19.11.2026, D2: a failed reconnect filtered them down to Team and every tab moved); a tab whose list this connection
+// may not read shows its empty body.
 // B-055 Q4: the feedback cell (feedback/cell.tsx: tap opens the feedback sheet, hold talks where this page can dictate)
 // sits before the profile on every top row – a placeholder of the same box where this connection may not file feedback,
 // so the profile never moves; the bodies that draw their own row end it with the same cell (feedback 16.11.2026).
@@ -38,8 +38,6 @@ import type { HeaderCell } from '../lib/header.tsx';
 import { forYouCount, messagesFor, route } from '../lib/store.ts';
 import { navigate } from '../lib/router.ts';
 import type { Route } from '../lib/router.ts';
-import type { MethodName } from '../../shared/api/methods.ts';
-import { can } from '../lib/session.ts';
 import { platform } from '../lib/platform.ts';
 import { DESTINATIONS } from '../lib/vocab.ts';
 import type { NavKey } from '../lib/vocab.ts';
@@ -61,12 +59,11 @@ import { StatusLine } from './StatusLine.tsx';
 import { phoneView } from './views.ts';
 import type { PhoneView } from './views.ts';
 
-interface Tab { key: NavKey; icon: IconName; route: Route; match: (r: Route) => boolean; needs?: MethodName }
+interface Tab { key: NavKey; icon: IconName; route: Route; match: (r: Route) => boolean }
 
 const tabs: Tab[] = [
-  { key: 'day', icon: 'sun', route: { view: 'day' }, match: (r) => r.view === 'day' || r.view === 'home', needs: 'todos.list' },
-  { key: 'tasks', icon: 'list-checks', route: { view: 'tasks' }, match: (r) => r.view === 'tasks', needs: 'tasks.list' },
-  { key: 'chats', icon: 'chat-circle', route: { view: 'chats' }, match: (r) => r.view === 'chats' || r.view === 'chat', needs: 'chats.list' },
+  { key: 'tasks', icon: 'list-checks', route: { view: 'tasks' }, match: (r) => r.view === 'tasks' || r.view === 'home' },
+  { key: 'chats', icon: 'chat-circle', route: { view: 'chats' }, match: (r) => r.view === 'chats' || r.view === 'chat' },
   { key: 'team', icon: 'users-three', route: { view: 'team' }, match: (r) => r.view === 'team' },
 ];
 
@@ -124,7 +121,6 @@ export function MobileShell() {
   // frame's rows with Back – the settings list (Back to Home) and a settings section (Back to all settings)
   const pushed = view.pushed || view.back !== null || (current.view === 'tasks' && !!current.task);
   const badge = forYouCount.value;
-  const shown = tabs.filter((tab) => !tab.needs || can(tab.needs));
   return (
     <div class={`mobile-shell${pushed ? ' pushed' : ''}${view.ownHeader ? ' own-header' : ''}`}>
       {!view.ownHeader && <TopRow key={view.key} view={view} />}
@@ -133,14 +129,14 @@ export function MobileShell() {
         {view.body}
       </main>
       {!pushed && (
-        <nav class="tab-bar" aria-label="Main" style={{ '--tabs': String(shown.length) }}>
-          {shown.map((tab) => {
+        <nav class="tab-bar" aria-label="Main" style={{ '--tabs': String(tabs.length) }}>
+          {tabs.map((tab) => {
             const active = tab.match(current);
             return (
               <button type="button" key={tab.key} class={`tab${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined} onClick={() => navigate(tab.route)}>
                 <span class="tab-icon">
                   <Icon name={tab.icon} size={22} />
-                  {tab.key === 'day' && badge > 0 && <span class="tab-badge tabular">{badge > 99 ? '99+' : badge}</span>}
+                  {tab.key === 'tasks' && badge > 0 && <span class="tab-badge tabular">{badge > 99 ? '99+' : badge}</span>}
                 </span>
                 <span class="tab-label">{DESTINATIONS[tab.key]}</span>
               </button>

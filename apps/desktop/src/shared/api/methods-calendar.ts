@@ -1,4 +1,4 @@
-// RPC contract part (B-041): My day's calendar (shared/model/calendar.ts). Handlers: runtime/rpc/handlers/calendar.ts,
+// RPC contract part (B-041, Quests round 20.11.2026): the Tasks page's calendar (shared/model/calendar.ts). Handlers: runtime/rpc/handlers/calendar.ts,
 // delegating to services.calendar / services.calendarSources ('unavailable' while one is missing). Tiers: the
 // person's own rows (list, add, move, remove) with 'todo' – a To-do-only phone plans its day too; reading the
 // connected calendars with 'settings'; adding, changing, syncing and connecting them stays with the owner (an ICS
@@ -11,14 +11,15 @@ import type { TaskView } from '../model/tasks.ts';
 
 declare module '../api/methods.ts' {
   interface Methods {
-    /** 'todo': the owner's rows overlapping [from, to) (at most 62 days), the agents' runs, the zone and stale sources;
-     *  with `agentId` only that agent's runs (no rows), capped for it alone (the agent page's Day). */
+    /** 'todo': the owner's rows overlapping [from, to) (at most 62 days) – events, their to-dos with a time, done ones at the time
+     *  they were done, the agents' to-dos on the AI lane – with the tasks those rows show, the agents' runs, the zone and stale
+     *  sources; with `agentId` only that agent's to-dos and runs, capped for it alone (the agent page's Day). */
     'calendar.list': { params: { from: number; to: number; agentId?: string }; result: CalendarList };
-    /** 'todo': a click into a free slot – 'auto' lets the text decide; a to-do creates the person's own to-do and its block. */
+    /** 'todo': a click into a free slot – 'auto' lets the text decide; a to-do is the person's line at that time (tasks.quickCreate's flow). */
     'calendar.add': { params: { text: string; startAt: number; endAt?: number; kind?: 'auto' | 'todo' | 'event'; clientId?: string }; result: { event: CalendarEvent; task?: TaskView } };
-    /** 'todo': moves a row made on `rev` ('conflict' when it changed since); it becomes the person's (setBy 'person': pinned). */
+    /** 'todo': moves a row made on `rev` ('conflict' when it changed since): an event becomes the person's (pinned), a to-do gets that time. */
     'calendar.move': { params: { id: string; startAt: number; endAt: number; rev: number }; result: CalendarEvent };
-    /** 'todo': removes a row (a to-do block only; its to-do stays). */
+    /** 'todo': removes an event; a to-do only loses its time (the to-do stays). */
     'calendar.remove': { params: { id: string }; result: void };
     /** 'settings': the connected calendars (no addresses, no tokens). */
     'calendar.sources': { params: void; result: CalendarSource[] };

@@ -2,7 +2,8 @@
 // relay itself makes. The relay never decrypts anything – it checks that a device holds the
 // Ed25519 key it registers with (a signed challenge), derives its routing key (fingerprint) and,
 // for devices that accept connection requests, its Remote ID (the same derivation as the desktop
-// app: apps/desktop/src/runtime/remote/id.ts) – and (B-084) the person code its signature chain proves (chainCode).
+// app: apps/desktop/src/runtime/remote/id.ts) – and (B-084) the person code its signature chain proves (chainCode);
+// Eine-ID 22.11.2026: up to two chains (company ID, my ID – chainCodes), the old single `chain` still taken.
 // Owns: constants, validation of client frames, signature/fingerprint/Remote ID/chain helpers.
 // Never: sockets, state or logging.
 
@@ -86,6 +87,24 @@ export function chainCode(value: unknown, fp: string): { code: string; chain: { 
     prev = pub;
   }
   return fingerprintOf(prev) === fp ? { code: remoteIdOf(fingerprintOf(rootKey)), chain: { root: b64url(rootKey), links } } : undefined;
+}
+
+/** Chains a device may register (Eine-ID 22.11.2026: its company ID and its own "my ID"). */
+export const MAX_CHAINS = 2;
+export type Proven = NonNullable<ReturnType<typeof chainCode>>;
+
+/**
+ * Eine-ID 22.11.2026: the codes a hello/update frame proves – `chains` (at most MAX_CHAINS) when the frame has them, else
+ * the single `chain` of a client from before; invalid chains are skipped, one entry per code.
+ */
+export function chainCodes(frame: Record<string, unknown>, fp: string): Proven[] {
+  const list = Array.isArray(frame.chains) ? frame.chains.slice(0, MAX_CHAINS) : [frame.chain];
+  const out: Proven[] = [];
+  for (const value of list) {
+    const proven = chainCode(value, fp);
+    if (proven && !out.some((entry) => entry.code === proven.code)) out.push(proven);
+  }
+  return out;
 }
 
 /** What a device signs to register: proves it holds the key for this connection's challenge. */

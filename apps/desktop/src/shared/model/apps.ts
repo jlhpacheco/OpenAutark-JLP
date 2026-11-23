@@ -12,7 +12,6 @@ export type AppTransport = 'http' | 'stdio' | 'mail';
  * 'off' "disabled": true in its file.
  */
 export type AppStatus = 'ok' | 'connecting' | 'waiting' | 'signin' | 'error' | 'off';
-export const APP_STATUSES: readonly AppStatus[] = ['ok', 'connecting', 'waiting', 'signin', 'error', 'off'];
 
 export interface ConnectedApp {
   /** Short stable id, lowercase [a-z0-9-] (≤ 24), from its key in the file: part of every tool name `app.<id>.<tool>`. */

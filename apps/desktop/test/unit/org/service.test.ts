@@ -178,9 +178,9 @@ test('F14: the list with archived agents leaves out one that left no trace; a ru
   assert.equal(org.ensureSeed(), undefined, 'and it still counts: no second seed');
 });
 
-test('F14: a company started as my other device (--start=mine) gets no Manager of its own at start; every other start seeds', () => {
+test('F14 / Eine-ID: a company started by connecting with an ID (--start=join) gets no Manager of its own at start; every other start seeds', () => {
   const main = readFileSync(new URL('../../../src/runtime/main.ts', import.meta.url), 'utf8');
-  assert.match(main, /\n {2}if \(options\.host\.app\.start !== 'mine'\) s\.org\.ensureSeed\(\);\n/);
+  assert.match(main, /\n {2}if \(options\.host\.app\.start !== 'join'\) s\.org\.ensureSeed\(\);\n/);
   assert.equal(main.match(/ensureSeed\(\)/g)?.length, 1, 'the one seed call');
 });
 

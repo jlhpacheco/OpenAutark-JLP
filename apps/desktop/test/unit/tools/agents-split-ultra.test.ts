@@ -58,7 +58,6 @@ test('a scheduled message keeps its Ultra suggestion: stored with the post, set 
   t.after(f.cleanup);
   const post = scheduledPost('Review the six documents', { ultra: true });
   assert.equal(post.payload.ultra, true);
-  assert.equal(scheduledPost('Review the six documents', { ultra: true, asTask: true }).payload.ultra, undefined, 'a task post carries no message hint');
   assert.equal(scheduledPost('Plain').payload.ultra, undefined);
   const sent: Array<{ meta?: Record<string, unknown>; authorKind: string }> = [];
   const chats = { get: () => ({ id: 'ch_1' }), send: (input: { meta?: Record<string, unknown>; authorKind: string }) => { sent.push(input); return input; } };

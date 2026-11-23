@@ -2,13 +2,13 @@
 // splitPrevious / splitRoute; 17.11.2026: a part that names no model asks for none – it starts from its origin's, a fresh one
 // marked so for the router, and from its second turn on it is on its own session's model), its policy without the agent's pin
 // and fixed effort (routing/split-route.ts); split runs never feed the model I am on (next-route.ts) nor another scope's recaps
-// (context/recent-actions.ts – also when many split runs fill the journal); S12's warm Codex rule (warmSplit). Pure
+// (context/recent-actions.ts – also when many split runs fill the journal). Pure
 // functions with small fakes. Owns: these assertions only.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { account } from '../models/harness.ts';
-import { planSplit, splitPrevious, splitRoute, warmSplit } from '../../../src/runtime/agents/split-turn.ts';
+import { planSplit, splitPrevious, splitRoute } from '../../../src/runtime/agents/split-turn.ts';
 import { splitPolicy } from '../../../src/runtime/routing/split-route.ts';
 import { returnChoice } from '../../../src/runtime/agents/next-route.ts';
 import { recentActions } from '../../../src/runtime/context/recent-actions.ts';
@@ -48,6 +48,27 @@ test('S10: a model the part names is the explicit request of its route; a part t
   assert.deepEqual(splitRoute({}), {});
 });
 
+test('Halb 21.11.2026: a needs word routes by the kind default of its cost mode, at its effort – a named effort wins', () => {
+  const s = parent({ model: 'claude:opus', effort: 'xhigh' });
+  const base = { parentRunId: 'run_parent' };
+  // the origin's model is not where it starts: the kind default decides, in the cost mode the needs stand for
+  assert.deepEqual(splitPrevious(s, { ...base, model: 'check' }), { modelId: '', effort: 'medium', explicit: true, asked: 'effort' });
+  assert.deepEqual(splitPrevious(s, { ...base, model: 'chain' }), { modelId: '', effort: 'high', explicit: true, asked: 'effort' });
+  assert.deepEqual(splitPrevious(s, { ...base, model: 'judgment' }), { modelId: '', effort: 'high', explicit: true, asked: 'effort' });
+  assert.deepEqual(splitPrevious(s, { ...base, model: 'check', effort: 'low' }), { modelId: '', effort: 'low', explicit: true, asked: 'effort' }, 'a named effort wins');
+  assert.deepEqual(splitPrevious(s, { ...base, model: 'check' }, 'claude:haiku'), { modelId: 'claude:haiku', effort: 'medium', explicit: true, asked: 'effort' }, 'past its start: on its own session\'s model');
+  const first = { splitId: 'sp_1', context: 'brief', firstTurn: true } as const;
+  assert.deepEqual(splitRoute({ split: { ...first, model: 'check' } as never }), { split: { splitId: 'sp_1', needs: 'check' }, needs: { tier: 'small' } }, 'check keeps local runtimes out');
+  assert.deepEqual(splitRoute({ split: { ...first, model: 'chain' } as never }), { split: { splitId: 'sp_1', needs: 'chain' } });
+  assert.deepEqual(splitRoute({ split: { ...first, model: 'judgment', firstTurn: false } as never }), { split: { splitId: 'sp_1', needs: 'judgment' } });
+  const policy: EffectivePolicy = { pin: { modelId: 'claude:haiku', source: 'agent' }, agentEffort: 'low', costMode: 'balanced', prefer: [], avoid: [] };
+  const effort = { modelId: '', effort: 'medium' as const, explicit: true as const, asked: 'effort' as const };
+  assert.equal(splitPolicy(policy, { split: { splitId: 'sp_1', needs: 'check' }, previous: effort }).costMode, 'economy');
+  assert.equal(splitPolicy(policy, { split: { splitId: 'sp_1', needs: 'chain' }, previous: effort }).costMode, 'balanced');
+  assert.equal(splitPolicy(policy, { split: { splitId: 'sp_1', needs: 'judgment' }, previous: effort }).costMode, 'best');
+  assert.equal(splitPolicy({ ...policy, costMode: 'best' }, { split: { splitId: 'sp_1' } }).costMode, 'best', 'no needs: the cost mode stays');
+});
+
 test("decision 10 (real run 18.11.2026): a part of a turn that waits for it starts on its origin's model, which only the origin's session names yet", () => {
   // The waiting parent run is still running: its row has no model (runs get it when they end). Its session on the parent
   // thread is on Terra. Before the fix the part asked for no model, and the router gave it the kind's default (Sonnet).
@@ -72,17 +93,6 @@ test('B-083: a part\'s temperature goes on its plan like a model.set request\'s;
   assert.equal(planSplit(services, request(0), mode)?.temperature, 0, 'zero is a temperature too');
   assert.equal('temperature' in (planSplit(services, request(), mode) ?? {}), false);
   assert.equal(planSplit(services, request(), mode)?.boundary, true, 'no session of its own yet: its first turn stands at a boundary');
-});
-
-test('S12: only a split on a Codex app-server already warm for its account skips the heavy slot', () => {
-  const acc = account('acc_plan', 'codex');
-  const codex = (warm: () => boolean) => ({ engine: { id: 'codex', warm } as never, account: acc });
-  const split = { split: { splitId: 'sp_1' } as never };
-  assert.equal(warmSplit(split, codex(() => true)), true);
-  assert.equal(warmSplit(split, codex(() => false)), false, 'a cold server starts a process: heavy');
-  assert.equal(warmSplit({}, codex(() => true)), false, "the agent's own turn: unchanged");
-  assert.equal(warmSplit(split, { engine: { id: 'claude', warm: () => true } as never, account: acc }), false, 'only the shared app-server');
-  assert.equal(warmSplit(split, codex(() => { throw new Error('down'); })), false);
 });
 
 test('S10: a split\'s policy drops the agent pin (the Work use still applies in the router) and the fixed effort when it names one', () => {

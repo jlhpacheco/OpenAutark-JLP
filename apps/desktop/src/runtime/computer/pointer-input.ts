@@ -2,7 +2,7 @@
 // drags, wheel steps, typing and keys – each behind the same gate: the person's Stop
 // (activity.ts), the pointer lease (lease.ts – another agent holds the mouse and keyboard) and the
 // person's priority (presence.ts). B-055 Q9: the pointer travels like the motion style says ('instant' jumps with
-// the old one-shot ops; 'glide' – the default – and 'human' read the pointer once and replay the
+// the old one-shot ops; 'human' – the default – and 'glide' read the pointer once and replay the
 // whole planned path in one helper 'path' request, motion.ts); the person moving the mouse
 // mid-path stops it ('human_active' → the presence refusal). Q8: each move is reported as the
 // agent's named pointer on 'screen:local' (screen-pointers.ts); the person's pointer when

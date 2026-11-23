@@ -27,8 +27,9 @@ function world(over: Partial<Record<string, unknown>> = {}) {
     prompts: { text: () => 'My tools:\n{{tools}}' },
     paths: { workspace: tmpdir() },
     dispatcher: { activity: () => [] },
-    vectors: { available: () => true, search: async (input: { in: string[] }) => ({ hits: [{ path: 'memory/company/a.md', chunk: 0, snippet: 'Regel: nur gegen Vorkasse', score: 0.7 }], searched: { places: input.in, embeddedFiles: 1 } }) },
+    vectors: { available: () => true, search: async (input: { in: string[] }) => ({ hits: [], searched: { places: input.in, embeddedFiles: 0 } }) },
     knowledge: {
+      search: async () => [{ item: { id: 'company:a.md', title: 'Regel', body: 'nur gegen Vorkasse' }, score: 0.7, why: '' }],
       memoryBrowse: () => ({ path: 'company', folders: [], files }),
       memoryRead: (file: string) => ({ title: 'Alt', text: `Text von ${file}` }),
       memoryWrite: (input: { title: string; text: string; path?: string }) => { written.push(input); return { outcome: input.path ? 'updated' : 'created', path: input.path ?? 'company/neu.md' }; },
@@ -80,11 +81,14 @@ test('a folder the person names in the workspace is a place to a brain; "memory"
   mkdirSync(path.join(dir, 'hallenakte'));
   try {
     const seen: string[][] = [];
+    const folders: unknown[] = [];
     const t = world({ paths: { workspace: dir }, vectors: { available: () => true, search: async (input: { in: string[] }) => { seen.push(input.in); return { hits: [], searched: { places: input.in, embeddedFiles: 0 } }; } } });
+    (t.services.knowledge as unknown as Record<string, unknown>).search = async (query: { folders?: string[] }) => { folders.push(query.folders); return []; };
     const tool = FLOW_TOOLS.find((entry) => entry.name === 'vector.search')!;
     const run = { services: t.services, searches: [], hits: new Map() } as unknown as FlowRun;
     assert.equal(await tool.run({ query: 'q', in: ['hallenakte', 'memory/company', 'gibt-es-nicht'] }, run), 'No hits.');
-    assert.deepEqual(seen[0], [path.join(dir, 'hallenakte'), 'memory/company', 'gibt-es-nicht']);
+    assert.deepEqual(seen[0], [path.join(dir, 'hallenakte'), 'gibt-es-nicht'], 'files and folders go to the added files');
+    assert.deepEqual(folders, [['memory/company']], 'memory goes to the knowledge search');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -100,7 +104,7 @@ test('owner rules (f), (h): no prompt line orders a search, tells of the backgro
   for (const gone of ['look it up', 'you choose', 'finding nothing is no note']) assert.ok(!tools.includes(gone), gone);
 });
 
-test('14.11.: without an embedding model a run is offered no vector tool; knowledge.find finds memory by its words and numbers the files for done.show; a write is findable at once', async () => {
+test('20.11.: without an embedding model a run is offered vector.search all the same (the words rank alone); knowledge.find finds memory by its words and numbers the files for done.show; a write is findable at once', async () => {
   const asked: Array<{ text: string; folders?: string[] }> = [];
   const t = world({ vectors: { available: () => false } });
   (t.services.knowledge as unknown as Record<string, unknown>).search = async (query: { text: string; folders?: string[] }) => {
@@ -115,7 +119,7 @@ test('14.11.: without an embedding model a run is offered no vector tool; knowle
     return { text: '', structured: { why: 'x', tool: next.tool, args: JSON.stringify(next.args) }, by: 'fake' };
   };
   const result = await flow(t, runner, { task: 'Was gilt für Hartwig?' });
-  assert.doesNotMatch(systems[0], /vector\./, 'a tool that cannot work is not listed');
+  assert.match(systems[0], /- vector\.search \{query, in: \[places\], k\?, hops\?\}/, 'it works by the words alone');
   assert.match(systems[0], /- knowledge\.find \{query, in\?: \[memory folders\]\}/);
   assert.deepEqual(asked.map((query) => [query.text, query.folders]), [['Hartwig Vorkasse', ['']]], 'the whole tree when no folder is named');
   assert.deepEqual(result.trace.calls.map((call) => [call.tool, call.args]), [['knowledge.find', { query: 'Hartwig Vorkasse' }]]);

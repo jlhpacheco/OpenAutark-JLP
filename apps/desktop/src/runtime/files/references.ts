@@ -14,7 +14,9 @@
 //   agents     image avatars (archived agents too: they can be restored)
 //   chats      a group chat's picture (settings.image)
 //   settings   the person's profile picture and any other setting naming it (<data>/settings.json, the one store)
-//   feedback   screenshots, annotations and (16.11.2026, in the context JSON) recorded takes of feedback reports
+//   feedback   a report's images (owner 21.11.2026: `imageFileIds` in its context JSON; an older build's row: its
+//              screenshot and annotation columns); owner 20.11.2026: a report keeps no recording – an older report's takes
+//              are no longer held
 //   schedules  active ones only
 //   kv         saved mini-app/block state and other module state (not the clean-up queue)
 // "Busy" (an agent works with it): an unfinished run's journal or a pending wake names the id
@@ -43,7 +45,7 @@ const OTHER_SQL: Record<Exclude<MediaUseKind, 'settings'>, string> = {
     UNION ALL SELECT NULL AS chat FROM kv WHERE ns = '${MEMORY_BLOBS_NS}' AND instr(value, ?1) > 0 LIMIT 1`,
   avatar: 'SELECT NULL AS chat FROM agents WHERE instr(avatar, ?1) > 0 LIMIT 1',
   chat: 'SELECT id AS chat FROM conversations WHERE instr(settings, ?1) > 0 LIMIT 1',
-  feedback: 'SELECT NULL AS chat FROM feedback WHERE screenshot_file_id = ?1 OR annotation_file_id = ?1 OR instr(context, ?1) > 0 LIMIT 1',
+  feedback: "SELECT NULL AS chat FROM feedback WHERE screenshot_file_id = ?1 OR annotation_file_id = ?1 OR instr(json_extract(context, '$.imageFileIds'), ?1) > 0 LIMIT 1",
   schedule: 'SELECT conversation_id AS chat FROM schedules WHERE active = 1 AND instr(payload, ?1) > 0 LIMIT 1',
   app: `SELECT NULL AS chat FROM kv WHERE ns NOT IN ('${RECLAIM_NS}', '${MEMORY_BLOBS_NS}') AND instr(value, ?1) > 0 LIMIT 1`,
 };

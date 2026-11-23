@@ -1,5 +1,6 @@
-// Client state as signals: snapshots loaded once per connection, then kept fresh by event
-// deltas (store-events.ts). Every view reads from here; nothing keeps a second copy.
+// Client state as signals: snapshots loaded once per connection (loadAll – the model catalog with them), then kept fresh
+// by event deltas (store-events.ts). Every view reads from here; nothing keeps a second copy. A view that loads data of
+// its own reloads it on the same reconnect (lib/use-load.ts).
 // Owns: the data signals, loaders and small upsert helpers.
 // Never: renders, or polls – freshness comes from events and reconnect reloads only.
 
@@ -16,7 +17,7 @@ import { route } from './router.ts';
 import { isMobile } from './platform.ts';
 import { loadSnapshots } from './load.ts';
 import { can, loadSession, session } from './session.ts';
-import { countNow, isLater } from '../../shared/model/todo-later.ts';
+import { countNow } from '../../shared/model/todo-later.ts';
 import { loadPeople, personName } from './people.ts';
 import { loadDay } from './day-store.ts';
 import { selfIdentity } from './self-identity.ts';
@@ -51,30 +52,26 @@ export const drafts = signal<Record<string, string>>({});
 export const secretDrafts = signal<Record<string, string[]>>({});
 /** B-082: the saved files of each chat's draft (ui.state draftFiles) – a kept take comes back after a reload. */
 export const draftFiles = signal<Record<string, Attachment[]>>({});
+/** True once data is shown: a live load, or this device's saved copy (pwa/offline-cache.ts) before it. */
 export const loaded = signal(false);
 export const loadError = signal<string | null>(null);
+/** When the shown data was saved, while it is this device's copy (pwa/offline-cache.ts); null once the PC answered. */
+export const cachedAt = signal<number | null>(null);
 
 export const agentMap = computed(() => new Map(agents.value.map((agent) => [agent.id, agent])));
 /** agentMap plus the archived agents: for the name and picture of a member in a chat (not for choosing whom to work with). */
 export const knownAgentMap = computed(() => new Map([...archivedAgents.value, ...agents.value].map((agent) => [agent.id, agent])));
 export const conversationMap = computed(() => new Map(conversations.value.map((chat) => [chat.id, chat])));
-export const activeConversation = computed(() => {
-  const id = activeConversationId.value;
-  return id ? conversationMap.value.get(id) ?? null : null;
-});
 /**
- * The My day list's clock (F04): the time its "Later" split and countdowns are read at. Moved by
+ * The For-you clock (F04): the time the Tasks page's "Later" split and "since …" words are read at. Moved by
  * store-events.ts when the to-dos change and at the next moment a row reads differently by time
  * alone (tasks/todo-time.ts nextListChange) – one timeout to that moment, never polling.
  */
 export const todoClock = signal(Date.now());
 /**
- * For-you badge (rail and phone tabs: My day): what needs the person now
- * (shared/model/todo-later.ts needsYou – My day's Needs-you group without the running block), never "Later".
+ * For-you badge (rail and phone tabs: Tasks): what needs the person now (shared/model/todo-later.ts needsYou), never "Later".
  */
 export const forYouCount = computed(() => countNow(todos.value, todoClock.value));
-/** The to-dos due now: `todos` without its "Later" part (F04), for views that list them without the Later toggle. */
-export const todosNow = computed(() => todos.value.filter((task) => !isLater(task, todoClock.value)));
 
 // ------------------------------------------------------------------ helpers
 
@@ -210,13 +207,18 @@ export async function loadModels(refresh = false): Promise<ModelInfo[]> {
  * first connect and after reconnects. First asks session.info what this connection may call
  * (lib/session.ts); snapshots it may not read are not asked for (optional ones: only when
  * can(); scoped ones: skipped when the session says no, tried while it is unknown). A refused
- * snapshot never sets loadError or blocks `loaded` – it is empty.
+ * snapshot never sets loadError or blocks `loaded` – it is empty. A failed load (session.info too) keeps every signal
+ * as it was (D2, 19.11.2026: the shown data and the session stay) and records loadError. After the batch, without
+ * waiting: the calendar window, the open chat's messages, system.info and – where this connection may – the model catalog.
  */
 export async function loadAll(): Promise<void> {
   try {
     await loadSession(rpc.call);
     void loadPeople(); // F-52: people of the organisation (only when this connection may read them)
     const snapshot = await loadSnapshots({ call: rpc.call, optional: can, scoped: (method) => session.peek() === null || can(method) });
+    // Drafts: what this page holds wins (unsaved edits) – but not the device's old copy (pwa/offline-cache.ts): the PC's are newer.
+    const fromCopy = cachedAt.peek() !== null;
+    const merge = <T>(pc: Record<string, T> | undefined, here: Record<string, T>): Record<string, T> => (fromCopy ? { ...here, ...pc } : { ...pc, ...here });
     batch(() => {
       settings.value = snapshot.settings;
       conversations.value = keepOpenChat(snapshot.chats);
@@ -227,18 +229,21 @@ export async function loadAll(): Promise<void> {
       tasks.value = snapshot.tasks;
       if (snapshot.accounts) accounts.value = snapshot.accounts;
       if (snapshot.usage) usage.value = snapshot.usage;
-      drafts.value = { ...snapshot.drafts, ...drafts.value };
-      secretDrafts.value = { ...snapshot.secretDrafts, ...secretDrafts.value };
-      draftFiles.value = { ...snapshot.draftFiles, ...draftFiles.value };
+      drafts.value = merge(snapshot.drafts, drafts.value);
+      secretDrafts.value = merge(snapshot.secretDrafts, secretDrafts.value);
+      draftFiles.value = merge(snapshot.draftFiles, draftFiles.value);
       loadError.value = null;
       loaded.value = true;
+      cachedAt.value = null;
     });
-    // B-041: My day's calendar, briefing and handed-off work (lib/day-store.ts; only what this connection may read).
+    // The Tasks page's calendar window (lib/day-store.ts; only what this connection may read).
     void loadDay(undefined, { tz: snapshot.settings.profile?.timezone });
     // Refresh the open chat (events may have been missed while disconnected).
     const open = activeConversationId.value;
     if (open && messages.has(open)) void loadMessages(open).catch(() => undefined);
     void rpc.call('system.info').then((info) => { systemInfo.value = info; }).catch(() => undefined);
+    // The model catalog every picker and model name reads (models.updated keeps it fresh between connects).
+    if (can('models.list')) void loadModels().catch(() => undefined);
   } catch (error) {
     loadError.value = error instanceof Error ? error.message : 'Could not load data.';
   }
@@ -270,5 +275,5 @@ export function updatePreferences(patch: Partial<Preferences>): Promise<void> {
 
 export const preferences = computed<Preferences>(() => settings.value?.preferences ?? {
   theme: 'system', sidebarOpen: true, sidebarWidth: 288,
-  workspaceOpen: false, workspaceWidth: 360, enterSends: true, closeToTray: true, openAtLogin: false, autoDownloadUpdates: false,
+  workspaceOpen: false, workspaceWidth: 360, enterSends: true, openAtLogin: false, autoDownloadUpdates: false,
 });

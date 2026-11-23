@@ -1,8 +1,8 @@
 // Small helpers shared by all engines.
 // Owns: bounded newline-delimited JSON reading, provider-safe tool names, ToolOutput → text,
 // effort normalization, the folder comparison of sessions, the fixed, user-safe error data
-// engines return, the sums of the cached tokens a usage reports (CacheTokens) and the one
-// <live> block every engine puts in front of a turn's input (contextText).
+// engines return, the sums of the cached tokens a usage reports (CacheTokens), the one
+// <live> block every engine puts in front of a turn's input (contextText) and a process's idle shutdown (IdleTimer).
 // Never: talks to a provider or knows a provider's wire format beyond names.
 
 import path from 'node:path';
@@ -47,7 +47,7 @@ export function readJsonLines(stream: Readable, onMessage: (message: unknown) =>
  */
 export const CODEX_LINE_MAX = 96 * 1024 * 1024;
 
-/** Provider function names must match ^[a-zA-Z0-9_-]{1,64}$; ours are dotted ("tasks.create"). */
+/** Provider function names must match ^[a-zA-Z0-9_-]{1,64}$; ours are dotted ("tasks.add"). */
 export function toWireName(name: string): string {
   return name.replace(/\./g, '__').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
 }
@@ -154,6 +154,47 @@ export function addCache(a: CacheTokens, b: CacheTokens, sign: 1 | -1 = 1): Cach
     if (x !== undefined || y !== undefined) out[key] = Math.max(0, (x ?? 0) + sign * (y ?? 0));
   }
   return out;
+}
+
+/** A process's idle shutdown (Codex app-server, ACP agent): `stop` runs once nothing held it for `ms` (10 min by default). */
+export class IdleTimer {
+  private readonly ms: number;
+  private readonly stop: () => void;
+  private held = 0;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(ms: number | undefined, stop: () => void) {
+    this.ms = ms ?? 600_000;
+    this.stop = stop;
+  }
+
+  get busy(): boolean { return this.held > 0; }
+
+  /** Marks work in progress (no idle shutdown meanwhile); its end – once – starts the wait again. */
+  hold(): () => void {
+    this.held++;
+    this.clear();
+    let ended = false;
+    return () => {
+      if (ended) return;
+      ended = true;
+      this.held--;
+      this.arm();
+    };
+  }
+
+  /** Starts the wait anew, unless work is held. */
+  arm(): void {
+    if (this.held > 0) return;
+    this.clear();
+    this.timer = setTimeout(() => { if (this.held === 0) this.stop(); }, this.ms);
+    this.timer.unref?.();
+  }
+
+  clear(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
+  }
 }
 
 /** The input the engine had cached (Codex's cached input, Claude's cache reads); a cache write is input sent in full. */

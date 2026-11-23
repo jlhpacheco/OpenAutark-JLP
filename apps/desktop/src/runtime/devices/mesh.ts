@@ -1,28 +1,21 @@
-// DeviceService implementation: the linked PCs. Every PC is home of its own data; linked PCs are peers, and each one
-// keeps one live connection (pinned-key handshake + encrypted channel, channel.ts).
+// DeviceService: the linked PCs – peers, each home of its own data, one live connection each (pinned keys, channel.ts).
 // Owns: storing a proven PC (`add`, after the connect flow of remote/* or the roster), peer connections (one per linked
 // PC), their status, forwarding calls (dialing on demand), the exchange of addresses, the method registry, rename/revoke.
-// Dialing (devices/reach.ts): the stored addresses and the address the meeting server saw are opened at once, a tunnel
-// through the meeting server is the last fallback (`setMeeting`). `reconnect()` dials every linked PC without a live link
-// (start, host resume/unlock/online, the peer listener opened). Only the side with the smaller
-// deviceId retries with backoff after a close or failed dial (B-084: both sides in a row's first minute) – not after a
-// refusal (the other PC unlinked this one: close code 4003), except once right after linking (the link-up race,
-// mesh-retry.ts). If both sides dial at once, the smaller id's link stays. B-077: both ends ping every 15 s (keepalive.ts), the
-// backoff stops at 30 s; dialed links, closes (B-080: with their close code, 4008 = cut for silence) and refusals are info lines.
-// B-087: a live link is the keepalive's alone to judge – a trigger's 5 s ping cut healthy links to a stalled PC and the
-// calls on them; a link that died while this PC slept closes when its ping after the wake meets a reset, else on the
-// keepalive's first on-time round, and that close (TRIGGER_MS after the trigger that found the link live) gets one retry
-// on the larger id too, at 5 s – the smaller id's own 1 s dial normally comes first and its link cancels it. A dial
-// leaves out this PC's own addresses; the smaller id's link survives one dial of the other PC in the race window (a second
-// shows that PC does not hold it); a PC already offline stays 'offline' while redialed.
-// Addresses: when a link comes up, and whenever this PC's own addresses or caps change, each PC sends its addresses and
-// caps (`device.addresses`); the receiver keeps that address list plus one older address, and the caps as sent (so a
-// phone that attaches to one PC shows in every PC's prompt, phone/linked.ts). Link kinds (sync/home.ts): a PC that joined
-// as an employee (`personId`) reaches only methods registered for 'employee' (ping, caps, addresses, sync.rows – only its
-// person's own lines and task changes, sync/employee.ts – and what any module opens with `register(m, h, kinds)`, e.g.
-// device.sibling, calendar.ask); my own PCs and an employer reach every other method.
-// Never: links a PC without a finished connect flow, polls (its only timers are the backoff retries), cuts a live link
-// itself, or executes tools itself (handlers are injected).
+// Dialing (reach.ts): stored and meeting-seen addresses at once (never this PC's own), WebRTC, then a tunnel through the
+// meeting server (`setMeeting`). `reconnect()` dials every linked PC without a live link (start, resume/unlock/online,
+// the peer listener opened). Only the smaller deviceId retries with backoff (≤ 30 s; both in a row's first minute) – not
+// after a refusal (4003), except once right after linking (mesh-retry.ts); if both dial at once, the smaller id's link
+// stays (once per race window). B-077/B-087: both ends ping every 15 s (keepalive.ts) and only the keepalive judges a live
+// link; a close soon after a trigger found it live gets one retry on the larger id too (TRIGGER_MS, 5 s); a PC already
+// offline stays 'offline' while redialed; dials, closes (with their code) and refusals are info lines.
+// 19.11.2026: `bye` tells every live link why this PC goes, a received `device.bye` is Device.away until the link is back
+// (away.ts; a 'left' one drops the PC); `wake` sends a signed wake to an own PC's wake helper (`setWaker`, wake.ts); start() announces the wake key.
+// Addresses: at link-up and on every change of this PC's addresses or caps each PC sends both (`device.addresses`); the
+// receiver keeps that list plus one older address and the caps as sent (a phone attached to one PC shows in every PC's
+// prompt, phone/linked.ts). Link kinds (sync/home.ts): an employee's PC (`personId`) reaches only methods registered for
+// 'employee' (ping, caps, addresses, bye, sync.rows of its person – sync/employee.ts – and what a module opens with
+// `register(m, h, kinds)`, e.g. device.sibling, calendar.ask); my own PCs and an employer reach every other method.
+// Never: links a PC without a finished connect flow, polls (only backoff timers), cuts a live link or runs tools itself.
 
 import type { Bus } from '../bus.ts';
 import type { Clock, DeviceService, Logger } from '../contracts.ts';
@@ -37,8 +30,11 @@ import { DevicesRepo, publicDevice, type DeviceRecord } from './repo.ts';
 import { MAX_ADDRESSES, mergeAddresses, openChannel, firstOpen, seenText, type MeshMeeting } from './reach.ts';
 import type { Timers } from '../schedules/scheduler.ts';
 import type { DeviceLoad } from './load.ts';
+import { withLink } from './link-quality.ts';
 import { RpcPeer, type PeerHandler } from './rpc-peer.ts';
 import { FRESH_MS, MeshRetries, TRIGGER_MS, TRIGGER_STEP, pairedWithin, realTimers } from './mesh-retry.ts';
+import { BYE_METHOD, awayOf, isLeft, sayBye, type ByeReason } from './away.ts';
+import { sendWake, wakeKey, type Waker } from './wake.ts';
 
 export type { Timers };
 export { BACKOFF_MS } from './mesh-retry.ts';
@@ -90,6 +86,7 @@ export class DeviceMesh implements DeviceService {
   private unreachable = new Set<string>();
   private handlers = new Map<string, { handler: PeerHandler; kinds: ReadonlySet<LinkKind> }>();
   private meeting?: MeshMeeting;
+  private waker?: Waker;
   /** The addresses and caps this PC last sent its links (a change goes out, sendAddresses). */
   private ownState = '';
   private closed = false;
@@ -102,6 +99,7 @@ export class DeviceMesh implements DeviceService {
     this.register('ping', async (_params, from) => ({ ok: true, at: deps.clock.now(), ...(deps.load && kindOf(this.repo.get(from)) === 'ceo' ? { load: deps.load() } : {}) }), EVERY_LINK); // load: my own PCs only
     this.register('device.caps', async () => this.self().caps, EVERY_LINK);
     this.register(ADDRESSES_METHOD, async (params, from) => this.received(params, from), EVERY_LINK);
+    this.register(BYE_METHOD, async (params, from) => { if (isLeft(params)) setTimeout(() => { try { this.revoke(from); } catch { /* gone already */ } }, 0); else { const away = awayOf(params, deps.clock.now()); if (away && this.repo.patch(from, { away })) this.emit(from); } return { ok: true }; }, EVERY_LINK); // a PC that left: dropped after this answer
   }
 
   // ---------------------------------------------------------------- DeviceService
@@ -139,8 +137,13 @@ export class DeviceMesh implements DeviceService {
     this.handlers.set(method, { handler, kinds: new Set(kinds) });
   }
 
-  /** The meeting server's extra ways in (undefined: none). */
+  /** The meeting server's extra ways in, and (setWaker) the connection a wake goes through (wake.ts) – undefined: none. */
   setMeeting(meeting: MeshMeeting | undefined): void { this.meeting = meeting; }
+  setWaker(waker: Waker | undefined): void { this.waker = waker; }
+  /** Before a deliberate stop: why this PC goes, to every live link (away.ts, at most BYE_MS). */
+  bye(reason: ByeReason): Promise<void> { return sayBye([...this.links.values()].filter((link) => !link.peer.channel.closed).map((link) => link.peer), reason); }
+  /** Wakes a linked own PC whose app is closed, through its wake helper (wake.ts). */
+  wake(deviceId: string): Promise<void> { return sendWake(this.waker, this.repo.get(deviceId), (data) => this.deps.identity.sign(data), this.deps.clock.now()); }
 
   /** This PC's identity as the connect flow presents it. */
   selfInfo(): PeerInfo {
@@ -212,7 +215,7 @@ export class DeviceMesh implements DeviceService {
   }
 
   /** Called once at startup, after the peer listener is up: connects every linked PC. */
-  start(): void { this.reconnect(); }
+  start(): void { this.updateSelf({ caps: { wakeKey: wakeKey(this.deps.db, this.deps.clock.now()).pub } }); this.reconnect(); }
 
   /**
    * Dials every linked PC without a live link (event-driven, never a timer). A live link is the keepalive's to judge;
@@ -367,7 +370,7 @@ export class DeviceMesh implements DeviceService {
     this.unreachable.delete(deviceId);
     this.cancelRetry(deviceId);
     this.markSeen(deviceId, 'online');
-    peer.channel.onClose((code) => {
+    peer.channel.onClose((code, why) => {
       if (this.links.get(deviceId) !== link) return;
       this.links.delete(deviceId);
       this.unreachable.add(deviceId);
@@ -377,7 +380,7 @@ export class DeviceMesh implements DeviceService {
       // its own 1 s dial comes first and its link cancels this one, so both PCs never dial at once.
       const keeps = this.keeps(deviceId);
       const once = !keeps && link.triggeredAt !== undefined && this.deps.clock.now() - link.triggeredAt < TRIGGER_MS;
-      if (!this.closed) this.deps.log.info('peer link closed', { deviceId, code, retries: keeps || once });
+      if (!this.closed) this.deps.log.info('peer link closed', { deviceId, code, retries: keeps || once, ...why }); // why: a socket error's cause (channel.ts)
       if (keeps || once) this.retries.schedule(deviceId, keeps ? 0 : TRIGGER_STEP);
     });
     void peer.call('device.caps', null, { timeoutMs: 10_000 }).then(
@@ -421,19 +424,17 @@ export class DeviceMesh implements DeviceService {
     return this.deps.identity.deviceId < deviceId || pairedWithin(record.pairedAt, this.deps.clock.now(), FRESH_MS);
   }
 
-  private scheduleRetry(deviceId: string): void {
-    if (this.keeps(deviceId)) this.retries.schedule(deviceId);
-  }
+  private scheduleRetry(deviceId: string): void { if (this.keeps(deviceId)) this.retries.schedule(deviceId); }
 
   private cancelRetry(deviceId: string): void { this.retries.cancel(deviceId); }
 
   private markSeen(deviceId: string, status: 'online' | 'offline'): void {
-    if (this.repo.patch(deviceId, { status, lastSeenAt: this.deps.clock.now() })) this.emit(deviceId);
+    if (this.repo.patch(deviceId, { status, lastSeenAt: this.deps.clock.now(), ...(status === 'online' ? { away: undefined } : {}) })) this.emit(deviceId); // back: its goodbye is over
   }
 
   private emit(deviceId: string): void { const record = this.repo.get(deviceId); if (record) this.deps.bus.emit('device.upserted', this.view(record)); }
 
-  private view(record: DeviceRecord): Device { return publicDevice({ ...record, status: this.statusOf(record) }); }
+  private view(record: DeviceRecord): Device { return withLink(publicDevice({ ...record, status: this.statusOf(record) })); } // G: the connection now (link-quality.ts)
 
   private statusOf(record: DeviceRecord): Device['status'] {
     if (record.revokedAt) return 'revoked';

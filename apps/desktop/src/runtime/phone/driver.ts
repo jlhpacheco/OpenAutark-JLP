@@ -7,6 +7,9 @@ import type { NearbyPhone } from '../../shared/model/phone.ts';
 import type { PhoneSayAnswer } from '../../shared/api/methods-phone.ts';
 import type { PhoneDevice, PhoneNode } from './uiautomator.ts';
 
+/** What phone.open opens: a link, a package, or the name under an app's icon (`app`, through the Autark app). */
+export interface PhoneOpenTarget { url?: string; package?: string; app?: string }
+
 export interface PhoneStepOptions {
   /** Ends the step before its next command (a cancelled run). */
   signal?: AbortSignal;
@@ -33,9 +36,11 @@ export interface PhoneDriver {
   type(serial: string | undefined, value: string, step?: PhoneStepOptions): Promise<string | void>;
   /** Presses a key; returns the key code it sent. */
   key(serial: string | undefined, name: string, step?: PhoneStepOptions): Promise<string>;
-  open(serial: string | undefined, target: { url?: string; package?: string }, step?: PhoneStepOptions): Promise<string>;
-  /** My line in the phone's bubble; with `ask` a question the person answers with ✓ or ✕ (waits for it). */
-  say(serial: string | undefined, text: string, ask: boolean, step?: PhoneStepOptions): Promise<PhoneSaid>;
+  /** A link, an app by its package, or (the Autark app) an app by the name under its icon. */
+  open(serial: string | undefined, target: PhoneOpenTarget, step?: PhoneStepOptions): Promise<string>;
+  /** My line in the phone's bubble; with `buttons` a question the person answers with one of them or ✕ (waits for it;
+   *  ✓ among them answers 'yes'). */
+  say(serial: string | undefined, text: string, buttons: string[] | undefined, step?: PhoneStepOptions): Promise<PhoneSaid>;
 }
 
 /** Wireless debugging (ADB only): pairing with the phone's code, connecting, phones nearby. */

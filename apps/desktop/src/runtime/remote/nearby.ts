@@ -2,8 +2,10 @@
 // probe (devices/discovery.ts) – this PC left out, one entry per device and key (an impostor never
 // hides the real PC), names as plain text, each marked 'linked' (a linked PC with that key),
 // 'waiting' (this PC's open request goes there) or 'new'. Connect on a row sends a normal request
-// with its Remote ID, so the other PC's person still accepts it with the code. F09: each entry keeps the company that
-// answered (plain text) – the UI lists a PC's companies under it (ui/settings/connect-text.ts nearbyGroups).
+// (with its Company ID, below), so the other PC's person still accepts it with the code. F09: each entry keeps the company that
+// answered (plain text) – the UI lists a PC's companies under it (ui/settings/connect-text.ts nearbyGroups). Eine-ID
+// 22.11.2026: and its Company ID (`companyId`: the ID its company chain proves, else its own Remote ID) – Connect on a
+// row asks with it, so this PC joins that company as a new member.
 // Asked when Settings › Devices opens (the last answer while younger than NEARBY_FRESH_MS) and on
 // Refresh; one search at a time; never on a timer.
 // Owns: the search, marking and the short cache. Never: polls or lists a PC whose Remote ID is not its key's.
@@ -11,6 +13,7 @@
 import type { NearbyPc, RemoteOutgoing } from '../../shared/model/remote.ts';
 import { plainLabel } from '../../shared/text/device-label.ts';
 import type { Candidate } from '../devices/discovery.ts';
+import { chainCode } from './code.ts';
 import { remoteIdOf } from './id.ts';
 
 export const NEARBY_FRESH_MS = 60_000;
@@ -44,6 +47,7 @@ export function mergeNearby(lan: Candidate[], self: { deviceId: string; fingerpr
     const company = plainLabel(candidate.company, 80);
     all.set(keyOf(candidate), {
       deviceId: candidate.deviceId, name: plainLabel(candidate.name) || 'PC', remoteId, fingerprint: candidate.fingerprint, addresses: candidate.addresses.slice(0, 8),
+      companyId: chainCode(candidate.chain, candidate.fingerprint) ?? remoteId,
       ...(company ? { company } : {}),
     });
   }
@@ -54,7 +58,7 @@ export function mergeNearby(lan: Candidate[], self: { deviceId: string; fingerpr
 export function markNearby(found: readonly FoundPc[], linked: ReturnType<NearbyDeps['linked']>, outgoing: RemoteOutgoing | undefined): NearbyPc[] {
   const links = new Set(linked.filter((device) => !device.self && device.status !== 'revoked').map((device) => keyOf({ deviceId: device.id, fingerprint: device.fingerprint })));
   return found.map((pc): NearbyPc => {
-    const waiting = outgoing?.status === 'waiting' && outgoing.deviceId === pc.deviceId && outgoing.fingerprint === pc.fingerprint;
+    const waiting = (outgoing?.status === 'waiting' || outgoing?.status === 'confirm') && outgoing.deviceId === pc.deviceId && outgoing.fingerprint === pc.fingerprint;
     return { ...pc, addresses: [...pc.addresses], state: links.has(keyOf(pc)) ? 'linked' : waiting ? 'waiting' : 'new' };
   });
 }

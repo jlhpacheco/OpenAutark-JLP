@@ -6,7 +6,8 @@
 // B-044: that data dir is the documented Workforce folder – its generated README.md names wf as the way other
 // programs control the app (root/readme.ts); agents may use it too.
 // B-085: run by an agent of that same data folder (AUTARK_AGENT beside AUTARK_DATA), the Hello names the agent, so
-// what it writes is that agent's (http/ws.ts checks it).
+// what it writes is that agent's (http/ws.ts checks it). Sicher-Runde 19.11.2026: with the agent's proof beside it
+// (AUTARK_AGENT_PROOF, security/agent-proof.ts) – the runtime takes the name only with it; the proof is never printed either.
 // Owns: the per-OS default data dir, reading and checking runtime.json, the Endpoint that holds
 // the owner token. Never: prints, logs or serialises the token (it is a private field that only
 // Endpoint.hello() and Endpoint.redact() use); never connects anywhere or writes files.
@@ -14,7 +15,7 @@
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { AGENT_ENV, PROTOCOL_VERSION } from '../../shared/api/protocol.ts';
+import { AGENT_ENV, AGENT_PROOF_ENV, PROTOCOL_VERSION } from '../../shared/api/protocol.ts';
 import type { Hello } from '../../shared/api/protocol.ts';
 
 /** Electron's app name – package.json `productName` – names the userData folder (unit-tested against package.json). */
@@ -55,13 +56,16 @@ export class Endpoint {
   /** B-085: the agent this wf runs for (agentOf), sent with the Hello. */
   readonly agent?: string;
   readonly #token: string;
+  /** The agent's proof (AUTARK_AGENT_PROOF), sent with the Hello only. */
+  readonly #proof?: string;
 
-  constructor(input: { dataDir: string; port: number; token: string; pid?: number; agent?: string }) {
+  constructor(input: { dataDir: string; port: number; token: string; pid?: number; agent?: string; proof?: string }) {
     this.dataDir = input.dataDir;
     this.port = input.port;
     this.pid = input.pid;
     if (input.agent) this.agent = input.agent;
     this.#token = input.token;
+    if (input.agent && input.proof) this.#proof = input.proof;
   }
 
   get url(): string {
@@ -70,12 +74,14 @@ export class Endpoint {
 
   /** The first frame on `/ws` – the only place the token is handed out. */
   hello(): Hello {
-    return { protocol: PROTOCOL_VERSION, token: this.#token, client: 'cli', ...(this.agent ? { agent: this.agent } : {}) };
+    return { protocol: PROTOCOL_VERSION, token: this.#token, client: 'cli', ...(this.agent ? { agent: this.agent, ...(this.#proof ? { proof: this.#proof } : {}) } : {}) };
   }
 
-  /** Replaces the token wherever it would appear in output (defence in depth). */
+  /** Replaces the token (and the agent's proof) wherever it would appear in output (defence in depth). */
   redact(text: string): string {
-    return text.includes(this.#token) ? text.split(this.#token).join('[token]') : text;
+    let out = text.includes(this.#token) ? text.split(this.#token).join('[token]') : text;
+    if (this.#proof && out.includes(this.#proof)) out = out.split(this.#proof).join('[proof]');
+    return out;
   }
 
   toJSON(): { dataDir: string; port: number; pid?: number } {
@@ -110,7 +116,8 @@ export function discover(options: { data?: string }, env: DiscoverEnv): Discover
     // Never send the token to whatever may listen on that port now.
     return { ok: false, dataDir, reason: 'stopped', message: `The app that wrote ${file} is no longer running. ${start}` };
   }
-  return { ok: true, endpoint: new Endpoint({ dataDir, port: info.port, token: info.token, pid: info.pid, agent: agentOf(env, dataDir) }) };
+  const agent = agentOf(env, dataDir);
+  return { ok: true, endpoint: new Endpoint({ dataDir, port: info.port, token: info.token, pid: info.pid, ...(agent ? { agent, proof: env.env[AGENT_PROOF_ENV]?.trim() } : {}) }) };
 }
 
 /**

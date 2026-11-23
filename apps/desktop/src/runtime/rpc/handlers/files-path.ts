@@ -7,8 +7,13 @@
 // call goes on to that PC (devices/sync/paths.ts), which answers with PATH_OPS – the same rules, the same stamps.
 // B-081: a path that holds nothing answers with `near`, up to 5 similar existing paths found on the PC that holds it
 // (files/near-paths.ts) – the tabs' not-found page; a tab's look on a still missing file (`since: ''`) stays one stat.
-// Owns: these three methods, their operations and the stamp. Never: confines paths, keeps history or knows what a file
-// means.
+// Sicher-Runde 19.11.2026 (REVIEW-2 3): the call to another PC says who asks – the person, the calling agent, or neither –
+// and that PC gates it (devices/sync/paths.ts); this PC's own gate (security/rpc-guard.ts) judged the path already.
+// 20.11.2026 (review of FCMWO5R5): a network path (`\\host\share\…`) – read, written, listed or stored, here or on a
+// linked PC – reaches its host only once the person has confirmed that host on this PC (files/net-hosts.ts); the
+// refusal names the host, and files.allowHost is the person's answer.
+// Owns: these methods (and files.allowHost), their operations and the stamp. Never: confines paths, keeps history or
+// knows what a file means.
 
 import type { Dirent, Stats } from 'node:fs';
 import { chmod, readdir, readFile, realpath, stat } from 'node:fs/promises';
@@ -17,8 +22,10 @@ import '../../../shared/api/methods-files.ts'; // the method shapes (module augm
 import type { PathEntry, PathList, PathRead, PathWritten } from '../../../shared/api/methods-files.ts';
 import { WorkforceError } from '../../../shared/errors.ts';
 import { selfId } from '../../devices/sync/home.ts';
-import { remotePathsOf, type PathOp } from '../../devices/sync/paths.ts';
+import { remotePathsOf, type PathCaller, type PathOp } from '../../devices/sync/paths.ts';
+import { isPersonScope } from '../../security/rpc-guard.ts';
 import { nearPaths } from '../../files/near-paths.ts';
+import { checkNetHost, confirmHost } from '../../files/net-hosts.ts';
 import { writeAtomic } from '../../root/text-doc.ts';
 import { bad, input, onlyKeys, optId, optText, text } from '../params.ts';
 import type { HandlerContext, HandlerTable } from '../table.ts';
@@ -137,12 +144,30 @@ export function onDevice<T>(ctx: HandlerContext, params: unknown, op: PathOp, he
   const o = input(params);
   const device = optId(o, 'device');
   const { device: _device, ...rest } = o;
-  if (device && device !== selfId(ctx.services.db)) return remotePathsOf(ctx.services).forward(device, op, rest) as Promise<T>;
+  checkNetHost(ctx.services.db, rest.path); // a network host only once the person confirmed it here, for any PC
+  if (device && device !== selfId(ctx.services.db)) return remotePathsOf(ctx.services).forward(device, op, rest, callerOf(ctx)) as Promise<T>;
   return here(rest);
+}
+
+/** Who makes this call, as the other PC's gate reads it: the person (or the runtime itself), an agent's wf, or neither. */
+export function callerOf(ctx: Pick<HandlerContext, 'scope' | 'services'>): PathCaller {
+  const scope = ctx.scope;
+  if (!scope || isPersonScope(scope)) return { person: true };
+  if (scope.kind !== 'owner' || !scope.agentId) return {};
+  let agentName: string | undefined;
+  try { agentName = ctx.services.org.get(scope.agentId)?.name; } catch { agentName = undefined; }
+  return { agentId: scope.agentId, ...(agentName ? { agentName } : {}) };
 }
 
 export function register(table: HandlerTable): void {
   table.add('files.readPath', (params, ctx) => onDevice(ctx, params, 'read', PATH_OPS.read), PATH_RULE);
   table.add('files.writePath', (params, ctx) => onDevice(ctx, params, 'write', PATH_OPS.write), PATH_RULE);
   table.add('files.listPath', (params, ctx) => onDevice(ctx, params, 'list', PATH_OPS.list), PATH_RULE);
+  // The person's answer to a network host's question: this PC may go there from now on. An agent's call is refused.
+  table.add('files.allowHost', (params, ctx) => {
+    if (!('person' in callerOf(ctx))) throw new WorkforceError('forbidden', 'Only the person confirms a network host.');
+    const o = input(params);
+    onlyKeys(o, ['host']);
+    return { host: confirmHost(ctx.services.db, text(o, 'host', { max: 255 }), Date.now()) };
+  }, PATH_RULE);
 }

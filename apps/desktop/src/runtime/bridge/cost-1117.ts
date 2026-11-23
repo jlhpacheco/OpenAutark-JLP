@@ -1,4 +1,4 @@
-// Bridge of the KI-Runde 17.11.2026 (package C, cost is the turn's own): runs priced before it carry a wrong notional cost –
+// bridge 0.3.16 of the KI-Runde 17.11.2026 (package C, cost is the turn's own): runs priced before it carry a wrong notional cost –
 // a Claude turn stored Claude Code's running total of its whole session, a Codex turn its cached input at the full input
 // price. Once per company, at runtime start (runtime/main.ts), every plan run whose tokens say how much of its input was
 // cached gets its notional cost anew from its own tokens at today's prices (models/pricing.ts: the cached input at the read

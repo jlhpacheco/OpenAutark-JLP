@@ -14,6 +14,16 @@
 // one of them is decided on the PC that holds it. F13: Accept may make the person (`newPerson`) – made when the device
 // links (`createPerson`), so the person and their PC arrive in one step; an employee's PC that links makes its person
 // active (`joined`). F09: the LAN hello names this company (`company`), so a PC with several companies lists them under it.
+// Eine-ID 22.11.2026: two IDs, no role picking. `remoteId` is this PC's own device ID (the phone QR); `companyId` the
+// company's (remote/code.ts codeFor – on a member's PC the company's ID it was told until its chain arrived) and `myId` my
+// own (meFor) – both only once this is a company (`setUp`: its first run is done). A PC accepted as one of my devices
+// gets my signature in my own tree, and in the company's where this PC is one of the company's own (no employer); a new
+// member on the company's own PC gets it in the company's tree. A new member accepted on a member's PC is admitted by the
+// company's PC (devices/company-admit.ts, `admitHere` there) – Accept checks first that that PC is online. My own
+// request accepted (as one of my devices or a new member) finishes this company's first run (`setUpDone`, with the name I
+// joined with as a new member).
+// Review 22.11.2026: `confirm` is my yes to becoming one of someone's devices (remote/join.ts 'confirm'); `self.member`
+// marks a member's PC (Accept there names, it picks no person); the same company.admit asked again answers again.
 // Owns: wiring of these parts, the state Settings › Devices shows, `remote.updated` and the linked notice.
 // Never: links a PC without the person's answer, or answers probes while not findable.
 
@@ -25,7 +35,9 @@ import type { Clock, Logger } from '../contracts.ts';
 import type { Candidate, HelloAnswer } from '../devices/discovery.ts';
 import type { DeviceIdentity } from '../devices/identity.ts';
 import type { PeerInfo, Reply } from '../devices/pair-proof.ts';
-import { codeFor, watchCode } from './code.ts';
+import { admitThrough, employerOf, serveAdmit, unreachable, type AdmitMarks } from '../devices/company-admit.ts';
+import { fingerprintOf, fromB64url } from '../devices/keys.ts';
+import { chainsOf, codeFor, meFor, watchCode } from './code.ts';
 import { formatRemoteId, remoteIdOf } from './id.ts';
 import { findTarget, type FindDeps, type Found } from './find.ts';
 import { RemoteJoiner, type ConnectInput } from './join.ts';
@@ -44,8 +56,23 @@ export interface RemoteDeps {
    */
   mesh: { selfInfo(): PeerInfo; add(info: PeerInfo, options: { side: 'joiner' | 'inviter'; personId?: string; joinedAs?: 'ceo' | 'employee' }): Device; list(): Device[] }
     & Partial<Pick<MirrorMesh, 'register' | 'call'>>;
-  /** F09: this company's name (companyLabel), told in the LAN hello. */
+  /** F09: this company's name (companyLabel), told in the LAN hello – on a member's PC with the person ("Dojo · Momo"). */
   company?(): string;
+  /** Eine-ID: the company's name alone, told to a PC that asks to join ("Joining Dojo as a new member"). */
+  companyName?(): string;
+  /** Owner 21.11.2026: the company's one Remote ID where this PC is an employee's (devices/company-facts.ts); undefined on the company's own PCs. */
+  companyCode?(): string | undefined;
+  /** Eine-ID addendum: this is a company – its first run is done (absent: always); before, no IDs show. */
+  setUp?(): boolean;
+  /**
+   * Eine-ID addendum: my own request was accepted and linked – this company's first run is done now; `name`: the name I
+   * joined with as a new member (Fest 22.11.2026: kept as this PC's person's name where none is set).
+   */
+  setUpDone?(name?: string): void;
+  /** Review H1: this PC's person, named to a PC that would become one of their devices. */
+  person?(): string;
+  /** Review M2: the keys stored here through company.admit (devices/company-admit.ts admitMarks); absent: kept in memory. */
+  admits?: AdmitMarks;
   /** F13: makes the person Accept named (people.save) and returns their id; throws to refuse. */
   createPerson?(input: NewPerson): string;
   /** Is this a person of the organisation here (a decide from another of my PCs names one). */
@@ -100,7 +127,7 @@ const realTimers: Timers = {
 };
 
 /** Request kinds of POST /peer/pair. */
-export const REMOTE_KINDS: ReadonlySet<string> = new Set(['remote1', 'remote2', 'remote3', 'remoteCancel']);
+export const REMOTE_KINDS: ReadonlySet<string> = new Set(['remote1', 'remote2', 'remote3', 'remoteCancel', 'remoteName']);
 
 const errorText = (error: unknown) => String((error as Error)?.message ?? error);
 
@@ -111,27 +138,26 @@ export class RemoteService {
   private readonly near: NearbyPcs;
   /** F17: the requests waiting on my other PCs (absent without peer methods). */
   private readonly mirror?: RequestMirror;
+  /** Review M2: the keys stored here through company.admit (kv in the app, memory without it). */
+  private readonly admits: AdmitMarks;
   private lastFindable?: boolean;
+  private lastSetUp?: boolean;
   private stopped = false;
   private readonly offCode: () => void;
 
   constructor(deps: RemoteDeps) {
     this.deps = deps;
+    const marked = new Set<string>();
+    this.admits = deps.admits ?? { has: (fp) => marked.has(fp), add: (fp) => { marked.add(fp); } };
     const timers = deps.timers ?? realTimers;
     const now = () => deps.clock.now();
     this.target = new TargetRequests({
       now, timers, log: deps.log, signer: deps.identity,
       findable: () => this.findable(),
       self: () => deps.mesh.selfInfo(),
-      link: (info, picked, newPerson) => {
-        const personId = this.personFor(picked, newPerson);
-        this.store(info, { side: 'inviter', personId }, personId ? 'employee' : 'own');
-        if (!personId) codeFor(deps.identity.fingerprint)?.sign(info.pub); // my own PC answers for my code from now on
-        if (personId) {
-          try { deps.joined?.(personId, { id: info.id, name: info.name }); } catch (error) { deps.log.warn('person not marked joined', { personId, error: errorText(error) }); }
-          this.admitted(personId);
-        }
-      },
+      link: (info, picked, newPerson, role) => (role === 'ceo' ? this.linkMine(info) : this.linkMember(info, picked, newPerson)),
+      company: () => deps.companyName?.() ?? '',
+      person: () => deps.person?.() ?? '',
       shown: (view) => deps.notify?.(view),
       changed: () => this.changed(),
     });
@@ -141,10 +167,10 @@ export class RemoteService {
       holdListener: () => deps.holdListener?.() ?? Promise.resolve(undefined),
       post: deps.post,
       find: (target) => findTarget({ self: deps.identity.deviceId, lan: deps.lan, meeting: deps.meeting, wellKnown: deps.wellKnownAt }, target),
-      // The role this PC asked for stays with the link (the open request's view while it is accepted).
-      link: (info) => {
-        const joinedAs = this.joiner.outgoing()?.role === 'employee' ? 'employee' : 'ceo';
-        this.store(info, { side: 'joiner', joinedAs }, joinedAs === 'employee' ? 'employer' : 'own');
+      // The role the other PC answered stays with the link; my own request accepted finishes this company's first run.
+      link: (info, role, name) => {
+        this.store(info, { side: 'joiner', joinedAs: role }, role === 'employee' ? 'employer' : 'own');
+        try { deps.setUpDone?.(name); } catch (error) { deps.log.warn('first run not finished', { error: errorText(error) }); }
       },
       changed: () => this.changed(),
     });
@@ -165,24 +191,43 @@ export class RemoteService {
         knows: (personId) => deps.knows?.(personId) ?? false,
         changed: () => this.emitState(),
       });
+      serveAdmit({ register: register.bind(deps.mesh), list: () => deps.mesh.list() }, (info, name) => this.admitHere(info, name));
     }
     this.offCode = watchCode(deps.identity.fingerprint, () => this.changed()); // a new code shows at once
   }
 
-  /** The Remote ID people type for me: my person code, else this PC's own (derived from its key). */
-  remoteId(): string { return codeFor(this.deps.identity.fingerprint)?.code() ?? remoteIdOf(this.deps.identity.fingerprint); }
+  /** This PC's own device ID (derived from its key): the phone QR's ID. */
+  remoteId(): string { return remoteIdOf(this.deps.identity.fingerprint); }
 
-  /** My chain to the person code's root, when I am not the root myself. */
+  /**
+   * Eine-ID: the company's ID and my own, once this is a company. The company's: its tree's code once this PC is in it –
+   * on a member's PC still alone in its tree, the ID the company told (company-facts.ts companyCode).
+   */
+  ids(): { companyId?: string; myId?: string } {
+    if (!this.setUp()) return {};
+    const fp = this.deps.identity.fingerprint;
+    const code = codeFor(fp);
+    let told: string | undefined;
+    try { told = code?.chain().links.length ? undefined : this.deps.companyCode?.(); } catch { /* the tree's code stands */ }
+    const myId = meFor(fp)?.code();
+    return { companyId: told ?? code?.code() ?? remoteIdOf(fp), ...(myId ? { myId } : {}) };
+  }
+
+  /** My chain to the company's root, when I am not the root myself. */
   private chain(): { chain: unknown } | Record<string, never> {
     const chain = codeFor(this.deps.identity.fingerprint)?.chain();
     return chain?.links.length ? { chain } : {};
+  }
+
+  private setUp(): boolean {
+    try { return this.deps.setUp?.() ?? true; } catch { return false; }
   }
 
   state(): RemoteState {
     const self = this.deps.mesh.selfInfo();
     const outgoing = this.joiner.outgoing();
     return {
-      self: { deviceId: self.id, name: self.name, remoteId: this.remoteId(), fingerprint: this.deps.identity.fingerprint, findable: this.findable() },
+      self: { deviceId: self.id, name: self.name, remoteId: this.remoteId(), fingerprint: this.deps.identity.fingerprint, findable: this.findable(), ...this.ids(), ...(employerOf(this.deps.mesh.list()) ? { member: true as const } : {}) },
       incoming: [...this.ownIncoming(), ...(this.mirror?.rows() ?? [])],
       ...(outgoing ? { outgoing } : {}),
     };
@@ -195,10 +240,13 @@ export class RemoteService {
   refresh(): void {
     if (this.stopped) return;
     const findable = this.findable();
+    const setUp = this.setUp();
     this.deps.responder?.answer(findable ? () => this.hello() : undefined);
     if (!findable) this.target.closeAll();
-    if (this.lastFindable !== undefined && this.lastFindable !== findable) this.changed();
+    // The first run finishing shows the two IDs at once, also on a PC that takes no requests.
+    if ((this.lastFindable !== undefined && this.lastFindable !== findable) || (this.lastSetUp !== undefined && this.lastSetUp !== setUp)) this.changed();
     this.lastFindable = findable;
+    this.lastSetUp = setUp;
   }
 
   /** Shutdown: no more LAN answers (refresh() stays quiet), no more mirrored requests. */
@@ -209,8 +257,14 @@ export class RemoteService {
     this.deps.responder?.answer(undefined);
   }
 
-  /** "Connect" by Remote ID or address, as the CEO or an employee. */
+  /** "Connect" by an ID or address; the PC asked decides the role. */
   connect(input: ConnectInput): Promise<RemoteOutgoing> { return this.joiner.connect(input); }
+
+  /** Review H1: the person's yes to becoming one of the other person's devices (remote.confirm). */
+  confirm(): Promise<RemoteOutgoing> { return this.joiner.confirm(); }
+
+  /** Eine-ID: the name I propose while my request as a new member waits (remote.name). */
+  rename(name: string): Promise<void> { return this.joiner.rename(name); }
 
   /** PCs on this network that accept requests, this PC left out; `refresh` asks the network again. */
   nearby(refresh = false): Promise<NearbyPc[]> { return this.near.list(refresh); }
@@ -233,7 +287,64 @@ export class RemoteService {
   protected holdsHere(id: string): boolean { return this.target.holds(id); }
 
   /** The answer to a request this PC holds (also what another of my PCs' decide runs here). */
-  protected decideHere(decision: Decision): void { this.target.decide(decision.id, decision.accept, decision.personId, decision.newPerson); }
+  protected decideHere(decision: Decision): void {
+    if (decision.accept && this.target.roleOf(decision.id) === 'employee') this.checkAdmit(decision);
+    this.target.decide(decision.id, decision.accept, decision.personId, decision.newPerson);
+  }
+
+  /** A new member accepted on a member's PC: the company's PC adds them – it is online, and the member is named here. */
+  private checkAdmit(decision: Decision): void {
+    const employer = employerOf(this.deps.mesh.list());
+    if (!employer) return;
+    if (decision.personId) throw new WorkforceError('bad_request', 'Name the new member here – the company makes their person.');
+    if (employer.status !== 'online') throw new WorkforceError('unavailable', unreachable(employer));
+  }
+
+  /** One of my devices is in: my own tree signs it, and the company's where this PC is one of the company's own (code.ts refuses on a member's PC). */
+  private linkMine(info: PeerInfo): void {
+    this.store(info, { side: 'inviter' }, 'own');
+    const fp = this.deps.identity.fingerprint;
+    meFor(fp)?.sign(info.pub);
+    codeFor(fp)?.sign(info.pub);
+  }
+
+  /** A new member: on a member's PC the company's PC admits them (its identity rides in the answer), else they are in here. */
+  private async linkMember(info: PeerInfo, picked: string | undefined, newPerson: NewPerson | undefined): Promise<void | { employer: PeerInfo }> {
+    const employer = employerOf(this.deps.mesh.list());
+    if (employer) {
+      const call = this.deps.mesh.call;
+      if (!call || !newPerson?.name) throw new WorkforceError('bad_request', 'Name the new member here – the company makes their person.');
+      return { employer: await admitThrough({ call: call.bind(this.deps.mesh) }, employer, info, newPerson.name) };
+    }
+    const personId = this.personFor(picked, newPerson);
+    if (!personId) throw new WorkforceError('bad_request', 'Name the new member, or pick the person this PC belongs to.');
+    this.addMember(info, personId);
+  }
+
+  /**
+   * Eine-ID: on the company's PC, a new member a member's PC accepted (devices/company-admit.ts): the person, their PC and
+   * the company's signature; returns this PC's identity for the new PC to link. The same admit again (its key stored here
+   * through an admit, as a member's PC) answers again; a key linked any other way is a conflict.
+   */
+  admitHere(info: PeerInfo, name: string): PeerInfo {
+    const fp = fingerprintOf(fromB64url(info.pub));
+    const known = this.deps.mesh.list().find((device) => (device.id === info.id || device.fingerprint === fp) && !device.revokedAt && device.status !== 'revoked');
+    if (known?.personId && known.id === info.id && known.fingerprint === fp && this.admits.has(fp)) return this.deps.mesh.selfInfo();
+    if (known || fp === this.deps.identity.fingerprint) throw new WorkforceError('conflict', `${info.name} is linked here already.`);
+    const personId = this.personFor(undefined, { name });
+    if (!personId) throw new WorkforceError('unavailable', 'People cannot be added on this PC.');
+    this.addMember(info, personId);
+    this.admits.add(fp);
+    return this.deps.mesh.selfInfo();
+  }
+
+  /** A new member's PC is in here: stored as theirs, signed into the company's tree, the person joined and welcomed. */
+  private addMember(info: PeerInfo, personId: string): void {
+    this.store(info, { side: 'inviter', personId }, 'employee');
+    codeFor(this.deps.identity.fingerprint)?.sign(info.pub);
+    try { this.deps.joined?.(personId, { id: info.id, name: info.name }); } catch (error) { this.deps.log.warn('person not marked joined', { personId, error: errorText(error) }); }
+    this.admitted(personId);
+  }
 
   /** The person a device links as: the one picked, or (F13) the one Accept named, made now. */
   protected personFor(personId: string | undefined, newPerson: NewPerson | undefined): string | undefined {
@@ -282,7 +393,7 @@ export class RemoteService {
     const fingerprint = this.deps.identity.fingerprint;
     let company = '';
     try { company = this.deps.company?.().trim().slice(0, 80) ?? ''; } catch { /* the answer goes without it */ }
-    return { deviceId: self.id, name: self.name, fingerprint, remoteId: remoteIdOf(fingerprint), addresses: self.addresses, ...this.chain(), ...(company ? { company } : {}) };
+    return { deviceId: self.id, name: self.name, fingerprint, remoteId: remoteIdOf(fingerprint), addresses: self.addresses, ...chainsOf(fingerprint), ...(company ? { company } : {}) };
   }
 
   /** This PC's own requests changed: the state goes to the window and phones, the list to my other PCs. */

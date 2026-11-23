@@ -7,7 +7,8 @@
 // load says so in one line and the next look tries again. B-081: a path that holds nothing is the 'missing' phase with
 // the similar paths (`near`, the not-found page); create() makes it an empty text a save creates, and the look goes on,
 // so a file that appears there meanwhile is followed.
-// Owns: that loop and the words under the field. Never: touches the DOM or merges texts.
+// 22.11.2026: readable() gives a Markdown file's read page its text – a front matter block becomes a quiet code box.
+// Owns: that loop, the words under the field and readable(). Never: touches the DOM or merges texts.
 
 import { signal } from '@preact/signals';
 import type { PathEntry, PathRead, PathWritten } from '../../shared/api/methods-files.ts';
@@ -157,4 +158,13 @@ export function fileStatus(state: FileState, size: string, mod = 'Ctrl+'): strin
   if (state.fresh) return `New file. ${mod}S creates it`;
   if (state.followed) return `Changed on disk, reloaded · ${size}`;
   return size;
+}
+
+/** A Markdown file for its read page: a leading `---` front matter block (skills, memory notes) as a yaml code box
+ *  instead of a rule and a setext heading; any other text as it is. */
+export function readable(text: string): string {
+  const head = /^\uFEFF?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
+  if (!head) return text;
+  const fence = '`'.repeat(Math.max(3, ...Array.from(head[1]!.matchAll(/`{3,}/g), (match) => match[0].length + 1)));
+  return `${fence}yaml\n${head[1]}\n${fence}\n\n${text.slice(head[0].length)}`;
 }

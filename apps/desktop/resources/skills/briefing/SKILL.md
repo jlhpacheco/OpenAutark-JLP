@@ -25,16 +25,17 @@ How much it carries follows what they already have: a part that starts as me nee
 task owner knows only what I write, and a cheaper model gets the hard calls written down rather than left to it.
 
 ## The model that runs it
-A model is chosen where a context starts – a fresh part, a new colleague –, and it follows from what the piece's hardest step asks of whoever does it – not from my
-own model, and not from how detailed my brief is. When the result can be checked against what is given, line by line,
-and nothing in it hangs on reading meaning or tone, the smallest model does it at low effort. When the piece is a long
-chain – many sources or cases, each checked against today's facts until the target is met – the work is carrying on with
-care: a model one below the strongest, at high effort; the smallest, or low effort, stops early or skims. When the result
-hangs on judgment – what was meant, what matters, the tone toward someone, a decision, edge cases that have to hold, a
-line people keep – the strongest model at high effort pays for itself. A fresh part starts on any model at the
-same cost, so I name the one its piece needs; a part that starts as me stays on mine unless its piece clearly asks for
-another. A colleague keeps its model, because its context lives there – a task I give it asks for an effort. The brief itself and the choice among versions are judgment
-too: few turns of my strongest model decide what many cheaper ones do.
+A model is chosen where a context starts – a fresh part, a new colleague –, and it follows from what the piece's hardest
+step asks of whoever does it – not from my own model, and not from how detailed my brief is. For a fresh part I say
+that step as its `needs`, and the model follows from the ones connected here. `check`: the result can be held line by
+line against what is given, and nothing in it hangs on reading meaning or tone – the smallest model does it, at medium
+effort. `chain`: a long way over many sources, cases or steps, each checked with care until the target is met – a model
+one below the strongest, at high effort; the smallest, or low effort, stops early or skims. `judgment`: it hangs on
+what was meant, what matters, the tone toward someone, a decision, edge cases that have to hold, a line people keep –
+the strongest model at high effort pays for itself. A fresh part starts on any model at the same cost, so its needs,
+not my own model, decide; a part that starts as me stays on mine. A colleague keeps its model, because its context
+lives there – a task I give it asks for an effort. The brief itself and the choice among versions are judgment too: few
+turns of my strongest model decide what many cheaper ones do.
 
 ## When it comes back
 I take the result the way its audience meets it and the way the person would: would they use it as is? The proof is

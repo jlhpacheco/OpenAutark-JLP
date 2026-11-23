@@ -16,7 +16,7 @@ import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import { CallLog, writeCallRow } from '../../../src/runtime/calls/call-log.ts';
 import { Rings } from '../../../src/runtime/calls/ring.ts';
 import { DevicesRepo, type DeviceRecord } from '../../../src/runtime/devices/repo.ts';
-import type { PushFetch } from '../../../src/runtime/devices/sync/held-push.ts';
+import type { PushFetch } from '../../../src/runtime/pwa/push.ts';
 import { decryptPayload } from '../../../src/runtime/pwa/webpush-crypto.ts';
 import { KvRepo } from '../../../src/runtime/store/kv.ts';
 import { agent, harness } from '../chat/harness.ts';

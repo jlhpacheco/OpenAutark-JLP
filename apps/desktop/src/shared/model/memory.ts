@@ -4,7 +4,7 @@
 // Owns: the shapes of one memory file and of the memory.* calls, and how much of a file's description is shown. Never: a
 // list or index that goes into an agent's context (searching is knowledge.find with in: "memory/…").
 
-export type MemoryKind = 'fact' | 'preference' | 'experience' | 'procedure' | 'plan' | 'observation' | 'note' | 'reference';
+export type MemoryKind = 'fact' | 'preference' | 'experience' | 'procedure' | 'plan' | 'note' | 'reference';
 
 /** How much of a memory file's description a listing or hit line shows (the file keeps it whole). */
 export const DESCRIPTION_SHOWN = 160;

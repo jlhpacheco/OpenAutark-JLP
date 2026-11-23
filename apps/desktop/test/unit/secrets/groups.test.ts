@@ -2,8 +2,7 @@
 // group and its scope, nothing lists a value, a 2FA field fills only the current code (one wait
 // before a window ends), scope applies to the whole group (owner 29.10.2026: nobody ties a login or a card to sites â€“
 // nothing binds on use; a group carries its route and tags), the redactor knows the key's spellings but
-// never a text field, a refused field writes nothing, card hints, the upgrade from a
-// version-30 database; form capture of a login with a 2FA key as ONE group (one-time codes in
+// never a text field, a refused field writes nothing, card hints, a single secret moving into a group; form capture of a login with a 2FA key as ONE group (one-time codes in
 // fields named TOTP stay passwords); a single secret changes to or from a 2FA key only with a value;
 // a key grouped with no-break, thin or double spaces is redacted; the RPC tiers; B-080: a group's description takes
 // 4000 characters like a single secret's, also from its route file.
@@ -11,16 +10,16 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { SecretFiles } from '../../../src/runtime/secrets/files.ts';
 import { RootWatcher } from '../../../src/runtime/root/watcher.ts';
 import { ROOT_SECRETS } from '../../../src/runtime/root/layout.ts';
 import { tempDir } from '../store/helpers.ts';
 import { Db } from '../../../src/runtime/db/database.ts';
-import { migrate, SCHEMA_VERSION } from '../../../src/runtime/db/migrate.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { migrate } from '../../../src/runtime/db/migrate.ts';
+import { ManualClock } from '../fakes.ts';
 import { SecretVault } from '../../../src/runtime/secrets/service.ts';
 import { parseTotp, seedVariants, totpCode } from '../../../src/runtime/secrets/totp.ts';
 import { answerWithSecrets, captureSecrets, groupIdFor, secretKind, totpLabelled } from '../../../src/runtime/secrets/capture.ts';
@@ -185,18 +184,13 @@ test('B-080: a login\'s description takes 4000 characters like a single secret â
   await assert.rejects(s.vault.saveGroup({ id: saved.group.id, description: 'x'.repeat(4001) }), /at most 4000 characters/);
 });
 
-test('migrate() upgrades a version-30 database; its single secrets keep working', async () => {
+test('a single secret works on any site and moves into a group', async () => {
   const db = new Db(':memory:');
-  const dir = new URL('../../../src/runtime/db/migrations/', import.meta.url);
-  for (const file of readdirSync(dir).filter((name) => /^\d{3}-.*\.ts$/.test(name) && Number(name.slice(0, 3)) <= 30).sort()) {
-    db.exec(((await import(new URL(file, dir).href)) as { sql: string }).sql);
-  }
-  db.run(`INSERT INTO meta (key, value) VALUES ('schema', '30') ON CONFLICT(key) DO UPDATE SET value = excluded.value`);
-  db.run(`INSERT INTO secrets (id, label, kind, cipher, agents, domains, created_at) VALUES ('sec_old', 'Old login', 'password', ?, '["*"]', '["shop.example"]', 1)`, [await host.encrypt('old-pw-123')]);
-  assert.deepEqual(migrate(db), { from: 30, to: SCHEMA_VERSION });
+  migrate(db);
+  db.run(`INSERT INTO secrets (id, label, kind, cipher, agents, source, route, created_at) VALUES ('sec_old', 'Old login', 'password', ?, '["*"]', 'shop.example', 'logins', 1)`, [await host.encrypt('old-pw-123')]);
   const t = setup(db);
   await t.vault.init();
-  assert.deepEqual(t.vault.list().map((info) => [info.id, info.group, info.source, info.route]), [['sec_old', undefined, 'shop.example', 'logins']], 'migrations 80/81: the old binding is only where it came from; a route is set');
+  assert.deepEqual(t.vault.list().map((info) => [info.id, info.group, info.source, info.route]), [['sec_old', undefined, 'shop.example', 'logins']]);
   assert.equal(await t.vault.use('sec_old', 'ag_mira', 'shop.example'), 'old-pw-123');
   assert.equal(await t.vault.use('sec_old', 'ag_mira', 'other.example'), 'old-pw-123', 'and works on any site');
   assert.equal(t.vault.redact('x old-pw-123'), 'x secret://sec_old');

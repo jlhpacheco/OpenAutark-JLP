@@ -1,6 +1,7 @@
 // Settings › Apps: the connected apps, read from <data>/connectors/mcp.json and mail.json (apps.list), each with its address and
 // status in one reserved line, one action in a fixed cell and its on/off switch; the menu offers tools, a token, the file
-// view (mcp.json / mail.json in the pane) and Remove. Structured apps.* calls mutate named entries. apps.changed reloads the list.
+// view (mcp.json / mail.json in the pane) and Remove. Structured apps.* calls mutate named entries. apps.changed and every
+// reconnect (useAsync) reload the list.
 // Sign-in and stdio commands run on the PC: on the desktop the sign-in page opens in the system browser; 16.11.2026 on the
 // owner's phone (it manages the PC's files, files.writePath) it opens in the PC's pane, which the phone's sheet shows
 // (side.open), and a mailbox is removed from there too; a device without that keeps the line "Sign in in the PC browser".
@@ -82,11 +83,7 @@ export function AppsPage() {
   const list = useAsync(() => rpc.call('apps.list'), []);
   const [toolsOf, setToolsOf] = useState<string | undefined>();
   const [tokenFor, setTokenFor] = useState<ConnectedApp | null>(null);
-  useEffect(() => {
-    const reload = () => void list.reload();
-    const offs = [rpc.on('apps.changed', reload), rpc.onOpen(reload)];
-    return () => offs.forEach((off) => off());
-  }, [list.reload]);
+  useEffect(() => rpc.on('apps.changed', () => void list.reload()), [list.reload]); // a reconnect reloads it too (useAsync)
   const apps = list.data ?? [];
   return (
     <>

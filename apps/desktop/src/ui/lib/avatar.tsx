@@ -14,9 +14,8 @@ import { computed } from '@preact/signals';
 import type { Avatar as AvatarModel } from '../../shared/model/org.ts';
 import type { ConversationSummary } from '../../shared/model/chat.ts';
 import { isHumanActor, OWNER_ALIAS } from '../../shared/model/people.ts';
-import { distinctLooks } from '../../shared/text/avatar-looks.ts';
+import { avatarInitials, distinctLooks } from '../../shared/text/avatar-looks.ts';
 import { useFileUrl } from './files.ts';
-import { initials } from './format.ts';
 import { agents, knownAgentMap, settings } from './store.ts';
 import { peopleMap } from './people.ts';
 import { selfIdentity } from './self-identity.ts';
@@ -54,7 +53,7 @@ export function Avatar(props: AvatarProps) {
   const content = image
     ? <img src={image} alt="" />
     : avatar?.kind === 'emoji' ? <span class="avatar-emoji">{avatar.value}</span>
-    : <span>{look?.text ?? (avatar?.kind === 'initials' && avatar.value ? avatar.value.slice(0, 2) : initials(props.name))}</span>;
+    : <span>{look?.text ?? (avatar?.kind === 'initials' && avatar.value ? avatar.value.slice(0, 2) : avatarInitials(props.name))}</span>;
   const style = { width: `${size}px`, height: `${size}px`, fontSize: `${Math.max(10, Math.round(size * 0.34))}px` };
   const className = `avatar${props.agent ? ' agent' : ''}${props.working ? ' working' : ''}${props.class ? ` ${props.class}` : ''}`;
   const label = props.title ?? (props.working ? `${props.name} is working` : props.name);

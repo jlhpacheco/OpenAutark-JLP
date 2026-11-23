@@ -22,7 +22,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { BrowserService } from '../../src/runtime/browser/service.ts';
 import { browserTools } from '../../src/runtime/browser/tools.ts';
-import { MemoryLogger } from '../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../unit/fakes.ts';
 import type { ToolDef } from '../../src/runtime/tools/types.ts';
 import type { SecretInfo } from '../../src/shared/model/security.ts';
 import { toolCtx, textOf } from '../unit/browser/b055-fakes.ts';

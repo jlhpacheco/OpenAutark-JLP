@@ -65,8 +65,8 @@ test('chat.edit and chat.delete: only the agent\'s own messages, by seq or by id
 test('chat.delete: of the agent\'s status lines only its work updates go; the lines that record a change stay', async () => {
   const h = setup();
   const chat = h.chats.create({ agentIds: ['ag_ava'], createdBy: HUMAN_ID });
-  assert.equal((await h.run('ag_ava', 'chat.add_members', { chatId: chat.id, members: ['ag_ben'] })).failed, false);
-  assert.equal((await h.run('ag_ava', 'chat.rename', { chatId: chat.id, title: 'Launch' })).failed, false);
+  assert.equal((await h.run('ag_ava', 'chat.update', { chatId: chat.id, add: ['ag_ben'] })).failed, false);
+  assert.equal((await h.run('ag_ava', 'chat.update', { chatId: chat.id, title: 'Launch' })).failed, false);
   // a work update an agent posted before 13.11.2026 (chat.send status: true; still in older chats)
   const update = { messageId: h.chats.status(chat.id, { type: 'note', text: 'Drafting the post', details: { by: 'agent' } }, { authorId: 'ag_ava' }).id };
   const lines = h.chats.messages(chat.id).filter((message) => message.kind === 'status' && message.id !== update.messageId);
@@ -89,28 +89,28 @@ test('chat.edit refuses in a chat the agent is not a member of', async () => {
   await assert.rejects(h.run('ag_ava', 'chat.edit', { messageId: bens.id, text: 'x' }), /not a member/);
 });
 
-test('chat.archive: a room of agents only, or one the agent started with the person – with one line naming it', async () => {
+test('chat.update archive: a room of agents only, or one the agent started with the person – with one line naming it', async () => {
   const h = setup();
   const started = h.chats.create({ agentIds: ['ag_ava', 'ag_ben'], humans: true, createdBy: 'ag_ava', lead: 'ag_ava' });
-  assert.match((await h.run('ag_ben', 'chat.archive', { chatId: started.id })).text, /I did not start it: only they archive it/);
+  assert.match((await h.run('ag_ben', 'chat.update', { chatId: started.id, archive: true })).text, /I did not start it: only they archive it/);
   assert.equal(h.chats.get(started.id)!.archivedAt, undefined);
-  assert.equal((await h.run('ag_ava', 'chat.archive', { chatId: started.id })).failed, false, 'its starter');
+  assert.equal((await h.run('ag_ava', 'chat.update', { chatId: started.id, archive: true })).failed, false, 'its starter');
   assert.ok(h.chats.get(started.id)!.archivedAt !== undefined);
   const line = h.chats.messages(started.id).find((message) => message.meta.status?.details?.archived === true)!;
   assert.deepEqual([line.body, line.authorId], ['Archived by Ava', 'ag_ava']);
   assert.match((await h.run('ag_ava', 'chat.delete', { messageId: line.id })).text, /records what happened/, 'the line stays');
-  assert.match((await h.run('ag_ava', 'chat.archive', { chatId: started.id })).text, /archived already/);
+  assert.match((await h.run('ag_ava', 'chat.update', { chatId: started.id, archive: true })).text, /archived already/);
 
   const agentsOnly = h.chats.create({ agentIds: ['ag_ava', 'ag_ben'], humans: false, createdBy: 'ag_ava', lead: 'ag_ava' });
-  assert.equal((await h.run('ag_ben', 'chat.archive', { chatId: agentsOnly.id })).failed, false, 'a room of agents only');
+  assert.equal((await h.run('ag_ben', 'chat.update', { chatId: agentsOnly.id, archive: true })).failed, false, 'a room of agents only');
 });
 
-test('chat.archive never takes the person\'s chat its agent leads, a default 1:1, a chat with colleagues or an app chat', async () => {
+test('chat.update archive never takes the person\'s chat its agent leads, a default 1:1, a chat with colleagues or an app chat', async () => {
   const h = setup();
   // The person's chat: its agent leads it without having started it (the reviewer's probes A and D).
   const persons = h.chats.create({ agentIds: ['ag_ava', 'ag_ben'], createdBy: HUMAN_ID, lead: 'ag_ava' });
   for (const agentId of ['ag_ava', 'ag_ben']) {
-    const refused = await h.run(agentId, 'chat.archive', { chatId: persons.id });
+    const refused = await h.run(agentId, 'chat.update', { chatId: persons.id, archive: true });
     assert.equal(refused.failed, true, agentId);
     assert.match(refused.text, /^Nothing was changed\. The person is in this chat and I did not start it/);
   }
@@ -125,33 +125,33 @@ test('chat.archive never takes the person\'s chat its agent leads, a default 1:1
     findOrCreateDirect(h.services, 'ag_ava', 'ag_ben'),
   ];
   for (const chatId of directs) {
-    assert.match((await h.run('ag_ava', 'chat.archive', { chatId })).text, /A default 1:1 stays: it is the one chat of its pair/);
+    assert.match((await h.run('ag_ava', 'chat.update', { chatId, archive: true })).text, /A default 1:1 stays: it is the one chat of its pair/);
     assert.equal(h.chats.get(chatId)!.archivedAt, undefined);
   }
   assert.equal(findDirect(h.services, HUMAN_ID, 'ag_ava'), directs[0], 'the person\'s "Message Ava" still finds it');
 
   // A colleague could not write in an archived chat: only the person archives it, even when the agent started it.
   const withAnna = h.chats.create({ title: 'Design questions', agentIds: ['ag_ava'], people: [ANNA], humans: false, createdBy: 'ag_ava', lead: 'ag_ava' });
-  assert.match((await h.run('ag_ava', 'chat.archive', { chatId: withAnna.id })).text, /Colleagues or outside members are in this chat/);
+  assert.match((await h.run('ag_ava', 'chat.update', { chatId: withAnna.id, archive: true })).text, /Colleagues or outside members are in this chat/);
   assert.equal(h.chats.get(withAnna.id)!.archivedAt, undefined);
 
   const app = h.chats.create({ agentIds: ['ag_ava'], createdBy: HUMAN_ID, settings: { system: 'todo' } });
-  assert.match((await h.run('ag_ava', 'chat.archive', { chatId: app.id })).text, /belongs to the app/);
+  assert.match((await h.run('ag_ava', 'chat.update', { chatId: app.id, archive: true })).text, /belongs to the app/);
 });
 
-test('chat.reply_mode: the agent sets and clears its own mode in a group, each change with one line naming it', async () => {
+test('chat.update replyMode: the agent sets and clears its own mode in a group, each change with one line naming it', async () => {
   const h = setup();
   const chat = h.chats.create({ agentIds: ['ag_ava', 'ag_ben'], createdBy: HUMAN_ID });
-  assert.equal((await h.run('ag_ava', 'chat.reply_mode', { chatId: chat.id, mode: 'mentions' })).failed, false);
+  assert.equal((await h.run('ag_ava', 'chat.update', { chatId: chat.id, replyMode: 'mentions' })).failed, false);
   assert.deepEqual(h.chats.get(chat.id)!.settings.replyModes, { ag_ava: 'mentions' });
-  assert.match((await h.run('ag_ava', 'chat.reply_mode', { chatId: chat.id, mode: 'mentions' })).text, /is "mentions" already/);
-  await h.run('ag_ava', 'chat.reply_mode', { chatId: chat.id, mode: 'auto' });
+  assert.match((await h.run('ag_ava', 'chat.update', { chatId: chat.id, replyMode: 'mentions' })).text, /is "mentions" already/);
+  await h.run('ag_ava', 'chat.update', { chatId: chat.id, replyMode: 'auto' });
   assert.equal(h.chats.get(chat.id)!.settings.replyModes, undefined);
 
   // The person set Ben to mentions; Ben decides for himself and may widen it again.
   setReplyMode(h.services, chat.id, 'ag_ben', 'mentions', HUMAN_ID);
   assert.deepEqual(h.chats.get(chat.id)!.settings.replyModes, { ag_ben: 'mentions' });
-  assert.equal((await h.run('ag_ben', 'chat.reply_mode', { chatId: chat.id, mode: 'all' })).failed, false);
+  assert.equal((await h.run('ag_ben', 'chat.update', { chatId: chat.id, replyMode: 'all' })).failed, false);
   assert.deepEqual(h.chats.get(chat.id)!.settings.replyModes, { ag_ben: 'all' });
   const lines = h.chats.messages(chat.id).filter((message) => message.meta.status?.details?.replyMode !== undefined);
   assert.deepEqual(lines.map((line) => [line.body, line.authorId, line.silent]), [

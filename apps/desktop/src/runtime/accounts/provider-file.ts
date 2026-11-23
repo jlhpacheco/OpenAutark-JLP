@@ -1,23 +1,19 @@
 // settings.json's `providers` section ↔ the accounts table: the file says which API connections there are, the table
 // keeps what happens to them (state, limits, priority, on/off). sync() runs at the start and after every
 // settings.updated: an entry becomes the account with that id, a changed entry changes it (and it is checked again), a
-// removed one goes. What the form and accounts.add connect is written here as an entry, so there is one way in.
-// Once: API connections from before the file move in (moveOld, run at each start like legacy.ts, so nothing is left to
-// move afterwards): each gets an id from its service or address, keeps its key as a handle, its state and its place in
-// the runs, and routing.voice follows when it named the old id. Plans, keys from the environment and local servers the
-// PC scan found stay detected. The ids the file owned at the last sync live in kv (ns 'accounts'), so a row
+// removed one goes. What the form and accounts.add connect is written here as an entry, so there is one way in. Plans, keys
+// from the environment and local servers the PC scan found stay detected. The ids the file owned at the last sync live in kv (ns 'accounts'), so a row
 // that was never in the file is never removed by it.
 // Owns: these rules. Never: reads a key value, or decides what an entry means (shared/model/provider-entries.ts).
 
 import type { Db } from '../db/database.ts';
-import type { Logger, SettingsService } from '../contracts.ts';
+import type { SettingsService } from '../contracts.ts';
 import { MEDIA_ONLY_PROVIDERS, type Account, type ProviderId } from '../../shared/model/providers.ts';
 import { entryConnection, protocolOfProvider, providerIdFree, type ProviderEntries, type ProviderEntry } from '../../shared/model/provider-entries.ts';
 import { hostOf, serviceOfAccount } from '../../shared/model/providers-connect.ts';
 import type { SettingsPatch } from '../../shared/model/system.ts';
 import { DEFAULT_BASE } from '../engines/http/common.ts';
 import { KvRepo } from '../store/kv.ts';
-import { CLI_PROVIDERS } from './adoption.ts';
 import { handleId, type Connection } from './connect.ts';
 import type { AccountRepo } from './repo.ts';
 
@@ -34,7 +30,6 @@ export interface ProviderFileDeps {
   forget(account: Account): void;
   /** One check in the monitor's queue. */
   check(id: string): void;
-  log?: Logger;
 }
 
 const NS = 'accounts';
@@ -131,46 +126,5 @@ export class ProviderFile {
   private write(patch: SettingsPatch): void {
     this.deps.settings.update(patch);
     this.sync(); // the service hears settings.updated too; this covers a settings service without a bus
-  }
-
-  /** Once: the API connections from before the file move in. */
-  moveOld(): void {
-    const { repo, db } = this.deps;
-    if (this.unapplied()) return;
-    const entries = this.entries();
-    const owned = new Set(this.owned());
-    const old = repo.list().filter((account) => !Object.hasOwn(entries, account.id) && !owned.has(account.id) && !account.deviceId && !account.detected
-      && !CLI_PROVIDERS.has(account.provider) && (account.auth === 'api_key' || account.auth === 'none' || account.auth === 'local'));
-    if (!old.length) return;
-    const taken = new Set(Object.keys(entries));
-    const moves = old.map((account) => {
-      const entry = entryOfAccount(account);
-      const same = Object.entries(entries).find(([, other]) => other.url === entry.url && other.key === entry.key)?.[0]; // a move that stopped half-way
-      const id = same ?? this.freeId(account, taken);
-      taken.add(id);
-      return { account, id, entry, same: same !== undefined };
-    });
-    const providers = Object.fromEntries(moves.filter((move) => !move.same).map((move) => [move.id, move.entry]));
-    const voice = this.deps.settings.get().routing.voice;
-    const named = moves.find((move) => voice.startsWith(`${move.account.id}:`));
-    this.deps.settings.update({ providers, ...(named ? { routing: { voice: `${named.id}:${voice.slice(named.account.id.length + 1)}` } } : {}) });
-    this.sync();
-    db.tx(() => {
-      for (const { account, id } of moves) {
-        const row = repo.get(id);
-        repo.save({ ...account, ...(row ? { provider: row.provider, baseUrl: row.baseUrl, secretId: row.secretId, auth: row.auth, label: row.label } : {}), id, state: account.enabled ? 'unknown' : 'disabled' });
-        repo.remove(account.id);
-        db.run('UPDATE runs SET account_id = ? WHERE account_id = ?', [id, account.id]);
-        db.run('UPDATE engine_sessions SET account_id = ? WHERE account_id = ?', [id, account.id]);
-      }
-    });
-    const catalog = this.kv();
-    for (const { account, id } of moves) {
-      const listing = catalog.get<unknown>('catalog', `listing:${account.id}`);
-      if (listing) catalog.set('catalog', `listing:${id}`, listing, this.deps.now());
-      catalog.delete('catalog', `listing:${account.id}`);
-    }
-    catalog.delete('catalog', 'refreshed_at'); // the model ids change with the next list
-    this.deps.log?.info('API connections moved into settings.json', { connections: moves.length });
   }
 }

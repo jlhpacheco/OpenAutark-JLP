@@ -1,13 +1,35 @@
 /* The pane's file tab (workspace/FileView.tsx) and the memory tree and clickable rows of Settings › Skills & memory
    (settings/SkillsPage.tsx, settings/MemoryTree.tsx). The field fills the page area and (B-080) wraps a long line at
    its width – a word longer than the field breaks anywhere; the dot has its own cell in the fixed line under it, and
-   only its colour changes.
+   only its colour changes. 22.11.2026: a Markdown file's read page (`file-read`, `file-doc`) is set as a document – one
+   readable column, a calm heading scale, room between blocks – and Edit / Read sits in a cell of one width (`file-mode`).
    Owns: `file-*`. Never: the pane's line (`pane-foot`, workspace-tabs.css) or a settings row's text (settings.css). */
 
 .file-field {
-  overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: 13px; line-height: 1.5; tab-size: 4;
+  overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: calc(13px * var(--ui-text, 1)); line-height: 1.5; tab-size: 4;
   scrollbar-gutter: stable;
 }
+
+/* a Markdown file's read page: the column centred, its scrolling its own; markdown.css gives the blocks their look */
+.file-read {
+  flex: 1 1 auto; min-height: 0; overflow: hidden auto; padding: 28px clamp(16px, 5%, 36px) 56px; container-type: inline-size;
+  background: var(--surface); outline: none; scrollbar-gutter: stable; overscroll-behavior: contain;
+}
+.file-doc { max-width: 74ch; margin: 0 auto; color: var(--text); font-size: calc(15px * var(--ui-text, 1)); line-height: 1.7; }
+.file-doc p, .file-doc :is(ul, ol), .file-doc blockquote, .file-doc pre, .file-doc table { margin-bottom: 1em; }
+.file-doc li + li { margin-top: .35em; }
+.file-doc :is(h1, h2, h3, h4, h5, h6) { margin: 1.9em 0 .6em; line-height: 1.3; letter-spacing: -.2px; }
+.file-doc h1 { margin-top: 0; font-size: calc(26px * var(--ui-text, 1)); font-weight: 650; letter-spacing: -.4px; }
+.file-doc h2 { padding-bottom: .35em; border-bottom: 1px solid var(--line); font-size: calc(19px * var(--ui-text, 1)); }
+.file-doc h3 { font-size: calc(16px * var(--ui-text, 1)); }
+.file-doc :is(h4, h5, h6) { font-size: calc(15px * var(--ui-text, 1)); color: var(--secondary); }
+.file-doc > :first-child { margin-top: 0; }
+.file-doc pre { font-size: calc(12.5px * var(--ui-text, 1)); }
+.file-doc table { font-size: calc(13.5px * var(--ui-text, 1)); }
+.file-doc blockquote { padding: 2px 0 2px 16px; }
+@container (max-width: 520px) { .file-doc { font-size: calc(14.5px * var(--ui-text, 1)); } .file-doc h1 { font-size: calc(22px * var(--ui-text, 1)); } }
+.file-mode { display: flex; flex: none; justify-content: flex-end; }
+.file-mode .button { min-width: 56px; } /* Edit and Read in one width: the switch moves nothing */
 .file-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: transparent; }
 .file-dot.is-dirty { background: var(--text); }
 .pane-file .pane-foot-action { height: 26px; } /* the Reload button's box, also while it is not there */
@@ -18,7 +40,7 @@
 .file-open-row:active { background: var(--selected); }
 
 .file-tree { list-style: none; margin: 0; padding: 0; }
-.file-tree-row { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 30px; padding: 0 8px 0 calc(8px + var(--depth, 0) * 18px); border-radius: 6px; color: var(--text); font-size: 13px; text-align: start; }
+.file-tree-row { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 30px; padding: 0 8px 0 calc(8px + var(--depth, 0) * 18px); border-radius: 6px; color: var(--text); font-size: calc(13px * var(--ui-text, 1)); text-align: start; }
 .file-tree-row:hover { background: var(--hover); }
 .file-tree-row:active { background: var(--selected); }
 .file-tree-icon { display: inline-grid; flex: none; place-items: center; width: 16px; height: 16px; color: var(--secondary); }

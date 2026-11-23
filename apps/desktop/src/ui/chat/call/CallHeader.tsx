@@ -12,6 +12,10 @@
 // card (CallCard.tsx), which it lays into the chat column of its own chat view – so the card lives exactly as long as
 // the call shows here, and its Hang up is the cell's End.
 // Owner 18.11.2026: a call asked for by the floating to-do button (lib/router.ts callRequest) starts once the cell shows.
+// Owner 19.11.2026: answerCall with `join` (the status line's Join beside Take over, call-notices.ts) joins the running call
+// beside the devices in it (calls.start with join) and then talks in it with the voice conversation – never realtime, whose
+// session would be a call of its own; when talking cannot start here, this device leaves again.
+// Team-Call 21.11.2026: while another person's call runs in the chat (LiveCall.others) the cell is Join – it joins them.
 // Owns: the cell's states and what a tap starts. Never: the voice loop (voice.ts) or realtime audio (realtime-call.ts).
 
 import { useEffect, useRef, useState } from 'preact/hooks';
@@ -20,6 +24,7 @@ import type { ConversationSummary } from '../../../shared/model/chat.ts';
 import type { HeaderCell } from '../../lib/header.tsx';
 import { cellClass } from '../../lib/header-model.ts';
 import { callRequest } from '../../lib/router.ts';
+import { rpc } from '../../lib/rpc.ts';
 import { voiceSessions } from '../../lib/shell-state.ts';
 import { settings } from '../../lib/store.ts';
 import { toastError } from '../../lib/toasts.ts';
@@ -58,9 +63,15 @@ async function startCall(conversationId: string, callId?: string): Promise<void>
   }
 }
 
-/** B-081: takes the call `callId` on this device – answers a ring or takes it over from another device. Call from the tap. */
-export function answerCall(conversationId: string, callId: string): Promise<void> {
-  return startCall(conversationId, callId).catch((error: unknown) => toastError(error, 'Call not taken'));
+/** Owner 19.11.2026: this device joins the running call beside the devices in it, then talks in it (the voice conversation finds it). */
+async function joinCall(conversationId: string, callId: string): Promise<void> {
+  await rpc.call('calls.start', { conversationId, callId, join: true });
+  if (!(await startVoice(conversationId))) await rpc.call('calls.end', { callId }).catch(() => undefined);
+}
+
+/** B-081: takes the call `callId` on this device – answers a ring or takes it over from another device; `join`: joins it beside them. Call from the tap. */
+export function answerCall(conversationId: string, callId: string, join = false): Promise<void> {
+  return (join ? joinCall(conversationId, callId) : startCall(conversationId, callId)).catch((error: unknown) => toastError(error, join ? 'Call not joined' : 'Call not taken'));
 }
 
 /** Ends the chat's voice mode on this device. */
@@ -102,8 +113,9 @@ export function useCallCell(chat: ConversationSummary): HeaderCell {
   const live = liveCalls.value.find((call) => call.conversationId === chat.id && (call.state === 'running' || (call.until ?? 0) > Date.now()));
   const start = () => {
     setBusy(true);
-    void startCall(chat.id, live?.callId).catch((error: unknown) => toastError(error)).finally(() => setBusy(false));
+    const started = live?.others ? answerCall(chat.id, live.callId, true) : startCall(chat.id, live?.callId); // Team-Call: another person's call is joined
+    void started.catch((error: unknown) => toastError(error)).finally(() => setBusy(false));
   };
-  const label = live ? (live.state === 'ringing' ? 'Answer' : 'Take over') : 'Talk';
+  const label = live ? (live.state === 'ringing' ? 'Answer' : live.others ? 'Join' : 'Take over') : 'Talk';
   return { id: CALL_CELL, icon: 'phone', label, busy, class: 'call-cell call-start', onClick: start };
 }

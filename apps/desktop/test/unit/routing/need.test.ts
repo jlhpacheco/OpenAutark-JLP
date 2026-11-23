@@ -74,20 +74,20 @@ test("nothing meets the need: the usual rules, led by why; B-079: the agent's ow
   assert.equal(plain.by, 'pin');
 });
 
-test('needCandidates: never weak at the work (except stronger), cost from the account, speed where measured', () => {
+test('needCandidates: never weak at the work (except stronger), cost from the account, faster a lower tier', () => {
   const model = (id: string, patch: Partial<ModelInfo>): ModelInfo => ({ id, provider: 'codex', model: id, name: id, engine: 'codex', efforts: [], caps: {}, tier: 'strong', strengths: {}, available: true, accounts: [], ...patch });
   const entry = (m: ModelInfo) => ({ model: m, accounts: [] });
-  const base = model('base', { tier: 'frontier', relCost: 0.6, scores: { outputTokensPerSecond: 50, source: 'artificial-analysis' } });
-  const fast = model('fast', { relCost: 0.2, scores: { outputTokensPerSecond: 100, source: 'artificial-analysis' } });
-  const slowSmall = model('slow', { tier: 'small', relCost: 0.05, scores: { outputTokensPerSecond: 40, source: 'artificial-analysis' } });
+  const base = model('base', { tier: 'frontier', relCost: 0.6 });
+  const fast = model('fast', { relCost: 0.2 });
+  const slowSmall = model('slow', { tier: 'small', relCost: 0.05 });
   const weak = model('weak', { tier: 'small', relCost: 0.01, strengths: { chat: -0.5 } });
   const local = model('local', { tier: 'local', relCost: 0 });
   const entries = [base, fast, slowSmall, weak, local].map(entry);
   const cost = (e: { model: ModelInfo }) => e.model.relCost ?? 1;
   const ids = (need: ModelNeed) => needCandidates(entries, { need, from: base, category: 'chat', cost }).map((e) => e.model.id);
   assert.deepEqual(ids('cheaper'), ['fast', 'slow', 'local'], 'weak is never offered');
-  assert.deepEqual(ids('faster'), ['fast'], 'measured speeds decide (slow is not faster); local has none and is never the faster guess');
-  assert.deepEqual(needCandidates(entries, { need: 'faster', from: model('x', { tier: 'frontier' }), category: 'chat', cost }).map((e) => e.model.id), ['fast', 'slow'], 'without measured speeds: a lower tier, not local');
+  assert.deepEqual(ids('faster'), ['fast', 'slow'], 'a lower tier, never a local runtime');
+  assert.deepEqual(needCandidates(entries, { need: 'faster', from: model('fast', {}), category: 'chat', cost }).map((e) => e.model.id), ['slow'], 'the same tier is not faster');
 });
 
 test('B-079 startEffort: my own model.set effort first, then my own fixed effort', async () => {

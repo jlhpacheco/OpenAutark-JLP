@@ -4,7 +4,7 @@
 // connection, chat-only phones too – by the live activity: when an agent's split runs start or end (not with each
 // step), its newest groups are read again (one call per agent, coalesced). A reconnect reads every watched query again.
 // Queries in flight are shared; the map keeps the newest MAX_GROUPS groups.
-// The split rows name models from the catalog; ensureModelNames reads it once where nothing loaded it yet.
+// The split rows name models from the catalog, which comes with every (re)connect (store.loadAll).
 // Owns: the groups signal, the reads and their refresh rules, and the store-reading selectors.
 // Never: polls, or shows a group this connection may not open (the runtime leaves those out of splits.list).
 
@@ -12,7 +12,7 @@ import { effect, signal } from '@preact/signals';
 import '../../shared/api/methods-splits.ts'; // the splits.* method shapes (module augmentation)
 import type { SplitGroupView, SplitView } from '../../shared/model/splits.ts';
 import { rpc } from '../lib/rpc.ts';
-import { activity, loadModels, models } from '../lib/store.ts';
+import { activity } from '../lib/store.ts';
 import { changedAgents, runGroups, sidebarGroups, splitRunKeys } from './split-text.ts';
 
 export interface SplitQuery { agentId?: string; parentRunId?: string; groupId?: string; conversationId?: string; active?: boolean; limit?: number }
@@ -74,15 +74,6 @@ export function watchSplits(query: SplitQuery): () => void {
     if (!current) return;
     if (current.holders > 1) current.holders--; else watched.delete(key);
   };
-}
-
-let modelsLoading: Promise<unknown> | null = null;
-
-/** The catalog's model names for the model · effort slots (lib/model-name.ts; the catalog loads lazily elsewhere): read once
- *  when nothing is loaded yet – every split row then names a model the same way. */
-export function ensureModelNames(): void {
-  if (modelsLoading || models.peek().length) return;
-  modelsLoading = loadModels().catch(() => undefined).finally(() => { modelsLoading = null; });
 }
 
 /** One split with its group from the known groups. */

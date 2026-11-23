@@ -1,7 +1,7 @@
 // B-078: one Back on the phone, layer by layer – an open dialog (search, new chat, feedback, plans, a context menu, a
 // confirm), the global sheet, the chat's side panel (details or a thread, a bottom sheet on the phone), the chat's
-// area, a pushed screen (a chat → Chats, an agent or a person → Team, a task → Work), a settings section →
-// all settings → Home, any other tab → My day; on My day it is done (false). The Android app's Back calls
+// area, a pushed screen (a chat → Chats, an agent or a person → Team, a to-do or quest → Tasks), a settings section →
+// all settings → Home, any other tab → Tasks; on Tasks it is done (false). The Android app's Back calls
 // window.autarkBack() (evaluateJavascript) and puts itself in the background on false – it never closes. In a browser
 // PWA the sheet, the chat's panel (phone layout) and the chat's area get a history entry of their own while open, so
 // the system Back closes them first;
@@ -19,7 +19,7 @@ import { isAndroidApp } from './native.ts';
 
 declare global {
   interface Window {
-    /** One layer back; false when there is none left (My day). */
+    /** One layer back; false when there is none left (Tasks). */
     autarkBack?: () => boolean;
   }
 }
@@ -33,10 +33,10 @@ export function nextBack(current: Route, open: Layers): 'overlay' | 'sheet' | 'p
   switch (current.view) {
     case 'chat': return open.panel ? 'panel' : open.area ? 'area' : { view: 'chats' };
     case 'team': return current.agentId || current.personId || current.splitId ? { view: 'team' } : { view: 'home' };
-    case 'tasks': return current.task ? { view: 'tasks' } : { view: 'home' };
+    case 'tasks': return current.task ? { view: 'tasks' } : false; // the page is the tab root
     case 'settings': return current.section ? { view: 'settings' } : { view: 'home' };
     case 'chats': return { view: 'home' };
-    default: return false; // 'home' and 'day': My day
+    default: return false; // 'home': the Tasks page
   }
 }
 

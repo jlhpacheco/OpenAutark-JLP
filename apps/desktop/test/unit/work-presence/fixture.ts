@@ -8,7 +8,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Bus } from '../../../src/runtime/bus.ts';
 import { Journal } from '../../../src/runtime/runs/journal.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { preview } from '../../../src/runtime/tools/outputs.ts';
 import { WorkPresence } from '../../../src/runtime/work-presence/service.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';

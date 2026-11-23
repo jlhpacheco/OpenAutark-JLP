@@ -25,7 +25,7 @@ import { RunItemList, holdRunsTopic, useRunItems } from '../team/run-items.tsx';
 import { SplitIcon } from './SplitRows.tsx';
 import { TitleMenu } from '../team/TitleMenu.tsx';
 import { splitMenu } from './split-menu.ts';
-import { applyGroup, ensureModelNames, findSplit } from './split-model.ts';
+import { applyGroup, findSplit } from './split-model.ts';
 import { SPLIT_STATUS_LABEL, elapsedText, isSettled, liveOfSplit, partLabel, partOf, splitModelText, tokensText } from './split-text.ts';
 
 /** Reads a split's group into the store; the error, if any (not_found = it is gone). */
@@ -81,7 +81,6 @@ function SplitPage(props: { split: Split; group: SplitGroupView }) {
   const { split, group } = props;
   const run = split.run;
   const settled = isSettled(split.status);
-  useEffect(ensureModelNames, []);
   const model = splitModelText(split, modelShortName, split.status === 'running' ? liveOfSplit(activity.value, split.id) : undefined)
     || `Same as ${agentName(split.agentId)}`;
   const started = split.startedAt ?? run?.startedAt;

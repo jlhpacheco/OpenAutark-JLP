@@ -85,7 +85,7 @@ function compactionOf(message: Record<string, unknown>): { before?: number; afte
   return { ...(before !== undefined ? { before } : {}), ...(after !== undefined ? { after } : {}), ...(ms !== undefined ? { ms } : {}) };
 }
 
-/** Our dotted tool name for a hub wire name ("tasks__create" → "tasks.create", see toWireName). */
+/** Our dotted tool name for a hub wire name ("tasks__add" → "tasks.add", see toWireName). */
 function hubToolName(wire: string): string {
   return wire.replace(/__/g, '.');
 }

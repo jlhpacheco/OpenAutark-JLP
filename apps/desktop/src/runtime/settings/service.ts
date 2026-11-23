@@ -11,27 +11,32 @@
 // 'settings.updated'; one stat before makes sure an edit not handed over yet comes first. A missing file is
 // written again from the current values; a file that is no JSON object at all is copied to settings.rejected.json
 // before the app writes over it (until then nothing is written).
-// Once: the old database table's rows move into the file (the file's own values win) and the table is emptied.
-// A settings.json that is still the pre-rebuild store (schema 1–7) is neither read nor written until
-// db/import-v7.ts has moved it aside. Without a data folder (tests) the settings live in memory only.
+// Without a data folder (tests) the settings live in memory only.
+// Sicher-Runde 19.11.2026: a disk edit of the `security` section is refused in every mode (keepSecurity; FX1 H4: Trust AI
+// mode's three Ask switches and the Secure lists kept ready in it are the person's too). REVIEW-2 9: the section last applied
+// is also kept in the database (kv 'settings.security'), so the first read after a start puts back an edit made while the
+// app was closed; with no record yet (the first start of this version, a new company) the file's section is taken.
 // Owns: these rules and the 'settings.updated' / 'settings.notice' events. Never: secret values (only ids such as
 // calendar.googleSecretId), a partial write of an invalid result, or polling.
 
-import { closeSync, openSync, readSync } from 'node:fs';
+import { KvRepo } from '../store/kv.ts';
 import path from 'node:path';
 import type { Bus } from '../bus.ts';
 import type { Clock, Logger, SettingsService } from '../contracts.ts';
 import type { Db } from '../db/database.ts';
-import { isLegacyStore, looksLegacy } from '../db/legacy-store.ts';
-import type { Settings, SettingsPatch } from '../../shared/model/system.ts';
+import { type Settings, type SettingsPatch } from '../../shared/model/system.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import { ROOT_SETTINGS } from '../root/layout.ts';
 import { TextDoc, canonical, readText, writeAtomic, type TextProblem, type TextRead } from '../root/text-doc.ts';
 import type { RootWatcher } from '../root/watcher.ts';
 import { defaultSettings, type SystemEnvironment } from './defaults.ts';
 import { SETTINGS_SCHEMA_FILE, parseText, schemaText, settingsText, type PcDefaults } from './schema.ts';
-import { noticeText, pcOf, sameSettings, settingsFrom, settled, withOldRows, type FileProblem } from './read.ts';
+import { noticeText, pcOf, sameSettings, settingsFrom, settled, type FileProblem } from './read.ts';
 import { checkPatchShape, deepMerge, validateSettings } from './validate.ts';
+
+/** Where the security section last applied is kept (keepSecurity). */
+const SECURITY_NS = 'settings.security';
+const SECURITY_KEY = 'applied';
 
 /** settings.json is never larger (1000 learned words fit many times). */
 export const SETTINGS_FILE_MAX_BYTES = 1024 * 1024;
@@ -39,7 +44,7 @@ export const SETTINGS_FILE_MAX_BYTES = 1024 * 1024;
 export interface SettingsDeps {
   bus: Bus;
   clock: Clock;
-  /** Only for the one-time move of the old `settings` table (absent: nothing to move). */
+  /** Where the security section last applied is kept (kv; absent: not kept – tests, fakes). */
   db?: Db;
   env?: SystemEnvironment; // OS locale/timezone (tests pass fixed values)
   /** <data>, home of settings.json (absent: memory only – tests, fakes). */
@@ -69,8 +74,6 @@ export class SettingsStore implements SettingsService {
   /** settings.schema.json is current (checked once per start). */
   private schemaDone = false;
   private cache: Settings | undefined;
-  /** The old table's rows not moved yet (undefined: not read yet). */
-  private rows: Plain | undefined;
   /** What the file held when the app last took it over or wrote it (readKey). */
   private seen: string | undefined;
   /** Sections of the file that are not applied, as written (kept in the file until fixed). */
@@ -79,8 +82,6 @@ export class SettingsStore implements SettingsService {
   private problems: FileProblem[] = [];
   /** The file is no usable JSON object (copied aside before the app writes over it). */
   private unusable = false;
-  /** The file is the pre-rebuild store (see the header). */
-  private legacy = false;
   private noticeText: string | undefined;
   private offWatch?: () => void;
 
@@ -129,6 +130,7 @@ export class SettingsStore implements SettingsService {
     for (const section of Object.keys(patch)) delete this.rejected[section]; // the change replaces what was not applied
     if (this.doc) this.write(next, true);
     this.cache = next;
+    this.applied(next);
     this.problems = this.problems.filter((problem) => !(problem.section in patch) && problem.section in this.rejected);
     this.setNotice(undefined);
     const result = this.get();
@@ -154,14 +156,11 @@ export class SettingsStore implements SettingsService {
 
   private load(): Settings {
     const base = this.cache ?? this.defaults;
-    const rows = this.oldRows();
-    if (!this.doc) return settingsFrom(rows, base, this.defaults).settings;
+    if (!this.doc) return settingsFrom({}, base, this.defaults).settings;
     const read = this.doc.safeCheck();
     this.seen = readKey(read);
-    this.legacy = this.isLegacy(read);
-    if (this.legacy) return this.cache ?? settingsFrom(rows, base, this.defaults).settings;
     if (read.kind === 'missing') {
-      const settings = this.cache ?? settingsFrom(rows, base, this.defaults).settings;
+      const settings = this.cache ?? this.withKept(settingsFrom({}, base, this.defaults).settings);
       this.rejected = {};
       this.problems = [];
       this.unusable = false;
@@ -170,35 +169,76 @@ export class SettingsStore implements SettingsService {
       return settings;
     }
     const parsed = read.kind === 'ok' ? parseText(read.text) : { whole: READ_PROBLEM[read.problem] };
-    const moving = Object.keys(rows).length > 0;
-    if (!parsed.data && !moving) { // nothing of it can be used: the last good values stay
+    if (!parsed.data) { // nothing of it can be used: the last good values stay
       this.unusable = true;
       this.rejected = {};
       this.problems = [];
       this.setNotice(parsed.whole);
-      return structuredClone(base);
+      return this.cache ? structuredClone(base) : this.withKept(structuredClone(base));
     }
-    const data = moving ? withOldRows(parsed.data, rows) : parsed.data ?? {};
-    const { settings, problems, rejected, dropped } = settingsFrom(data, base, this.defaults);
-    this.unusable = parsed.data === undefined;
+    const { settings, problems, rejected, dropped } = settingsFrom(parsed.data, base, this.defaults);
+    this.keepSecurity(settings, rejected, problems); // Sicher-Runde: the security section changes only through update()
+    this.unusable = false;
     this.rejected = rejected;
     this.problems = problems;
     this.setNotice(parsed.whole);
     if (dropped.length) this.deps.log?.info('unknown settings left out of settings.json', { keys: dropped });
     // Whole and current: written only when the text differs – never over a file whose sections only fail together.
     if (!problems.some((problem) => problem.section === 'settings')) this.write(settings, false);
+    this.applied(settings);
     return settings;
+  }
+
+  /**
+   * Sicher-Runde 19.11.2026 (FX1 H4: in every mode): an edit of settings.json that changes the `security` section is not applied –
+   * the section in force stays, the file is written back with it and the edit is kept as settings.rejected.json, with a
+   * quiet notice. The person changes it in Settings › Security (update()); a linked PC's copy comes through update() too.
+   */
+  private keepSecurity(settings: Settings, rejected: Plain, problems: FileProblem[]): void {
+    const before = this.cache ? { security: this.cache.security } : this.lastApplied(); // REVIEW-2 9: the first read too
+    if (!before) return;
+    if (sameSettings(before.security, settings.security) && !Object.hasOwn(rejected, 'security')) return;
+    this.doc?.keepRejected('copy');
+    if (before.security === undefined) delete settings.security; else settings.security = structuredClone(before.security);
+    delete rejected.security;
+    problems.push({ section: 'security', detail: 'the security settings change only in Settings › Security; the edit is kept in settings.rejected.json' });
+  }
+
+  /** The security section last applied (kv; undefined: no record – the first start of this version or a new company). */
+  private lastApplied(): { security: Settings['security'] } | undefined {
+    if (!this.deps.db) return undefined;
+    try {
+      const kept = new KvRepo(this.deps.db).get<{ security: Settings['security'] | null }>(SECURITY_NS, SECURITY_KEY);
+      return kept ? { security: kept.security ?? undefined } : undefined;
+    } catch { return undefined; }
+  }
+
+  /** `settings` with the security section last applied, when there is a record (a first read without a usable file). */
+  private withKept(settings: Settings): Settings {
+    const kept = this.lastApplied();
+    if (!kept) return settings;
+    if (kept.security === undefined) delete settings.security; else settings.security = structuredClone(kept.security);
+    return settings;
+  }
+
+  /** Keeps the security section now in force (written only when it changed). */
+  private applied(settings: Settings): void {
+    if (!this.deps.db) return;
+    const kept = this.lastApplied();
+    if (kept && sameSettings(kept.security, settings.security)) return;
+    try { new KvRepo(this.deps.db).set(SECURITY_NS, SECURITY_KEY, { security: settings.security ?? null }, this.deps.clock.now()); } catch (error) {
+      this.deps.log?.warn('security section not kept', { error: String(error) });
+    }
   }
 
   /** Writes `settings` (sections not applied stay as written); `strict` throws when it fails, else it is logged. */
   private write(settings: Settings, strict: boolean): void {
     const doc = this.doc!;
-    if (this.legacy) return; // the pre-rebuild store stays until its import moved it; the values are in memory
     this.writeSchema();
     const why = Object.fromEntries([...this.problems].reverse().map((problem) => [problem.section, problem.detail]));
     const text = settingsText(settings, this.pc, this.rejected, why);
     const read = doc.safeCheck();
-    if (read.kind === 'ok' && read.text === canonical(text)) { this.seen = readKey(read); this.dropOldRows(); return; } // it already says this
+    if (read.kind === 'ok' && read.text === canonical(text)) { this.seen = readKey(read); return; } // it already says this
     try {
       if (this.unusable && read.kind !== 'missing') doc.keepRejected('copy');
       doc.write(text);
@@ -209,7 +249,6 @@ export class SettingsStore implements SettingsService {
     }
     this.seen = `text:${canonical(text)}`;
     this.unusable = false;
-    this.dropOldRows();
   }
 
   /** settings.schema.json beside the file, written when missing or out of date (once per start; a failure is logged). */
@@ -227,36 +266,6 @@ export class SettingsStore implements SettingsService {
     }
   }
 
-  /** The old `settings` table's rows (read once; {} when there are none or the table is gone). */
-  private oldRows(): Plain {
-    if (this.rows) return this.rows;
-    const rows: Plain = {};
-    try {
-      for (const row of this.deps.db?.all<{ key: string; value: string }>('SELECT key, value FROM settings') ?? []) {
-        try { rows[row.key] = JSON.parse(row.value); } catch { /* a broken row is skipped */ }
-      }
-    } catch { /* no such table */ }
-    this.rows = rows;
-    return rows;
-  }
-
-  /** The rows are in the file now: the table is emptied, so they never come back. */
-  private dropOldRows(): void {
-    if (!this.rows || !Object.keys(this.rows).length) return;
-    try { this.deps.db?.run('DELETE FROM settings'); } catch (error) { this.deps.log?.warn('old settings rows not removed', { error: String(error) }); return; }
-    this.deps.log?.info('settings moved into settings.json', { sections: Object.keys(this.rows) });
-    this.rows = {};
-  }
-
-  /** True when `read` is the pre-rebuild store (schema 1–7) that db/import-v7.ts has not moved aside yet. */
-  private isLegacy(read: TextRead): boolean {
-    if (read.kind === 'ok') {
-      if (!read.text.includes('"schema"')) return false;
-      try { return isLegacyStore(JSON.parse(read.text)); } catch { return false; }
-    }
-    return read.kind === 'problem' && read.problem === 'too-large' && looksLegacy(head(this.doc!.file));
-  }
-
   /** The notice for the problems now (and `whole`: the file cannot be used at all); told only when it changes. */
   private setNotice(whole: string | undefined): void {
     const text = whole || this.problems.length ? noticeText(this.problems, whole) : undefined;
@@ -265,14 +274,4 @@ export class SettingsStore implements SettingsService {
     if (text) this.deps.log?.warn('settings.json not fully applied', { detail: text });
     this.deps.bus.emit('settings.notice', text ? { text } : {});
   }
-}
-
-/** The file's first characters (a file too large to read whole); '' when it cannot be read. */
-function head(file: string): string {
-  let fd: number | undefined;
-  try {
-    fd = openSync(file, 'r');
-    const bytes = Buffer.alloc(256);
-    return bytes.toString('utf8', 0, readSync(fd, bytes, 0, bytes.length, 0));
-  } catch { return ''; } finally { if (fd !== undefined) closeSync(fd); }
 }

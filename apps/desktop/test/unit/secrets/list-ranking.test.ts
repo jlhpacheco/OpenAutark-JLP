@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { SecretVault } from '../../../src/runtime/secrets/service.ts';
 import { rankSecrets } from '../../../src/runtime/secrets/metadata.ts';
 import { LIST_MAX, secretTools } from '../../../src/runtime/tools/builtin/secrets.ts';

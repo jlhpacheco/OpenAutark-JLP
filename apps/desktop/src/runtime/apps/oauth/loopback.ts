@@ -1,9 +1,10 @@
-// MCP authorization (B-052 track B): the browser's way back after a sign-in (RFC 8252 loopback redirect) – a
-// generalized copy of runtime/calendar/sources/oauth-loopback.ts. One HTTP listener on 127.0.0.1 per sign-in, on
-// the first free port of `ports` (the install's stable port first: some servers accept only the exact registered
-// redirect), GET /callback only, a Host-header check (DNS rebinding), a random `state` and a PKCE S256 pair, an
-// optional check of the answer (RFC 9207 `iss`), a 5-minute timeout (one timer), and the listener closes after the
-// one answer that carries the state. Page texts are neutral; the authorization endpoint and its parameters are inputs.
+// The browser's way back after a sign-in (RFC 8252 loopback redirect), for every sign-in through the browser: MCP
+// authorization (B-052 track B, apps/oauth) and the Google Calendar consent (calendar/sources/google.ts). One HTTP
+// listener on 127.0.0.1 per sign-in, on the first free port of `ports` (the install's stable port first: some servers
+// accept only the exact registered redirect), GET on its one path only (/callback, or `path`), a Host-header check
+// (DNS rebinding), a random `state` and a PKCE S256 pair, an optional check of the answer (RFC 9207 `iss`), a 5-minute
+// timeout (one timer), and the listener closes after the one answer that carries the state (an answer with another
+// state is answered and ignored: any page could send one). Page texts are neutral; the authorization endpoint and its parameters are inputs.
 // Owns: the listener of one sign-in and its PKCE pair. Never: logs a code, a verifier or a token, shows server text,
 // or listens on anything but 127.0.0.1.
 
@@ -37,6 +38,8 @@ export interface LoopbackListener {
 export interface LoopbackInput {
   /** Ports to try in order (the first that binds wins). */
   ports: readonly number[];
+  /** The redirect's path (default CALLBACK_PATH; '' = the bare origin, answered at '/'). */
+  path?: string;
   /** Checks the answer's parameters after the state (e.g. RFC 9207 `iss`); an error ends the sign-in. */
   verify?: (params: URLSearchParams) => Error | undefined;
   timers?: Timers;
@@ -94,7 +97,8 @@ export async function openLoopback(input: LoopbackInput): Promise<LoopbackListen
   let timer: unknown;
   let closed = false;
   let server: LoopbackServer | undefined;
-  const redirectUri = () => `http://${HOST}:${port}${CALLBACK_PATH}`;
+  const at = input.path ?? CALLBACK_PATH;
+  const redirectUri = () => `http://${HOST}:${port}${at}`;
 
   const finish = (error?: Error, value?: CallbackAnswer) => {
     if (closed) return;
@@ -114,7 +118,7 @@ export async function openLoopback(input: LoopbackInput): Promise<LoopbackListen
     let url: URL;
     try { url = new URL(request.url ?? '/', `http://${HOST}:${port}`); } catch { reply(400, 'Not here.'); return; }
     const params = url.searchParams;
-    if (url.pathname !== CALLBACK_PATH || (!params.has('state') && !params.has('code') && !params.has('error'))) { reply(404, 'Not here.'); return; }
+    if (url.pathname !== (at || '/') || (!params.has('state') && !params.has('code') && !params.has('error'))) { reply(404, 'Not here.'); return; }
     if (params.get('state') !== state) {
       reply(400, 'This is not the sign-in that is open – you can close this tab.'); // never ends the open sign-in: any page could send one
       return;

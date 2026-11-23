@@ -13,9 +13,13 @@
 // Every tool is reachable in every mode (KI-Runde 17.11.2026: 16 of 17 agents could not reach phone.*): the mode chooses
 // only the core set an engine holds directly (core-sets.ts) and its text. A tool that cannot work here is not listed –
 // phone.* while no app phone is linked (phone/linked.ts) and adb is not installed on this PC (phone/adb.ts installed();
-// with adb, phone.* says itself when no phone is on the cable; a mode that names phone.* keeps it, for setting adb up),
-// `requires: 'embeddings'` while no chosen embedding model can serve. The gate follows no cable, so the offer changes
-// only when a phone is paired or unpaired, adb is installed, or an embedding model is chosen.
+// with adb, phone.* says itself when no phone is on the cable; a mode that names phone.* keeps it, for setting adb up).
+// The gate follows no cable, so the offer changes only when a phone is paired or unpaired or adb is installed.
+// 21.11.2026: feedback.report exists only in Trust AI mode (feedback/service.ts feedbackOpen) – in Secure mode it is in no offer.
+// Sicher-Runde 19.11.2026: before a call runs here or goes to another company of this PC, the security gate
+// (security/tool-gate.ts) – open, my refusal, or an approval request the call waits for (≤ 2 min); a refused call is
+// journaled like any refusal. The receiving PC or company gates the call again with its own settings – a linked PC older
+// than the first version that does (tool-gate.ts peerGates, REVIEW-2 4) does not, so this PC gates it before it goes. A closed tool stays offered.
 // Never: retries external effects, puts secret values or HIDDEN_ARGS into outputs or the journal, or forwards a call
 // to a revoked, unknown or non-PC device.
 
@@ -36,9 +40,18 @@ import { PHONE_FAMILY, callRefusal, callTarget, cannotWork } from './builtin/too
 import { withoutSecretValues } from '../secrets/guard.ts';
 import { linkedPhones } from '../phone/linked.ts';
 import { missed } from '../devices/back-wake.ts'; // B-080
+import { gateToolCall, peerGates } from '../security/tool-gate.ts'; // Sicher-Runde 19.11.2026
+import { FEEDBACK_TOOL } from './builtin/feedback.ts';
+import { feedbackOpen } from '../feedback/service.ts'; // 21.11.2026: Trust AI mode only
 import '../contracts/vectors.ts';
 
 export { resolveDevice, withDeviceArg, type DeviceTarget } from './placement.ts';
+
+/** The app version a linked PC last told this one (undefined: unknown). */
+function deviceVersion(services: RuntimeServices, deviceId: string | undefined): string | undefined {
+  if (!deviceId) return undefined;
+  try { return services.devices.list().find((device) => device.id === deviceId)?.caps?.version; } catch { return undefined; }
+}
 
 export interface ToolRegistryOptions {
   /** Late-bound: the registry is itself part of RuntimeServices. */
@@ -99,9 +112,14 @@ export class Registry implements ToolRegistry {
    *  `phoneCanWork`: one answer for a whole offer – the phone gate reads the devices once per specsFor, not per phone tool. */
   allowed(tool: ToolDef, _agent: Agent, mode: ModeInfo, phoneCanWork: () => boolean = () => this.phoneCanWork()): boolean {
     if (tool.modes && !tool.modes.includes(mode.key)) return false;
-    if (tool.requires === 'embeddings') return this.embeddings();
     if (tool.name.startsWith(PHONE_FAMILY)) return phoneCanWork() || (mode.tools ?? []).some((pattern) => pattern !== '*' && matchesPatterns(tool.name, [pattern]));
+    if (tool.name === FEEDBACK_TOOL) return this.feedbackOpen();
     return true;
+  }
+
+  /** feedback.report: this company runs in Trust AI mode. */
+  private feedbackOpen(): boolean {
+    try { return feedbackOpen(this.options.services()); } catch { return false; }
   }
 
   /** phone.* can work here: an app phone is linked to this company (phone/linked.ts) or adb is installed on this PC. */
@@ -110,11 +128,6 @@ export class Registry implements ToolRegistry {
       const services = this.options.services();
       return services.phones?.adbInstalled?.() === true || linkedPhones(services).some((phone) => phone.via === 'app');
     } catch { return false; }
-  }
-
-  /** An embedding model a person chose can serve now (models/embeddings.ts). */
-  private embeddings(): boolean {
-    try { return Boolean(this.options.services().vectors?.available()); } catch { return false; }
   }
 
   /** B-080: the same tools for every engine (`_engine` names the caller; its direct offer is offerFor's core set). */
@@ -175,12 +188,20 @@ export class Registry implements ToolRegistry {
         if (!placedIn.target) return refuse(`Invalid arguments for ${name}: ${toErrorData(error).message}`, true); // in another company its describe read this one's data
       }
     }
+    const asked = action; // what the gate sees: the step itself (its app, its file), before it is named for another PC or company
     if (target) action = onPc(action, target);
     if (placedIn.target) action = inCompany(action, placedIn.target); // judged external there: its effect is that company's
 
     // The turn's tool boundary follows this call under its id from here (a resend above is the same call).
     const report = (on: boolean) => { if (callId) { try { this.options.onCall?.({ agentId: ctx.agent.id, runId: ctx.runId, callId }, on); } catch { /* bookkeeping only */ } } };
     report(true);
+    // Sicher-Runde: the security gate; a wait counts as the call running. A call for a linked PC is gated there (the same
+    // company's settings), and here when that PC runs a version that does not gate yet; a call into another company of this
+    // PC passes this company's gate for its own agent here and that company's gate there (devices/tools.ts, builtin/companies.ts).
+    if (!target || !peerGates(deviceVersion(services, target.id))) {
+      const refused = await gateToolCall(services.security, tool, input, { ...asked, summary: action.summary }, ctx).catch((error: unknown) => toErrorData(error).message);
+      if (refused) { report(false); return refuse(refused); }
+    }
     const call = this.invoke(services, { tool, args: input, action, ctx, company: placedIn.target }, callId, idemKey, target?.name);
     this.running.set(idemKey, call);
     try { return await call; } finally { this.running.delete(idemKey); report(false); }

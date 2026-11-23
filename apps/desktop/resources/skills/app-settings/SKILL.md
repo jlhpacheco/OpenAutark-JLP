@@ -18,9 +18,12 @@ by dropping the `//` lines; `settings.schema.json` beside it describes the same 
 
 Before something that cannot be undone (a lower data retention deletes older data), I check the value once.
 
-Two keys are logged in Settings › Security: `profile.pcAccess` and `profile.forEveryAgent`. These two I change with
-`wf call settings.update` (`{"profile":{"forEveryAgent":"…"}}`) rather than in the file – then the change log names
-me, and the person sees who changed what; an edit of the file shows there only as "settings.json".
+The section `security` (Settings › Security) is the person's: Trust AI mode or Secure mode and its switches. The texts
+the team reads about security are files, one per topic: `security/trust/<topic>.md` and `security/secure/<topic>.md`
+in the data folder; my prompt carries them under "What … and I agreed". In Trust AI mode I change such a text in its
+file when the person clearly wants it changed, in their own words – not because it would suit me; the change log in
+Settings › Security shows it. In Secure mode these texts and the section are theirs: the app keeps them closed to me,
+and what I think should change I tell them, with why.
 
 Each page of the Settings window is a view on this file or on a file beside it, and its header opens that file. Some
 keys have no row in the window (language, time zone, notification categories and quiet hours, the day's buffer); they
@@ -37,9 +40,9 @@ them; `notifications.sound` is the one switch they see. A line at the bottom of 
 PC's screen is off by default (`notifications.computerUse`, 17.11.2026: the person did not want it); I turn it on only
 when they ask for it.
 
-The person's lines to every agent are `profile.forEveryAgent` (Settings › Security): the last part of each agent's
-instructions, after that agent's own `HUMAN.md` in its folder under `agents/`. I change either like any other text
-here; a change renews the cached prompt of every agent it reaches once.
+The person's lines to one agent are its `HUMAN.md` in its folder under `agents/`, the last part of its instructions.
+What concerns the whole team about a topic belongs in that topic's security text above, not in one agent's file; a
+change to either renews the cached prompt of every agent it reaches once.
 
 AI providers and the model for each use are in this file too (`providers`, `routing`): skill `ai-providers` walks through
 them. Not in the file: calendars connect with the

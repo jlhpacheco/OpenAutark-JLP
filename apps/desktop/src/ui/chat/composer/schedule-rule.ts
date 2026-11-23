@@ -5,8 +5,8 @@
 // Owns: that wording. Never: RPC, DOM or the clock (`now` is passed in) – the form → spec step is schedule-form.ts.
 
 import type { ScheduleSpec } from '../../../shared/model/tasks.ts';
-import { nextDate, wallClock } from './schedule-clock.ts';
-import { splitEvery } from './schedule-form.ts';
+import { addDays, wallOf, weekdayOf } from '../../../shared/text/when.ts';
+import { hhmm, splitEvery } from './schedule-form.ts';
 
 const LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -25,16 +25,16 @@ export interface RuleOptions {
 /** "Tue 3 Nov" (with the year when it is not the current one). */
 function dayText(date: string, thisYear: string): string {
   const [year, month, day] = date.split('-').map(Number);
-  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  const weekday = weekdayOf(date);
   return `${SHORT[weekday]} ${day} ${MONTH[month - 1]}${String(year) === thisYear ? '' : ` ${year}`}`;
 }
 
 /** "Tue 3 Nov 14:00" – the time only when it is not the day's start (or, for an end, its last minute). */
 function pointText(ms: number, tz: string, now: number, edge: 'start' | 'end'): string {
-  const { date, hour, minute } = wallClock(ms, tz);
-  const day = dayText(date, wallClock(now, tz).date.slice(0, 4));
-  const whole = edge === 'start' ? hour === 0 && minute === 0 : hour === 23 && minute === 59;
-  return whole ? day : `${day} ${two(hour)}:${two(minute)}`;
+  const { date, minutes } = wallOf(ms, tz);
+  const day = dayText(date, wallOf(now, tz).date.slice(0, 4));
+  const whole = edge === 'start' ? minutes === 0 : minutes === 23 * 60 + 59;
+  return whole ? day : `${day} ${hhmm(minutes)}`;
 }
 
 /** The weekdays as words: "every Monday" before a time ("at 09:00"), "on Mondays" after an interval ('' = every day). */
@@ -77,10 +77,10 @@ export function ruleWords(spec: ScheduleSpec, options: RuleOptions = {}): string
   const now = options.now ?? Date.now();
   if (!repeats(spec)) {
     if (spec.at === undefined) return 'never';
-    const { date, hour, minute } = wallClock(spec.at, tz);
-    const today = wallClock(now, tz).date;
-    const when = date === today ? 'today' : date === nextDate(today) ? 'tomorrow' : `on ${dayText(date, today.slice(0, 4))}`;
-    return `${when} at ${two(hour)}:${two(minute)}`;
+    const { date, minutes } = wallOf(spec.at, tz);
+    const today = wallOf(now, tz).date;
+    const when = date === today ? 'today' : date === addDays(today, 1) ? 'tomorrow' : `on ${dayText(date, today.slice(0, 4))}`;
+    return `${when} at ${hhmm(minutes)}`;
   }
   let words: string;
   const cron = spec.cron !== undefined ? simpleCron(spec.cron) : undefined;

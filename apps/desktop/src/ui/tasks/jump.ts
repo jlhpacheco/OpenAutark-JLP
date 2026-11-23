@@ -1,91 +1,19 @@
-// Navigation helpers shared by every task surface: jump to the anchor message of a task in its
-// chat (paging older history in, bounded, when the message is not loaded yet), open and close a
-// task in Work's detail – the selection is the route's ?task= (B-041: Back closes the detail, a
-// sidebar click clears it) – and Work's clock, the time its groups are read at.
-// Owns: the selection rules of Work's detail, the jump flow and the Work clock (one re-armable
-// timeout to the next moment a group changes by time alone – work-model.ts nextWorkChange; never
-// polling). Never: copies tasks – the overview always returns to the original chat and message –
-// or opens an anchor chat (the old To-do chat, the old Inbox) as a chat. B-054: a task without a
-// chat (made in the To-do area, by a mail run, a routine …) always opens the detail.
+// Navigation helpers shared by every task surface: jump to the anchor message of a task in its chat (paging older
+// history in, bounded, when the message is not loaded yet), and open a task in the Tasks page's detail (Quests round
+// 20.11.2026: #/tasks/<id> – the to-do's or quest's detail where the calendar was, its own thread in it). B-054: a task
+// without a chat (made on the Tasks page, by a mail run, a reminder …) always opens the detail.
+// Owns: the jump flow and where a task opens. Never: copies tasks – the overview always returns to the original chat
+// and message – or opens an anchor chat (the old To-do chat, the old Inbox) as a chat.
 
-import { computed, effect, signal } from '@preact/signals';
+import { effect } from '@preact/signals';
 import type { Signal } from '@preact/signals';
-import { useEffect } from 'preact/hooks';
 import type { SystemChat } from '../../shared/model/chat.ts';
 import type { TaskView } from '../../shared/model/tasks.ts';
-import { back, formatRoute, navigate } from '../lib/router.ts';
+import { navigate } from '../lib/router.ts';
 import { focusMessage } from '../lib/shell-state.ts';
-import { activeConversationId, conversationMap, historyComplete, loadOlder, messagesFor, route, tasks } from '../lib/store.ts';
+import { activeConversationId, conversationMap, historyComplete, loadOlder, messagesFor } from '../lib/store.ts';
 import { toastError } from '../lib/toasts.ts';
-import { doneTasks } from './done-store.ts';
-import { DAY_MS } from './todo-model.ts';
-import { nextWorkChange, withTask } from './work-model.ts';
-
-/** The task shown in Work's detail (main area or right drawer): the route's ?task=. */
-export const selectedTaskId = computed<string | null>(() => {
-  const current = route.value;
-  return current.view === 'tasks' ? current.task ?? null : null;
-});
-
-/** The detail entry selectTask pushed onto Work's list (a switch of task replaces it): closing it there goes back. */
-let pushed: string | null = null;
-
-/**
- * Opens a task in Work's detail. From Work's list it is a new history entry (Back closes the
- * detail); a switch to another task replaces it; from elsewhere Work opens with the task (the view
- * and owner filter kept when Work is already open).
- */
-export function selectTask(taskId: string): void {
-  const current = route.peek();
-  if (current.view !== 'tasks') {
-    pushed = null;
-    navigate({ view: 'tasks', task: taskId });
-    return;
-  }
-  if (current.task === taskId) return;
-  const next = withTask(current, taskId);
-  const switched = !!current.task;
-  if (switched && pushed !== formatRoute(current)) pushed = null; // not the entry pushed here: it stays as it is
-  else pushed = formatRoute(next);
-  navigate(next, { replace: switched });
-}
-
-/** Closes Work's detail: back to the list it was opened from, else the same view without a selection. */
-export function closeTask(): void {
-  const current = route.peek();
-  if (current.view !== 'tasks' || !current.task) return;
-  const here = formatRoute(current);
-  const wasPushed = pushed === here;
-  pushed = null;
-  if (wasPushed) back();
-  else navigate(withTask(current), { replace: true });
-}
-
-// ------------------------------------------------------------------ the Work clock
-
-/** The time Work's groups (a wait turning stuck) and its folded Done are read at. */
-export const workClock = signal(Date.now());
-
-/** setTimeout's longest reliable delay is ~24.8 days; the clock re-arms after a day at most. */
-const MAX_CLOCK_DELAY = DAY_MS;
-let clockTimer: ReturnType<typeof setTimeout> | undefined;
-
-/** Re-arms the one timeout for the moment `at` (none: no change ahead); it moves the clock to then. */
-export function armWorkClock(at: number | undefined): void {
-  clearTimeout(clockTimer);
-  clockTimer = undefined;
-  if (at === undefined) return;
-  clockTimer = setTimeout(() => { clockTimer = undefined; workClock.value = Date.now(); }, Math.min(Math.max(0, at - Date.now()), MAX_CLOCK_DELAY));
-}
-
-/** The Work clock for a view: re-armed whenever the open or finished tasks change. */
-export function useWorkClock(): number {
-  const now = workClock.value;
-  const open = tasks.value;
-  const done = doneTasks.value;
-  useEffect(() => armWorkClock(nextWorkChange(open, done, now)), [open, done, now]);
-  return now;
-}
+import { openDetail } from './page-state.ts';
 
 // ------------------------------------------------------------------ jumping to the chat
 
@@ -155,9 +83,9 @@ export function openTaskInChat(task: Pick<TaskView, 'conversationId' | 'messageI
   else navigate({ view: 'chat', id: chatId });
 }
 
-/** Shows a task in Work's detail (keeps the view and owner filter when already there). */
+/** Shows a task in the Tasks page's detail (from the page itself a new history entry: Back closes it). */
 export function openTaskDetail(taskId: string): void {
-  selectTask(taskId);
+  openDetail('main', taskId);
 }
 
 /**

@@ -19,10 +19,11 @@
 // Never: starts processes or threads (engine.ts does).
 
 import type { EngineEvent, EngineFile, EngineTurnInput, EngineTurnResult } from '../types.ts';
-import type { RpcClient, RpcNotification } from './rpc.ts';
+import type { RpcClient } from './rpc.ts';
+import type { RpcNote } from '../line-rpc.ts';
 import { RpcError } from './rpc.ts';
 import type { CodexServer } from './server.ts';
-import { APPROVAL_METHODS, approvalResponse, declineUserInput } from './approvals.ts';
+import { APPROVAL_METHODS, approvalResponse, declineUserInput, type CodexSecure } from './approvals.ts';
 import { turnPermissions, type TurnAccess } from './isolation.ts';
 import { ERR, ToolNames, contextText, isRecord, nearestEffort, num, outputImages, outputText, safeCall, str, tryJson } from '../shared.ts';
 import type { Effort } from '../../../shared/model/providers.ts';
@@ -110,7 +111,7 @@ export const HELPER_SILENT_MS = 90_000;
 const INPUT_ITEMS: ReadonlySet<string> = new Set(['userMessage', 'hookPrompt']);
 
 /** A sign that the model answers: one of its items or a delta of one, or a request's token usage. */
-const modelSign = (note: RpcNotification): boolean => note.method === 'thread/tokenUsage/updated'
+const modelSign = (note: RpcNote): boolean => note.method === 'thread/tokenUsage/updated'
   || (note.method.startsWith('item/') && !(isRecord(note.params.item) && INPUT_ITEMS.has(str(note.params.item.type) ?? '')));
 
 /**
@@ -171,6 +172,7 @@ export function reasoningText(summary: unknown): { text?: string } {
 export async function runCodexTurn(args: {
   server: CodexServer; rpc: RpcClient; threadId: string; input: EngineTurnInput; effort?: string; names: ToolNames;
   control: TurnControl; now: () => number; context?: string; access?: TurnAccess; summary?: 'auto' | 'none'; helper?: boolean;
+  secure?: CodexSecure; // Sicher-Runde 19.11.2026: Secure mode's sandbox and gate (approvals.ts)
 }): Promise<EngineTurnResult> {
   const { server, rpc, threadId, input, names, control } = args;
   const emit = (event: EngineEvent) => { try { input.onEvent(event); } catch { /* UI listener errors never break a turn */ } };
@@ -198,13 +200,13 @@ export async function runCodexTurn(args: {
   let ended = false; // this Codex cannot run tools: the turn was stopped
   let quiet: ReturnType<typeof setTimeout> | undefined; // a helper turn's cut, until the model's first sign
   let silent = false; // the cut ended the turn
-  const early: RpcNotification[] = []; // notifications that arrive before turn/start answers
+  const early: RpcNote[] = []; // notifications that arrive before turn/start answers
   const code = new CodeCalls(emit, (wire) => names.ours(wire) !== undefined); // B-049 F9: exec/wait calls and nested marking
 
   let finish!: (status: string, error: unknown) => void;
   const completed = new Promise<{ status: string; error: unknown }>((resolve) => { finish = (status, error) => resolve({ status, error }); });
 
-  const handle = (note: RpcNotification) => {
+  const handle = (note: RpcNote) => {
     const p = note.params;
     if (note.method === 'workforce/closed') { finish('closed', undefined); return; }
     if (!turnId) { early.push(note); return; }
@@ -234,6 +236,7 @@ export async function runCodexTurn(args: {
         const item = isRecord(p.item) ? p.item : undefined;
         if (!item) break;
         const type = str(item.type) ?? '';
+        if (note.method === 'item/started') args.secure?.gate.seen(item); // a file change's files, for its approval request
         if (type === 'contextCompaction') {
           if (note.method === 'item/started') compacting = { at: args.now(), ...(contextTokens !== undefined ? { before: contextTokens } : {}) };
           else tellCompacted();
@@ -327,7 +330,7 @@ export async function runCodexTurn(args: {
         ],
       };
     }
-    if (APPROVAL_METHODS.has(method)) return approvalResponse(method, params, args.access !== 'read');
+    if (APPROVAL_METHODS.has(method)) return args.secure ? args.secure.gate.answer(method, params) : approvalResponse(method, params, args.access !== 'read');
     if (method === 'item/tool/requestUserInput') return declineUserInput();
     if (method === 'mcpServer/elicitation/request') return { action: 'decline' };
     throw new RpcError(-32601, 'This action is not available.');
@@ -343,7 +346,7 @@ export async function runCodexTurn(args: {
   input.signal.addEventListener('abort', onAbort, { once: true });
   try {
     const hears = input.input.some((item) => item.type === 'audio') && await codexHearsAudioNow(rpc, input.model);
-    const params: Record<string, unknown> = { threadId, input: [...contextBlock(args.context), ...codexInput(input.input, hears)], model: input.model, ...turnPermissions(args.access) };
+    const params: Record<string, unknown> = { threadId, input: [...contextBlock(args.context), ...codexInput(input.input, hears)], model: input.model, ...turnPermissions(args.access, args.secure?.sandbox) };
     if (args.effort) params.effort = args.effort;
     if (args.summary) params.summary = args.summary; // D5: TurnStartParams.summary (ReasoningSummary)
     if (input.outputSchema) params.outputSchema = input.outputSchema;

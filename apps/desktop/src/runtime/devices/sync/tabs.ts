@@ -23,7 +23,7 @@ import type { RuntimeServices } from '../../contracts.ts';
 import { readSideTabs, sideTabsFile, writeSideTabs } from '../../root/side-tabs.ts';
 import { KvRepo } from '../../store/kv.ts';
 import { DevicesRepo } from '../repo.ts';
-import { linkOf, links, selfId } from './home.ts';
+import { isCeoPc, linkOf, links, selfId } from './home.ts';
 import { hashOf, wins, type Stamps } from './stamps.ts';
 import { applyPhone, closedBetween, mergeSpace, phoneSpaces, sharedSpace, withoutClosed, withoutIds } from './tabs-map.ts';
 
@@ -124,7 +124,7 @@ export class TabSync {
 
   /** What the link-up owes a CEO PC: every space (a change the watcher has not handed over yet first). */
   async catchUp(peer: string): Promise<boolean> {
-    if (!this.live || linkOf(new DevicesRepo(this.s.db).get(peer))?.kind !== 'ceo') return true;
+    if (!this.live || !isCeoPc(this.s.db, peer)) return true;
     this.changed();
     return this.post(peer, this.current());
   }

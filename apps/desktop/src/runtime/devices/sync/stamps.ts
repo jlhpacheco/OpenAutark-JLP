@@ -4,10 +4,13 @@
 // (the owner's read cursor, tables.ts `merged`): it travels with the same `at`, so a read never wins over an edit.
 // Last writer wins: the later `at`; at the same `at` the larger hash, except for two units nobody changed since
 // the link (at 0) – then the PC that joined takes the other one's (a fresh PC adopts the existing setup).
-// kv's updated_at is this PC's time of storing a stamp: a link-up sends what was stored after that PC's cursor
-// (ns 'sync.sent', the start of the last complete link-up with it). A change that only takes over what a linked PC
-// changed (`echo`: a SYSTEM.md that came before its agents row, files.ts) is stamped half a step after the last stamp –
-// below any later change, which adds at least one –, so the row of the PC it came from still wins, also its other
+// kv's updated_at is this PC's time of storing a stamp: a catch-up sends what was stored after that PC's cursor (ns
+// 'sync.sent'): per part – 'rows' (rows and secrets) and 'files' (settings and the file manifest) – the start of its
+// last complete run, so a file that keeps failing never makes the rows go again. A cursor holds both PCs' app versions
+// (`pair`, this one's and the other's caps.version); when either is another one, it answers undefined – the next
+// catch-up starts from zero once and brings what an older version dropped. A change that only takes over what a linked
+// PC changed (`echo`: a SYSTEM.md that came before its agents row, files.ts) is stamped half a step after the last stamp
+// – below any later change, which adds at least one –, so the row of the PC it came from still wins, also its other
 // fields (B-087).
 // Owns: these stamps, the cursors and the hash. Never: reads a synced row's content (only which keys have no stamp)
 // or writes one.
@@ -16,9 +19,14 @@ import { createHash } from 'node:crypto';
 import type { Clock } from '../../contracts.ts';
 import type { Db } from '../../db/database.ts';
 import { KvRepo } from '../../store/kv.ts';
+import { DevicesRepo } from '../repo.ts';
 
 /** `r`: the hash of a table's merged part (tables.ts `merged`, the owner's read cursor) – it travels without a new `at`. */
 export interface Stamp { at: number; h: string; gone?: true; r?: string }
+/** What a cursor counts for: 'rows' (rows and secrets) or 'files' (settings and the file manifest). */
+export type Part = 'rows' | 'files';
+/** One PC's cursor as stored: the app versions it was made under and each part's start. */
+type Cursor = { pair: string } & Partial<Record<Part, number>>;
 
 const NS = 'sync';
 const SENT = 'sync.sent';
@@ -37,13 +45,16 @@ export class Stamps {
   private readonly db: Db;
   private readonly kv: KvRepo;
   private readonly clock: Clock;
+  private readonly version: string;
   /** Units whose next change here is an echo (see the header); each is used once. */
   readonly echo = new Set<string>();
 
-  constructor(db: Db, clock: Clock) {
+  /** `version`: this PC's app version (host.app.version). */
+  constructor(db: Db, clock: Clock, version = '') {
     this.db = db;
     this.kv = new KvRepo(db);
     this.clock = clock;
+    this.version = version;
   }
 
   get(key: string): Stamp | undefined { return this.kv.get<Stamp>(NS, key); }
@@ -79,8 +90,24 @@ export class Stamps {
     ).map((row) => String(row.id));
   }
 
-  cursor(peer: string): number | undefined { return this.kv.get<number>(SENT, peer); }
-  setCursor(peer: string, at: number): void { this.kv.set(SENT, peer, at, this.clock.now()); }
+  /** This PC's and `peer`'s app versions as one value (a run reads it once at its start). */
+  pair(peer: string): string {
+    const theirs = new DevicesRepo(this.db).get(peer)?.caps?.version;
+    return `${this.version}>${typeof theirs === 'string' ? theirs : ''}`;
+  }
+
+  /** Where `part` of a catch-up with `peer` starts; undefined (from zero) the first time and after either PC changed version. */
+  cursor(peer: string, part: Part = 'rows', pair = this.pair(peer)): number | undefined {
+    const stored = this.kv.get<Cursor>(SENT, peer);
+    return stored?.pair === pair ? stored[part] : undefined; // an older format (a number) is another version too
+  }
+
+  /** `part` of a run under `pair` was complete from `at` on; a cursor of other versions goes. */
+  setCursor(peer: string, at: number, part: Part = 'rows', pair = this.pair(peer)): void {
+    const stored = this.kv.get<Cursor>(SENT, peer);
+    this.kv.set(SENT, peer, { ...(stored?.pair === pair ? stored : {}), pair, [part]: at }, this.clock.now());
+  }
+
   dropCursor(peer: string): void { this.kv.delete(SENT, peer); }
 }
 

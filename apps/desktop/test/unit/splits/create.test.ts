@@ -1,7 +1,8 @@
 // B-057 track A: what create() refuses, before anything is written, with one clear sentence each – the goal and the
 // 1–12 parts, titles/briefs/returns within SPLIT_LIMITS, context, model (same | cheap | strong | a known, usable catalog
 // model), effort, temperature (B-083), `after` naming only earlier parts, a worktree without a working folder, the
-// active groups per agent; and what it stores (trimmed texts, 'same' as no model, catalog ids). B-083: a part's own call
+// active groups per agent, a fresh part's needs (Halb 21.11.2026: check | chain | judgment, stored as its model word; a
+// fork's plays no part); and what it stores (trimmed texts, 'same' as no model, catalog ids). B-083: a part's own call
 // adds parts to its running group (numbered after it, `after` by group numbers, at most 12 in all) and they start at once.
 // Owns: these checks. Never: an engine or the real dispatcher.
 
@@ -40,6 +41,8 @@ test('B-083: a part adds parts to its own running group – numbered after it, s
   assert.deepEqual(other, { code: 'conflict', message: 'My group is no longer at work, so I add no parts to it.' });
   const bad = refusal(() => w.splits.create(w.ctx({ split: self }), { goal: 'g', parts: [part('E', { after: [5] })] }));
   assert.equal(bad.message, 'Part #5: after names earlier parts only (#1–#4).');
+  const blind = refusal(() => w.splits.create(w.ctx({ split: self }), { goal: 'g', parts: [part('F', { needs: undefined })] }));
+  assert.match(blind.message, /^Part #5 starts fresh: needs says what its hardest step asks/, 'a part from inside a part says its needs too');
 });
 
 test('the input checks, each with a clear sentence, and nothing is stored', () => {
@@ -63,6 +66,10 @@ test('the input checks, each with a clear sentence, and nothing is stored', () =
     [[part('A', { worktree: 'yes' as never })], /^Part #1: worktree must be true or false\.$/],
     [[part('A', { temperature: 2.5 })], /^Part #1: temperature is a number from 0 to 2\.$/],
     [[part('A', { temperature: '0.3' as never })], /^Part #1: temperature is a number from 0 to 2\.$/],
+    // Halb 21.11.2026: an old call without needs, and a wrong word, get the three values with what each means
+    [[part('A', { needs: undefined })], /^Part #1 starts fresh: needs says what its hardest step asks: check \(.+\), chain \(.+\) or judgment \(.+\)\.$/],
+    [[part('A', { model: 'same', needs: undefined })], /^Part #1 starts fresh: needs says/],
+    [[part('A', { needs: 'hard' as never })], /^Part #1: needs says what its hardest step asks: check/],
     ['not a list', /^Give 1–12 parts \(got none\)\.$/],
   ];
   for (const [parts, pattern, code] of cases) {
@@ -78,19 +85,21 @@ test('the input checks, each with a clear sentence, and nothing is stored', () =
   assert.equal(w.of('split.upserted').length, 0);
 });
 
-test('stored as given: trimmed texts, no model for same, catalog ids for a model name, after sorted', () => {
+test('stored as given: trimmed texts, the needs word for a fresh part, catalog ids for a model name (it wins over needs), after sorted', () => {
   const w = world();
   const parts: SplitPartInput[] = [
-    { title: '  Tests  ', brief: ' Run them. ', returns: ' Failures ', model: 'same' },
-    { title: 'Docs', brief: 'Check docs.', model: 'GPT-6.1 Sol', effort: 'high', after: [1, 1] },
+    { title: '  Tests  ', brief: ' Run them. ', returns: ' Failures ', model: 'same', needs: 'check' },
+    { title: 'Docs', brief: 'Check docs.', model: 'GPT-6.1 Sol', needs: 'judgment', effort: 'high', after: [1, 1] },
     { title: 'Judge', brief: 'Try to refute #1.', model: 'STRONG', context: 'brief', after: [2, 1] },
+    { title: 'Mine', brief: 'Go on from here.', context: 'fork', needs: 'judgment' },
   ];
   const view = w.splits.create(w.ctx(), { goal: '  Release check  ', parts });
   assert.equal(view.goal, 'Release check');
-  const [one, two, three] = view.splits;
-  assert.deepEqual([one.title, one.brief, one.returns, one.model], ['Tests', 'Run them.', 'Failures', undefined]);
+  const [one, two, three, four] = view.splits;
+  assert.deepEqual([one.title, one.brief, one.returns, one.model], ['Tests', 'Run them.', 'Failures', 'check']);
   assert.deepEqual([two.model, two.effort, two.after], ['codex:gpt-6.1-sol', 'high', [1]]);
   assert.deepEqual([three.model, three.context, three.after], ['strong', 'brief', [1, 2]]);
+  assert.deepEqual([four.model, four.context], [undefined, 'fork'], 'a fork runs on my model: its needs plays no part');
   assert.equal(view.cwd, 'C:/work/repo');
   assert.equal(view.modeKey, 'general');
   assert.equal(view.ultra, false);

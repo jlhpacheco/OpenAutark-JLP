@@ -14,8 +14,3 @@ export function isPlanProvider(provider: ProviderId): boolean {
 export function isUsableState(account: Account): boolean {
   return account.enabled && (account.state === 'ok' || account.state === 'unknown' || account.state === 'cooling');
 }
-
-/** Lower priority first, then the older account. */
-export function byPriority(a: Account, b: Account): number {
-  return a.priority - b.priority || a.createdAt - b.createdAt;
-}

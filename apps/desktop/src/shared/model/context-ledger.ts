@@ -25,8 +25,6 @@ export type MarkBy = 'subconscious' | 'agent' | 'restore' | 'window' | 'fold';
 
 /** Id letter per kind. */
 export const KIND_PREFIX: Readonly<Record<LedgerKind, string>> = { message: 'm', tool: 't', skill: 's', reasoning: 'r', assistant: 'a', file: 'f', checkpoint: 'c' };
-const KIND_OF_PREFIX: Readonly<Record<string, LedgerKind>> = { m: 'message', t: 'tool', s: 'skill', r: 'reasoning', a: 'assistant', f: 'file', c: 'checkpoint' };
-export const LEDGER_KINDS: readonly LedgerKind[] = ['message', 'tool', 'skill', 'reasoning', 'assistant', 'file', 'checkpoint'];
 const ITEM_ID = /^([mtsrafc])([1-9]\d{0,11})$/;
 
 /** Titles are at most this long. */
@@ -160,12 +158,6 @@ export function isNestedCall(callId: string | undefined | null): boolean {
 /** B-049 F9: what an item costs in the live context – its estimate, a nested call nothing. */
 export function liveTokens(item: { tokens: number; nested?: boolean | null }): number {
   return item.nested ? 0 : Math.max(0, Number.isFinite(item.tokens) ? item.tokens : 0);
-}
-
-/** The kind of an item id ('t17' → 'tool'); undefined for any other shape. */
-export function kindOfId(itemId: string): LedgerKind | undefined {
-  const match = ITEM_ID.exec(itemId.trim());
-  return match ? KIND_OF_PREFIX[match[1]] : undefined;
 }
 
 /** A well-formed item id: lower-case letter + positive number ('#12' and 'M12' read as 'm12'). */

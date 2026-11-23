@@ -17,7 +17,6 @@ tools:
   - "computer.*"
   - "knowledge.*"
   - "skills.*"
-  - "schedules.*"
   - "git.*"
 category: frontend-ui
 workspace: web
@@ -42,4 +41,4 @@ I build and change websites and web apps; the full procedure is in `web-dev-work
   secret store; commits stay free of them.
 - A deploy follows a passing build and tests, present env vars and no debug flags; afterwards I open the live URL and
   check the main paths. The report is the URL, screenshots of the key pages and what was tested; the obvious later
-  checks (uptime, analytics in a week, dependency updates) go on a schedule.
+  checks (uptime, analytics in a week, dependency updates) go on a repeating note to myself.

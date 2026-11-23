@@ -23,7 +23,8 @@ import { toastError } from '../lib/toasts.ts';
 import { Button, Spinner, type MenuSection } from '../lib/ui.tsx';
 import { mediaFacts } from './media-facts.ts';
 import { focusComposer } from './send-page.ts';
-import { joinPointer, pointerText, pointLabel, type PointerClip } from './video-pointer.ts';
+import { joinPointer, pointerText, type PointerClip } from './video-pointer.ts';
+import { timecode } from '../../shared/text/media-ref.ts';
 import { pickAfter, playbackId, shownVideo, videoRenders } from './video-versions.ts';
 
 /** Adds "[name @ 0:12.4] " to the chat's draft and brings the keyboard there. Never sends. */
@@ -36,7 +37,7 @@ function commentAt(chatId: string, clip: PointerClip, ms: number, all: readonly 
 function CommentButton(props: { chatId: string; clip: PointerClip; all: readonly PointerClip[]; playhead: Signal<number> }) {
   return (
     <span class="pane-comment-cell">
-      <Button icon="chat-text" class="tabular" aria-label={`Comment at ${pointLabel(props.playhead.value)}`} onClick={() => commentAt(props.chatId, props.clip, props.playhead.peek(), props.all)}><span class="pane-comment-word">Comment at </span>{pointLabel(props.playhead.value)}</Button>
+      <Button icon="chat-text" class="tabular" aria-label={`Comment at ${timecode(props.playhead.value)}`} onClick={() => commentAt(props.chatId, props.clip, props.playhead.peek(), props.all)}><span class="pane-comment-word">Comment at </span>{timecode(props.playhead.value)}</Button>
     </span>
   );
 }

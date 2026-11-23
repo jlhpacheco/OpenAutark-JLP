@@ -9,6 +9,9 @@
 // F13: a person variant marked `ceo` (rule `{ person: true, base, ceo: true }`) is open only to a person whose scope
 // carries the role 'ceo' (people/service.ts authenticate) – session.info lists it for exactly them –, on a secure
 // transport where the owner's own rule asks for one (people.invite: the link and code travel in it).
+// Sicher-Runde 19.11.2026 (FX1): every owner handler is wrapped at add() with security/rpc-guard.ts – an owner session
+// that is not the person (an agent's `wf`, a runtime.json token) reaches the person's own methods never and every other
+// changing method through the switch of its kind.
 // Owns: handler/registration types, the scope-rule vocabulary and the device tier checks
 // (capabilities; 'permissions' and rules marked `secure` need a secure transport).
 // Never: business logic (handlers delegate to RuntimeServices / RpcExtras), or runs a person's
@@ -18,6 +21,7 @@ import type { MethodName, ParamsOf, ResultOf } from '../../shared/api/methods.ts
 import type { ClientScope, DeviceCapability, Topic } from '../../shared/api/protocol.ts';
 import type { RuntimeServices } from '../contracts.ts';
 import type { RpcExtras } from './extras.ts';
+import { checkCall } from '../security/rpc-guard.ts';
 
 /** Every device capability in canonical order (the owner holds all of them). */
 export const ALL_CAPABILITIES: readonly DeviceCapability[] = ['todo', 'chat', 'tasks', 'settings', 'manage', 'permissions'];
@@ -64,7 +68,7 @@ export class HandlerTable {
   add<M extends MethodName>(method: M, handler: Handler<M>, scope: ScopeRule = 'owner'): void {
     if (this.entries.has(method)) throw new Error(`RPC method registered twice: ${method}`);
     if (typeof scope === 'object' && ('person' in scope || ('external' in scope && scope.external))) throw new Error(`Only addExternal / addPerson open a method to external agents or people: ${method}`);
-    this.entries.set(method, { handler: handler as unknown as Handler<MethodName>, scope });
+    this.entries.set(method, { handler: guarded(method, handler as unknown as Handler<MethodName>), scope });
     this.merged.delete(method); // a variant registered first may have been merged without it
   }
 
@@ -113,6 +117,14 @@ export class HandlerTable {
   methods(): string[] {
     return [...new Set([...this.entries.keys(), ...this.persons.keys()])].sort();
   }
+}
+
+/** Sicher-Runde FX1: an owner session that is not the person passes security/rpc-guard.ts first; every other session goes straight in. */
+function guarded(method: string, handler: Handler<MethodName>): Handler<MethodName> {
+  return (params, ctx) => {
+    if (!ctx.scope || ctx.scope.kind !== 'owner' || (ctx.scope.person && !ctx.scope.agentId)) return handler(params, ctx); // no scope: the runtime itself
+    return checkCall(method, params, ctx).then(() => handler(params, ctx));
+  };
 }
 
 /** True for the owner and for a device on a secure transport. */

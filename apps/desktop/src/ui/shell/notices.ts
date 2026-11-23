@@ -2,9 +2,11 @@
 // a plain function of signals returning its notice, a list (one per voice conversation, say) or null.
 //   registerNotice(() => offline.value ? { id: 'connection', tone: 'error', text: 'Offline', priority: NOTICE_PRIORITY.connection } : null)
 // Order: priority (higher first), then registration order; one notice per id; at most two actions each.
-// Owns: the provider registry and the order. Never: renders, calls RPC itself or writes a notice's text.
+// Owns: the provider registry and the order; connectionNotice hands the status line's state to connection-line.ts.
+// Never: renders, calls RPC itself or writes a notice's text.
 
 import { computed, signal } from '@preact/signals';
+import { CONNECTION_ACTIONS, CONNECTION_PRIORITY, connectionFacts, connectionLine } from './connection-line.ts';
 
 export type NoticeTone = 'info' | 'warn' | 'error';
 
@@ -33,7 +35,7 @@ export interface Notice {
 export type NoticeProvider = () => Notice | readonly Notice[] | null;
 
 /** setup (no AI yet, a speech model loading) over toast: lasting to-do toasts never push those lines out of the three shown. B-081: a ring over a running voice. */
-export const NOTICE_PRIORITY = { connection: 100, workStop: 90, ring: 60, voice: 50, call: 45, computer: 40, setup: 35, toast: 30 } as const;
+export const NOTICE_PRIORITY = { connection: CONNECTION_PRIORITY, workStop: 90, ring: 60, voice: 50, call: 45, computer: 40, setup: 35, toast: 30 } as const;
 
 export const MAX_NOTICE_ACTIONS = 2;
 
@@ -69,10 +71,7 @@ export const visibleNotices = computed<readonly Notice[]>(() => orderNotices(pro
   }
 })));
 
-/** The connection line: nothing while connected (and before the first load unless it failed). */
+/** The connection line (shell/connection-line.ts): one calm line while the PC is away or refuses this phone, else nothing. */
 export function connectionNotice(state: { status: 'open' | 'connecting' | 'closed'; loaded: boolean; loadError: string | null }): Notice | null {
-  if (state.status === 'open' && !state.loadError) return null;
-  if (!state.loaded && state.status !== 'closed' && !state.loadError) return null;
-  const text = state.status === 'open' ? state.loadError ?? '' : state.status === 'connecting' ? 'Reconnecting…' : 'Offline';
-  return { id: 'connection', tone: state.status === 'connecting' ? 'warn' : 'error', text, priority: NOTICE_PRIORITY.connection };
+  return connectionLine(connectionFacts(state), CONNECTION_ACTIONS);
 }

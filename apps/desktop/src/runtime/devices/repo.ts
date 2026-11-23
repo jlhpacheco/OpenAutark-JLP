@@ -1,11 +1,13 @@
 // Repository for the `devices` table (this PC, linked PCs, phones and PWA browsers).
 // Owns: SQL and row mapping for devices, including the stored raw public key and the link's role, kept in
 // the JSON column `allow` of migration 6 as {personId?, joinedAs?}: `personId` for a linked PC that joined
-// this one as an employee, `joinedAs` on the PC that joined the other one (devices/sync reads both; B-081: the UI too).
+// this one as an employee, `joinedAs` on the PC that joined the other one (devices/sync reads both; B-081: the UI too);
+// 19.11.2026 `away` – what a linked PC said with device.bye before it went (away.ts), until its link is back.
 // Never: crypto, networking, pairing decisions, or the key in what goes to clients.
 
 import { bool, int, json, toJson, type Db } from '../db/database.ts';
 import type { Device, DeviceCaps, DeviceKind, DeviceRole } from '../../shared/model/devices.ts';
+import { storedAway } from './away.ts';
 
 export interface DeviceRecord extends Device {
   publicKey?: string; // raw Ed25519 public key, base64url (never sent to the UI)
@@ -44,9 +46,11 @@ function toRecord(row: DeviceRow): DeviceRecord {
   if (row.paired_at !== null) record.pairedAt = Number(row.paired_at);
   if (row.last_seen_at !== null) record.lastSeenAt = Number(row.last_seen_at);
   if (row.revoked_at !== null) record.revokedAt = Number(row.revoked_at);
-  const extra = json<{ personId?: unknown; joinedAs?: unknown }>(row.allow ?? '{}', {});
+  const extra = json<{ personId?: unknown; joinedAs?: unknown; away?: unknown }>(row.allow ?? '{}', {});
   if (record.kind === 'pc' && !record.self && typeof extra.personId === 'string' && extra.personId) record.personId = extra.personId;
   if (record.kind === 'pc' && !record.self && (extra.joinedAs === 'ceo' || extra.joinedAs === 'employee')) record.joinedAs = extra.joinedAs;
+  const away = record.kind === 'pc' && !record.self ? storedAway(extra.away) : undefined;
+  if (away) record.away = away;
   return record;
 }
 
@@ -95,7 +99,7 @@ export class DevicesRepo {
         record.id, record.name, record.kind, record.role, record.fingerprint, record.publicKey ?? null,
         toJson(record.addresses), toJson(record.caps), record.status, int(record.self),
         record.pairedAt ?? null, record.lastSeenAt ?? null, record.revokedAt ?? null,
-        toJson({ ...(record.personId ? { personId: record.personId } : {}), ...(record.joinedAs ? { joinedAs: record.joinedAs } : {}) }),
+        toJson({ ...(record.personId ? { personId: record.personId } : {}), ...(record.joinedAs ? { joinedAs: record.joinedAs } : {}), ...(record.away ? { away: record.away } : {}) }),
       ],
     );
     return this.get(record.id)!;

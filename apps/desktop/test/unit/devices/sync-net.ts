@@ -35,15 +35,17 @@ export function makePc(net: Net, id: string, flushMs = 0) {
       if (!net.up || !target) throw new WorkforceError('unavailable', 'offline');
       const copy = JSON.parse(JSON.stringify(params)) as unknown;
       net.calls.push({ from: id, to: peer, method, params: copy });
-      return target.handlers.get(method)!(copy, id);
+      const handler = target.handlers.get(method);
+      if (!handler) throw new WorkforceError('not_found', `Unknown peer method ${method}.`); // a PC of an older version, like rpc-peer.ts answers
+      return handler(copy, id);
     },
   } as unknown as DeviceService;
   const stamps = new Stamps(h.db, h.clock);
   const sync = new RowSync(h.services, stamps, flushMs);
   handlers.set('sync.rows', (params, from) => sync.receive(params, from));
-  sync.attach();
+  const detach = sync.attach();
   h.scheduler.start();
-  const pc = { id, h, repo, sync, handlers, stamps };
+  const pc = { id, h, repo, sync, handlers, stamps, detach };
   net.pcs.set(id, pc);
   return pc;
 }

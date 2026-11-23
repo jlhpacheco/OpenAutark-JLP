@@ -3,7 +3,8 @@
 // seeking, the stored MIME type and `Content-Disposition: inline` (`attachment` with `?download=1`: a phone's
 // "Save to phone" link, B-084). A file whose row came from another of the
 // person's PCs and whose bytes are not here yet is fetched from there first (devices/sync/blobs.ts needBlob).
-// Owns: token extraction, range responses and the protective headers of user content.
+// Owns: token extraction, range responses (the Range rule: shared/files/serving.ts) and the protective headers of user
+// content.
 // Never: serves without a valid token, lets stored HTML/SVG run in the app origin (CSP
 // sandbox), or logs tokens.
 
@@ -11,6 +12,7 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { pipeline } from 'node:stream/promises';
+import { parseRange } from '../../shared/files/serving.ts';
 import type { RuntimeServices } from '../contracts.ts';
 import { needBlob } from '../devices/sync/blobs.ts';
 import { BASE_HEADERS, sendError } from './body.ts';
@@ -24,26 +26,6 @@ import { mayReadFile, personFileView } from '../people/access.ts';
  * sandboxed PDFs) – they cannot script the app origin anyway.
  */
 export const FILE_CSP = "default-src 'none'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'unsafe-inline'; font-src data:; sandbox";
-
-/** Parses a single-range `Range: bytes=a-b` header against a size; null = whole file. */
-export function parseRange(header: string | undefined, size: number): { start: number; end: number } | 'invalid' | null {
-  if (!header) return null;
-  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
-  if (!match || (match[1] === '' && match[2] === '')) return 'invalid';
-  let start: number;
-  let end: number;
-  if (match[1] === '') { // suffix: the last N bytes
-    const length = Number(match[2]);
-    if (length === 0) return 'invalid';
-    start = Math.max(0, size - length);
-    end = size - 1;
-  } else {
-    start = Number(match[1]);
-    end = match[2] === '' ? size - 1 : Math.min(Number(match[2]), size - 1);
-  }
-  if (start > end || start >= size) return 'invalid';
-  return { start, end };
-}
 
 /** `inline; filename="ascii"; filename*=UTF-8''…` (RFC 6266 / 5987); `attachment` makes the browser save it. */
 export function inlineDisposition(name: string, kind: 'inline' | 'attachment' = 'inline'): string {

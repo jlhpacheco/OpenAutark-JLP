@@ -9,7 +9,7 @@ import type { AddressInfo } from 'node:net';
 import { handleRpcPost } from '../../../src/runtime/http/rpc.ts';
 import { RateLimiter } from '../../../src/runtime/http/security.ts';
 import type { RpcAttach } from '../../../src/runtime/http/types.ts';
-import { nullLogger } from '../../../src/runtime/system/log.ts';
+import { nullLogger } from '../fakes.ts';
 import type { RpcResponse } from '../../../src/shared/api/protocol.ts';
 
 interface Seen { frame: unknown; remote?: string; signal?: AbortSignal }

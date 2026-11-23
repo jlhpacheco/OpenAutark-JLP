@@ -1,12 +1,14 @@
 // A person's next days on their page (B-078 D20, owner: "wenn er auf die Mitarbeiter geht … die Kalender von denen
 // auch sehen"): a small read-only list of today and the next two days from calendar.person – their own PC answers
-// when it is linked here (an "Only me" to-do there shows as Busy), else their rows on this PC. Offline or no
-// calendar: one quiet line saying so. Reloads when the person changes; nothing to click.
+// when it is linked here, else their rows on this PC. Offline or no
+// calendar: one quiet line saying so. Reloads when the person changes and after every reconnect (lib/use-load.ts); nothing
+// to click.
 // Owns: this list. Never: changes an entry or polls.
 
 import { useEffect, useState } from 'preact/hooks';
 import type { PersonCalendar as PersonCalendarData } from '../../shared/model/calendar.ts';
 import { rpc } from '../lib/rpc.ts';
+import { useLoad } from '../lib/use-load.ts';
 import { dayMonth, relativeDay, time } from '../lib/format.ts';
 
 const DAYS = 3;
@@ -27,8 +29,8 @@ function dayLabel(ms: number): string {
 
 export function PersonCalendar(props: { personId: string }) {
   const [data, setData] = useState<PersonCalendarData | null>(null);
-  useEffect(() => {
-    setData(null);
+  useEffect(() => setData(null), [props.personId]); // another person: never the last one's days
+  useLoad(() => {
     let alive = true;
     const from = today();
     const to = new Date(from).setDate(new Date(from).getDate() + DAYS);

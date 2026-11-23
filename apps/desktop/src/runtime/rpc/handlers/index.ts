@@ -21,6 +21,7 @@ import { register as portability } from './portability.ts';
 import { register as bridges } from './bridges.ts';
 import { register as browser } from './browser.ts'; // MP8: agent browser live view
 import { register as sideView } from './side-view.ts'; // B-076: a side-browser tab watched from another PC or the phone
+import { register as pane } from './pane.ts'; // 21.11.2026: the pane between people (Open on, Share with)
 import { register as work } from './work.ts'; // 21.10. 17:09: the person's emergency stop of all agent work
 import { register as remote } from './remote.ts'; // connect PCs by Remote ID or address (CEO or employee)
 import { register as relay } from './relay.ts'; // the meeting server's state (devices/rendezvous)
@@ -34,7 +35,7 @@ import { register as providerHistory } from './provider-history.ts'; // wave 2: 
 import { register as notes } from './notes.ts'; // a chat's shared notes
 import { register as agentCore } from './agent-core.ts'; // wave 3: an agent's SYSTEM.md state and Main Skills
 import { register as calendar } from './calendar.ts'; // B-041 My day: calendar rows, connected calendars
-import { register as day } from './day.ts'; // B-041 My day: own input, planning, briefing, handed off
+import { register as day } from './day.ts'; // 0.3.16/0.3.17 clients only: day.add/plan/briefing/handedOff on today's primitives (compat)
 import { register as chatFiles } from './chat-files.ts'; // B-050: chats.direct (default 1:1), chats.export
 import { register as connectedApps } from './connected-apps.ts'; // apps.list / apps.reconnect (connectors are files)
 import { register as feedbackInbox } from './feedback-inbox.ts'; // B-055: the team's feedback inbox and wf feedback setup (owner only)
@@ -45,6 +46,9 @@ import { register as pages } from './pages.ts'; // the views in <data>/pages
 import { register as companies } from './companies.ts'; // B-072: the companies on this PC (companies.list / companies.open)
 import { register as sideTabs } from './side-tabs.ts'; // B-076: the phone's side pane (tabs.get/set) and tab view positions
 import { register as phoneUse } from './phone-use.ts'; // B-078: phoneUse.attach/reply and phone.pairLink (the owner's Android phone)
+import { register as securityMode } from './security-mode.ts'; // 19.11.2026: the security mode's topic texts
+import { register as securityApprovals } from './security-approvals.ts'; // 19.11.2026: security requests, answers, window apps
+import { register as voicePlan } from './voice-plan.ts'; // STIMME 21.11.2026: voice.planLogin – my phone hears dictation at the plan itself
 import { register as session } from './session.ts';
 
 /**
@@ -52,7 +56,7 @@ import { register as session } from './session.ts';
  * then the rest (portability.ts also registers agents.export/derive and system.backup/restore),
  * then session.ts (session.info reads the finished table at call time).
  */
-export const HANDLER_MODULES: readonly HandlerModule[] = [system, org, chats, tasks, knowledge, skillEditor, files, filesPath, providers, security, devices, app, media, portability, bridges, browser, sideView, work, remote, relay, taskCenter, references, teamStart, calls, repair, people, providerHistory, notes, agentCore, calendar, day, chatFiles, connectedApps, feedbackInbox, splits, abilities, pages, companies, sideTabs, phoneUse, rpcMethods, session];
+export const HANDLER_MODULES: readonly HandlerModule[] = [system, org, chats, tasks, knowledge, skillEditor, files, filesPath, providers, security, devices, app, media, portability, bridges, browser, sideView, pane, work, remote, relay, taskCenter, references, teamStart, calls, repair, people, providerHistory, notes, agentCore, calendar, day, chatFiles, connectedApps, feedbackInbox, splits, abilities, pages, companies, sideTabs, phoneUse, securityMode, securityApprovals, voicePlan, rpcMethods, session];
 
 export function createHandlerTable(): HandlerTable {
   const table = new HandlerTable();

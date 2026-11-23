@@ -13,7 +13,6 @@ export type KnowledgeKind =
   | 'experience' // a learned tip from past work ("last time X failed because …")
   | 'procedure' // a reusable way of doing something (may become a skill)
   | 'plan' // explicit project knowledge / plans
-  | 'observation' // compacted chat observations (endless chats)
   | 'note' // free note
   | 'reference'; // F-52: a person's words, reasons or corrections (scope 'reference', runtime/references/*)
 
@@ -168,7 +167,7 @@ export interface ModeSaveResult {
   unknownSkills: string[];
 }
 
-/** Addition (CTX5, merged here by CTX3): `kinds` narrows the list to several kinds (the knowledge browser hides observations). */
+/** Addition (CTX5, merged here by CTX3): `kinds` narrows the list to several kinds. */
 export interface KnowledgeListFilter {
   kinds?: readonly string[];
 }

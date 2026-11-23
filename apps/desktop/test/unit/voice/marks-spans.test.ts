@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ALT_CHARS, cleanMarks, markedForAgent, MAX_ALTS, MAX_SPANS, parseMarks, spansFromInline } from '../../../src/shared/voice/marks.ts';
+import { ALT_CHARS, cleanMarks, markedForAgent, MAX_ALTS, MAX_SPANS, spansFromInline } from '../../../src/shared/voice/marks.ts';
 
 test('spansFromInline: marks become their readings with spans, dictation tags become dictated spans, "…" leaves nothing', () => {
   const inline = 'Hallo ⟦Diktat⟧wir testen ⟦?Codex|65%|Kotex 25%; Kodecs⟧ heute⟦/Diktat⟧ und ⟦?…|0%⟧ ⟦?Gerd|30%|Gert 60%|gert⟧.';
@@ -34,7 +34,7 @@ test('markedForAgent: plain text and spans back to the inline form; round trip w
   // a dictated edge inside a mark moves to the mark's edge, never splitting it
   assert.equal(markedForAgent('abcdef', { uncertain: [{ start: 2, end: 4, pct: 10, alts: [] }], dictated: [{ start: 3, end: 6 }] }), 'ab⟦Diktat⟧⟦?cd|10%⟧ef⟦/Diktat⟧');
   // what the agent reads parses back to the same marks
-  assert.deepEqual(parseMarks(markedForAgent(text, marks)).map((m) => [m.reading, m.percent]), [['Codex', 65], ['Gerd', 30]]);
+  assert.deepEqual(spansFromInline(markedForAgent(text, marks)), { text, marks });
 });
 
 test('cleanMarks: spans inside the text, sorted, no overlaps, capped; junk dropped; nothing left is undefined', () => {

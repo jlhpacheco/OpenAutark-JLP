@@ -1,7 +1,8 @@
 // Electron window check of mini-app to-dos handing files back (X03, wf.upload) with the demo
 // engine and Chromium's fake capture devices in an isolated profile:
-//   * a mini-app on My day (Home) builds a WAV in the frame and hands it back: the to-do leaves
-//     the list, the chat's "Done in mini-app" receipt plays take.wav inline, and the frame's
+//   * a mini-app opened from the Tasks page (For you → its detail, the tool beside the list or in
+//     its place at phone width) builds a WAV in the frame and hands it back: the to-do leaves For
+//     you, the chat's "Done in mini-app" receipt plays take.wav inline, and the frame's
 //     Activity list says "Stored a file for the agent" (wf_upload);
 //   * a permissions="microphone" app opens the host recorder after Allow; only Start, Record
 //     and Send in the host capture and hand back a WebM; cancellation opens no device.
@@ -17,6 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -63,9 +65,9 @@ test('mini-app to-dos hand a generated WAV and a fake-microphone take back to th
   await size(1280, 860);
   const go = (hash) => page.evaluate((target) => { location.hash = target; }, hash);
   const shot = async (name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
-  await rpc.call('settings.update', { onboarding: { step: 'done' } }); // B-044: past the first-run layer on Home (first-run-window covers it)
+  await rpc.call('settings.update', { onboarding: { step: 'done' } }); // B-044: past the first-run layer (first-run-window covers it)
   await rpc.call('events.subscribe', { topics: ['tasks'] });
   const agents = await rpc.call('agents.list');
   const manager = agents.find((agent) => agent.template === 'manager') ?? agents[0];
@@ -76,28 +78,33 @@ test('mini-app to-dos hand a generated WAV and a fake-microphone take back to th
     await rpc.call('messages.send', { conversationId: chat.id, body: `Your part [[app:${attrs}|${html}]]` });
     return rpc.waitFor('task.upserted', (item) => item.assigneeKind === 'human' && item.widget?.type === 'app' && item.title === /title="([^"]+)"/.exec(attrs)[1], 90_000);
   };
-  /** Opens the to-do on Home › For you and returns its item and the frame inside. */
-  const openOnHome = async (todo) => {
-    await go('#/home');
-    const item = page.locator(`.day-view .todo-item[data-task-id="${todo.id}"]`);
-    await item.waitFor({ timeout: 20_000 });
-    if ((await item.locator('.todo-open').getAttribute('aria-expanded')) !== 'true') await item.locator('.todo-open').click();
-    return item;
+  const tasksPage = page.locator('.tasks-page:not(.in-pane)');
+  const forYouRow = (todo) => tasksPage.locator(`ul[aria-label="For you"] .todo-row[data-task-id="${todo.id}"]`);
+  /** Opens the to-do from Tasks › For you and returns its detail's tool (the frame is inside). */
+  const openOnTasks = async (todo) => {
+    await go('#/tasks');
+    const row = forYouRow(todo);
+    await row.waitFor({ timeout: 20_000 });
+    await row.locator('.todo-open').click();
+    const tool = tasksPage.locator('.task-detail .todo-tool');
+    await tool.waitFor({ timeout: 20_000 });
+    return tool;
   };
   const receiptOf = async (todo) => {
     const messages = await rpc.call('messages.list', { conversationId: chat.id, limit: 100 });
     return messages.find((message) => message.kind === 'answer' && message.taskId === todo.id);
   };
 
-  // 1. A generated WAV handed back from Home › For you.
+  // 1. A generated WAV handed back from the to-do's detail on the Tasks page.
   const wavTodo = await appTodo('title="Generated take" todo=true reason=physical', WAV_APP);
-  const wavItem = await openOnHome(wavTodo);
+  const wavItem = await openOnTasks(wavTodo);
   const wavFrame = wavItem.locator('iframe.app-frame-iframe.is-ready');
   await wavFrame.waitFor({ timeout: 30_000 });
   await shot('app-upload-01-for-you-light');
   await wavItem.frameLocator('iframe.app-frame-iframe').locator('#make').click();
   await rpc.waitFor('task.upserted', (item) => item.id === wavTodo.id && item.status === 'done', 30_000);
-  await wavItem.waitFor({ state: 'detached', timeout: 20_000 });
+  await forYouRow(wavTodo).waitFor({ state: 'detached', timeout: 20_000 });
+  await tasksPage.locator('iframe.app-frame-iframe').waitFor({ state: 'detached', timeout: 20_000 }); // the answered app leaves its slot
   const wavReceipt = await receiptOf(wavTodo);
   assert.deepEqual(wavReceipt?.attachments.map((attachment) => [attachment.name, attachment.mime]), [['take.wav', 'audio/wav']]);
   assert.equal(wavReceipt.body, 'Done in mini-app\ntake: take.wav'); // answer-text.ts appText: the data the app handed back, the file by name
@@ -126,13 +133,13 @@ test('mini-app to-dos hand a generated WAV and a fake-microphone take back to th
 
   // 2. A microphone app: Allow, record with the fake microphone, hand back a WebM.
   const micTodo = await appTodo('title="Voice-over take" todo=true reason=physical permissions="microphone"', MIC_APP);
-  const micItem = await openOnHome(micTodo);
+  const micItem = await openOnTasks(micTodo);
   const allow = micItem.locator('.app-frame-permission button', { hasText: 'Allow' });
   await allow.waitFor({ timeout: 20_000 });
   await size(420, 860);
   await shot('app-upload-04-allow-phone');
   await size(1280, 860);
-  const micNow = await openOnHome(micTodo); // the phone layout mounted the item again
+  const micNow = await openOnTasks(micTodo); // the phone layout mounted the detail again
   await micNow.locator('.app-frame-permission button', { hasText: 'Allow' }).click();
   await micNow.locator('.app-frame-permission').waitFor({ state: 'detached', timeout: 10_000 });
   await micNow.locator('iframe.app-frame-iframe.is-ready').waitFor({ timeout: 30_000 });
@@ -156,7 +163,7 @@ test('mini-app to-dos hand a generated WAV and a fake-microphone take back to th
   ]) {
     await size(width, height);
     await page.emulateMedia({ colorScheme: color });
-    const item = await openOnHome(micTodo);
+    const item = await openOnTasks(micTodo);
     await item.frameLocator('iframe.app-frame-iframe').locator('#go').click();
     await recorder.waitFor();
     await shot(name);
@@ -167,7 +174,7 @@ test('mini-app to-dos hand a generated WAV and a fake-microphone take back to th
   await size(1280, 860);
   await page.emulateMedia({ colorScheme: 'light' });
   // Crossing the shell breakpoint remounts the frame and cancels its pending request.
-  const micAgain = await openOnHome(micTodo);
+  const micAgain = await openOnTasks(micTodo);
   const innerAgain = micAgain.frameLocator('iframe.app-frame-iframe');
   await innerAgain.locator('#go').click();
   await recorder.waitFor();

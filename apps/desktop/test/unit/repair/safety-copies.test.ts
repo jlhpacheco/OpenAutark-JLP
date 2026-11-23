@@ -23,11 +23,11 @@ function tempData(t: { after(fn: () => void): void }): string {
   return dir;
 }
 
-/** Old data (schema 20) migrated once by 0.9.0: one pre-update copy '0.9.0-s20'. */
+/** Old data (schema 104) migrated once by 0.9.0: one pre-update copy '0.9.0-s104'. */
 function upgraded(dir: string): void {
   const file = path.join(dir, 'workforce.db');
   const db = new Db(file);
-  migrate(db, { until: 20 });
+  migrate(db, { until: 104 });
   db.close();
   openDatabase({ file, dataDir: dir, version: '0.9.0', now: () => 1_000 }).close();
 }
@@ -59,7 +59,7 @@ test('restores keep only the newest set-aside folders (never the one just made)'
   const kept: string[] = [];
   for (let index = 0; index < KEEP_REPLACED + 2; index++) {
     now += 60_000;
-    kept.push((await service(dir, restarts, () => now).restore('0.9.0-s20')).kept);
+    kept.push((await service(dir, restarts, () => now).restore('0.9.0-s104')).kept);
     utimesSync(path.join(kept[index], 'workforce.db'), new Date(now), new Date(now)); // data last written at that restore
   }
   assert.equal(restarts.n, KEEP_REPLACED + 2);

@@ -1,7 +1,6 @@
 // settings.json's providers section ↔ accounts (runtime/accounts/provider-file.ts, shared/model/provider-entries.ts): an entry
-// is an account with its id, a change follows, a removed entry takes its account along, accounts.add writes an entry, older API
-// connections move in once and keep their key, state and runs; a detected local server and a plan row stay out of the file; a
-// section that is not valid removes nothing.
+// is an account with its id, a change follows, a removed entry takes its account along, accounts.add writes an entry; a
+// detected local server and a plan row stay out of the file; a section that is not valid removes nothing.
 // Owns: nothing in production.
 
 import { test } from 'node:test';
@@ -12,7 +11,7 @@ import { Bus } from '../../../src/runtime/bus.ts';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
 import { SettingsStore } from '../../../src/runtime/settings/service.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { entryConnection, entryProblem, modelOwner, providerNotes } from '../../../src/shared/model/provider-entries.ts';
 import type { Account, ProviderId } from '../../../src/shared/model/providers.ts';
 
@@ -74,35 +73,6 @@ test('accounts.add writes an entry: the id comes from the service, then the name
   assert.equal(settings.get().providers?.openai.name, 'Work key');
   file.remove('openai');
   assert.equal(repo.get('openai'), undefined);
-});
-
-test('older API connections move in once; plans, environment keys and found servers stay', () => {
-  const { db, repo, settings, file, forgotten } = setup([
-    { id: 'acc_1', provider: 'compatible', label: 'DeepInfra', auth: 'api_key', baseUrl: 'https://api.deepinfra.com/v1/openai', secretId: 'sec_1', state: 'ok', priority: 3 },
-    { id: 'acc_2', provider: 'openai', label: 'OpenAI API', auth: 'api_key', secretId: 'secret://sec_2', state: 'cooling', coolingUntil: 99 },
-    { id: 'acc_3', provider: 'codex', label: 'Codex', auth: 'cli', detected: true },
-    { id: 'acc_4', provider: 'openai', label: 'From env', auth: 'env', envVar: 'OPENAI_API_KEY', detected: true },
-    { id: 'acc_5', provider: 'ollama', label: 'Ollama', auth: 'local', baseUrl: 'http://127.0.0.1:11434/v1', detected: true },
-    { id: 'acc_6', provider: 'ollama', label: 'Mine', auth: 'local', baseUrl: 'http://127.0.0.1:11500/v1' },
-  ]);
-  db.run(`INSERT INTO kv (ns, key, value, updated_at) VALUES ('catalog', 'listing:acc_1', '{"models":[],"at":1}', 1)`);
-  settings.update({ routing: { voice: 'acc_2:gpt-realtime' } });
-  file.moveOld();
-  file.sync();
-  assert.deepEqual(Object.keys(settings.get().providers ?? {}).sort(), ['deepinfra', 'ollama', 'openai']);
-  assert.deepEqual(settings.get().providers?.deepinfra, { name: 'DeepInfra', protocol: 'openai-chat', url: 'https://api.deepinfra.com/v1/openai', key: 'secret://sec_1' });
-  assert.equal(settings.get().routing.voice, 'openai:gpt-realtime', 'the Voice use follows its account');
-  assert.equal(repo.get('acc_1'), undefined);
-  const deep = repo.get('deepinfra')!;
-  assert.deepEqual([deep.provider, deep.priority, deep.secretId], ['compatible', 3, 'secret://sec_1']);
-  assert.equal(repo.get('openai')!.provider, 'openai');
-  const mine = repo.get('ollama')!;
-  assert.deepEqual([mine.provider, mine.auth, mine.baseUrl], ['ollama', 'local', 'http://127.0.0.1:11500/v1'], 'a local server on its own port stays that server');
-  for (const id of ['acc_3', 'acc_4', 'acc_5']) assert.ok(repo.get(id), `${id} stays`);
-  assert.deepEqual(forgotten, []);
-  file.moveOld();
-  assert.equal(Object.keys(settings.get().providers ?? {}).length, 3, 'once');
-  assert.ok(db.get(`SELECT 1 FROM kv WHERE ns = 'catalog' AND key = 'listing:deepinfra'`), 'its list comes along');
 });
 
 test('an entry that does not fit: what it says, and its section takes nothing away', () => {

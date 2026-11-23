@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { MEETING_OFF, MEETING_TIMEOUT_MS, MEETING_UNREACHABLE, findTarget, type Found } from '../../../src/runtime/remote/find.ts';
 import { remoteIdOf } from '../../../src/runtime/remote/id.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
+import { chainTo, keyOf } from './chain-keys.ts';
 
 const hex = (digit: string) => digit.repeat(64);
 const found = (digit: string, address: string, extra: Partial<Found> = {}): Found & { remoteId: string } => ({
@@ -50,4 +51,20 @@ test('an address: its well-known identity, never this PC', async () => {
   assert.deepEqual(await findTarget({ self: 'dev_me', wellKnown }, { address: 'http://203.0.113.5:47812' }), [{ deviceId: 'dev_aaaaaaaaaaaa', name: 'Office', fingerprint: hex('a'), addresses: ['http://203.0.113.5:47812'] }]);
   await assert.rejects(findTarget({ self: 'dev_aaaaaaaaaaaa', wellKnown }, { address: 'http://203.0.113.5:47812' }), notFound(/^No Autark PC answered at that address\.$/));
   await assert.rejects(findTarget({ self: 'dev_me', wellKnown }, { address: 'http://198.51.100.1:47812' }), notFound(/^No Autark PC answered at that address\.$/));
+});
+
+test('Eine-ID: a typed Company ID or My ID finds a LAN answer by either chain; the entry carries the chain that proves it', async () => {
+  const [company, meRoot, seat, stranger] = [keyOf(150), keyOf(151), keyOf(152), keyOf(153)];
+  const lanSeat: Found & { remoteId: string } = { deviceId: 'dev_seatseatseat', name: 'Seat', fingerprint: seat.fingerprint, remoteId: remoteIdOf(seat.fingerprint), addresses: ['http://10.0.0.5:47812'], chain: chainTo(company, seat), me: chainTo(meRoot, seat) };
+  const lan = async () => [lanSeat, { ...lanSeat, deviceId: 'dev_strangerxxxx', fingerprint: stranger.fingerprint }];
+  const byCompany = await findTarget({ self: 'dev_me', lan }, { remoteId: remoteIdOf(company.fingerprint) });
+  assert.deepEqual(byCompany.map((entry) => entry.deviceId), ['dev_seatseatseat'], 'a key the chains do not end at is dropped');
+  assert.deepEqual(byCompany[0].chain, chainTo(company, seat));
+  const byMe = await findTarget({ self: 'dev_me', lan }, { remoteId: remoteIdOf(meRoot.fingerprint) });
+  assert.deepEqual(byMe.map((entry) => entry.deviceId), ['dev_seatseatseat']);
+  assert.deepEqual(byMe[0].chain, chainTo(meRoot, seat), 'the `me` chain proves My ID (join.ts checks `chain`)');
+  const own = await findTarget({ self: 'dev_me', lan }, { remoteId: remoteIdOf(seat.fingerprint) });
+  assert.deepEqual(own[0].chain, chainTo(company, seat), 'its own ID: as it came');
+  const far = await findTarget({ self: 'dev_me', lan: async () => [], meeting: async () => [{ ...lanSeat, me: undefined, chain: chainTo(meRoot, seat), addresses: [`relay:${seat.fingerprint}`] }] }, { remoteId: remoteIdOf(meRoot.fingerprint) });
+  assert.deepEqual(far.map((entry) => entry.addresses[0]), [`relay:${seat.fingerprint}`], 'the meeting server hands the proving chain itself');
 });

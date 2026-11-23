@@ -94,9 +94,9 @@ test('the first-run flow still adds a plan on the person\'s explicit request (ac
 
 // ------------------------------------------------------------------ the person's own click
 
-const WINDOW: ClientScope = { kind: 'owner', window: true };
+const WINDOW: ClientScope = { kind: 'owner', person: true };
 const OWNER: ClientScope = { kind: 'owner' };
-const AGENT_WF: ClientScope = { kind: 'owner', window: true, agentId: 'agt_felix000001' };
+const AGENT_WF: ClientScope = { kind: 'owner', person: true, agentId: 'agt_felix000001' };
 const MAIN: ClientScope = { kind: 'owner', main: true };
 const PHONE: ClientScope = { kind: 'device', deviceId: 'dev_full00000001', capabilities: ['todo', 'chat', 'tasks', 'settings', 'manage', 'permissions'], secure: true };
 const PHONE_PLAIN: ClientScope = { kind: 'device', deviceId: 'dev_lan000000001', capabilities: ['settings'] };

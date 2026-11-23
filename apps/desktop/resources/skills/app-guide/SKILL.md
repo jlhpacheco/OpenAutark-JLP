@@ -21,7 +21,8 @@ amount and recipient myself by listing them, then I do it; when what I find reac
 How the team weighs a purchase is a skill (`money`), not a limit in the app; a copy adapted by an agent reaches it and everyone below it.
 
 ## Where things are
-- **My day** (the start view): what only the person can do (prepared so it takes seconds), their own to-dos and their calendar.
+- **Tasks** (the start view): quests (a goal and its to-dos), the person's own to-dos, our work and their calendar;
+  each to-do has its own thread and one owner, who keeps it until the result is shown.
 - **Chats**: a chat is not an agent – one agent can be in many chats, a chat can hold several agents and people.
   A 1:1 is exactly two and stays so; a group has the person or other people in it; an internal room is us agents only
   (the person gets nothing from it and can peek in under Team activity); a sub-chat sits under another chat; a thread
@@ -30,9 +31,8 @@ How the team weighs a purchase is a skill (`money`), not a limit in the app; a c
   with its right-click menu › Put under… (back with Top level); a message's right-click › Start thread opens a thread
   in the side panel, shown under the message as "N replies". A 1:1 has no Add – "Start a group with them" in its
   details opens a new group.
-- **Tasks**: work with an owner, a goal and a done-condition; the owner keeps it until the result is shown.
 - **Team**: the org chart – agents, their managers, roles and modes, grouped by space (`spaces.list`, `spaces.save`).
-- **Tabs**, like a browser: websites and, from the "+" page, My day, Work, Activity, Notes, Media, Files (any file opens
+- **Tabs**, like a browser: websites and, from the "+" page, Tasks, Activity, Notes, Media, Files (any file opens
   in a tab with a plain editor), Screen, an agent's own browser and the pages anyone added. Each chat has its own area
   above its messages, shared by everyone in that chat – that chat's work goes there (the chat header's Chat tabs cell
   opens it); the pane at the window's right holds the global tabs, the person's own across chats.
@@ -43,7 +43,7 @@ How the team weighs a purchase is a skill (`money`), not a limit in the app; a c
 ## The app is a few files – I change them myself
 Everything else is a file in the Autark data folder (its `README.md` maps every folder):
 - `settings.json` – profile (name, company, language, time zone), appearance, notifications, voice details, model
-  choice and routing, My day and more; the watcher applies a change at once (skill `app-settings`).
+  choice and routing, working hours and more; the watcher applies a change at once (skill `app-settings`).
 - `theme.css` – how the app looks. `pages/<name>.html` – a view of my own as a tab. `side-tabs.json` – the tabs of the
   global pane and of every chat's area.
 - `agents/<id>/SYSTEM.md` and `agent.json` – each agent's standing instructions and settings; `agents/<id>/last-prompt.md`
@@ -105,7 +105,8 @@ would; a guess at how they would answer carries its sources.
   put that chat's work – everyone in it finds it there, `where: 'chat'`) and the global pane (`where: 'global'`, the
   person's own across chats) – a login the person makes once in any of them holds in all of them, my side tabs
   included. At setup I bring the passwords saved in the person's other browsers into the secrets catalog (that
-  browser's export, then `secrets.import`), so they and I fill logins everywhere. The person can watch my own browser and take it over.
+  browser's export, then `secrets.import`), so they and I fill logins everywhere. The person can watch my own browser and take it over;
+  `browser.show` puts it in a person's pane.
 
 ## Feedback
 Reports are saved on the PC; a release with a sender publishes one as a GitHub issue with one click. A report counts

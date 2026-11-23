@@ -3,14 +3,13 @@
 // moves nothing: [Once | Repeat] (+ [Days | Interval | Advanced]) and ×; the fields (Once: date and time; Days: weekday
 // buttons at a time; Interval: every N minutes/hours/days/weeks; Advanced: a cron rule); one-tap times (Once) or the
 // optional start and end (Repeat); and one line that says what happens – "Sends every Monday at 09:00, next: Mon
-// 09:00" – or why Schedule is off. The next run is asked by the composer (schedule-next.ts) and handed in.
+// 09:00" – or why Schedule is off. The next run is asked by the composer (schedule-next.ts) and handed in. Settings ›
+// Scheduled (settings/ScheduleDialog.tsx) uses the same block for its rule; there it has no × (the dialog closes itself).
 // Owns: the block. Never: the text, the send or the form → spec step (schedule-form.ts, schedule-mode.ts).
 
 import { Icon } from '../../lib/ui.tsx';
 import { Segmented } from '../../settings/controls.tsx';
 import { whenText } from '../details/Schedules.tsx';
-import { patchForm } from './schedule-mode.ts';
-import type { ScheduleMode } from './schedule-mode.ts';
 import type { NextRun } from './schedule-next.ts';
 import { ruleWords } from './schedule-rule.ts';
 import { quickPicks, scheduleSpec, todayIn, UNITS } from './schedule-form.ts';
@@ -19,10 +18,9 @@ import type { ScheduleForm } from './schedule-form.ts';
 const DAYS = [{ day: 1, letter: 'M', name: 'Monday' }, { day: 2, letter: 'T', name: 'Tuesday' }, { day: 3, letter: 'W', name: 'Wednesday' },
   { day: 4, letter: 'T', name: 'Thursday' }, { day: 5, letter: 'F', name: 'Friday' }, { day: 6, letter: 'S', name: 'Saturday' }, { day: 0, letter: 'S', name: 'Sunday' }];
 
-export function ScheduleBar(props: { conversationId: string; mode: ScheduleMode; next: NextRun; note?: string; onLeave: () => void }) {
-  const { conversationId, mode, next, note, onLeave } = props;
-  const { form } = mode;
-  const set = (patch: Partial<ScheduleForm>) => patchForm(conversationId, patch);
+export function ScheduleBar(props: { form: ScheduleForm; editing?: boolean; next: NextRun; note?: string; onChange: (patch: Partial<ScheduleForm>) => void; onLeave?: () => void }) {
+  const { form, next, note, onLeave } = props;
+  const set = props.onChange;
   const now = Date.now();
   const built = scheduleSpec(form, now);
 
@@ -31,18 +29,18 @@ export function ScheduleBar(props: { conversationId: string; mode: ScheduleMode;
   if (note) { line = note; tone = 'warn'; }
   else if ('error' in built) { line = built.error; tone = built.soft ? 'muted' : 'error'; }
   else if (next.error) { line = next.error; tone = 'error'; }
-  else line = `${mode.edit ? 'Editing · ' : ''}Sends ${ruleWords(built.spec, { tz: form.tz, now })}${next.at ? `, next: ${whenText(next.at, now)}` : ''}`;
+  else line = `${props.editing ? 'Editing · ' : ''}Sends ${ruleWords(built.spec, { tz: form.tz, now })}${next.at ? `, next: ${whenText(next.at, now)}` : ''}`;
 
   const toggleDay = (day: number) => set({ days: form.days.includes(day) ? form.days.filter((entry) => entry !== day) : [...form.days, day] });
   const text = (field: 'date' | 'time' | 'clock' | 'cron' | 'every' | 'start' | 'end') => (event: Event) => set({ [field]: (event.currentTarget as HTMLInputElement).value });
 
   return (
-    <div class="schedule-bar" role="group" aria-label="Schedule" onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onLeave(); } }}>
+    <div class="schedule-bar" role="group" aria-label="Schedule" onKeyDown={(event) => { if (onLeave && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onLeave(); } }}>
       <div class="schedule-row">
         <Segmented label="When" value={form.kind} onChange={(kind) => set({ kind })} options={[{ value: 'once', label: 'Once' }, { value: 'repeat', label: 'Repeat' }]} />
         {form.kind === 'repeat' && <Segmented label="Repeat" value={form.repeat} onChange={(repeat) => set({ repeat })}
           options={[{ value: 'days', label: 'Days' }, { value: 'every', label: 'Interval' }, { value: 'cron', label: 'Advanced' }]} />}
-        <button type="button" class="icon-button small schedule-close" aria-label="Leave schedule mode" title="Back to a normal message (Esc)" onClick={onLeave}><Icon name="x" size={16} /></button>
+        {onLeave && <button type="button" class="icon-button small schedule-close" aria-label="Leave schedule mode" title="Back to a normal message (Esc)" onClick={onLeave}><Icon name="x" size={16} /></button>}
       </div>
 
       <div class="schedule-row">

@@ -3,7 +3,8 @@
 // run journal and context ledger with a recording engine (rebuild-harness.ts).
 //   1. a turn that finished a task ends at 150,000 tokens → its outcome says fold: 'step';
 //   2. the fold's turn resumes the same session at effort high with the note as its whole input; its closing text becomes the
-//      pinned hand-over, everything of my own work before it is hidden by 'fold' (the chat line and the tasks.finish call stay),
+//      pinned hand-over with my quests as they stand under it (Quests round 20.11.2026), everything of my own work before it is
+//      hidden by 'fold' (the chat line and the tasks.update call that finished the task stay),
 //      the session is marked folded, nothing is posted;
 //   3. the next turn starts the session anew from the folded record (why 'fold') and the mark is gone.
 // And what must not happen: a fold that failed, was stopped or wrote no hand-over marks nothing; a part, a call's turn, a fold's
@@ -16,7 +17,7 @@ import { TurnExecutor } from '../../../src/runtime/agents/turn.ts';
 import { ContextLedgerService } from '../../../src/runtime/context/ledger/service.ts';
 import { journalResult } from '../../../src/runtime/tools/journal.ts';
 import { boundaryOf } from '../../../src/runtime/agents/boundary.ts';
-import { FOLD_NOTE, foldNote, planFold, wantsFold } from '../../../src/runtime/agents/context-fold.ts';
+import { FOLD_NOTE, FOLD_QUESTS, foldNote, planFold, wantsFold } from '../../../src/runtime/agents/context-fold.ts';
 import { resolveMode } from '../../../src/runtime/agents/turn-prepare.ts';
 import { effortKeepsCache } from '../../../src/runtime/subconscious/route-turn.ts';
 import { FOLD_IDLE, FOLD_MIN_CHARS, FOLD_STEP, foldWhy, type FoldWhy } from '../../../src/runtime/agents/compaction-policy.ts';
@@ -55,9 +56,12 @@ function working(h: ReturnType<typeof world>, tokens: number, finish = true): (i
     input.onEvent({ type: 'tool_start', callId: 'sh1', name: 'Bash', args: { command: 'npm run export' }, own: true });
     input.onEvent({ type: 'tool_end', callId: 'sh1', ok: true, summary: 'exit 0', output: `export written to out/export.csv\n${'row\n'.repeat(500)}` });
     if (finish) {
-      input.onEvent({ type: 'tool_start', callId: 'fin1', name: 'tasks.finish', args: { id: 'tsk_export', summary: 'Export written: 500 rows' }, own: false });
-      h.s.runs.item(input.runId, { kind: 'tool_call', name: 'tasks.finish', data: { callId: 'fin1', args: JSON.stringify({ id: 'tsk_export', summary: 'Export written: 500 rows' }), summary: 'Finished the export' }, effectStatus: 'none', idemKey: `${input.runId}:fin1` });
-      journalResult(h.s, input.runId, 'tasks.finish', 'fin1', `${input.runId}:fin1`, { content: [{ type: 'text', text: 'Task done.' }] }, []);
+      const task = h.s.tasks.create({ title: 'Customer export', assigneeKind: 'agent', assigneeId: h.agent.id, createdBy: 'human' });
+      const args = { id: task.id, status: 'done', result: 'Export written: 500 rows' };
+      input.onEvent({ type: 'tool_start', callId: 'fin1', name: 'tasks.update', args, own: false });
+      h.s.runs.item(input.runId, { kind: 'tool_call', name: 'tasks.update', data: { callId: 'fin1', args: JSON.stringify(args), summary: 'Finished the export' }, effectStatus: 'none', idemKey: `${input.runId}:fin1` });
+      h.s.tasks.finish(task.id, { status: 'done', summary: 'Export written: 500 rows' }, h.agent.id);
+      journalResult(h.s, input.runId, 'tasks.update', 'fin1', `${input.runId}:fin1`, { content: [{ type: 'text', text: 'Task done.' }] }, []);
       input.onEvent({ type: 'tool_end', callId: 'fin1', ok: true, summary: 'Task done.' });
     }
     return { text: 'The export is written.', contextTokens: tokens };
@@ -75,7 +79,8 @@ test('the fold from trigger to rebuilt session: a finished task at 150,000 token
     assert.equal(worked.fold, 'step', 'a task was finished in it and the engine counts 150,000 ≥ FOLD_STEP');
     assert.deepEqual(boundaryOf(h.s, h.agent.id, MAIN_THREAD), { at: false, on: { engine: 'claude', modelId: 'claude:opus', accountId: 'acc_claude' } }, 'a warm session: no boundary yet');
     const before = h.items();
-    assert.deepEqual(before.map((item) => [item.kind, item.state]), [['message', 'keep'], ['tool', 'keep'], ['tool', 'keep'], ['assistant', 'keep']], 'the line, the shell call, the tasks.finish call, my closing words');
+    assert.deepEqual(before.map((item) => [item.kind, item.state]), [['message', 'keep'], ['tool', 'keep'], ['tool', 'keep'], ['assistant', 'keep']], 'the line, the shell call, the tasks.update call that finished it, my closing words');
+    const open = h.s.tasks.create({ title: 'Read the export back', assigneeKind: 'agent', assigneeId: h.agent.id, createdBy: 'human' });
     const posted = h.chats.messages(h.chat.id, { limit: 50 }).length;
     h.db.run('INSERT INTO kv (ns, key, value, updated_at) VALUES (?, ?, ?, 0)', ['repair_notes', `${h.agent.id}:${MAIN_THREAD}`, JSON.stringify(['A block of mine was not posted.'])]);
 
@@ -102,11 +107,13 @@ test('the fold from trigger to rebuilt session: a finished task at 150,000 token
     const after = h.items();
     const checkpoint = after.find((item) => item.kind === 'checkpoint')!;
     assert.ok(checkpoint.itemId.startsWith('c') && checkpoint.pinnedUntil === Number.MAX_SAFE_INTEGER, 'the hand-over: an item of its own kind, pinned for good');
-    assert.equal(h.ledger.original(h.agent.id, MAIN_THREAD, checkpoint.itemId)?.text, HAND_OVER);
+    const handOver = h.ledger.original(h.agent.id, MAIN_THREAD, checkpoint.itemId)?.text ?? '';
+    assert.ok(handOver.startsWith(`${HAND_OVER}\n\n${FOLD_QUESTS}\n`), handOver);
+    assert.match(handOver, new RegExp(`\n- ${open.id} · open since [^\n]+ · Read the export back$`), 'an open ask stands in the hand-over as data, whatever I wrote');
     const state = (kind: string, title: RegExp) => after.find((item) => item.kind === kind && title.test(item.title))!;
     assert.deepEqual([state('tool', /^Bash/).state, state('tool', /^Bash/).markedBy], ['hidden', 'fold'], 'the shell call and its output: hidden by the fold');
     assert.equal(state('assistant', /export is written/).state, 'keep', 'the words I posted in the chat stay in view, under the chat lines\' reach');
-    assert.equal(state('tool', /^tasks\.finish/).state, 'keep', 'the tasks.finish call stays: its arguments are the task\'s summary');
+    assert.equal(state('tool', /^tasks\.update/).state, 'keep', 'the tasks.update call that finished the task stays: its arguments are the result');
     assert.equal(after.find((item) => item.kind === 'message')!.state, 'keep', 'chat lines follow their own reach rule');
     const noted = h.notes(h.lastFold()).find((note) => note.fold)!;
     assert.deepEqual(noted, { fold: 'step', before: 150_000, hidden: 1, checkpoint: [checkpoint.itemId] });
@@ -122,11 +129,11 @@ test('the fold from trigger to rebuilt session: a finished task at 150,000 token
     assert.equal(next.fold, undefined);
     assert.equal(h.claude.rebuilds.length, 1, 'rebuilt once');
     const rebuilt = h.claude.rebuilds[0];
-    assert.deepEqual(rebuilt.items.map((item) => item.kind), ['m', 't', 't', 'a', 'c'], 'the line, the tasks.finish call, the call naming what is hidden, my posted words, the hand-over');
-    assert.equal(rebuilt.items[1].call?.name, 'tasks.finish');
+    assert.deepEqual(rebuilt.items.map((item) => item.kind), ['m', 't', 't', 'a', 'c'], 'the line, the finishing tasks.update call, the call naming what is hidden, my posted words, the hand-over');
+    assert.equal(rebuilt.items[1].call?.name, 'tasks.update');
     assert.match(rebuilt.items[2].call?.output ?? '', /^My context, kept small: hidden /);
     assert.equal(rebuilt.items[3].text, 'The export is written.');
-    assert.equal(rebuilt.items[4].text, HAND_OVER, 'shown in full');
+    assert.equal(rebuilt.items[4].text, handOver, 'shown in full');
     assert.equal(rebuilt.generation, 2);
     const turn = h.claude.calls.at(-1)!;
     assert.equal(turn.session?.ref, 'claude-r1', 'the turn runs on the rebuilt session');
@@ -252,10 +259,13 @@ test('the trigger: a part, a call\'s turn, a fold\'s own turn, a turn that did n
     assert.equal(foldWhy({ tokens: 180_000, finishedTask: false, compacted: false }), 'size');
     assert.equal(foldWhy({ tokens: 40_000, finishedTask: false, compacted: true }), 'engine', 'the engine compacted by itself: at any size');
     assert.equal(foldWhy({ finishedTask: true, compacted: false }), undefined, 'no count, no fold');
-    // a failed tasks.finish call is no finished task
+    // a failed tasks.update call, or one that finished no task of mine in the run, is no finished task
     h.store.save({ ...h.binding('claude')!, contextTokens: 150_000 });
-    assert.equal(wantsFold(h.s, plan, turn, { ...done, tools: [{ name: 'tasks.finish', native: false, ok: false }] }), undefined);
-    assert.equal(wantsFold(h.s, plan, turn, { ...done, tools: [{ name: 'tasks.finish', native: false, ok: true }] }), 'step');
+    assert.equal(wantsFold(h.s, plan, turn, { ...done, tools: [{ name: 'tasks.update', native: false, ok: false }] }), undefined);
+    assert.equal(wantsFold(h.s, plan, turn, { ...done, tools: [{ name: 'tasks.update', native: false, ok: true }] }), undefined, 'an update that ended nothing');
+    const ended = h.s.tasks.create({ title: 'Export', assigneeKind: 'agent', assigneeId: h.agent.id, createdBy: 'human' });
+    h.s.tasks.finish(ended.id, { status: 'done', summary: 'Written' }, h.agent.id);
+    assert.equal(wantsFold(h.s, plan, turn, { ...done, tools: [{ name: 'tasks.update', native: false, ok: true }] }), 'step');
     // the note is true for each cause – a finished step, the size alone, the engine's own compaction (which leaves a small
     // count): it says my turn is done and what my context holds, not that a piece of work ended or that it grew, and never 0 tokens
     assert.match(FOLD_NOTE, /\{\{size\}\}/, 'the note names the size');
@@ -266,6 +276,7 @@ test('the trigger: a part, a call\'s turn, a fold\'s own turn, a turn that did n
     assert.doesNotMatch(FOLD_NOTE, /grown|piece of my work is done/);
     assert.doesNotMatch(foldNote(undefined), /0 tokens/);
     assert.match(FOLD_NOTE, /my chats with my own lines in them/, 'after the fold my own lines in my chats are in view again');
+    assert.match(FOLD_NOTE, /an ask that is not done stays open in its quest, and my quests as they stand now are added under my hand-over/);
   } finally { h.cleanup(); }
 });
 

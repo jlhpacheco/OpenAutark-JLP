@@ -1,16 +1,23 @@
 // Client WebSockets on `/ws` (PWA, phone, local CLI, C8 external agents): the
 // first frame must be a Hello within 10 s; its token decides the scope (owner/device, else an
 // external agent's token through `external` – bridges/external-agents.ts, which also judges the
-// transport) or the socket closes with 4401 (4403 for a removed device or external agent);
+// transport) or the socket closes with 4401 (4403 for a removed device or external agent; Sicher-Runde 19.11.2026: 4404 for
+// a phone/browser token this PC does not know at all – `known` says no –, e.g. a PC the company's roster has not reached
+// yet, so the phone tries its next PC and never shows the pairing screen for it);
 // whether the socket's peer is on a secure transport is passed along for device scopes. The authenticated
 // socket is adapted to an RpcConnection (B-050 K8 d: `view` may wrap it) and attached to the RPC server. External
 // agents hold ≤ 2 sockets each, ≤ 8 together (more close with 1013); one closes with 4403 once its
 // access ends (`external.watch`, armed with the first external socket); a device's sockets close when its row is
 // revoked or removed (closeDevice – B-078 D5: no phone switch any more).
 // B-085: an owner Hello may name `agent` (an agent's own wf, wf-cli/discover.ts): the owner scope then carries agentId;
-// on any other scope it closes with 4400, for an agent that is gone or archived (agentLive) with 4403.
+// on any other scope (also the person token, FX1 19.11.2026) it closes with 4400, for an agent that is gone or archived
+// (agentLive) with 4403. Sicher-Runde 19.11.2026 (REVIEW-2 7): the agent counts only with its proof (`proof`, the HMAC this
+// runtime put beside AUTARK_AGENT into that agent's processes – security/agent-proof.ts); without a valid one it closes with 4403.
+// Fest round 22.11.2026: a page's socket (Hello `client: 'pwa'` – browser, Android, iPhone) gets the keepalive's beat once
+// its Hello is accepted, so ui/lib/rpc.ts notices silence (the CLI and other programs keep the documented frames only),
+// and (G) its pings' round trips count for its device – the phone's or browser's id its token names.
 // Owns: the Hello handshake and client limits and the socket → RpcConnection adapter (the shared
-// 30 s ping keepalive is http/keepalive.ts, re-exported here).
+// 15 s ping keepalive and its beat are http/keepalive.ts, re-exported here).
 // Never: dispatches RPC itself, logs tokens, or keeps a slow client's backlog in RAM.
 
 import type { WebSocket } from 'ws';
@@ -18,6 +25,7 @@ import { PROTOCOL_VERSION } from '../../shared/api/protocol.ts';
 import type { ClientScope } from '../../shared/api/protocol.ts';
 import type { Logger } from '../contracts.ts';
 import type { Keepalive } from './keepalive.ts';
+import { validProof } from '../security/agent-proof.ts';
 import type { RpcAttach, RpcConnection } from './types.ts';
 
 export { Keepalive } from './keepalive.ts';
@@ -43,6 +51,8 @@ export const CLOSE = {
   badHello: 4400,
   unauthorized: 4401,
   revoked: 4403,
+  /** A phone/browser token this PC does not know (never issued here, nor heard of through the roster). */
+  unknown: 4404,
   helloTimeout: 4408,
   slowConsumer: 4429,
   busy: 1013,
@@ -111,7 +121,7 @@ function adapt(ws: WebSocket, log: () => Logger): RpcConnection & { deliver(text
   };
 }
 
-interface Hello { token: string; client?: string; agent?: string }
+interface Hello { token: string; client?: string; agent?: string; proof?: unknown }
 
 /** Validates the first frame; undefined when it is not a Hello. */
 function parseHello(text: string): Hello | 'protocol' | undefined {
@@ -122,16 +132,18 @@ function parseHello(text: string): Hello | 'protocol' | undefined {
   if (typeof hello.token !== 'string' || hello.token.length > 512) return undefined;
   if (hello.protocol !== undefined && hello.protocol !== PROTOCOL_VERSION) return 'protocol';
   if (hello.agent !== undefined && (typeof hello.agent !== 'string' || !/^[\w.:-]{1,128}$/.test(hello.agent))) return undefined;
-  return { token: hello.token, client: typeof hello.client === 'string' ? hello.client.slice(0, 20) : undefined, ...(hello.agent ? { agent: hello.agent } : {}) };
+  return { token: hello.token, client: typeof hello.client === 'string' ? hello.client.slice(0, 20) : undefined, ...(hello.agent ? { agent: hello.agent, proof: hello.proof } : {}) };
 }
 
 /**
  * B-085: the scope with the Hello's `agent` – only on an owner scope, and only for an agent `live` knows (exists, not
- * archived; without `live` the handlers check it: rpc/handlers/chats.ts). A string is the close reason.
+ * archived; without `live` the handlers check it: rpc/handlers/chats.ts), and only with this runtime's proof for it
+ * ('unproven' – a shell that names another agent). A string is the close reason.
  */
-function withAgent(scope: ClientScope, agent: string | undefined, live: ((agentId: string) => boolean) | undefined): ClientScope | 'not-owner' | 'gone' {
+function withAgent(scope: ClientScope, agent: string | undefined, proof: unknown, live: ((agentId: string) => boolean) | undefined): ClientScope | 'not-owner' | 'gone' | 'unproven' {
   if (!agent) return scope;
-  if (scope.kind !== 'owner' || scope.main) return 'not-owner';
+  if (scope.kind !== 'owner' || scope.main || scope.person) return 'not-owner'; // FX1: an agent is never the person
+  if (!validProof(agent, proof)) return 'unproven';
   if (live && !live(agent)) return 'gone';
   return { ...scope, agentId: agent };
 }
@@ -152,6 +164,11 @@ export interface ClientSocketDeps {
   authenticate(token: string, loopback: boolean, secure: boolean): ClientScope | undefined;
   /** A refused token of a removed device: closed with 4403 (revoked) instead of 4401. */
   revoked?(token: string): boolean;
+  /**
+   * A refused token this PC knows (its launch token from another computer, say): it stays 4401. False for a token it
+   * never issued – a phone/browser Hello (`client: 'pwa'`) then closes with 4404. Absent: every refusal is 4401.
+   */
+  known?(token: string): boolean;
   /** C8: external-agent tokens, tried after `authenticate` refused a token. */
   external?: ExternalSocketAuth;
   view?(connection: RpcConnection, scope: ClientScope, client: string | undefined): RpcConnection; // B-050 K8 (d): by scope and Hello `client` (other programs' message view)
@@ -223,13 +240,17 @@ export class ClientSockets {
       if (!scope) {
         let removed = false;
         try { removed = this.deps.revoked?.(hello.token) === true || this.deps.external?.revoked?.(hello.token) === true; } catch { removed = false; }
-        if (removed) ws.close(CLOSE.revoked, 'revoked'); else ws.close(CLOSE.unauthorized, 'unauthorized');
+        if (removed) { ws.close(CLOSE.revoked, 'revoked'); return; }
+        let unknown = false;
+        try { unknown = hello.client === 'pwa' && this.deps.known?.(hello.token) === false; } catch { unknown = false; }
+        if (unknown) ws.close(CLOSE.unknown, 'unknown here'); else ws.close(CLOSE.unauthorized, 'unauthorized');
         return;
       }
       let agentScope: ReturnType<typeof withAgent>;
-      try { agentScope = withAgent(scope, hello.agent, this.deps.agentLive); } catch { agentScope = 'gone'; }
+      try { agentScope = withAgent(scope, hello.agent, hello.proof, this.deps.agentLive); } catch { agentScope = 'gone'; }
       if (agentScope === 'not-owner') { ws.close(CLOSE.badHello, 'agent only with the owner token'); return; }
       if (agentScope === 'gone') { ws.close(CLOSE.revoked, 'agent gone'); return; }
+      if (agentScope === 'unproven') { ws.close(CLOSE.revoked, 'agent without its proof'); return; }
       scope = agentScope;
       if (scope.kind === 'external') {
         if (!this.externalRoom(scope.memberId)) { ws.close(CLOSE.busy, 'too many connections'); return; }
@@ -240,6 +261,7 @@ export class ClientSockets {
       try {
         detach = this.deps.rpc.attach(this.deps.view?.(connection, scope, hello.client) ?? connection, scope);
         stage = 'open';
+        if (hello.client === 'pwa') this.deps.keepalive.page(ws, scope.kind === 'device' || scope.kind === 'person' ? scope.deviceId : undefined); // beat + round trips (http/keepalive.ts)
       } catch (error) {
         log().error('rpc attach failed', { error: error instanceof Error ? error.message : String(error) });
         ws.close(CLOSE.internal, 'internal error');

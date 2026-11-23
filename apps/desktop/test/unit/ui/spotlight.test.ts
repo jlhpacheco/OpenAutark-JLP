@@ -1,5 +1,5 @@
 // B-085 T2: the spotlight tour's pure rules (src/ui/tour/spotlight-steps.ts) – the steps (at most six, existing
-// selectors only, no data-tour), what counts as a target (a placeholder or a hidden box is none; the full-access
+// selectors only, no data-tour), what counts as a target (a placeholder or a hidden box is none; the Secure-mode
 // step only with its action's text), the hole kept inside the window, the bubble below / above / as a sheet (at the
 // top over a hole in the bottom part), passing over a gone target in the direction of the last move, and the keys.
 
@@ -16,7 +16,7 @@ test('five short steps on existing selectors, the last one only with its action 
     '.frame-header [data-cell="call"]', '[data-cell="workspace"]', '.composer .composer-plus',
     '.composer .send-button', '.status-note .status-action',
   ]);
-  assert.equal(SPOTLIGHT_STEPS[4]!.text, 'Give full access');
+  assert.equal(SPOTLIGHT_STEPS[4]!.text, 'Security settings');
   for (const step of SPOTLIGHT_STEPS) {
     assert.doesNotMatch(step.selector, /data-tour/);
     assert.ok(step.body.length <= 140, `${step.title} stays short`);
@@ -28,8 +28,8 @@ test('a target: visible, no placeholder, with the step text', () => {
   assert.equal(isTarget({}, box), true);
   assert.equal(isTarget({}, { ...box, placeholder: true }), false, 'an inert placeholder (no Ultra, a chat that cannot talk)');
   assert.equal(isTarget({}, { ...box, width: 0 }), false, 'a hidden box');
-  assert.equal(isTarget({ text: 'Give full access' }, { ...box, text: 'Accept' }), false, 'another notice');
-  assert.equal(isTarget({ text: 'Give full access' }, { ...box, text: 'Give full access' }), true);
+  assert.equal(isTarget({ text: 'Security settings' }, { ...box, text: 'Accept' }), false, 'another notice');
+  assert.equal(isTarget({ text: 'Security settings' }, { ...box, text: 'Security settings' }), true);
 });
 
 test('the hole: a little room, kept inside the window', () => {

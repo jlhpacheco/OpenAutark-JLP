@@ -1,6 +1,6 @@
 // Service worker of the Workforce PWA (served by the runtime at /sw.js, built to app/ui/sw.js).
-// Owns: app-shell caching, offline (and 5xx) fallback for navigation, the offline "For you" snapshot
-// endpoint (/offline/todos.json from IndexedDB), Web Push display and notification clicks.
+// Owns: app-shell caching, offline (and 5xx) fallback for navigation (the page then opens with this device's copy of
+// its last data, offline-cache.ts), Web Push display and notification clicks.
 // The shell it precaches at install is index.html, main.js, main.css and – filled in by the build
 // (scripts/sw-precache.mjs → esbuild define) – every chunk main.js imports statically, under a
 // cache name that changes with them, so the app boots offline even if no page was controlled yet.
@@ -12,7 +12,6 @@
 // and a push `{clear: tag}` (read on some device, runtime/pwa/read-clear.ts) closes that tag's notices and shows nothing.
 // Never: caches RPC/WebSocket traffic, files or anything authenticated; never stores tokens.
 
-import { idbGet, idbSet, TODO_SNAPSHOT_KEY } from './idb.ts';
 import { wireNotifications, type NotifyScope } from './sw-notify.ts';
 
 export {}; // module scope: keep these local declarations out of the global namespace
@@ -69,11 +68,6 @@ sw.addEventListener('activate', (event) => {
   })());
 });
 
-async function offlineTodos(): Promise<Response> {
-  const snapshot = await idbGet<unknown>(TODO_SNAPSHOT_KEY).catch(() => undefined);
-  return new Response(JSON.stringify(snapshot ?? { at: 0, items: [] }), { headers: { 'content-type': 'application/json' } });
-}
-
 /** A page load: the network's index.html (kept for later); offline or a 5xx (the Android app's local entrance answers
  *  503 while its link to the PC is down) boots the cached one, which reconnects by itself. */
 async function networkFirstShell(request: Request): Promise<Response> {
@@ -117,18 +111,10 @@ sw.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.origin !== sw.location.origin) return;
-  if (url.pathname === '/offline/todos.json') return event.respondWith(offlineTodos());
   if (NEVER_CACHE.some((pattern) => pattern.test(url.pathname))) return;
   if (request.mode === 'navigate') return event.respondWith(networkFirstShell(request));
   if (BOOT.has(url.pathname)) return event.respondWith(bootFile(request));
   if (/\.(js|css|png|svg|woff2|webmanifest)$/.test(url.pathname)) event.respondWith(staleWhileRevalidate(request));
-});
-
-sw.addEventListener('message', (event) => {
-  const data = event.data as { type?: string; items?: unknown[]; at?: number } | null;
-  if (data?.type === 'wf.snapshot' && Array.isArray(data.items)) {
-    event.waitUntil(idbSet(TODO_SNAPSHOT_KEY, { at: data.at ?? Date.now(), items: data.items }));
-  }
 });
 
 // Push, notice taps and clears (shared with the iPhone web app's worker, which always shows a notice). The badge is the

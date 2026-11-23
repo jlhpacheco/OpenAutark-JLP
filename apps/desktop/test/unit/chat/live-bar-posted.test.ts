@@ -7,7 +7,7 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentActivity } from '../../../src/shared/model/runs.ts';
-import { POST_CHAT_MS } from '../../../src/runtime/chat/live.ts';
+import { POST_CHAT_MS, SAID_HOLD_MS } from '../../../src/runtime/chat/live.ts';
 import { agent, harness } from './harness.ts';
 
 const MIN = 60_000;
@@ -79,4 +79,34 @@ test('the time of a run that ended announces nothing and leaves no timer behind'
   const announced = h.of('conversation.upserted').length;
   mock.timers.tick(10 * MIN);
   assert.equal(h.of('conversation.upserted').length, announced);
+});
+
+// Owner 19.11.2026: with one context per agent the person's line of another chat is folded into the running turn – that
+// chat shows the work for as long as the run runs, not only 3 minutes after a post there.
+test('a chat whose line was folded into the running turn shows the run until it ends', (t) => {
+  const { h, press, active, run, shows } = setup(t);
+  active([run()]);
+  assert.deepEqual(shows(press.id), []);
+  h.bus.emit('run.item', { id: 'ri_s', runId: 'run_tom', seq: 2, kind: 'note', data: { steered: { lines: 1, upToSeq: 4, fromSeq: 3, conversationId: press.id } }, createdAt: 1 });
+  mock.timers.tick(1_000);
+  assert.deepEqual(shows(press.id), ['run_tom'], 'the person there sees it work');
+  assert.ok(h.of('conversation.upserted').some((chat) => chat.id === press.id && chat.live?.length === 1), 'announced to the list');
+  mock.timers.tick(30 * MIN);
+  assert.deepEqual(shows(press.id), ['run_tom'], 'still, half an hour later');
+  active([]);
+  assert.deepEqual(shows(press.id), [], 'and leaves with its run');
+});
+
+test('the agent\'s own sentence holds its step against tool steps for SAID_HOLD_MS, then the tools show again', (t) => {
+  const { h, home, active, run } = setup(t);
+  active([run()]);
+  const step = () => h.chats.summary(home.id).live?.[0].step;
+  h.bus.emit('run.item', { id: 'ri_u', runId: 'run_tom', seq: 1, kind: 'note', name: 'Update', data: { text: 'Checking the March invoices now.' }, createdAt: 1 });
+  assert.equal(step(), 'Checking the March invoices now');
+  const read = (seq: number, file: string) => h.bus.emit('run.item', { id: `ri_${seq}`, runId: 'run_tom', seq, kind: 'tool_call', name: 'Read', data: { callId: `c${seq}`, args: { file_path: `C:/data/${file}` } }, createdAt: 1 });
+  read(2, 'march.pdf');
+  assert.equal(step(), 'Checking the March invoices now', 'its own words first');
+  mock.timers.tick(SAID_HOLD_MS);
+  read(3, 'april.pdf');
+  assert.match(step() ?? '', /april\.pdf/, 'a minute later the tool step shows');
 });

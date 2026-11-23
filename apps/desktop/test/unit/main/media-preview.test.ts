@@ -13,11 +13,11 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, utimesSync, writeFile
 import path from 'node:path';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import { PREVIEW_LIMITS } from '../../../src/shared/model/video-preview.ts';
-import { MediaPreview, PREVIEW_IDLE_MS } from '../../../src/main/media-preview.ts';
+import { MediaPreview } from '../../../src/main/media-preview.ts';
+import { HIDDEN_IDLE_MS, type HiddenWindow, type Serve } from '../../../src/main/hidden-jobs.ts';
 import type { MediaPreviewDeps } from '../../../src/main/media-preview.ts';
 import { PREVIEW_ORIGIN } from '../../../src/main/media-preview-routes.ts';
 import { PREVIEW_CSP } from '../../../src/main/media-preview-page.ts';
-import type { AnalyzerWindow, Serve } from '../../../src/main/media-analyzer.ts';
 import { blobPath } from '../../../src/main/protocols/rules.ts';
 import { tempDir } from '../store/helpers.ts';
 
@@ -43,7 +43,7 @@ interface Api {
   post(route: string, body?: Uint8Array | string): Promise<Response>;
 }
 
-class FakeWindow implements AnalyzerWindow {
+class FakeWindow implements HiddenWindow {
   destroyed = false;
   loads: string[] = [];
   private gone = new Set<() => void>();
@@ -116,7 +116,7 @@ test('a preview job: the page reads the spec and the video with ranges, sends th
     assert.equal(f.windows.length, 1);
     assert.deepEqual(f.windows[0].loads, [`${PREVIEW_ORIGIN}/job/1/`]);
     assert.equal(f.maker.windowOpen, true, 'kept for the next job');
-    f.timers.advance(PREVIEW_IDLE_MS + 1);
+    f.timers.advance(HIDDEN_IDLE_MS + 1);
     assert.equal(f.maker.windowOpen, false, 'destroyed after its idle time');
     assert.equal(f.windows[0].destroyed, true);
   } finally { f.t.cleanup(); }

@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AccountMonitor, QUIET_MS, REFRESH_MS, WORK_TAIL_MS } from '../../../src/runtime/accounts/monitor.ts';
 import { Bus } from '../../../src/runtime/bus.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import type { Account, AccountLimits, UsageSummary } from '../../../src/shared/model/providers.ts';
 
 const T0 = Date.UTC(2026, 9, 24, 17);

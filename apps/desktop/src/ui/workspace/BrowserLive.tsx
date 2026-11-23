@@ -7,6 +7,8 @@
 // pull frames (browser.pull); on a touch screen a takeover offers Type (BrowserKeys.tsx) and Zoom / Fit. Named
 // cursors lie over the picture (PointerLayer.tsx).
 // Owns: the shared feed subscription per view, the toolbar, the takeover controls and the view.
+// 21.11.2026: an agent that runs on another of the person's PCs is pulled through this PC from there (the runtime sends
+// the pulls on – devices/browser-view.ts); its real window stays on that PC.
 // Never: runs a feed of its own (browser-feed.ts), keeps watching while nothing is shown, or
 // keeps what the person types.
 
@@ -16,7 +18,8 @@ import { PULL_DEFAULT_BYTES, PULL_WAIT_MAX_MS, type BrowserSteer, type BrowserVi
 import { fullDate, time } from '../lib/format.ts';
 import { errorText, rpc } from '../lib/rpc.ts';
 import { can, isOwner } from '../lib/session.ts';
-import { agentName } from '../lib/store.ts';
+import { agentName, agents } from '../lib/store.ts';
+import { runsOn, watchPcs } from '../team/runs-on.ts';
 import { toastError } from '../lib/toasts.ts';
 import { Button, Icon, IconButton, Menu, Spinner } from '../lib/ui.tsx';
 import { createBrowserFeed } from './browser-feed.ts';
@@ -34,10 +37,16 @@ const feed = createBrowserFeed({
   onFrame: (listener) => rpc.on('browser.frame', listener),
   onOpen: (listener) => rpc.onOpen(listener),
   errorText,
-  pulls: () => !isOwner(),
+  pulls: (agentId) => !isOwner() || elsewhere(agentId),
   pull: (agentId, after) => rpc.call('browser.pull', { agentId, after, ...PULL }),
   pullPart: (agentId, at, index) => rpc.call('browser.pullPart', { agentId, at, index }),
 });
+
+/** The agent runs on another of my PCs: its browser is there, this view pulls it through this PC. */
+function elsewhere(agentId: string): boolean {
+  const agent = agents.value.find((entry) => entry.id === agentId);
+  return Boolean(agent && runsOn(agent)?.here === false);
+}
 
 /** A touch screen (the takeover then offers Type and Zoom). */
 export function useCoarsePointer(): boolean {
@@ -69,11 +78,13 @@ export function useDocumentVisible(): boolean {
 function useBrowserView(target: BrowserTarget, watching: boolean): BrowserFeedView {
   const [view, setView] = useState<BrowserFeedView>({ state: null, frame: null, error: null });
   const key = target.agentId;
+  watchPcs();
+  const away = elsewhere(key); // a move to or from another PC subscribes again, the other way
   useEffect(() => { setView({ state: null, frame: null, error: null }); }, [key]);
   useEffect(() => {
     if (!watching) return;
     return feed.subscribe(target.agentId, setView);
-  }, [key, watching]);
+  }, [key, watching, away]);
   return view;
 }
 
@@ -218,8 +229,8 @@ export function BrowserLive(props: { target: BrowserTarget; openAt?: string; chi
         )}
         {/* in its place on every agent tab; disabled where the window is not on this screen (a phone) */}
         {open && (
-          <Button icon="app-window" disabled={!isOwner()} onClick={() => steer({ window: state?.shown ? 'hide' : 'show' })}
-            title={!isOwner() ? 'The window is on the PC'
+          <Button icon="app-window" disabled={!isOwner() || elsewhere(target.agentId)} onClick={() => steer({ window: state?.shown ? 'hide' : 'show' })}
+            title={!isOwner() || elsewhere(target.agentId) ? 'The window is on the PC the agent runs on'
               : state?.shown ? 'Put the window back off-screen' : `Bring the window of ${browser} onto your screen to use it yourself`}>
             <SwapLabel on={Boolean(state?.shown)} off="Show window" onLabel="Hide window" />
           </Button>

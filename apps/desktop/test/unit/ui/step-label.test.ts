@@ -46,7 +46,7 @@ test('web, plan, MCP and our own tools; the engine title or the summary when not
   assert.deepEqual(line('github.create_issue', { title: 'x' }, { own: true }), ['mcp', 'Github create issue']);
   assert.deepEqual(line('mcp__linear__list_issues', {}, { own: true }), ['mcp', 'linear · list issues']);
   assert.deepEqual(line('chat.send', { text: 'hi' }, { summary: 'Send a message to #team' }), ['chat', 'Send a message to #team']);
-  assert.deepEqual(line('tasks.create', { title: 'Ship it' }), ['task', 'Tasks create: Ship it']);
+  assert.deepEqual(line('tasks.add', { title: 'Ship it' }), ['task', 'Tasks add: Ship it']);
   assert.deepEqual(line('edit_file', {}, { own: true, title: 'Edit config.yaml' }), ['edit', 'Edit config.yaml'], 'an ACP title when the args name no file');
   assert.deepEqual(line('weird_tool', {}, { own: true, title: 'Doing a weird thing' }), ['tool', 'Doing a weird thing']);
   assert.deepEqual(line('weird_tool', {}), ['tool', 'Weird tool']);

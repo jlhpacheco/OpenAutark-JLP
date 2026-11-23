@@ -1,18 +1,17 @@
 // 17.11.2026 (Konrad #88/#117, "Mein Tag" Paket 2): the change log of a task and its undo. Every write of update(), finish() or give() that changes one of
-// the fields a reader sees – status, the wait, the result, when it is due, its title, priority, owner, the time window, the estimate – leaves one entry in the
+// the fields a reader sees – status, the wait, the result, its time and length, its title, priority, owner, its quest – leaves one entry in the
 // task's ledger (`ledger.changes`: who, when, the values before and after, only the fields that changed). The ledger is a column of the task's own row, so the log
 // travels with it between PCs and the phone, and an undo on any of them is an ordinary write the row sync carries. An entry is undoable for 24 hours, until it is
 // undone, and while the task still holds what the change wrote (a later change to the same field ends it: undo that one first). At most 10 entries are kept.
-// Notes, plan, facts, order and the focus timer are working text and are not logged: an agent that only adds a line leaves no entry.
+// Notes, plan, facts and order are working text and are not logged: an agent that only adds a line leaves no entry.
 // Owns: which fields count, the entry, the 24 hours and the undo's checks and its write (service.ts calls them). Never: sends a message or wakes anyone (the lifecycle does).
 
 import { WorkforceError } from '../../shared/errors.ts';
 import type { Task, TaskChange } from '../../shared/model/tasks.ts';
-import { nextLook } from './next.ts';
 
-/** The fields a change entry carries (what My day shows as "Closed by …", "Moved to …"). */
+/** The fields a change entry carries (what the Tasks page shows as "Closed by …", "Moved to …"). */
 export const LOGGED_FIELDS = [
-  'title', 'status', 'waitingOn', 'result', 'completedAt', 'dueAt', 'priority', 'doneWhen', 'assigneeKind', 'assigneeId', 'window', 'estimateMin', 'estimateSource',
+  'title', 'status', 'waitingOn', 'result', 'completedAt', 'at', 'minutes', 'priority', 'doneWhen', 'assigneeKind', 'assigneeId', 'parentId', 'kind',
 ] as const satisfies ReadonlyArray<keyof Task>;
 type Logged = (typeof LOGGED_FIELDS)[number];
 
@@ -51,7 +50,7 @@ export function undoable(task: Pick<Task, 'ledger'>, now: number, changeId?: str
  * Puts the entry's `before` values back (inside the undo's own mutate) and marks it undone. Throws `not_found` when there is nothing to undo and `conflict`
  * when a logged field no longer holds what the change wrote – a later change came after it. Returns nothing; the caller emits and tells.
  */
-export function applyUndo(draft: Task, entry: TaskChange, by: string, name: string, now: number, openPieces: boolean): void {
+export function applyUndo(draft: Task, entry: TaskChange, by: string, name: string, now: number): void {
   for (const [key, value] of Object.entries(entry.after)) {
     if (!same((draft as unknown as Record<string, unknown>)[key], value)) {
       throw new WorkforceError('conflict', 'The task changed after that. Undo the later change first, or change it by hand.', { details: { taskId: draft.id, field: key } });
@@ -66,10 +65,8 @@ export function applyUndo(draft: Task, entry: TaskChange, by: string, name: stri
     ...draft.ledger,
     changes: (draft.ledger.changes ?? []).map((item) => (item.id === entry.id ? { ...item, undone: now, undoneBy: by } : item)),
     facts: [...(draft.ledger.facts ?? []).filter((fact) => fact !== line), line].slice(-20),
-    movedAt: now, stalls: 0,
+    movedAt: now,
   };
-  const look = nextLook(draft, now, openPieces); // the planned look follows the restored state (a finished task has none)
-  if (look === undefined) delete draft.nextAt; else draft.nextAt = look;
 }
 
 /** "closed by Felix", "moved to 14:00" in a few words for the line a reader sees (the actor's name is the caller's). */
@@ -79,7 +76,8 @@ export function describe(entry: Pick<TaskChange, 'before' | 'after' | 'kind'>): 
   if (status === 'dropped') return 'it was closed as dropped';
   if (status === 'waiting') return 'it was set to waiting';
   if (status === 'open') return 'it was opened again';
-  if ('dueAt' in entry.after) return 'its time was changed';
+  if ('at' in entry.after || 'minutes' in entry.after) return 'its time was changed';
+  if ('parentId' in entry.after) return 'it was moved to another quest';
   if ('assigneeId' in entry.after || 'assigneeKind' in entry.after) return 'it was given to someone else';
   if ('title' in entry.after) return 'its title was changed';
   return 'it was changed';

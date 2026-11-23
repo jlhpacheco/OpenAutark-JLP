@@ -68,6 +68,24 @@ test('openai (B-083): effort none goes on the wire; a reasoning model takes the 
   assert.equal(openAiTemperature('o4-mini', 0.5, 'none'), undefined);
 });
 
+test('openai (Fest 22.11.2026): every gpt generation from 5 up and the o-series reason – no list of generation numbers', async () => {
+  for (const model of ['gpt-5', 'gpt-5-mini', 'gpt-5.1', 'gpt-6-sol', 'gpt-7', 'gpt-7.2-luna', 'gpt-8-terra', 'gpt-9.1', 'gpt-10', 'gpt-12.3-sol', 'o1', 'o3-mini', 'o4-mini', 'o5']) {
+    assert.equal(openAiTemperature(model, 0.5, 'high'), undefined, `${model} above none: the field is refused`);
+    assert.equal(openAiTemperature(model, 0.5), undefined, `${model} without an effort counts as reasoning`);
+    assert.equal(takesTemperature('openai', model, 'medium'), false, model);
+  }
+  for (const model of ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-nano', 'gpt-3.5-turbo', 'gpt-image-1', 'gpt-realtime', 'gpt-oss-120b', 'chatgpt-4o-latest', 'omni-moderation-latest']) {
+    assert.equal(openAiTemperature(model, 0.5), 0.5, `${model} has no reasoning`);
+  }
+  const later = await body('openai', 'gpt-7.2-luna', 0.4, 'none');
+  assert.deepEqual(later.reasoning, { effort: 'none' }, 'a later generation takes none like gpt-5.1 and later');
+  assert.equal(later.temperature, 0.4);
+  const high = await body('openai', 'gpt-7', 0.4, 'high');
+  assert.deepEqual(high.reasoning, { effort: 'high', summary: 'auto' });
+  assert.equal(high.temperature, undefined, 'before: gpt-7 counted as a model without reasoning and got the temperature');
+  assert.equal(compatibleTemperature('openai/gpt-7-sol', 0.4), undefined, 'a gateway\'s later GPT id follows the same rule');
+});
+
 test('compatible (B-083): Gemini 3 and later keep their default temperature; Gemini 2.5 and other models get it', () => {
   for (const model of ['gemini-3-pro-preview', 'google/gemini-3.8-flash', 'models/gemini-3-flash', 'Gemini-4-Argon']) assert.equal(compatibleTemperature(model, 0.2), undefined, model);
   assert.equal(compatibleTemperature('gemini-2.5-flash', 0.2), 0.2);

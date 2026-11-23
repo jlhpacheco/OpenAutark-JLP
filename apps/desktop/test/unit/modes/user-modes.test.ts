@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { ModeLibrary } from '../../../src/runtime/modes/service.ts';
 import { modeTools } from '../../../src/runtime/tools/builtin/modes.ts';
 import { Registry } from '../../../src/runtime/tools/registry.ts';

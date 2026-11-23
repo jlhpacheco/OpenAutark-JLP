@@ -14,7 +14,7 @@
 //   them; Workforce's own instructions come through the thread); `shell_environment_policy.set`
 //   gives every agent shell the safe git env (I02: git/safe-env.ts – Codex's default KEY/SECRET/TOKEN
 //   excludes would drop GIT_CONFIG_KEY_n, `set` applies after them) and – B-085 – AUTARK_AGENT of the agent whose
-//   thread it is (the shared server env carries none); ignore_default_excludes is never
+//   thread it is with its proof (security/agent-proof.ts; the shared server env carries none); ignore_default_excludes is never
 //   set, so secrets in the server's env stay out of shells;
 // - every turn sets its own sandbox and approval policy, so no config file changes them. An agent's turn (Workforce
 //   tools or our MCP hub) outside the server's own folder runs with full access – the PC belongs to the AI team; B-080:
@@ -30,7 +30,7 @@
 
 import * as path from 'node:path';
 import type { EngineTurnInput } from '../types.ts';
-import { AGENT_ENV } from '../../../shared/api/protocol.ts';
+import { agentIdentity } from '../../security/agent-proof.ts';
 
 /** Turned off with `-c features.<name>=false` when the app-server starts (server.ts). */
 export const WORKSPACE_FEATURES = ['skill_mcp_dependency_install', 'external_migration'];
@@ -90,7 +90,7 @@ export function threadIsolation(keys: string[], shellSet: Record<string, string>
     sandbox: 'read-only', approvalsReviewer: REVIEWER,
     config: {
       projects: Object.fromEntries(keys.map((key) => [key, UNTRUSTED])), project_root_markers: [], project_doc_max_bytes: 0,
-      shell_environment_policy: { set: { ...shellSet, ...(agentId ? { [AGENT_ENV]: agentId } : {}) } },
+      shell_environment_policy: { set: { ...shellSet, ...(agentId ? agentIdentity(agentId) : {}) } },
     },
   };
 }
@@ -119,8 +119,21 @@ export function turnAccess(input: Pick<EngineTurnInput, 'tools' | 'mcp' | 'cwd' 
   return foldersOverlap(input.cwd, serverCwd, platform) ? 'read' : 'full';
 }
 
-/** turn/start settings: the sandbox, approval policy (B-080: 'on-request' with full access, 'never' for a read turn) and approval reviewer every turn runs with. */
-export function turnPermissions(access: TurnAccess = 'full'): Record<string, unknown> {
+/**
+ * turn/start settings: the sandbox, approval policy (B-080: 'on-request' with full access, 'never' for a read turn) and approval reviewer every turn runs with.
+ * Sicher-Runde 19.11.2026: `secure` (Secure mode, approvals.ts codexSecure) – an agent turn writes only in its folder and the
+ * open folders (`workspaceWrite` + writableRoots, the network open; full access when files are open everywhere) and runs
+ * 'untrusted' when commands ask (Codex asks before every command it does not know as safe), else 'on-request'.
+ */
+export function turnPermissions(access: TurnAccess = 'full', secure?: { write: 'all' | string[]; commands: 'yes' | 'ask' }): Record<string, unknown> {
+  if (access === 'full' && secure) {
+    return {
+      approvalPolicy: secure.commands === 'ask' ? 'untrusted' : 'on-request',
+      approvalsReviewer: REVIEWER,
+      sandboxPolicy: secure.write === 'all' ? { type: 'dangerFullAccess' }
+        : { type: 'workspaceWrite', writableRoots: secure.write.filter((dir) => path.isAbsolute(dir)), networkAccess: true }, // Codex takes absolute roots only
+    };
+  }
   return {
     approvalPolicy: access === 'read' ? 'never' : 'on-request',
     approvalsReviewer: REVIEWER,

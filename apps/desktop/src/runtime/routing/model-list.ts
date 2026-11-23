@@ -1,6 +1,7 @@
 // The model comparison behind the models.list tool (RT4): the models the calling agent may use for a kind of work,
 // best first as router.ts ranks them – the same inputs: the agent's effective policy band (floor, ceiling, avoid;
-// prefer as the score bonus), cost mode, "never" priors, the mode's minimum tier (for its own category), the healthy accounts of each model (API keys only as a
+// prefer as the score bonus), cost mode, "never" priors, the mode's minimum tier (for its own category; a preference as in pool.ts,
+// so the list never says "nothing fits" where the router runs a lower tier), the healthy accounts of each model (API keys only as a
 // spill-over unless settings.json routing.allowPaidFallback allows them or nothing else is left) and scoreModel (curated priors, work plan bonus).
 // One compact line per model (texts: model-facts.ts), at most MAX_MODELS lines and about MAX_CHARS characters.
 // Decisions and embeddings are uses of their own (B-072): what answers them now (context/setup-facts.ts usesLine) and
@@ -27,7 +28,8 @@ import { PIN_TEXT, resolvePin } from './pins.ts';
 import { MODEL_CHOICE_LABELS } from '../../shared/model/model-guide.ts';
 import { workPlanOf } from './preference.ts';
 import { SYSTEM_ID } from '../../shared/ids.ts';
-import { NEVER, isPaid, scoreModel, strengthOf, tierRank, withinTiers, type CostMode } from './score.ts';
+import { NEVER, isPaid, scoreModel, strengthOf, withinTiers, type CostMode } from './score.ts';
+import { preferTier, runnableAccounts } from './pool.ts';
 import { effortRange, priceText, signed, sourceOf, strengthOverview, temperatureTag } from './model-facts.ts';
 
 export const MAX_MODELS = 30;
@@ -65,11 +67,12 @@ export function modelList(input: ModelListInput): string {
   const explicit = input.category !== undefined;
   const costMode: CostMode = policy.costMode ?? settings.costMode ?? 'balanced';
 
-  const minTier = category === own ? input.mode.minTier : undefined;
-  const fits = models.filter((model) => withinTiers(model.tier, policy.floorTier, policy.ceilingTier) && !policy.avoid.includes(model.id)
-    && strengthOf(model, category) > NEVER && (!minTier || tierRank(model.tier) >= tierRank(minTier)));
+  // The mode's minimum tier is the router's preference (pool.ts preferTier): below it only while no connected model reaches it.
+  const tiered = preferTier(models, category === own ? input.mode.minTier : undefined);
+  const fits = tiered.filter((model) => withinTiers(model.tier, policy.floorTier, policy.ceilingTier) && !policy.avoid.includes(model.id)
+    && strengthOf(model, category) > NEVER);
   const candidates = fits.map((model) => {
-    const all = model.available ? accountsOf(s, model) : [];
+    const all = model.available ? runnableAccounts(s, model) : [];
     return { model, all, usable: all };
   });
   const paidSpill = !settings.allowPaidFallback && candidates.some((entry) => entry.usable.some((account) => !isPaid(account)));
@@ -167,11 +170,3 @@ function lineOf(entry: Entry, category: string, explicit: boolean, pinned: { id:
 }
 
 /** Accounts that can run the model now (the router's rule: its provider, its listed accounts, healthy). */
-function accountsOf(s: RuntimeServices, model: ModelInfo): Account[] {
-  try {
-    return s.accounts.candidates(model.engine, model.model)
-      .filter((account) => account.provider === model.provider && (!model.accounts.length || model.accounts.includes(account.id)));
-  } catch {
-    return [];
-  }
-}

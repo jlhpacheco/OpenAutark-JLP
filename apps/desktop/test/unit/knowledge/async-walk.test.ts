@@ -11,7 +11,7 @@ import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
 import { KnowledgeStore } from '../../../src/runtime/knowledge/service.ts';
 import { MemoryTree } from '../../../src/runtime/knowledge/memory-tree.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { memoryTools } from '../../../src/runtime/tools/builtin/memory.ts';
 import { readTextAsync, readText } from '../../../src/runtime/root/text-doc.ts';
 

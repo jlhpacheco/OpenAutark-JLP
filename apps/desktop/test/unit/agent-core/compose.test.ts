@@ -11,7 +11,7 @@ import { createAgentCore, mainSkillOptions } from '../../../src/runtime/compose/
 import { Org } from '../../../src/runtime/org/service.ts';
 import { RootWatcher } from '../../../src/runtime/root/watcher.ts';
 import { SkillLibrary } from '../../../src/runtime/skills/service.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import { clock, memoryDb, recordingBus, RESOURCES, tempDir } from '../store/helpers.ts';
 import { skillMd } from './fixture.ts';

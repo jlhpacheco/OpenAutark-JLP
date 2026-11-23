@@ -21,6 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect, waitForNew } from '../e2e/lib/runtime-client.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -52,7 +53,7 @@ test('agent editor: avatars, role and instructions, the title menu, duplicate, a
   const go = (hash) => page.evaluate((target) => { location.hash = target; }, hash);
   const shot = async (name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
 
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('settings.update', { onboarding: { step: 'done' } });
   await rpc.call('events.subscribe', { topics: ['org'] });

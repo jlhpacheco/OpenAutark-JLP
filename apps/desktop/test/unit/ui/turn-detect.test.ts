@@ -65,6 +65,23 @@ test('fallback: a learned noise floor wants a voice clearly above it', async () 
   assert.equal((await run({}, noise(3000, 0.03), mixed(600, 0.1))).edges[0]?.split('@')[0], 'start', 'a clear voice in the same room');
 });
 
+test('VOICE fallback: a steady tonal hum (harmonic, loud) becomes the noise floor – its line ends in seconds, not at the 120 s cap; a voice above it starts the next', async () => {
+  const hum = (ms: number, level: number) => {
+    const tone = Float32Array.from({ length: samples(ms) }, (_, i) => { let v = 0; for (let h = 1; h <= 6; h++) v += Math.sin((2 * Math.PI * 100 * h * i) / RATE) / h; return v; });
+    const scale = level / Math.sqrt(tone.reduce((sum, v) => sum + v * v, 0) / tone.length);
+    return tone.map((v) => v * scale);
+  };
+  const steady = await run({}, hum(12_000, 0.03));
+  assert.deepEqual(steady.edges.map((edge) => edge.split('@')[0]), ['start', 'end'], 'it was speech at first, then the floor');
+  assert.ok(timeOf(steady.edges, 'end') < 9_000, `ended at ${timeOf(steady.edges, 'end')} ms`);
+  const room = hum(12_600, 0.03);
+  const talk = voice(600, 0.3);
+  room.set(room.subarray(samples(12_000)).map((v, i) => v + talk[i]), samples(12_000));
+  const after = await run({}, room);
+  assert.deepEqual(after.edges.map((edge) => edge.split('@')[0]), ['start', 'end', 'start'], 'a clear voice in the humming room');
+  assert.ok(Number(after.edges.at(-1)?.split('@')[1]) >= 12_000, 'the voice, not the hum, starts it');
+});
+
 test('begin() opens a line without a start edge; reset() forgets it', async () => {
   const detector = createTurnDetector();
   detector.begin();

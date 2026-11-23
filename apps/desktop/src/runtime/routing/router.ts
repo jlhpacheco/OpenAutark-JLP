@@ -23,9 +23,9 @@
 //       again. A kind's default other than the one it is when every account runs (pool.ts whole) stands in too. The reason says which and why. A part starts on its origin's model; a fresh one that names none runs
 //       on the executing default when its origin is above it.
 //     → a runtime helper call without any of these: the deterministic score (score.ts)
-//   → effort (previous.ts startEffortBy), clamped to the model's efforts; a person's new line in the chat raises it to
-//     high or above (person-turn.ts) unless my own request or my fixed effort set it; account: the healthy accounts of
-//     that model – plans keep rotating as before.
+//   → effort (previous.ts startEffortBy), clamped to the model's efforts – with nothing set and no weighing of my
+//     subconscious, an agent's turn runs at medium on every model, a person's line included, and the reason says it was not
+//     weighed (Runde „Halb“ 21.11.2026); account: the healthy accounts of that model – plans keep rotating as before.
 // 13.11.2026 (owner: the chat's model choice is "einfach nur da, wird der KI so erklärt"): the person's suggestion in a
 // chat (the composer chip, policies.ts chatChoice) never routes – it stands on their line (context/render.ts); a
 // temperature comes only from my own request (TurnPlan.temperature).
@@ -40,11 +40,11 @@ import type { RouteRequest, Router, RuntimeServices } from '../contracts.ts';
 import type { Account, ModelInfo, RouteDecision } from '../../shared/model/providers.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import { SYSTEM_ID } from '../../shared/ids.ts';
-import { clampEffort, effortRank } from '../models/efforts.ts';
+import { clampEffort } from '../models/efforts.ts';
 import { categoryLabel, resolveCategory } from './categories.ts';
 import { effectivePolicy } from './policies.ts';
 import { PIN_TEXT, pinProblem, resolvePin, settingsPin } from './pins.ts';
-import { BY_REQUEST, MODEL_REQUESTED, effortSource, modelAsked, startEffortBy } from './previous.ts';
+import { BY_REQUEST, MODEL_REQUESTED, UNWEIGHED_TEXT, effortSource, modelAsked, startEffortBy } from './previous.ts';
 import { NO_MODEL_MESSAGE, askedMiss, cannotRun, nothingFits } from './unfit.ts';
 import { buildPool, type PoolEntry } from './pool.ts';
 import { helperDefault } from './helper-default.ts';
@@ -52,7 +52,7 @@ import { workPlanOf } from './preference.ts';
 import { listPrice, marginalCost, scoreModel, strengthOf, tierRank, type CostMode, type Tier } from './score.ts';
 import { NEED_TEXT, NO_FIT_TEXT, needChoice, raisedText, stepUpEffort } from './need.ts';
 import { splitPolicy } from './split-route.ts';
-import { PERSON_EFFORT, PERSON_TEXT, personAsks, personEffort, topTier } from './person-turn.ts';
+import { topTier } from './person-turn.ts';
 import { kindDefault, kindTier } from './kind.ts';
 import { leads } from '../org/standard.ts';
 
@@ -86,7 +86,6 @@ export class RouterImpl implements Router {
     const now = s.clock.now();
     const settings = s.settings.get().routing;
     const runtime = request.agent.id === SYSTEM_ID;
-    const person = !runtime && personAsks(s, request); // a person's own line: its effort floor
     const policy = splitPolicy(effectivePolicy(s, request.agent), request);
     const category = resolveCategory(request.mode.category, request.text);
     const costMode: CostMode = policy.costMode ?? settings.costMode ?? 'balanced';
@@ -121,23 +120,16 @@ export class RouterImpl implements Router {
     const standsIn = (chosen: ModelInfo): boolean => cannotRunOn || (kindStandIn ?? (previous?.standIn === true && chosen.id === onModel?.id));
     const decide = (chosen: { model: ModelInfo; accounts: Account[] }, by: RouteDecision['by'], reason: string, keptPrevious: boolean): RouteDecision => {
       // B-089: the origin of the effort rides on the decision (effortBy), so a run's stored route says where it came from
-      const start = startEffortBy(policy, previous, category, keptPrevious);
+      // Runde „Halb“ 21.11.2026: no floor for a person's line – with nothing set and no weighing, an agent's turn runs at
+      // medium and says so (previous.ts UNWEIGHED_EFFORT), a runtime helper call at its category's default.
+      const start = startEffortBy(policy, previous, category, keptPrevious, !runtime);
       const notes = [...(leadNote ? [leadNote] : []), reason];
       // an effort someone asked for names whose it is – unless the whole route is my own request
       if (start.requested && (by !== BY_REQUEST || previous?.by)) notes.push(effortSource(previous));
-      let effort = clampEffort(start.effort, chosen.model.efforts);
-      // A person's new line: effort high or above, unless my own request or my fixed effort set it. It is that turn's –
-      // the run says the effort was asked for, so my next wake starts from my settled effort again (next-route.ts ownEffort).
-      const fixed = start.by === 'agent' || (start.requested && !previous?.by);
-      let lifted = false;
-      if (person && !fixed && effortRank(effort) < effortRank(PERSON_EFFORT)) {
-        effort = clampEffort(personEffort(effort), chosen.model.efforts);
-        lifted = true;
-        notes.push(PERSON_TEXT);
-      }
+      if (start.unweighed) notes.push(UNWEIGHED_TEXT);
       return {
-        modelId: chosen.model.id, engine: chosen.model.engine, accountId: chosen.accounts[0].id, effort, category,
-        reason: notes.join(' · '), by: start.requested ? BY_REQUEST : by, effortBy: lifted ? 'request' : start.by,
+        modelId: chosen.model.id, engine: chosen.model.engine, accountId: chosen.accounts[0].id, effort: clampEffort(start.effort, chosen.model.efforts), category,
+        reason: notes.join(' · '), by: start.requested ? BY_REQUEST : by, effortBy: start.by,
         ...(standsIn(chosen.model) ? { standIn: true as const } : {}),
         alternatives: ranked.filter((entry) => entry.model.id !== chosen.model.id).slice(0, ALTERNATIVES).map((entry) => entry.model.id),
       };

@@ -13,7 +13,7 @@ import { restoreAtStart, runStopSteps, stopSteps } from '../../../src/runtime/co
 import type { Network } from '../../../src/runtime/compose/network.ts';
 import type { Core } from '../../../src/runtime/compose/services.ts';
 import { RESTORE_MARKER } from '../../../src/runtime/portability/restore.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { portabilityFixture } from '../portability/fixture.ts';
 
 const RESTORE_FAILED = 'restore-failed.json';

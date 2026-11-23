@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync, type FSWatcher } from 'no
 import path from 'node:path';
 import { RootWatcher, REARM_MS, type RootEvent, type WatchFn } from '../../../src/runtime/root/watcher.ts';
 import { writeAtomic } from '../../../src/runtime/root/text-doc.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { clock, tempDir } from '../store/helpers.ts';
 
 function fakeWatch(): { watch: WatchFn; fire: (name: string | null) => void; fail: () => void; targets: string[] } {

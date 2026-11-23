@@ -11,7 +11,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron, chromium } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { randomBytes } from 'node:crypto';
+
+const PERSON_TOKEN = randomBytes(24).toString('hex'); // FX1: a test profile hands main the person token (main/runtime-link.ts personTokenOf)
 import { detectChannel } from '../../src/runtime/browser/channel.ts';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const executablePath = path.join(root, 'node_modules/electron/dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -22,7 +26,7 @@ test('secret attachment: desktop capture, durable draft, send, four layouts and 
   const shots = process.env.SCREENSHOTS || path.join(profile, 'screenshots');
   await mkdir(shots, { recursive: true });
   const app = await electron.launch({ executablePath, args: [root], cwd: root, timeout: 60_000,
-    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }) });
+    env: testNetworkEnv(profile, { WORKFORCE_PERSON_TOKEN: PERSON_TOKEN, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }) });
   let rpc, browser;
   t.after(async () => {
     await browser?.close(); rpc?.close(); await app.close().catch(() => {});
@@ -33,8 +37,8 @@ test('secret attachment: desktop capture, durable draft, send, four layouts and 
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.waitForSelector('.shell', { timeout: 60_000 });
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
-  rpc = await connect(info.port, info.token, 'cli');
+  const info = await runtimeInfo(profile);
+  rpc = await connect(info.port, PERSON_TOKEN, 'cli'); // FX1: the person's own token (runtime.json's launch token is no person)
   const manager = (await rpc.call('agents.list')).find(agent => agent.template === 'manager');
   const chat = await rpc.call('chats.create', { agentIds: [manager.id] });
   await page.evaluate(id => { location.hash = `#/chat/${id}`; }, chat.id);

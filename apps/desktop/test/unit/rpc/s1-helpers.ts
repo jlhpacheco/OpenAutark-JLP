@@ -10,12 +10,12 @@ import { tempDir } from '../store/helpers.ts';
 import { SettingsStore } from '../../../src/runtime/settings/service.ts';
 import { Journal } from '../../../src/runtime/runs/journal.ts';
 import { Blobs } from '../../../src/runtime/files/store.ts';
-import { nullLogger } from '../../../src/runtime/system/log.ts';
+import { nullLogger } from '../fakes.ts';
 import { RpcServer } from '../../../src/runtime/rpc/server.ts';
 import { HandlerTable } from '../../../src/runtime/rpc/table.ts';
 import type { HandlerModule } from '../../../src/runtime/rpc/table.ts';
-import { memoryConnection } from '../../../src/runtime/rpc/connection.ts';
-import type { MemoryClient } from '../../../src/runtime/rpc/connection.ts';
+import { memoryConnection } from './memory-connection.ts';
+import type { MemoryClient } from './memory-connection.ts';
 import type { RpcExtras } from '../../../src/runtime/rpc/extras.ts';
 import type { Dispatcher, Paths, RuntimeServices } from '../../../src/runtime/contracts.ts';
 import type { ClientScope, RpcEvent, RpcResponse } from '../../../src/shared/api/protocol.ts';
@@ -28,7 +28,7 @@ import { register as tasks } from '../../../src/runtime/rpc/handlers/tasks.ts';
 import { register as knowledge } from '../../../src/runtime/rpc/handlers/knowledge.ts';
 import { register as files } from '../../../src/runtime/rpc/handlers/files.ts';
 
-export const OWNER: ClientScope = { kind: 'owner' };
+export const OWNER: ClientScope = { kind: 'owner', person: true }; // FX1: the person (window); runtime.json's token is plain { kind: 'owner' }
 export const PHONE: ClientScope = { kind: 'device', deviceId: 'dev_phone', capabilities: ['todo', 'chat', 'tasks'] };
 export const TODO_ONLY: ClientScope = { kind: 'device', deviceId: 'dev_todo', capabilities: ['todo'] };
 

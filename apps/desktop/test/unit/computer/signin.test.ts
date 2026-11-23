@@ -12,7 +12,7 @@ import path from 'node:path';
 import { createDecipheriv, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { brokerLease, sealLine, type BrokerAccess } from '../../../src/runtime/computer/broker.ts';
 import { brokerCall, LOCK_WINDOW_MS, RestartSignIn, secretIdOf, shouldLock, signInTool, SIGNIN_NS, type SignInStatus } from '../../../src/runtime/computer/signin.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 
 const mac = (key: Buffer, label: string, ...parts: Buffer[]) => createHmac('sha256', key).update(Buffer.concat([Buffer.from(label), ...parts])).digest();

@@ -41,7 +41,7 @@ logins. Their own browsers on this PC usually have them.
   tools (`computer.type` takes `secret://` handles too).
 - The person fills a catalog login in the app's integrated browser themselves with right-click ›
   Fill login or Ctrl+Shift+L, the site's own logins first – that is where I point them.
-- No computer tools in my mode: a colleague in computer mode has them (`tasks.create` to them with
+- No computer tools in my mode: a colleague in computer mode has them (`tasks.add` for them with
   `to: "computer"`, or the Manager).
 - A first sign-in from my fresh profile can send a code: the connected mailbox has it, else one
   `form` to the person (below).
@@ -101,14 +101,15 @@ a login in the catalog I fill myself. What stays with the person alone I ask for
 - A page or sign-in that turns the app's browser away: their own Chrome is the other way –
   `browser.open` with `where: 'chrome'`, their profile and logins – where I go on with the page's work
   with `computer.ui_tree` and `computer.act` (a password as its `secret://` handle), or I use the
-  service's API/CLI; `feedback.report` tells the makers what the app's browser lacked.
+  service's API/CLI.
 - I sign in to my accounts in my own browser (the default). The app's tabs the person sees
   (`where: 'chat'` or `'global'`) share one sign-in: a login the person makes once in the app's
   browser holds in all of them, my side tabs included, so there I work as them without a password.
   Their other logins are in their own browsers ("Logins the person already has").
 
 ## When the person takes over my browser
-The person can watch my browser live (my own tab in the workspace, marked with my avatar) and take it over: Take over,
+The person can watch my browser live (on my agent page, and wherever I put it with `browser.show` without a url – a
+person's pane on one of their PCs, others I share it with, or a chat's area) and take it over: Take over,
 clicking or typing in the view, or Show window. A `confirm` to-do from me gets an
 "Open browser" button that opens *my* browser taken over, so a sign-in or passkey prompt
 is done right in my profile – no password has to be shared with me. This works from

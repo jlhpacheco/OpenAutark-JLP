@@ -1,8 +1,11 @@
 // The one composer: auto-growing field (to ~40 % of the window), Enter sends (setting), per-chat drafts,
 // attachments (Plus menu, drag/drop, paste), @mentions and /commands, dictation into the caret (the
-// waveform sits in the action row's spacer) and one primary button: Send, disabled without content.
+// waveform sits in the action row's spacer) and one primary button: Send, disabled without content – a take that records or
+// is transcribed counts (feedback FCMWNZ0H 20.11.2026: Send stops it, waits for its words and sends them, an empty field too);
+// while it runs the + is an × that cancels it (composer/PlusCancel.tsx), the mic cell only shows its state.
 // Action row, fixed cells: [+] [spacer] [Model] [Mic] [Send] – nothing in it moves on a click (B-083: no Ultra cell –
-// the agent splits itself when it pays, owner 08.11.).
+// the agent splits itself when it pays, owner 08.11.). `slim` (a task's thread in its detail, the mockup's line "Write to
+// Clara about this…"): one row [+] [field] [Mic] [Send] without the big frame and the model cell (composer.css .slim).
 // How a message goes out: /important, /silent, or the Plus menu's and the Send button's right-click menu's "Send as important",
 // "Send silently" (with nothing to send yet: the draft's level) and "Schedule…": that switches the composer into schedule
 // mode (composer/ScheduleBar.tsx above the text, the field taller, Send = Schedule; Esc or × leaves; text only – a draft
@@ -22,7 +25,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { ConversationSummary, MessageLevel } from '../../shared/model/chat.ts';
 import { Icon } from '../lib/ui.tsx';
 import { useContextMenu } from '../lib/context-menu.tsx';
-import { chatPartner, chatTitle, memberName } from '../lib/chat-face.tsx';
+import { composerPlaceholder } from '../lib/chat-naming.ts';
 import { isMobile, preferences } from '../lib/store.ts';
 import { bridge } from '../lib/platform.ts';
 import { toAttachment, uploadFile } from '../lib/files.ts';
@@ -42,10 +45,10 @@ import { PlusMenu } from './composer/PlusMenu.tsx';
 import { useRecordSlot } from './composer/RecordBar.tsx';
 import { isMedia, uploadMedia } from './composer/record-take.ts';
 import { ScheduleBar } from './composer/ScheduleBar.tsx';
-import { leaveScheduleMode, openScheduleMode, scheduleDraft, scheduleModeFor } from './composer/schedule-mode.ts';
+import { leaveScheduleMode, openScheduleMode, patchForm, scheduleDraft, scheduleModeFor } from './composer/schedule-mode.ts';
 import { scheduleSpec } from './composer/schedule-form.ts';
 import { useNextRun } from './composer/schedule-next.ts';
-import { cancelDictation, clearDraftSpeech, dictateIntoDraft, dictating, retryTake, transcribing } from './composer/voice.ts';
+import { clearDraftSpeech, dictateIntoDraft, dictating, retryTake, settleTake, transcribing } from './composer/voice.ts';
 import { MicButton, targetOf, useDictationField, waveState } from './composer/MicButton.tsx';
 import { DictationWave } from './composer/DictationWave.tsx';
 import { mentionsIn, targetAgent } from './composer/target.ts';
@@ -55,7 +58,7 @@ import { markAt } from './composer/draft-marks.ts';
 import { MarkLayer } from './composer/MarkLayer.tsx';
 import { MarkMenu } from './composer/MarkMenu.tsx';
 
-export function Composer(props: { chat: ConversationSummary }) {
+export function Composer(props: { chat: ConversationSummary; slim?: boolean }) {
   const { chat } = props;
   const draft = draftFor(chat.id);
   const { text, attachments, level, replyTo, secrets = [], marks } = draft.value;
@@ -91,7 +94,7 @@ export function Composer(props: { chat: ConversationSummary }) {
   useEffect(() => { if (scheduling) fieldRef.current?.focus(); }, [scheduling]); // opened from a menu: write the message
 
   useEffect(() => {
-    if (!isMobile.value) fieldRef.current?.focus();
+    if (!isMobile.value && !props.slim) fieldRef.current?.focus(); // a task's thread line never takes the caret from its detail
     return () => flushDraft(chat.id);
   }, [chat.id]);
   useEffect(() => { if (replyTo) fieldRef.current?.focus(); }, [replyTo]); // Reply on a message: write it here
@@ -154,11 +157,12 @@ export function Composer(props: { chat: ConversationSummary }) {
 
   /** `sentLevel`: the Plus menu's "Send as important" / "Send silently" (no slash command then). */
   const send = async (sentLevel?: MessageLevel) => {
-    if (sending || record.held || transcribing.peek().has(chat.id)) return; // never sends without the dictated words or the take
+    if (sending || record.held) return; // never sends without the take
     setSending(true); // also while a dictation is transcribed first (a second tap sends nothing twice)
     try {
-      // A take that came back as a recording or failed stays in the draft: the person sees it (and the toast) first.
-      if (isDictating && !(await dictateIntoDraft())) return;
+      // A running take stops, a stopped one is waited for: its words go out with the draft. One that came back as a
+      // recording, failed or was cancelled leaves the draft: the person sees it (and the toast) first.
+      if (!(await settleTake(chat.id))) return;
       const body = draft.value.text;
       if (!body.trim() && !draft.value.attachments.length && !draft.value.secrets?.length) return;
       const slash = sentLevel ? null : parseSlash(body);
@@ -181,10 +185,10 @@ export function Composer(props: { chat: ConversationSummary }) {
 
   /** Schedule mode's Send: posts the draft at the settings' time(s) – also at another level (the right-click menu). */
   const scheduleNow = async (sentLevel?: MessageLevel) => {
-    if (sending || transcribing.peek().has(chat.id)) return;
+    if (sending) return;
     setSending(true);
     try {
-      if (isDictating && !(await dictateIntoDraft())) return;
+      if (!(await settleTake(chat.id))) return;
       if (sentLevel) updateDraft(chat.id, { level: sentLevel });
       await scheduleDraft(chat);
     } finally {
@@ -222,18 +226,17 @@ export function Composer(props: { chat: ConversationSummary }) {
   };
 
   const agentId = targetAgent(text, chat, replyTo);
-  const partner = chatPartner(chat);
-  const placeholder = `${scheduling ? 'Scheduled message for' : 'Message'} ${(partner && memberName(partner.memberId)) || chatTitle(chat)}`;
+  const placeholder = composerPlaceholder(chat, scheduling); // a task's thread: "Write about <task>…"
 
-  const controls = composerControls({ hasContent, transcribing: transcribingHere });
+  const controls = composerControls({ hasContent, dictating: isDictating, transcribing: transcribingHere });
   // A scheduled message is text only: files and secrets in the draft would be left behind, so the mode says so (note)
   const heavy = [attachments.length ? 'files' : '', secrets.length ? 'secrets' : ''].filter(Boolean).join(' and ');
   const note = scheduling && heavy ? `A scheduled message is text only – remove the ${heavy} to schedule it.` : undefined;
   const built = mode ? scheduleSpec(mode.form, Date.now()) : null;
   const next = useNextRun(built && 'spec' in built ? built.spec : null);
-  const scheduleReady = !!built && 'spec' in built && !next.error && !note && !!text.trim();
+  const scheduleReady = !!built && 'spec' in built && !next.error && !note && (!!text.trim() || isDictating || transcribingHere);
   const sendActions = {
-    sendAs: scheduling ? (scheduleReady ? (sentLevel: MessageLevel) => void scheduleNow(sentLevel) : undefined) : hasContent ? (sentLevel: MessageLevel) => void send(sentLevel) : undefined,
+    sendAs: scheduling ? (scheduleReady ? (sentLevel: MessageLevel) => void scheduleNow(sentLevel) : undefined) : controls.primary === 'send' ? (sentLevel: MessageLevel) => void send(sentLevel) : undefined,
     level, setLevel: (next: MessageLevel) => updateDraft(chat.id, { level: next }),
     schedule: () => openScheduleMode(chat.id),
     scheduling,
@@ -241,16 +244,16 @@ export function Composer(props: { chat: ConversationSummary }) {
   const sendMenu = useContextMenu(() => [{ items: sendMenuItems(sendActions) }]);
   // Schedule mode: the same round cell with a clock (a wider label would move the model and the mic)
   const primary = <button type="button" class="send-button" aria-label={scheduling ? 'Schedule' : 'Send'} title={scheduling ? 'Schedule' : undefined} {...sendMenu}
-    disabled={(scheduling ? !scheduleReady || transcribingHere : controls.primary === 'send-disabled') || sending || uploading.length > 0 || record.held}
+    disabled={(scheduling ? !scheduleReady : controls.primary === 'send-disabled') || sending || uploading.length > 0 || record.held}
     onClick={() => void (scheduling ? scheduleNow() : send())}><Icon name={scheduling ? 'clock' : 'arrow-up'} size={19} /></button>;
 
   return (
-    <div class="composer-area">
+    <div class={`composer-area${props.slim ? ' slim' : ''}`}>
       <div class={`composer${dragOver ? ' drag-over' : ''}${level === 'important' ? ' important' : ''}${scheduling ? ' scheduling' : ''}`}
         onDragOver={(event) => { if (event.dataTransfer?.types.includes('Files')) { event.preventDefault(); setDragOver(true); } }}
         onDragLeave={() => setDragOver(false)} onDrop={onDrop}>
         <SuggestionList items={visibleItems} active={suggest.active} onPick={accept} onHover={suggest.setActive} />
-        {mode && <ScheduleBar conversationId={chat.id} mode={mode} next={next} note={note} onLeave={() => leaveScheduleMode(chat.id)} />}
+        {mode && <ScheduleBar form={mode.form} editing={!!mode.edit} next={next} note={note} onChange={(patch) => patchForm(chat.id, patch)} onLeave={() => leaveScheduleMode(chat.id)} />}
         {secretOpen && <ChatSecretBar key={chat.id} conversationId={chat.id} room={20 - secrets.length} onLeave={() => { setSecretOpen(false); fieldRef.current?.focus(); }}
           onAttach={(id) => updateDraft(chat.id, { secrets: [...(draft.peek().secrets ?? []), id] })} />}
         {record.bar}
@@ -283,7 +286,6 @@ export function Composer(props: { chat: ConversationSummary }) {
         </div>
         <div class="composer-actions">
           <PlusMenu chat={chat} actions={{
-            discardDictation: isDictating ? () => void cancelDictation() : undefined,
             pickFiles: () => void pickFiles(false),
             pickImages: () => void pickFiles(true),
             secret: secrets.length < 20 ? () => setSecretOpen(true) : undefined,
@@ -292,7 +294,7 @@ export function Composer(props: { chat: ConversationSummary }) {
             ...sendActions,
           }} />
           <div class="composer-spacer"><DictationWave state={waveState(chat.id)} /></div>
-          <ModelChip chat={chat} agentId={agentId} openSignal={modelSignal} />
+          {!props.slim && <ModelChip chat={chat} agentId={agentId} openSignal={modelSignal} />}
           <MicButton draftKey={chat.id} field={fieldRef} onStop={() => void dictateIntoDraft()} />
           {primary}
         </div>

@@ -65,7 +65,7 @@ const signIn = defineTool<SignInArgs>({
       return failure(`The sign-in of ${label(pick)} could not start: ${(error as Error).message.slice(0, 200)}`);
     }
     if (!started.started) {
-      return failure(`${label(pick)} (${pick.provider}) has no sign-in this app can start. The person signs in in Settings › Models – I prepare that as a short task for them (tasks.create to the person).`);
+      return failure(`${label(pick)} (${pick.provider}) has no sign-in this app can start. The person signs in in Settings › Models – I prepare that as a short task for them (tasks.add for the person).`);
     }
     return text([
       `Started the official ${pick.provider} sign-in for ${label(pick)} on this PC.`,

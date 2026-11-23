@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  codexLimitReached, mergeLimits, normalizeClaudeUsage, normalizeCodexLimits, normalizeCodexResets, parseClaudeRateLimitEvent, weeklyWindow, windowApplies, windowScope,
+  mergeLimits, normalizeClaudeUsage, normalizeCodexLimits, normalizeCodexResets, parseClaudeRateLimitEvent, weeklyWindow, windowApplies, windowScope,
 } from '../../../src/runtime/accounts/limits.ts';
 
 const NOW = Date.UTC(2026, 9, 21, 9, 0, 0);
@@ -34,13 +34,6 @@ test('normalizeCodexLimits: the main bucket unsuffixed, other buckets by name; s
   assert.equal(normalizeCodexLimits({ rateLimits: { primary: { usedPercent: '40', windowDurationMins: 300 } } }, NOW), undefined, 'nothing valid: no reading');
   assert.equal(normalizeCodexLimits(null, NOW), undefined);
   assert.equal(normalizeCodexLimits([], NOW), undefined);
-});
-
-test('codexLimitReached: a rateLimitReachedType on any bucket', () => {
-  assert.equal(codexLimitReached({ rateLimits: { rateLimitReachedType: 'primary' } }), true);
-  assert.equal(codexLimitReached({ rateLimitsByLimitId: { spark: { rateLimitReachedType: 'secondary' } } }), true);
-  assert.equal(codexLimitReached({ rateLimits: { primary: { usedPercent: 100 } } }), false);
-  assert.equal(codexLimitReached('limit'), false);
 });
 
 test('normalizeClaudeUsage: 5h, weekly and model windows with their reset; a plan only from the known list', () => {
@@ -82,7 +75,7 @@ test('parseClaudeRateLimitEvent: fractions and percents, an ambiguous 100 % stay
   const rejected = event({ status: 'rejected', rateLimitType: 'seven_day_opus', resetsAt: SEC + 7200 });
   assert.deepEqual(rejected, {
     rejected: true, resetsAt: (SEC + 7200) * 1000,
-    limits: { windows: [{ name: 'weekly-opus', windowMinutes: 10080, usedPercent: 100, resetsAt: (SEC + 7200) * 1000 }], readAt: NOW },
+    limits: { windows: [{ name: 'weekly-opus', windowMinutes: 10080, usedPercent: 100, resetsAt: (SEC + 7200) * 1000 }], readAt: NOW, partial: true },
   });
   assert.equal(event({ status: 'rejected', resetsAt: NOW + 5000 }).resetsAt, NOW + 5000, 'a reset already in ms stays');
   assert.equal(event({ status: 'rejected', resetsAt: NOW }).limits, undefined, 'no window type: no reading');
@@ -94,9 +87,11 @@ test('parseClaudeRateLimitEvent: fractions and percents, an ambiguous 100 % stay
 test('mergeLimits, windowScope, windowApplies and weeklyWindow', () => {
   const previous = { windows: [{ name: '5h', windowMinutes: 300, usedPercent: 10 }, { name: 'weekly', windowMinutes: 10080, usedPercent: 30, resetsAt: NOW + 1000 }], readAt: NOW - 60_000 };
   const merged = mergeLimits(previous, { windows: [{ name: 'weekly', windowMinutes: 10080, usedPercent: 35, resetsAt: NOW + 1000 }], readAt: NOW });
-  assert.deepEqual(merged.windows.map((window) => [window.name, window.usedPercent]), [['5h', 10], ['weekly', 35]]);
+  assert.deepEqual(merged.windows.map((window) => [window.name, window.usedPercent]), [['weekly', 35]], '21.11.2026: a whole reading names every account-wide window');
+  const partial = mergeLimits(previous, { windows: [{ name: 'weekly', windowMinutes: 10080, usedPercent: 35, resetsAt: NOW + 1000 }], readAt: NOW, partial: true });
+  assert.deepEqual(partial.windows.map((window) => [window.name, window.usedPercent]), [['5h', 10], ['weekly', 35]]);
   assert.equal(merged.readAt, NOW);
-  assert.equal(mergeLimits(undefined, previous), previous);
+  assert.deepEqual(mergeLimits(undefined, previous), previous);
 
   assert.equal(windowScope('weekly-opus'), 'opus');
   assert.equal(windowScope('90m-gpt-5-3-codex-spark'), 'gpt-5-3-codex-spark');
@@ -144,4 +139,21 @@ test('B-044 normalizeCodexLimits + mergeLimits: a read sets the resets (also to 
   const emptied = normalizeCodexLimits({ rateLimits: windows, rateLimitResetCredits: null }, NOW + 2)!;
   assert.equal(mergeLimits(read, emptied).resets, undefined, 'a read without resets drops the old count');
   assert.equal(Object.hasOwn(mergeLimits(undefined, push), 'resets'), false);
+});
+
+test('21.11.2026 mergeLimits: a whole reading without a 5-hour window drops the old one; a partial event keeps it', () => {
+  const five = { name: '5h', windowMinutes: 300, usedPercent: 40, resetsAt: NOW + 1000 };
+  const opus = { name: 'weekly-opus', windowMinutes: 10080, usedPercent: 5, resetsAt: NOW + 9000 };
+  const previous = { windows: [five, { name: 'weekly', windowMinutes: 10080, usedPercent: 20, resetsAt: NOW + 9000 }, opus], readAt: NOW };
+  const usage = normalizeClaudeUsage({ rate_limits_available: true, rate_limits: { five_hour: null, seven_day: { utilization: 30, resets_at: new Date(NOW + 9000).toISOString() } } }, NOW + 1).limits!;
+  const whole = mergeLimits(previous, usage);
+  assert.deepEqual(whole.windows.map((w) => w.name).sort(), ['weekly', 'weekly-opus'], 'the plan no longer sends a 5-hour window: none');
+  const event = parseClaudeRateLimitEvent({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', resetsAt: SEC + 9, utilization: 0.4, rateLimitType: 'seven_day' } }, NOW + 2).limits!;
+  assert.equal(event.partial, true);
+  const merged = mergeLimits(previous, event);
+  assert.deepEqual(merged.windows.map((w) => w.name).sort(), ['5h', 'weekly', 'weekly-opus'], 'one window event: the others stay');
+  assert.equal(Object.hasOwn(merged, 'partial'), false, 'never stored');
+  assert.equal(Object.hasOwn(mergeLimits(undefined, event), 'partial'), false);
+  const codexWeeklyOnly = normalizeCodexLimits({ rateLimits: { primary: { usedPercent: 10, windowDurationMins: 10080, resetsAt: SEC + 9 }, secondary: null } }, NOW + 3)!;
+  assert.deepEqual(mergeLimits(previous, codexWeeklyOnly).windows.map((w) => w.name).sort(), ['weekly', 'weekly-opus']);
 });

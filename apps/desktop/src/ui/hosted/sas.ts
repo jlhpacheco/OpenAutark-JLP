@@ -1,18 +1,13 @@
 // The connect request's math for the iPhone web app (B-078 follow-up), exactly as runtime/remote/sas.ts and
-// devices/pair-proof.ts (and Android's RemotePair.java): stable JSON, the length-prefixed hash, the PC's commitment, the
-// transcript, the 4-digit code both screens show, the signed forms and the session-key MACs. The shared vectors of
-// android/test/RemotePairTest.java and test/unit/hosted/crypto.test.ts keep the three implementations equal.
+// devices/pair-proof.ts (and Android's RemotePair.java): the length-prefixed hash, the PC's commitment, the transcript,
+// the 4-digit code both screens show, the signed forms and the session-key MACs, over the one stable JSON
+// (shared/text/stable-json.ts). The shared vectors of android/test/RemotePairTest.java and test/unit/hosted/crypto.test.ts
+// keep the three implementations equal.
 // Owns: these pure values. Never: sockets, storage or trust decisions.
 
+import { stable } from '../../shared/text/stable-json.ts';
 import { b64url, concat, same, utf8, type Bytes } from './bytes.ts';
 import { hkdf, hmac, sha256, x25519 } from './crypto.ts';
-
-/** pair-proof.ts stable(): sorted keys, JSON.stringify for every leaf. */
-export function stable(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
-  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable((value as Record<string, unknown>)[key])}`).join(',')}}`;
-}
 
 /** sha256 over length-prefixed parts ("<length>:" + bytes each). */
 export async function lpHash(...parts: Array<string | Uint8Array>): Promise<Bytes> {

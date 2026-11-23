@@ -1,5 +1,6 @@
 // Task.dependsOn (tasks/depends.ts): a task that comes after others waits; each one that ends shortens the wait without a
-// wake; after the last one it opens again and its owner hears how it ended. Nothing holds it: it can be moved on by hand.
+// wake; after the last one it opens again and its owner hears how it ended – once for all of its tasks one end opened
+// (R1.10). Nothing holds it: it can be moved on by hand.
 // Owns: these assertions only. Never: real timers, engines or network.
 
 import { test } from 'node:test';
@@ -62,4 +63,23 @@ test('a wait on a task (tasks.update on: task) ends with that task like a depend
   h.tasks.update(work.id, { status: 'waiting', waitingOn: { on: 'task', ids: [ask.id], why: 'The colour' } }, 'ag_tom');
   done(ask.id, HUMAN_ID);
   assert.equal(h.tasks.get(work.id)!.status, 'open');
+});
+
+test('R1.10: an end that opens several tasks of one agent wakes it once, naming all of them – on their one quest', () => {
+  const { h, done } = setup();
+  const release = h.tasks.create({ title: 'Release 0.3.16', assigneeId: 'ag_ivy', createdBy: HUMAN_ID });
+  const quest = h.tasks.create({ kind: 'quest', title: 'Asks of the week', assigneeId: 'ag_tom', createdBy: HUMAN_ID });
+  const asks = ['Signed installer', 'Phone fix', 'Calendar fix'].map((title) => h.tasks.create({ title, parentId: quest.id, assigneeId: 'ag_tom', createdBy: 'ag_tom', dependsOn: [release.id] }));
+  const announce = h.tasks.create({ title: 'Announce it', assigneeId: 'ag_ivy', createdBy: HUMAN_ID, dependsOn: [release.id] });
+  h.db.run('DELETE FROM wakes');
+  done(release.id);
+  assert.ok(asks.every((ask) => h.tasks.get(ask.id)!.status === 'open'));
+  const tom = h.wakeRows().filter((row) => row.agent_id === 'ag_tom');
+  assert.equal(tom.length, 1, 'one wake for all three');
+  assert.equal(tom[0].task_id, quest.id, 'on their one quest');
+  assert.match(String(tom[0].note), /^"Release 0\.3\.16", which 3 of my tasks waited on, is done: Copy is ready\. Nothing else is ahead of them: /);
+  for (const ask of asks) assert.ok(String(tom[0].note).includes(`"${ask.title}" (${ask.id})`), ask.title);
+  const ivy = h.wakeRows().filter((row) => row.agent_id === 'ag_ivy');
+  assert.deepEqual(ivy.map((row) => row.task_id), [announce.id], 'a single one: with that task, as before');
+  assert.match(String(ivy[0].note), /which my task "Announce it" waited on, is done/);
 });

@@ -1,6 +1,6 @@
 // Command palette (Ctrl/Cmd+K; search icon on mobile): chats (main chats and Team activity rooms, never
 // the app-owned system chats), agents, Settings (F20: also the pages a query finds by their keywords or what they hold –
-// settings/settings-words.ts –, opened with the settings search set to it) and actions (new chat, new task in this chat, My day, feedback, the
+// settings/settings-words.ts –, opened with the settings search set to it) and actions (new chat, new task in this chat, Tasks, feedback, the
 // feedback tour's replay "Watch how it works", "Set up team again" for the owner while a Manager exists, "Stop all
 // agent work" / "Resume agent work"). Actions this connection may not call are left out (shell/gates.ts
 // paletteActions). Matching: a label that starts with or contains the query, then a hint; a loose subsequence only
@@ -16,6 +16,7 @@ import { Marked } from '../lib/mark.tsx';
 import { chatSection } from '../../shared/text/chat-sections.ts';
 import { agents, conversations, isMobile } from '../lib/store.ts';
 import { chatTitle } from '../lib/chat-face.tsx';
+import { isThread } from '../chat/threads.ts';
 import { go, navigate } from '../lib/router.ts';
 import { can } from '../lib/session.ts';
 import { searchSections, visibleSections } from '../settings/sections.ts';
@@ -48,7 +49,7 @@ function buildEntries(): Entry[] {
   const own: Array<Entry & { id: PaletteActionId }> = [
     { id: 'a:new-chat', group: 'Actions', label: 'New chat', icon: 'plus', run: () => { newChatOpen.value = {}; } },
     ...(chatId ? [{ id: 'a:new-task' as const, group: 'Actions', label: 'New task in this chat', icon: 'chat-text' as IconName, run: () => { composerFill.value = { conversationId: chatId, text: '/task ' }; /* only into an empty composer */ } }] : []),
-    { id: 'a:day', group: 'Actions', label: DESTINATIONS.day, icon: 'sun', run: () => go.day() },
+    { id: 'a:tasks', group: 'Actions', label: DESTINATIONS.tasks, icon: 'list-checks', run: () => go.tasks() },
     ...(isMobile.value ? [] : [{ id: 'a:sidebar' as const, group: 'Actions', label: 'Toggle sidebar', icon: 'sidebar-simple' as IconName, run: toggleSidebar }]), // the phone stack has no sidebar
     { id: 'a:feedback', group: 'Actions', label: 'Feedback', icon: 'megaphone', run: openFeedback }, // not "Send": a build without a sender saves only
     // the emergency stop (no Stop in the chat): Stop while work may run, Resume while stopped
@@ -67,7 +68,7 @@ function buildEntries(): Entry[] {
     tour,
   ];
   const chats: Entry[] = conversations.value
-    .filter((chat) => !chat.archivedAt && chatSection(chat) !== 'system' && !chat.settings.anchorId) // threads open in their chat's side panel
+    .filter((chat) => !chat.archivedAt && chatSection(chat) !== 'system' && !isThread(chat)) // threads open in their chat's side panel or their task
     .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0))
     .map((chat) => ({
       id: `c:${chat.id}`, group: 'Chats', label: chatTitle(chat) || 'Untitled chat', hint: chatSection(chat) === 'team' ? 'Team activity' : undefined,

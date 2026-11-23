@@ -1,7 +1,6 @@
 // Turn phase 1 – plan and route: who runs, in which mode, on which model/account, with
 // which session, prompt and input. Owns: mode resolution (the agent's own mode), the focus
-// text for routing, the subconscious's trace of this turn (owner 01.11.2026: real tool calls in the main AI's history, never
-// a hint in a prompt; subconscious/service.ts beforeTurn: on a person's message with content – or a colleague's when no person wrote, else the turn's task – one call first, bounded, which sets the turn's effort and opens the hits of the word search it chooses, v2 15.11.2026), the model the turn starts from (17.11.2026: the model the
+// text for routing, the subconscious's look before this turn (subconscious/service.ts beforeTurn: on a person's message with content – or a colleague's when no person wrote, else the turn's task – one call first, bounded, which sets the turn's effort and gives a line for each hit of the word search it picks, v2 15.11.2026; Runde „Halb“ 21.11.2026: those lines reach the turn as its live block's "## From my memory" – subconscious/hints.ts, context/prompt-volatile.ts –, not as tool calls; its trace holds only what a run kept for the thread, e.g. timeout decisions), the model the turn starts from (17.11.2026: the model the
 // session is on and whether the turn stands at a boundary – boundary.ts, asked once; next-route.ts: the request in force on top, read after the look), session choice
 // (session-choice.ts; CTX7, compaction-policy.ts; B-080: no working set – a session lives on, the subconscious's marks keep it lean item by
 // item, and only a context that no longer fits the model's window has its oldest tool work hidden or, when even that is not
@@ -65,7 +64,7 @@ import { pendingRoute, returnChoice } from './next-route.ts';
 import { boundaryOf } from './boundary.ts';
 import { modeChangeNote, offeredTools, promptKey, sessionOffer, startOf } from './session-key.ts';
 import { promoteLearned } from '../tools/learned.ts'; // B-049 F4 (TOOLS-CORE)
-import { forgetSent, sentTo, stableDelta, volatileDelta } from './volatile-delta.ts'; // B-049 F6, S2
+import { carries, forgetSent, sentTo, stableDelta, volatileDelta } from './volatile-delta.ts'; // B-049 F6, S2
 import { isPaused } from '../../shared/model/tasks.ts';
 import { fitLimit } from './compaction-policy.ts';
 import { engineUnit } from '../../shared/model/context-ledger.ts';
@@ -78,12 +77,15 @@ import type { RoutedTurn, TurnPlan, TurnRequest } from './turn-types.ts';
 import { planSplit, splitResults, splitRoute } from './split-turn.ts'; // B-057
 import { visionInputs } from '../media/vision-image.ts'; // B-058 G10 (T4): image inputs normalized for every engine
 import { interruptionNote } from './interruption-context.ts';
+import { reminderSnapshot } from '../context/quest-text.ts'; // FIXREAL 5: a reminder's note carries its quest as it stands
+import { displayZone } from '../context/time.ts';
 import { noteLabel, scheduleSubject, taskSubject } from './note-label.ts';
+import { riderInput } from './turn-riders.ts'; // Runde „Halb“ 21.11.2026
 
 /** Runs read for the effort and kind of work of my newest done run on the model I am on. */
 const RETURN_WINDOW = 50;
 /** Wakes the human caused (a retry of a stopped answer is 'manual'): the only ones that end the human's pause of a task. */
-const BY_HUMAN: ReadonlySet<WakeReason> = new Set(['answer', 'approval', 'manual']);
+const BY_HUMAN: ReadonlySet<WakeReason> = new Set(['answer', 'manual']);
 /** Task states in which a bare 'task' wake has nothing to continue (the owner set the work aside, or it is over). */
 const SET_ASIDE: ReadonlySet<string> = new Set(['waiting', 'done', 'dropped']);
 
@@ -162,7 +164,7 @@ export async function planTurn(services: RuntimeServices, request: TurnRequest):
   // wake's ('message') note is a mini-app event or a waiting task's notice, not the work – there the task's own notes stand.
   const taskNote = request.reason === 'message' ? undefined : request.notes.at(-1)?.text;
   const taskText = task ? [task.title, taskNote ?? task.notes].map((part) => part.trim()).filter(Boolean).join('\n') : undefined;
-  // v2 15.11.2026: the entries the call before the turn opened come first in it (subconscious/look.ts), then a kept trace.
+  // The call before the turn stores its hints for this turn's live block (subconscious/hints.ts); the trace is what was kept for the thread.
   const trace = await subconsciousTrace(services, request.signal, { agent, thread, conversationId, taskId: task?.id, mode: mode.key, said, woke, ...(taskText ? { taskText } : {}), ...(needsVision ? { vision: true } : {}), ...(onCall ? { callId: onCall } : {}), signal: request.signal }); // FIXES-3 D2: a running call's line does not wait for it
   // 17.11.2026 (the model settles): the one question whether this turn's context starts anew anyway (boundary.ts) – off a
   // boundary the router keeps the model the session is on, whoever asks for another; the model I am on is that session's,
@@ -203,7 +205,7 @@ async function subconsciousTrace(services: RuntimeServices, signal: AbortSignal,
       look.then((late) => { if (hasTrace(late)) services.subconscious.putBack?.(input.agent.id, input.thread, late); }).catch((error) => services.log.warn('the subconscious before the turn failed', { agentId: input.agent.id, error: String(error) }));
       return undefined;
     }
-    return hasTrace(trace) ? trace : undefined;
+    return trace ?? undefined; // an empty one is kept too: it carries the turn's hints back if the turn never reaches its engine (service.ts putBack)
   } catch (error) {
     services.log.warn('the subconscious before the turn failed', { agentId: input.agent.id, error: String(error) });
     return undefined;
@@ -245,13 +247,19 @@ export function routeRequest(plan: TurnPlan, exclude?: string[]): RouteRequest {
   };
 }
 
-/** Each note under the one label (note-label.ts) with its own subject: my schedule for a schedule's note, else the turn's task. */
-export function noteLines(request: Pick<TurnRequest, 'reason' | 'notes' | 'origin'>, timezone: string | undefined, task?: Pick<TaskView, 'id' | 'title'>, scheduleTitle?: string): string[] {
+/**
+ * Each note under the one label (note-label.ts) with its own subject: the turn's task (a reminder about a quest or to-do
+ * names it), else my schedule for a schedule's note. `snapshot` – the task's quest as it stands now – follows the last
+ * schedule's note (a reminder's), in the note's own text – buildTurn gives it when this turn's live block leaves the
+ * quest's "## Current quest" out (a resumed session whose section did not change; FIXREAL 5), so it comes once.
+ */
+export function noteLines(request: Pick<TurnRequest, 'reason' | 'notes' | 'origin'>, timezone: string | undefined, task?: Pick<TaskView, 'id' | 'title'>, scheduleTitle?: string, snapshot?: string): string[] {
   const id = request.origin?.source.startsWith('schedule:') ? request.origin.source.slice('schedule:'.length) : undefined;
   const schedule = scheduleSubject(id, scheduleTitle);
-  return request.notes.map((note) => {
-    const subject = (note.reason ?? request.reason) === 'schedule' ? schedule : task ? taskSubject(task) : undefined;
-    return `${noteLabel(note.at, timezone, subject)} ${note.text}`;
+  const reminder = task && snapshot ? request.notes.findLastIndex((note) => (note.reason ?? request.reason) === 'schedule') : -1;
+  return request.notes.map((note, index) => {
+    const subject = task ? taskSubject(task) : (note.reason ?? request.reason) === 'schedule' ? schedule : undefined;
+    return `${noteLabel(note.at, timezone, subject)} ${note.text}${index === reminder ? `\n${snapshot}` : ''}`;
   });
 }
 
@@ -373,12 +381,22 @@ export async function buildTurn(services: RuntimeServices, plan: TurnPlan, reque
   // The cut-off note says what the recovery wake's and the redelivery's notes say: one note, not two.
   const wakeNotes = cut ? request.notes.filter((wake) => wake.text !== INTERRUPTED_NOTE && wake.text !== REDELIVERY_NOTE) : request.notes;
   const results = splitResults(services, plan); // B-057 S6: the agent's own turn gets its settled splits' results once
-  const notes = [cut, ...noteLines({ reason: request.reason, notes: wakeNotes, origin: request.origin }, timezone, plan.task, scheduleTitleOf(services, request.origin)), results?.text, ...repairNotes, note].map((line) => line && quoteHeaders(line)); // only the header lines below are headers
+  // B-049 F6: a resumed (not seeded) native session gets only the volatile sections changed since its last finished turn.
+  const sentKey = { agentId: plan.agent.id, conversationId: plan.thread, engine: engine.id };
+  if (rebuilt) forgetSent(services.db, sentKey); // a seeded session starts without the old record
+  const sent = resumed ? sentTo(services.db, sentKey, resumed.ref) : undefined;
+  const shown = prompt.sections ? volatileDelta(prompt.sections, sent?.sections) : undefined;
+  // FIXREAL: a reminder's quest as it stands comes once – under its note when this turn's live block leaves its section out.
+  const snapshot = plan.task && wakeNotes.some((wake) => (wake.reason ?? request.reason) === 'schedule') && !carries(prompt.sections, shown, 'task')
+    ? reminderSnapshot(services, plan.task.id, plan.agent.id, displayZone(timezone)) : undefined;
+  const notes = [cut, ...noteLines({ reason: request.reason, notes: wakeNotes, origin: request.origin }, timezone, plan.task, scheduleTitleOf(services, request.origin), snapshot), results?.text, ...repairNotes, note].map((line) => line && quoteHeaders(line)); // only the header lines below are headers
   const lines = [...notes, delta.text].filter((line): line is string => Boolean(line && line.trim()));
+  const riders = await riderInput(services, plan, request, timezone); // Runde „Halb“ 21.11.2026: other chats due at the start, each under its chat's label
   // Nothing new arrived: said as a note, so it never reads as a person's instruction (B-047 eval: "resumed on the person's instruction").
   const now = services.clock.now();
   if (!lines.length && plan.task) lines.push(`${noteLabel(now, timezone, taskSubject(plan.task))} Nothing new arrived since my last turn; this task is ${plan.task.status}.`);
-  if (!lines.length) lines.push(`${noteLabel(now, timezone)} Nothing new arrived since my last turn.`);
+  if (!lines.length && !riders.lines.length) lines.push(`${noteLabel(now, timezone)} Nothing new arrived since my last turn.`);
+  lines.push(...riders.lines);
   if (plan.imagesHidden) lines.push(IMAGES_HIDDEN_NOTE);
   // For a session that cannot know them: the agent's latest answers that stayed in its run log – right after the <live> block.
   const answers = !history && (!session || !engine.caps.sessions) ? answersRecap(services, recapScope(plan), request.runId, timezone) : undefined;
@@ -386,12 +404,7 @@ export async function buildTurn(services: RuntimeServices, plan: TurnPlan, reque
   const record = prefix ?? history; // a part's seed or my own record: what is new follows it under its own header
   if (record) lines.unshift(record, PROJECTION.fresh);
   const input: RoutedTurn['input'] = [{ type: 'text', text: lines.join('\n\n') }];
-  if (engine.caps.images && !plan.imagesHidden) input.push(...await visionInputs(services, delta.images)); // B-058 G10: as they are, a converted copy or a media.view line
-  // B-049 F6: a resumed (not seeded) native session gets only the volatile sections changed since its last finished turn.
-  const sentKey = { agentId: plan.agent.id, conversationId: plan.thread, engine: engine.id };
-  if (rebuilt) forgetSent(services.db, sentKey); // a seeded session starts without the old record
-  const sent = resumed ? sentTo(services.db, sentKey, resumed.ref) : undefined;
-  const shown = prompt.sections ? volatileDelta(prompt.sections, sent?.sections) : undefined;
+  if (engine.caps.images && !plan.imagesHidden) input.push(...await visionInputs(services, [...delta.images, ...riders.images])); // B-058 G10: as they are, a converted copy or a media.view line
   // S2: the stable sections changed since the session's start (or since the change it last got), as changed lines first;
   // a session from before the start record counts against nothing, so every current section comes once.
   const held = start ? Object.fromEntries(start.sections.map((section) => [section.name, section.text])) : whole ? {} : undefined;

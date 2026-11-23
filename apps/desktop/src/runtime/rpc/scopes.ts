@@ -3,8 +3,8 @@
 //   owner   – every topic.
 //   device  – a paired phone/browser of the owner (B5: every device token carries FULL_ACCESS, one tier):
 //             'org'; 'chats' and 'chat:<id>' with the 'chat' capability; 'tasks' with 'todo' or 'tasks' (there
-//             My day's calendar.upserted / calendar.removed / day.briefing only with 'todo', like calendar.list and
-//             day.briefing); 'providers' with 'chat', but only usage.updated / models.updated – B-078: account.upserted /
+//             the calendar's calendar.upserted / calendar.removed only with 'todo', like calendar.list);
+//             'providers' with 'chat', but only usage.updated / models.updated – B-078: account.upserted /
 //             account.removed too for 'settings' on a secure transport (the phone app's tunnel, as accounts.* itself);
 //             'runs:<agentId>' with 'manage' (run.upserted, run.item, split.upserted); from 'system'
 //             update.state and theme.updated (theme.get is open to every device) and notify (without 'chat' only the
@@ -25,8 +25,9 @@
 //   peer / agent – nothing (they never use the client RPC surface).
 // The same rules serve every transport: /ws, POST /rpc and GET /events (http/rpc.ts, http/sse.ts).
 // Bus-only events reach no client at all, whatever the scope (BUS_ONLY): 'task.changed' (ids, states and who
-// changed it – runtime listeners only; task.upserted carries every change to the lists), and phone use's own
-// 'phoneUse.reply' / 'phoneUse.attached'. B-078: 'phoneUse.request' (on 'system') reaches exactly the device it names –
+// changed it – runtime listeners only; task.upserted carries every change to the lists), phone use's own
+// 'phoneUse.reply' / 'phoneUse.attached' and the catch-up rhythm's 'sync.round' (devices/sync/service.ts – every 2 min per
+// linked PC, for runtime modules that follow the rhythm; Fest round 22.11.2026). B-078: 'phoneUse.request' (on 'system') reaches exactly the device it names –
 // not even the owner's window (it can carry text to type) – the phone's topic phoneUse:<deviceId> in effect.
 // 18.11.2026 (phone traffic): a device hears an agent.upserted whose only news is the status, step note or time without
 // the agent's instructions once that connection got them (`deviceAgent`) – they are its SYSTEM.md, ~27 KB a time.
@@ -53,12 +54,12 @@ const FOR_YOU_NOTIFY: ReadonlySet<string> = new Set(['todo', 'blocker']);
 const DEVICE_PROVIDER_EVENTS: ReadonlySet<string> = new Set(['usage.updated', 'models.updated']);
 /** The stops from the phone – every device holding 'todo' sees computer use and agent work (it may stop each). */
 const BRAKE_EVENTS: ReadonlySet<string> = new Set(['computer.activity', 'work.state']);
-/** B-041: My day's calendar rows and briefing on the 'tasks' topic – for devices holding 'todo' (calendar.list, day.briefing). */
-const DAY_EVENTS: ReadonlySet<string> = new Set(['calendar.upserted', 'calendar.removed', 'day.briefing']);
+/** B-041: the calendar's rows on the 'tasks' topic – for devices holding 'todo' (calendar.list). */
+const DAY_EVENTS: ReadonlySet<string> = new Set(['calendar.upserted', 'calendar.removed']);
 /** B-076: the PC's side pane and its tabs' view positions – for devices holding 'manage' (tabs.get, tabs.positions). */
 const PANE_EVENTS: ReadonlySet<string> = new Set(['tabs.changed', 'tabs.position']);
 /** Events for runtime listeners only: never sent to any client (see the header). */
-const BUS_ONLY: ReadonlySet<string> = new Set(['task.changed', 'phoneUse.reply', 'phoneUse.attached']);
+const BUS_ONLY: ReadonlySet<string> = new Set(['task.changed', 'phoneUse.reply', 'phoneUse.attached', 'sync.round']);
 /** B-078: accounts on the phone (accounts.* is 'settings' on a secure transport, rpc/handlers/providers.ts). */
 const ACCOUNT_EVENTS: ReadonlySet<string> = new Set(['account.upserted', 'account.removed']);
 /** B-084 (D6): Settings › Devices on the phone (remote.* / devices.* are 'settings' on a secure transport); 16.11.2026 its Calendar page. */

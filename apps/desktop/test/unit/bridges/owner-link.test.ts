@@ -237,7 +237,7 @@ test('RPC: bridges.linkOwner / unlinkOwner are owner only and take exactly { id 
     },
   } as unknown as RpcExtras;
   const table = createHandlerTable();
-  const ctx: HandlerContext = { scope: { kind: 'owner' }, services: {} as RuntimeServices, extras, topics: new Set(), signal: new AbortController().signal };
+  const ctx: HandlerContext = { scope: { kind: 'owner', person: true }, services: {} as RuntimeServices, extras, topics: new Set(), signal: new AbortController().signal };
   const call = async (method: string, params?: unknown) => table.get(method)!.handler(params as never, ctx);
   const device = { kind: 'device', deviceId: 'dev_x', capabilities: ['todo', 'chat', 'tasks', 'settings', 'manage', 'permissions'], secure: true } as ClientScope;
   for (const method of ['bridges.linkOwner', 'bridges.unlinkOwner']) {

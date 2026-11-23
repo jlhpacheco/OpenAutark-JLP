@@ -4,22 +4,19 @@
 // within FLUSH_MS: a row that changes again before then goes once, in its latest state (a streaming answer's live
 // values change about twice a second). A row naming a stored file (its sha256 id) takes that file's row along, as
 // do the settings; a memory file's event takes its old versions along (rows of their own). A PC that is not online
-// gets it at its next link-up, which sends every stamp stored after that PC's cursor (all rows the first time; no page
-// once its link is gone – the next link-up owes them); rows
+// gets it at its next link-up, which sends every stamp stored after that PC's cursor (all rows the first time; no page once its link is gone – the next link-up owes them); rows
 // that never travelled (stored files, knowledge rows, plan logins a PC found – they travel since 04.11.2026) get
 // their stamp when the sync attaches, so a link that has a cursor gets them too. An incoming row that wins is written with its stamp in one transaction – so
 // the service events after it find nothing new and nothing echoes back – and is passed on to the other CEO PCs, never back to the sender; a
 // row that is already there stops there. An employee's PC gets its person's part in their ids and sends back only
 // what that person did there – their lines, their changes of their tasks – which the CEO's PC checks, delivers like
 // a line from their phone and passes on (employee.ts) – a status change of their task runs the task service's own path
-// here (follow-ups, wakes); its employer's batch holds only chats, messages and tasks, and goes on to my other PCs with
-// its `origin` (B-078: all my devices are the same employee there).
+// here (follow-ups, wakes); its employer's batch holds only chats, messages and tasks, and goes on to my other PCs with its `origin` (B-078: all my devices are the same employee there).
 // Whom a message wakes is decided once, on the PC where it was written; the due wakes of an
 // agent whose turns run on another PC (home.ts) go there after the rows they name (through a CEO PC that knows that
-// home, when this one does not; B-087: waiting ones at that PC's own link-up), so it wakes like for a local one;
+// home, when this one does not; B-087: waiting ones at that PC's own link-up), so it wakes like for a local one. 22.11.2026: a PC that lacks rows from here (`owed`: this PC just started, or a batch for it did not go) gets them in a catch-up before any wake goes there – a wake that came before its line found nothing new there and was settled without a turn;
 // 07.11.2026: a message's wake is delivered there by the line's level (chat/delivery-route.ts deliverHandedOver: folded into the running turn, or that turn cut at its next step). A PC that joins the CEO's company retires its own
-// untouched first-run Manager once the company's agents are here. B-080: a SYSTEM.md or prompt review handed over from
-// another PC is dropped – it belongs to the PC the agent runs on.
+// untouched first-run Manager once the company's agents are here. B-080: a SYSTEM.md or prompt review handed over from another PC is dropped – it belongs to the PC the agent runs on.
 // Owns: the outbox, batches, catch-up, the wake hand-over. Never: logs a row's content, runs an agent.
 
 import type { RuntimeServices, Wake, WakeRequest } from '../../contracts.ts';
@@ -27,10 +24,11 @@ import type { EventName } from '../../../shared/api/events.ts';
 import { WorkforceError } from '../../../shared/errors.ts';
 import { chatWakeKey, deliverHandedOver } from '../../chat/delivery-route.ts';
 import { DevicesRepo } from '../repo.ts';
-import { asPerson, goesBack, heldStatus, markOrigin, moveStatus, noteSent, ownTodos, takenFrom, theirMaker, type StatusMove } from './employee.ts';
-import { homeElsewhere, linkOf, links, selfId } from './home.ts';
+import { asPerson, fromEmployer, goesBack, withPlanOrigin, heldStatus, markOrigin, moveStatus, noteSent, owedOnce, ownTodos, paidOnce, takenFrom, theirMaker, type StatusMove } from './employee.ts';
+import { homeElsewhere, isCeoPc, linkOf, links, selfId } from './home.ts';
 import { compared, placeSchedules, readRow, TABLE, TABLES, upsert, type Apply, type Wire } from './tables.ts';
 import { hashOf, wins, type Stamp, type Stamps } from './stamps.ts';
+import { handOverTargets } from './takeover.ts'; // Umzug 21.11.2026
 
 /**
  * One row as it travels; `first`: part of a first link-up's history (it stays that when passed on); `origin`: the
@@ -43,11 +41,9 @@ interface Box { items: Map<string, Item>; wakes: HandOver[] }
 /** Events that name a changed row: [event, table, removed, the field with its id or ids (default id)]. */
 const EVENTS: ReadonlyArray<readonly [EventName, string, boolean, string?]> = [
   ['space.upserted', 'spaces', false], ['person.upserted', 'people', false], ['person.removed', 'people', true], ['conversation.upserted', 'conversations', false],
-  ['conversation.removed', 'conversations', true], ['agent.upserted', 'agents', false], ['task.upserted', 'tasks', false],
-  ['task.removed', 'tasks', true], ['schedule.upserted', 'schedules', false], ['schedule.removed', 'schedules', true],
+  ['conversation.removed', 'conversations', true], ['agent.upserted', 'agents', false], ['task.upserted', 'tasks', false], ['task.removed', 'tasks', true], ['schedule.upserted', 'schedules', false], ['schedule.removed', 'schedules', true],
   ['account.upserted', 'accounts', false], ['account.removed', 'accounts', true],
-  ['message.created', 'messages', false], ['message.updated', 'messages', false], ['message.removed', 'messages', true],
-  ['notes.updated', 'chat_notes', false, 'conversationId'],
+  ['message.created', 'messages', false], ['message.updated', 'messages', false], ['message.removed', 'messages', true], ['notes.updated', 'chat_notes', false, 'conversationId'],
   ['knowledge.upserted', 'knowledge', false], ['knowledge.removed', 'knowledge', true, 'ids'],
 ];
 /** How long changed rows gather before they go (one call per PC, each row once in its latest state). */
@@ -96,6 +92,7 @@ export class RowSync {
   /** Agents whose wakes are on their way, and those whose hand-over failed (again at the next link-up of a PC they go to). */
   private readonly moving = new Set<string>();
   private readonly holding = new Set<string>();
+  private readonly owed = new Map<string, number>(); // linked PCs that lack rows from here, with how often a batch for them did not go
 
   /** `flushMs`: how long changes gather (FLUSH_MS; tests 0). */
   constructor(s: RuntimeServices, stamps: Stamps, flushMs = FLUSH_MS) {
@@ -107,7 +104,9 @@ export class RowSync {
   /** Stamps the rows that never travelled, then listens to the services' events, the settings (the stored files they name) and the due wakes; returns the off switch. */
   attach(): () => void {
     this.stampUnsent();
+    for (const { record } of links(this.s.db)) this.owed.set(record.id, 0); // just started: what each has of my rows shows at its catch-up
     const offs = EVENTS.map(([event, table, gone, field = 'id']) => this.s.bus.on(event, (data: unknown) => {
+      if ((data as { twinOf?: string } | undefined)?.twinOf) return; // a plan's twin row went here only (accounts/twins.ts)
       const value = (data as Record<string, unknown> | undefined)?.[field];
       for (const id of Array.isArray(value) ? value : [value]) this.changed(table, String(id ?? ''), gone);
     }));
@@ -222,29 +221,32 @@ export class RowSync {
     const boxes = [...this.outbox];
     this.outbox.clear();
     await Promise.all(boxes.map(async ([peer, box]) => {
-      const ok = this.s.devices.online(peer) && await this.post(peer, [...box.items.values()], box.wakes.flatMap((handOver) => handOver.requests));
+      const ok = (this.s.devices.online(peer) || this.owe(peer, box.items.size)) && (!box.wakes.length || !this.owed.has(peer) || await this.catchUp(peer, this.stamps.cursor(peer))) && await this.post(peer, [...box.items.values()], box.wakes.flatMap((handOver) => handOver.requests));
       for (const handOver of box.wakes) handOver.done(ok);
     }));
   }
 
-  /** Sends rows (in calls of at most MAX_CALL characters), then the wakes; false when a call failed. */
+  /** `peer` lacks `rows` rows from here (none: nothing changes); false, for the callers' result. */
+  private owe(peer: string, rows: number): false { if (rows) this.owed.set(peer, (this.owed.get(peer) ?? 0) + 1); return false; }
+  /** Sends rows (in calls of at most MAX_CALL characters), then the wakes; false when a call failed (rows that did not go are owed). */
   private async post(peer: string, items: Item[], wakes: WakeRequest[] = []): Promise<boolean> {
     try {
       for (const chunk of chunks(items)) await this.s.devices.call(peer, 'sync.rows', { items: chunk });
       if (linkOf(new DevicesRepo(this.s.db).get(peer))?.kind === 'employee') noteSent(this.s.db, peer, items, this.s.clock.now()); // the statuses their PC has now
-      if (wakes.length) await this.s.devices.call(peer, 'sync.rows', { wakes });
+      if (wakes.length) await this.s.devices.call(peer, 'sync.rows', { wakes }).catch((error: unknown) => { items = []; throw error; }); // the rows went
       return true;
     } catch (error) {
       this.s.log.info('sync rows not sent', { peer, rows: items.length, error: errorText(error) });
-      return false;
+      return this.owe(peer, items.length);
     }
   }
 
   /** Every row the link-up owes `peer`: all of them the first time (`since` undefined), else what was stamped after `since`. */
-  async catchUp(peer: string, since: number | undefined): Promise<boolean> {
-    const link = linkOf(new DevicesRepo(this.s.db).get(peer));
+  async catchUp(peer: string, sinceAll: number | undefined): Promise<boolean> {
+    const record = new DevicesRepo(this.s.db).get(peer), link = linkOf(record);
     if (!link) return true;
     const self = selfId(this.s.db);
+    const lacked = this.owed.get(peer);
     let ok = true;
     // B-087: a link that is gone gets no call (each would dial): the rest waits for the next link-up, the run incomplete.
     const up = () => this.s.devices.online(peer) || (ok = false);
@@ -252,14 +254,16 @@ export class RowSync {
     for (const table of TABLES) {
       if (link.kind !== 'ceo' && !table.employee) continue;
       if (!up()) break;
+      const once = link.kind === 'employee' && owedOnce(this.s.db, peer, table.name); // 21.11.2026: every agent once (employee.ts)
+      const since = once ? undefined : sinceAll;
       const take = (id: string, stamp: Stamp | undefined): Item | undefined => {
         if (!stamp?.gone) table.settle?.(id, this.s);
         const row = stamp?.gone ? undefined : readRow(this.s, table, id, self);
         if (!row && !stamp?.gone) return undefined;
         if (row && link.kind === 'employee' && !table.employee!(row, link.personId, this.s.db)) return undefined;
-        const item: Item = { t: table.name, id, at: stamp?.at ?? 0, ...(row ? { row } : { gone: true as const }), ...(since === undefined && link.kind !== 'employer' ? { first: true as const } : {}) };
+        const item: Item = { t: table.name, id, at: stamp?.at ?? 0, ...(row ? { row } : { gone: true as const }), ...(since === undefined && link.kind !== 'employer' && (stamp?.at ?? 0) <= (record?.pairedAt ?? Infinity) ? { first: true as const } : {}) }; // history: what was there before the link
         if (link.kind === 'employer') return goesBack(item, peer, this.s.db, this.s.clock.now()) ? item : undefined; // the person's own part that waited for the link
-        return link.kind === 'employee' ? asPerson(item, link.personId, true) : item;
+        return link.kind === 'employee' ? asPerson(item, link.personId, true) : withPlanOrigin(this.s.db, item); // 22.11.2026: a company's plan says so on the person's other PCs
       };
       if (link.kind === 'employer') { // only rows changed here since the cursor can be this person's own – and, the first time, their open to-dos
         const changed = this.stamps.since(`${table.name}/`, since ?? -1).map(({ key, stamp }) => take(key.slice(table.name.length + 1), stamp));
@@ -275,6 +279,7 @@ export class RowSync {
           after = Number(page[page.length - 1].r);
           await flush(page.map((row) => take(String(row.id), this.stamps.get(`${table.name}/${row.id}`))).filter((item): item is Item => Boolean(item)));
         }
+        if (once && ok && up()) paidOnce(this.s.db, peer, table.name, this.s.clock.now());
         continue;
       }
       const changed = this.stamps.since(`${table.name}/`, since);
@@ -282,6 +287,7 @@ export class RowSync {
         await flush(changed.slice(index, index + PAGE).map(({ key, stamp }) => take(key.slice(table.name.length + 1), stamp)).filter((item): item is Item => Boolean(item)));
       }
     }
+    if (!ok) this.owe(peer, 1); else if (this.owed.get(peer) === lacked) this.owed.delete(peer); // complete, and no batch failed meanwhile
     return ok;
   }
 
@@ -324,13 +330,13 @@ export class RowSync {
     // A person's status change of their task – in a row that won here – runs as one from their phone: its follow-ups and wakes (employee.ts).
     for (const move of moves) if (applied.some(({ item }) => item.t === 'tasks' && item.id === move.id)) moveStatus(this.s, move, person!);
     for (const { item } of applied) this.send(scoped ? { ...item, origin: from } : item, from);
-    if (record?.joinedAs === 'ceo' && applied.some(({ item }) => item.t === 'agents' && item.first)) this.retireSeed(record.pairedAt ?? this.s.clock.now());
+    if ((record?.joinedAs === 'ceo' || scoped) && applied.some(({ item }) => item.t === 'agents' && item.first)) this.retireSeed(record?.pairedAt ?? this.s.clock.now());
     if (!person) for (const wake of Array.isArray(batch.wakes) ? batch.wakes : []) this.wakeHere(wake, from);
     return { ok: true, applied: applied.length };
   }
 
   /**
-   * This PC joined the CEO's company and its agents are here: this PC's own first-run Manager, untouched (made here
+   * This PC joined the CEO's company – as my other PC or (21.11.2026) as an employee's – and its agents are here: this PC's own first-run Manager, untouched (made here
    * before the link, template 'manager', no message from a person in its chats), is archived and its own chats
    * removed – both travel like any change – so the company keeps one chief of staff.
    */
@@ -393,12 +399,14 @@ export class RowSync {
    * it); `linkedUp`: a PC's link-up releases only the wakes that go to that PC (resume).
    */
   private handOver(agentId: string, linkedUp?: string): void {
-    if (this.moving.has(agentId) || (linkedUp === undefined && this.holding.has(agentId))) return;
+    if (this.moving.has(agentId) || (linkedUp === undefined && this.holding.has(agentId)) || fromEmployer(this.s.db, agentId)) return; // 21.11.2026: the company delivers its own
     const home = homeElsewhere(this.s, agentId);
     if (!home) { this.holding.delete(agentId); return; } // it runs here now: nothing to hold for another PC
     const known = links(this.s.db).filter(({ link }) => link.kind === 'ceo');
-    const targets = (known.some(({ record }) => record.id === home) ? [home] : known.map(({ record }) => record.id)).filter((id) => this.s.devices.online(id));
-    if (!targets.length || (linkedUp !== undefined && !targets.includes(linkedUp))) return; // they wait for the link-up of a PC they go to
+    const found = (known.some(({ record }) => record.id === home) ? [home] : known.map(({ record }) => record.id)).filter((id) => this.s.devices.online(id));
+    // They wait for the link-up of a PC they go to – or, Umzug 21.11.2026, for the record still on its way from here; with no PC online they go to the PC that goes on with the agent (takeover.ts).
+    const targets = handOverTargets(this.s, agentId, found);
+    if (!targets || (linkedUp !== undefined && !targets.includes(linkedUp))) return;
     this.holding.delete(agentId);
     const wakes = this.s.wakes.claim(agentId);
     if (!wakes.length) return;
@@ -420,18 +428,16 @@ export class RowSync {
 
   /**
    * A wake from another PC: stored here for an agent that runs here, or for one at home on a CEO PC linked here (not
-   * the sender – the dispatcher leaves it, handOver takes it there: a PC that does not know that home sent it here);
-   * any other is dropped.
+   * the sender – the dispatcher leaves it, handOver takes it there: a PC that does not know that home sent it here); any other is dropped.
    */
   private wakeHere(raw: unknown, from: string): void {
     const wake = (raw ?? {}) as Partial<WakeRequest>;
     if (typeof wake.agentId !== 'string' || typeof wake.reason !== 'string' || !this.s.org.get(wake.agentId)) return;
     const home = homeElsewhere(this.s, wake.agentId);
-    if (home && (home === from || linkOf(new DevicesRepo(this.s.db).get(home))?.kind !== 'ceo')) return;
+    if (home && (home === from || !isCeoPc(this.s.db, home))) return;
     const text = (value: unknown) => (typeof value === 'string' ? value : undefined);
     const origin = wake.origin && typeof wake.origin.source === 'string' ? { source: wake.origin.source, label: String(wake.origin.label ?? '') } : undefined;
     // B-080: that PC compared the agent's SYSTEM.md or a prompt with its own release (0.3.2–0.3.4 PCs still send them).
-    if (origin?.source.startsWith('system-prompt')) return;
     const chat = text(wake.conversationId);
     const task = text(wake.taskId);
     // A message's wake merges with any wake for the same chat here (as a delivery here would make it).

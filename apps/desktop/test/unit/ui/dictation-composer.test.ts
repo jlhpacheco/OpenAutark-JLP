@@ -1,6 +1,6 @@
-// D13 – the composers' dictation controls, read from their source (no DOM here): the Plus button is
-// never swapped for a one-click discard while dictating (regression: the X in Plus's slot threw the
-// take away) – Discard is a Plus menu entry –, the mic keeps the field's focus and hands its caret
+// D13 – the composers' dictation controls, read from their source (no DOM here): owner's feedback FCMWNSOZ (20.11.2026)
+// turned the old rule around – while a take records or is transcribed the + turns 45° into the × that cancels it (one
+// element, one transition; the chat's composer and the Tasks page's input line) and the mic cell only shows state –, the mic keeps the field's focus and hands its caret
 // to startDictation, shows the starting state in its own slot, the waveform sits in the spacer, and
 // the worklet that feeds it is bundled next to index.html. B-082: the take goes in with hidden marks, and an unheard
 // recording stays retrievable (chip, message button or toast with "Transcribe again").
@@ -12,17 +12,32 @@ import { readFileSync } from 'node:fs';
 
 const read = (file: string) => readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
 
-test('Plus stays Plus while dictating in both composers; discarding is a Plus menu entry', () => {
-  for (const file of ['src/ui/chat/Composer.tsx', 'src/ui/tasks/TaskComposer.tsx']) {
+test('FCMWNSOZ: the + turns into the × that cancels a take, in the composer and the Tasks page\'s input line; the mic cell only shows state', () => {
+  for (const file of ['src/ui/chat/Composer.tsx']) {
     const source = read(file);
-    assert.doesNotMatch(source, /Cancel dictation|CancelDictationButton|composer-plus cancel/, `${file}: no X in Plus's slot`);
-    assert.doesNotMatch(source, /isDictating\s*\?\s*<(?:CancelDictation|IconButton icon="x")/, file);
     assert.match(source, /<MicButton draftKey=\{[^}]+\} field=\{fieldRef\}/, `${file}: the shared mic button`);
     assert.match(source, /<div class="composer-spacer"><DictationWave state=\{waveState\([^)]+\)\} \/><\/div>/, `${file}: the waveform in the spacer`);
+    assert.doesNotMatch(source, /discardDictation|discard=\{/, `${file}: no "Discard dictation" menu entry any more`);
   }
-  assert.match(read('src/ui/chat/Composer.tsx'), /discardDictation: isDictating \? \(\) => void cancelDictation\(\) : undefined/);
-  assert.match(read('src/ui/tasks/TaskComposer.tsx'), /discard=\{isDictating \? \(\) => void cancelDictation\(\) : undefined\}/);
-  assert.match(read('src/ui/chat/composer/PlusMenu.tsx'), /label: 'Discard dictation'/);
+  assert.match(read('src/ui/chat/composer/PlusMenu.tsx'), /const cancel = takeCancel\(props\.chat\.id\);[^]*<PlusCancel buttonRef=\{ref\} class="composer-plus"/);
+  const plus = read('src/ui/chat/composer/PlusCancel.tsx');
+  assert.equal((plus.match(/<button /g) ?? []).length, 1, 'one element in both states: the turn is a transition, nothing is swapped');
+  assert.match(plus, /<Icon name="plus" size=/);
+  assert.doesNotMatch(plus, /name="x"/, 'the × is the plus turned, not a second icon');
+  const css = read('src/ui/styles/composer.css');
+  assert.match(css, /\.plus-cancel \.icon \{ transition: transform \.2s/);
+  assert.match(css, /\.plus-cancel\.is-cancel \.icon \{ transform: rotate\(45deg\);/);
+  assert.match(css, /prefers-reduced-motion: reduce\) \{ \.plus-cancel \.icon \{ transition: none; \}/);
+  for (const file of ['src/ui/chat/composer/MicButton.tsx', 'src/ui/tasks/FieldMic.tsx']) {
+    const source = read(file);
+    assert.doesNotMatch(source, /cancelTranscribing|name="x"|Cancel transcription/, `${file}: the old spinner with × is gone`);
+    assert.match(source, /class="icon-button( small)? dictation-busy"[^>]*disabled/, `${file}: starting and transcribing show a spinner, nothing to click`);
+  }
+  const line = read('src/ui/tasks/LineExtras.tsx'); // the input line's + (its menu) and, in quest mode, a mark – both the × of a take
+  assert.match(line, /<PlusCancel mark cancel=\{props\.mic\.cancel\}/);
+  assert.match(line, /<PlusCancel buttonRef=\{ref\} class="task-input-plus"[^>]*\n?\s*cancel=\{props\.mic\.cancel\}/);
+  assert.match(read('src/ui/tasks/TaskInput.tsx'), /<LinePlus line=\{line\} mic=\{mic\} field=\{field\}/);
+  assert.match(read('src/ui/tasks/use-dictation.ts'), /cancel: takeCancel\(key\),/);
 });
 
 test('the mic keeps the field focused and passes its caret; starting and transcribing take the same slot', () => {
@@ -49,8 +64,7 @@ test('B-082: a take goes in with its marks hidden; unheard recordings stay as ch
   assert.match(read('src/ui/chat/Attachments.tsx'), /label="Transcribe again"/);
   assert.match(read('src/ui/chat/Attachments.tsx'), /rpc\.call\('voice\.retranscribe', \{ messageId: props\.messageId \}\)/);
   assert.match(read('src/ui/chat/MessageItem.tsx'), /<AttachmentList [^>]*message=\{human \? message : undefined\}/);
-  assert.match(read('src/ui/tasks/TaskComposer.tsx'), /onRetry=\{\(attachment\) => retryTake\(key, attachment, targetOf\(fieldRef\.current\)\)\}/);
-  assert.match(read('src/ui/day/use-dictation.ts'), /offerRetry\(kept, append, outcome\.error\)/);
+  assert.match(read('src/ui/tasks/use-dictation.ts'), /offerRetry\(kept, append, outcome\.error, key\)/);
   assert.doesNotMatch(read('src/ui/lib/dictation.ts'), /MAX_BYTES/, 'no silent cut at 10 min');
 });
 
@@ -59,17 +73,15 @@ test('B-082 review: a held piece uploaded while its take still runs lands once, 
   assert.match(voice, /if \(!chip\) uploadedHeld\.set\(held\.key, attachment\);/, 'remembered for the take that is still finishing');
   assert.match(voice, /if \(!chip && \(dictating\.peek\(\) === held\.owner \|\| transcribing\.peek\(\)\.has\(held\.owner\)\)\) return;/, 'no second chip while the take runs');
   assert.match(voice, /\(result\.kept \?\? \[\]\)\.map\(uploadedChip\)\.filter\(/, 'dictateIntoDraft swaps in the upload and skips a chip already there');
-  assert.match(voice, /heldFields\.set\(heldKey\(attachment\.fileId\) as string, onText\)/, "My day's held piece still gives its words to the field");
+  assert.match(voice, /heldFields\.set\(heldKey\(attachment\.fileId\) as string, \{ onText, \.\.\.\(key \? \{ key \} : \{\}\) \}\)/, "My day's held piece still gives its words to the field");
   const chips = read('src/ui/chat/Attachments.tsx');
   assert.equal((chips.match(/<span class="icon-button small"><Spinner size=\{14\} label="Transcribing" \/><\/span>/g) ?? []).length, 2, 'the spinner takes the button\'s size: nothing moves on click');
   assert.match(chips, /useEffect\(\(\) => \(\) => \{ if \(playing\.peek\(\) === attachment\.fileId\) togglePlay/, 'a chip that goes stops its recording');
 });
 
-test('feedback 08604667: a take being transcribed can be cancelled in the mic\'s slot; its late text is dropped', () => {
-  const mic = read('src/ui/chat/composer/MicButton.tsx');
-  assert.match(mic, /aria-label="Cancel transcription"[^]*onClick=\{\(\) => cancelTranscribing\(key\)\}/);
-  assert.doesNotMatch(mic, /title="Transcribing dictation" disabled/, 'no dead spinner while it transcribes');
+test('feedback 08604667: a take being transcribed can be cancelled (since FCMWNSOZ by the + turned ×); its late text is dropped', () => {
   const voice = read('src/ui/chat/composer/voice.ts');
+  assert.match(voice, /if \(transcribing\.value\.has\(key\)\) return \{ label: 'Cancel transcription', run: \(\) => cancelTranscribing\(key\) \};/);
   assert.match(voice, /export function cancelTranscribing\(conversationId: string\): void \{/);
   assert.match(voice, /if \(cancelled\(\)\) return \{ failed: true \};/, 'the text that comes after a cancel goes nowhere; Send leaves the draft');
 });

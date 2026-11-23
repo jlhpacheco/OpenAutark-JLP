@@ -7,6 +7,8 @@
 // the draft's level (a second pick sets it back to normal, the tick shows it).
 // 16.11.2026: "/feedback text" saves the report and sends it like the feedback menu's Send, with one status-line toast
 // (its report number, or why it stays saved – a send that found no connection goes again by itself on the PC).
+// Quests 20.11.2026: "/todo text" is the Tasks page's input line (tasks.quickCreate – the one intake): the text stands at
+// once as the person's to-do and their assistant sorts it.
 // Owns: the command list, their effects and the level entries. Never: free-text interpretation (agents do).
 
 import type { MethodName } from '../../../shared/api/methods.ts';
@@ -14,9 +16,10 @@ import { newId } from '../../../shared/ids.ts';
 import type { ConversationSummary, MessageLevel } from '../../../shared/model/chat.ts';
 import { reportNumber } from '../../../shared/model/feedback-delivery.ts';
 import type { FeedbackReport } from '../../../shared/model/system.ts';
-import { errorText, rpc, RpcError } from '../../lib/rpc.ts';
+import { rpc } from '../../lib/rpc.ts';
 import { can } from '../../lib/session.ts';
 import { feedbackOpen } from '../../lib/shell-state.ts';
+import { notSentLine } from '../../feedback/delivery.ts';
 import { pushToast, toastError } from '../../lib/toasts.ts';
 import type { MenuItem } from '../../lib/ui.tsx';
 
@@ -56,7 +59,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'model', hint: 'Choose model', needs: ['chats.update'] },
   { name: 'important', hint: 'Mark as important', needs: ['messages.send'] },
   { name: 'silent', hint: 'Send without notifying', needs: ['messages.send'] },
-  { name: 'todo', hint: 'Add to your to-do list', needs: ['todos.add'] },
+  { name: 'todo', hint: 'Add to your tasks', needs: ['tasks.quickCreate'] },
   { name: 'feedback', hint: 'Report a bug or idea', needs: ['feedback.create'] }, // no "Send": a build without a sender saves only
 ];
 
@@ -90,13 +93,6 @@ export async function createTaskFromText(conversationId: string, text: string): 
     toastError(error, 'Task could not be created');
     return false;
   }
-}
-
-/** Why a send left the report saved, in one line: no connection goes again by itself on the PC; else the error. */
-function notSentLine(error: unknown): string {
-  const reason = error instanceof RpcError ? error.data.details?.reason : undefined;
-  if (reason === 'offline' || reason === 'timeout' || reason === 'server') return 'Not sent yet – it goes by itself when the connection is back.';
-  return errorText(error);
 }
 
 /** "/feedback text": saved on the PC, then sent where this connection may send; one toast either way. */
@@ -141,8 +137,8 @@ export async function runSlash(command: { name: string; arg: string }, ctx: Slas
     case 'todo':
       if (!arg) return false;
       try {
-        await rpc.call('todos.add', { text: arg, conversationId: chat.id });
-        pushToast({ title: 'Added to your to-do list' }, 3000);
+        await rpc.call('tasks.quickCreate', { text: arg, clientId: newId('up') });
+        pushToast({ title: 'Added to your tasks' }, 3000);
         return true;
       } catch (error) { toastError(error); return false; }
     case 'feedback':

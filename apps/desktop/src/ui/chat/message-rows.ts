@@ -7,9 +7,12 @@
 // real messages – who works shows in the live bar (LiveBar.tsx). A call is one bubble at its row (meta.call with its lines,
 // runtime/calls/call-log.ts): the rows its lines name fold into it, wherever they stand, and show there in full
 // (callEntries); every other row – an answer that came after the call ended too – stays a row, so nothing is hidden.
+// Quests 20.11.2026: a task thread's line that keeps a person's whole line (quoteOf – the line that started the to-do)
+// is a row of its own, never folded into a burst.
 // Owns: the grouping, what a burst shows, which rendered line a message is found under and a call bubble's entries. Never: renders, scrolls or reads the DOM (MessageList.tsx looks the line up).
 
 import { callRecord, type CallLine } from '../../shared/model/call.ts';
+import { HUMAN_ID } from '../../shared/ids.ts';
 import type { Message } from '../../shared/model/chat.ts';
 import { isAgentNotice } from '../../shared/model/message-changes.ts';
 import { firstSentence } from '../../shared/text/step-label.ts';
@@ -27,6 +30,33 @@ export function isQuietLine(message: Pick<Message, 'authorKind' | 'kind' | 'sile
 /** A quiet line's row text: "<name>: <its first sentence>". */
 export function quietLineText(message: Pick<Message, 'body'>, name: string): string {
   return `${name}: ${firstSentence(message.body)}`;
+}
+
+/** A person's line kept whole in a task's thread: its words, who wrote it, when, and the line in its chat. */
+export interface KeptLine { text: string; authorId: string; at?: number; conversationId?: string; messageId?: string }
+
+/** Lines and characters a kept line shows before it folds ("Show all" opens the rest in place). */
+export const KEPT_LINES = 4;
+const KEPT_CHARS = 320;
+
+/** The kept line of a thread's status line (its details.quote – runtime tools' keepPersonLine), else undefined. */
+export function quoteOf(message: Pick<Message, 'kind' | 'body' | 'meta'>): KeptLine | undefined {
+  const status = message.meta.status;
+  const quote = status?.details?.quote;
+  if (message.kind !== 'status' || !quote || typeof quote !== 'object') return undefined;
+  const fields = quote as Record<string, unknown>;
+  const word = (value: unknown) => (typeof value === 'string' && value ? value : undefined);
+  const at = typeof fields.at === 'number' ? fields.at : undefined;
+  const [conversationId, messageId] = [word(fields.conversationId), word(fields.messageId)];
+  return {
+    text: status?.text || message.body, authorId: word(fields.authorId) ?? HUMAN_ID,
+    ...(at !== undefined ? { at } : {}), ...(conversationId ? { conversationId } : {}), ...(messageId ? { messageId } : {}),
+  };
+}
+
+/** True when a kept line is longer than its folded block shows (more than KEPT_LINES lines or KEPT_CHARS characters). */
+export function keptFolds(text: string): boolean {
+  return text.length > KEPT_CHARS || text.split('\n').length > KEPT_LINES;
 }
 
 /** A row of a burst: one of its lines, the fold row standing for the `count` lines before them, or the row that folds
@@ -68,7 +98,7 @@ export function groupRows(list: readonly Message[]): Row[] {
     const into = folded.get(message.id);
     if (into) { into.messages.push(message); continue; }
     const last = rows[rows.length - 1];
-    if (message.kind === 'status' || isQuietLine(message)) {
+    if ((message.kind === 'status' && !quoteOf(message)) || isQuietLine(message)) {
       if (last?.kind === 'status') last.messages.push(message);
       else rows.push({ kind: 'status', messages: [message] });
     } else rows.push({ kind: 'message', message });

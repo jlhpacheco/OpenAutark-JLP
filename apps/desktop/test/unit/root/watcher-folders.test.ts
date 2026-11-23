@@ -14,7 +14,7 @@ import { mkdirSync, rmSync, writeFileSync, type FSWatcher } from 'node:fs';
 import path from 'node:path';
 import { RootWatcher, REARM_MS, type WatchFn } from '../../../src/runtime/root/watcher.ts';
 import { writeAtomic } from '../../../src/runtime/root/text-doc.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { clock, tempDir } from '../store/helpers.ts';
 
 const sleep = (ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); });

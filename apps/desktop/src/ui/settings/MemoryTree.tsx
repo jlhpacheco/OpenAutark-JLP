@@ -1,13 +1,15 @@
 // The memory tree on Settings › Skills & memory: the folders of <data>/memory, each opening under itself when clicked, and
-// the Markdown files, each opening in the pane's file tab. A right click offers the system's own app.
+// the Markdown files, each opening in the pane's file tab. A right click offers the system's own app. Each open folder
+// is listed again after every reconnect (lib/use-load.ts).
 // Owns: the tree's rows and which folders are open. Never: reads or changes a memory (the file tab does).
 
-import { useEffect, useState } from 'preact/hooks';
+import { useState } from 'preact/hooks';
 import type { PathEntry, PathList } from '../../shared/api/methods-files.ts';
 import { useContextMenu } from '../lib/context-menu.tsx';
 import { errorText, rpc } from '../lib/rpc.ts';
 import { Icon } from '../lib/ui.tsx';
 import { openFileTab, pathMenu } from '../workspace/file-tabs.ts';
+import { useLoad } from '../lib/use-load.ts';
 import { Note, Row } from './controls.tsx';
 
 function Entry(props: { entry: PathEntry; depth: number }) {
@@ -29,9 +31,9 @@ function Entry(props: { entry: PathEntry; depth: number }) {
 function Branch(props: { path: string; depth: number }) {
   const [list, setList] = useState<PathList | null>(null);
   const [failed, setFailed] = useState('');
-  useEffect(() => {
+  useLoad(() => {
     let alive = true;
-    rpc.call('files.listPath', { path: props.path }).then((next) => { if (alive) setList(next); }, (error: unknown) => { if (alive) setFailed(errorText(error)); });
+    rpc.call('files.listPath', { path: props.path }).then((next) => { if (alive) { setList(next); setFailed(''); } }, (error: unknown) => { if (alive) setFailed(errorText(error)); });
     return () => { alive = false; };
   }, [props.path]);
   if (failed) return <Row label="Unavailable" hint={failed} reserve />;

@@ -19,7 +19,7 @@ import { Blobs } from '../../../src/runtime/files/store.ts';
 import { withMediaHook } from '../../../src/runtime/media/hook.ts';
 import { resolveOutput } from '../../../src/runtime/media/outputs.ts';
 import { MediaService } from '../../../src/runtime/media/service.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { uiBlocksOf } from '../../../src/shared/blocks/parse.ts';
 import { validateBlock } from '../../../src/shared/blocks/validate.ts';
 import type { Message } from '../../../src/shared/model/chat.ts';

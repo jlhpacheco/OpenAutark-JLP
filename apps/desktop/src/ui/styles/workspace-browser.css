@@ -42,7 +42,7 @@
 .browser-strip-tab.selected { background: var(--surface); color: var(--text); box-shadow: inset 0 1px 0 var(--line), inset 1px 0 0 var(--line), inset -1px 0 0 var(--line); }
 .browser-strip-choose {
   display: flex; flex: 1 1 auto; align-items: center; gap: 6px; min-width: 0; height: 100%; padding: 0 2px 0 8px;
-  border-radius: 8px 0 0 0; color: inherit; font-size: 12px; text-align: start;
+  border-radius: 8px 0 0 0; color: inherit; font-size: calc(12px * var(--ui-text, 1)); text-align: start;
 }
 .browser-strip-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .browser-strip-close {
@@ -74,7 +74,7 @@
 .browser-address-form { display: flex; flex: 1 1 auto; min-width: 0; margin: 0 2px; }
 .browser-address {
   flex: 1 1 auto; min-width: 0; height: 28px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--r-sm);
-  background: var(--sidebar); color: var(--text); font-size: 13px;
+  background: var(--sidebar); color: var(--text); font-size: calc(13px * var(--ui-text, 1));
 }
 .browser-address:focus { border-color: var(--focus); outline: none; }
 .browser-address-view { display: flex; align-items: center; gap: 8px; overflow: hidden; text-align: start; white-space: nowrap; cursor: text; }
@@ -91,20 +91,20 @@
 .browser-suggestion > .icon { flex: none; opacity: .7; }
 .browser-suggestion-text { display: grid; flex: 1 1 auto; min-width: 0; }
 .browser-suggestion-title { overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
-.browser-suggestion-note { overflow: hidden; color: var(--muted); font-size: 12px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.browser-suggestion-note { overflow: hidden; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(16px, calc(16px * var(--ui-text, 1))); text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------------------------------------------------------------- history */
 .popover.browser-history { display: flex; flex-direction: column; max-height: min(70vh, 560px); padding: 0; overflow: hidden; }
 .browser-history-head { display: flex; flex: none; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); color: var(--muted); }
-.browser-history-search { flex: 1 1 auto; min-width: 0; height: 30px; border: 0; background: transparent; color: var(--text); font-size: 13px; outline: none; }
+.browser-history-search { flex: 1 1 auto; min-width: 0; height: 30px; border: 0; background: transparent; color: var(--text); font-size: calc(13px * var(--ui-text, 1)); outline: none; }
 .browser-history-list { flex: 1 1 auto; min-height: 120px; padding: 4px; overflow-y: auto; scrollbar-gutter: stable; }
 .browser-history-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 4px 8px; border-radius: 8px; color: var(--text); text-align: start; }
 .browser-history-row:hover, .browser-history-row:focus-visible { background: var(--hover); }
 .browser-history-row > .icon { flex: none; opacity: .6; }
 .browser-history-text { display: grid; flex: 1 1 auto; min-width: 0; }
 .browser-history-title, .browser-history-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.browser-history-url { color: var(--muted); font-size: 12px; }
-.browser-history-time { flex: none; color: var(--muted); font-size: 12px; }
+.browser-history-url { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); }
+.browser-history-time { flex: none; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); }
 .browser-history-empty { margin: 0; padding: 24px 12px; color: var(--muted); text-align: center; }
 .browser-history-foot { display: flex; flex: none; justify-content: flex-end; padding: 6px 8px; border-top: 1px solid var(--line); }
 
@@ -135,20 +135,20 @@
 .new-tab-head .new-tab-row { color: var(--muted); }
 .new-tab-row {
   display: flex; align-items: center; gap: 10px; width: 100%; height: 36px; padding: 0 10px; border-radius: var(--r-sm);
-  color: var(--text); font-size: 13px; text-align: start;
+  color: var(--text); font-size: calc(13px * var(--ui-text, 1)); text-align: start;
 }
 .new-tab-row:hover { background: var(--hover); }
 .new-tab-row:active { background: var(--selected); }
 .new-tab-icon { display: inline-grid; flex: none; place-items: center; width: 20px; height: 20px; color: var(--secondary); }
 .new-tab-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.new-tab-hint { flex: 1 1 0; min-width: 0; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.new-tab-hint { flex: 1 1 0; min-width: 0; overflow: hidden; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); text-overflow: ellipsis; white-space: nowrap; }
 /* B-081: a row with cells after it (the Files row's linked PCs): the row keeps its start, each cell its own width;
    a PC offline is muted (colour only) */
 .new-tab-split { display: flex; align-items: center; gap: 2px; }
 .new-tab-split > .new-tab-row { flex: 1 1 auto; min-width: 0; }
 .new-tab-side {
   display: flex; flex: 0 1 auto; align-items: center; gap: 6px; min-width: 0; max-width: 40%; height: 36px; padding: 0 10px;
-  border-radius: var(--r-sm); color: var(--secondary); font-size: 12px;
+  border-radius: var(--r-sm); color: var(--secondary); font-size: calc(12px * var(--ui-text, 1));
 }
 .new-tab-side:hover { background: var(--hover); color: var(--text); }
 .new-tab-side:active { background: var(--selected); }

@@ -4,11 +4,12 @@
 // of the same name stay apart), "this one" or whether it runs, the role and the linked PCs – with Export… and Leave or
 // Delete. Export… writes it into a chosen folder (companies.export: a backup plus its secrets readable, which
 // companies.import opens elsewhere); Import… in the head makes such a folder a new company here (also the profile
-// menu's "+"). Leave – a company shared with linked PCs or joined as an employee: this PC stops showing it, the others
-// keep it – asks once. Delete asks twice: what goes, with "Export first…", then the company's name typed. Both are
+// menu's "+"). Leave – a company shared with linked PCs or joined as an employee: this PC leaves it (its linked PCs drop
+// this one), the others keep it – asks once. Delete asks twice: what goes, with "Export first…", then the company's name typed. Both are
 // companies.remove: its folder goes to the recycle bin once it has stopped, and the one open here hands over to the next.
 // The only company on this PC has neither. Desktop window only; the group sits last, so nothing below it moves when it
 // arrives.
+// 20.11.2026: Leave, Delete and Export… are the profile menu's ⋯ too (shell/ProfileMenu.tsx); the rules sit in company-actions.ts.
 // Owns: these rows, the import pick and the two confirmations. Never: removes, exports or imports anything itself (the
 // runtime and main do).
 
@@ -21,18 +22,8 @@ import { can } from '../lib/session.ts';
 import { pushToast } from '../lib/toasts.ts';
 import { Button } from '../lib/ui.tsx';
 import { act, Group, Row } from './controls.tsx';
+import { companyLine, leaves, plural } from './company-actions.ts';
 
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
-
-/** The others keep it – an employee's company or one with linked PCs: Leave, else Delete. */
-export const leaves = (entry: CompanyEntry): boolean => entry.role === 'employee' || (entry.linkedPcs?.length ?? 0) > 0;
-
-/** The line under the name: the folder, "this one" or whether it runs, the role and the linked PCs. */
-export function companyLine(entry: CompanyEntry): string {
-  const pcs = entry.linkedPcs?.length ?? 0;
-  const state = entry.current ? 'this one' : entry.running === false ? 'not running' : '';
-  return [entry.folder, state, entry.role === 'employee' ? 'employee' : '', pcs ? plural(pcs, 'linked PC') : ''].filter(Boolean).join(' · ');
-}
 
 /** "+" › Import a company and the group's Import…: a picked export (or backup folder) becomes a new company here; its window opens. */
 export async function importCompany(): Promise<void> {
@@ -41,8 +32,8 @@ export async function importCompany(): Promise<void> {
   if (path) await act(() => rpc.call('companies.import', { path }), 'Could not import the company');
 }
 
-/** Export… : the company into a new folder inside a picked one. */
-async function exportCompany(entry: CompanyEntry): Promise<void> {
+/** Export… : the company into a new folder inside a picked one (also the profile menu's ⋯). */
+export async function exportCompany(entry: CompanyEntry): Promise<void> {
   const pick = bridge?.files.pickFolder;
   const dir = pick && await act(() => pick('backup'), 'Could not choose a folder');
   if (!dir) return;
@@ -62,9 +53,20 @@ async function removeCompany(entry: CompanyEntry): Promise<boolean> {
 }
 
 const handOver = (entry: CompanyEntry) => (entry.current ? ' This window closes and another company opens.' : '');
+/** A company that does not run is removed without starting it: PCs it may be linked with hear no goodbye (runtime companies.remove). */
+const untold = (entry: CompanyEntry) => (entry.running === false ? ' It does not run, so PCs it may be linked with are not told – open it first to leave them cleanly.' : '');
 
-/** Delete's two questions: what goes (with Export first…), then the name typed. */
-function DeleteDialog(props: { entry: CompanyEntry | null; onClose: () => void; onDone: () => void }) {
+/** Leave (also the profile menu's ⋯): one question naming what happens, then companies.remove; true when it goes. */
+export async function leaveCompany(entry: CompanyEntry): Promise<boolean> {
+  const others = entry.role === 'employee' ? 'The firm keeps the company' : 'Your linked PCs keep the company';
+  const body = entry.running === false
+    ? `Its folder on this PC goes to the recycle bin. ${others}.${untold(entry)}`
+    : `Its folder on this PC goes to the recycle bin, and the PCs it is linked with drop this one. ${others}.${handOver(entry)}`;
+  return await confirm({ title: `Leave ${entry.label}?`, body, confirmLabel: 'Leave', danger: true }) && removeCompany(entry);
+}
+
+/** Delete's two questions (also from the profile menu's ⋯): what goes (with Export first…), then the name typed. */
+export function DeleteDialog(props: { entry: CompanyEntry | null; onClose: () => void; onDone: () => void }) {
   const { entry } = props;
   const [step, setStep] = useState<1 | 2>(1);
   const [typed, setTyped] = useState('');
@@ -79,7 +81,7 @@ function DeleteDialog(props: { entry: CompanyEntry | null; onClose: () => void; 
         <>
           <p class="dialog-text">
             {`Its agents, chats, tasks, files and settings on this PC go to the recycle bin${entry.id === null ? '; its workspace folder in your user folder stays' : ''}. `}
-            {`Export it first to open it again in Autark elsewhere.${handOver(entry)}`}
+            {`Export it first to open it again in Autark elsewhere.${handOver(entry)}${untold(entry)}`}
           </p>
           <DialogActions>
             <button type="button" class="button secondary" onClick={props.onClose}>Cancel</button>
@@ -117,9 +119,7 @@ export function CompaniesGroup() {
   const only = list.length === 1;
   const remove = async (entry: CompanyEntry) => {
     if (!leaves(entry)) { setDeleting(entry); return; }
-    const others = entry.role === 'employee' ? 'The firm keeps it' : 'Your linked PCs keep it';
-    if (!(await confirm({ title: `Leave ${entry.label}?`, body: `This PC stops showing it, and its folder here goes to the recycle bin. ${others}.${handOver(entry)}`, confirmLabel: 'Leave', danger: true }))) return;
-    if (await removeCompany(entry)) void load();
+    if (await leaveCompany(entry)) void load();
   };
   return (
     <Group title="Companies" id="settings-companies" actions={bridge?.files.pickFolder && <Button variant="ghost" class="small" onClick={() => void importCompany()}>Import…</Button>}>

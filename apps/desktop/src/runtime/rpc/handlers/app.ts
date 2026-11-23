@@ -1,19 +1,19 @@
 // RPC handlers: feedback reports, the app's look (theme.get – <data>/theme.css, runtime/root/theme.ts),
-// onboarding, the one-time legacy import and voice transcription.
+// onboarding and voice transcription.
 // Owns: param checks and scope rules. Requests from a client are always authored by the human; `theme.get` is
 // open to every authenticated device and to employees' devices (they all look the same). Writing and listing feedback and dictation need
 // 'chat'; so do `feedback.send`, `feedback.dismiss` and `feedback.status` (whether this build can send at all):
 // Send seals the report for the team (B-055); the team inbox and setup are owner-only (handlers/feedback-inbox.ts).
-// Onboarding and the legacy import stay owner-only. Local speech: voice.localModels and voice.speak need 'chat',
+// Onboarding stays owner-only. Local speech: voice.localModels and voice.speak need 'chat',
 // voice.pullLocal (a download) is the owner's and – B-084 (D6) – the owner's phone's on a secure transport ('settings' + secure).
 // Never: implements feedback/onboarding/voice behaviour (extras do), or uploads anything.
 
 import type { FeedbackKind } from '../../../shared/model/system.ts';
-import { FEEDBACK_AUDIO_MAX, FEEDBACK_CLIENT_DIAGNOSTICS_MAX, FEEDBACK_CLIENT_ID, FEEDBACK_CLIENT_MAX } from '../../../shared/model/feedback-delivery.ts';
+import { FEEDBACK_CLIENT_DIAGNOSTICS_MAX, FEEDBACK_CLIENT_ID, FEEDBACK_CLIENT_MAX, FEEDBACK_IMAGES_MAX } from '../../../shared/model/feedback-delivery.ts';
 import { AUDIO_TAGGER, localSpeechIds } from '../../../shared/model/local-speech-models.ts';
 import { HUMAN_ID } from '../../../shared/ids.ts';
 import { readTheme } from '../../root/theme.ts';
-import { bad, input, oneOf, onlyKeys, optId, optOneOf, optText, text, type Obj } from '../params.ts';
+import { bad, input, oneOf, onlyKeys, optBool, optId, optOneOf, optText, text, type Obj } from '../params.ts';
 import type { Handler, HandlerTable } from '../table.ts';
 import { register as registerVoiceRetry } from './voice-retry.ts';
 
@@ -30,18 +30,13 @@ function fileId(o: Obj, key: string): string {
   return value;
 }
 
-function optFileId(o: Obj, key: string): string | undefined {
-  return o[key] === undefined || o[key] === null ? undefined : fileId(o, key);
-}
-
-/** feedback.create `audioFileIds`: up to FEEDBACK_AUDIO_MAX file ids, each once. */
-function optAudioIds(o: Obj): string[] | undefined {
-  const value = o.audioFileIds;
+/** feedback.create `imageFileIds`: up to FEEDBACK_IMAGES_MAX file ids, in order. */
+function imageFileIds(o: Obj): string[] | undefined {
+  const value = o.imageFileIds;
   if (value === undefined || value === null) return undefined;
-  if (!Array.isArray(value) || value.length > FEEDBACK_AUDIO_MAX || value.some((entry) => typeof entry !== 'string' || !SHA256.test(entry))) {
-    bad('audioFileIds', `a list of at most ${FEEDBACK_AUDIO_MAX} file ids`);
-  }
-  return value.length ? [...new Set(value as string[])] : undefined;
+  if (!Array.isArray(value) || value.length > FEEDBACK_IMAGES_MAX) bad('imageFileIds', `at most ${FEEDBACK_IMAGES_MAX} file ids`);
+  for (const id of value) if (typeof id !== 'string' || !SHA256.test(id)) bad('imageFileIds', 'a list of file ids');
+  return value as string[];
 }
 
 function optClientId(o: Obj): string | undefined {
@@ -57,19 +52,21 @@ export function register(table: HandlerTable): void {
   // FEEDBACK_CLIENT_MAX / FEEDBACK_CLIENT_DIAGNOSTICS_MAX by the service, so a long user agent never loses a report.
   table.add('feedback.create', (params, ctx) => {
     const o = input(params);
-    onlyKeys(o, ['kind', 'text', 'screenshotFileId', 'annotationFileId', 'audioFileIds', 'view', 'conversationId', 'clientId', 'client', 'clientDiagnostics']);
-    const audioFileIds = optAudioIds(o);
+    // Bridge 20.11.2026: a page from an older build (a cached PWA, the iPhone web app) still sends its recordings' ids –
+    // taken as "dictated" and otherwise ignored, so its report goes (a report never carries a recording).
+    onlyKeys(o, ['kind', 'text', 'imageFileIds', 'dictated', 'audioFileIds', 'view', 'conversationId', 'clientId', 'client', 'clientDiagnostics']);
+    const dictated = optBool(o, 'dictated') || (Array.isArray(o.audioFileIds) && o.audioFileIds.length > 0) || undefined;
     const clientId = optClientId(o);
+    const images = imageFileIds(o);
     const client = optText(o, 'client', { max: 4 * FEEDBACK_CLIENT_MAX, multiline: true });
     const clientDiagnostics = optText(o, 'clientDiagnostics', { max: 5 * FEEDBACK_CLIENT_DIAGNOSTICS_MAX, multiline: true });
     return ctx.extras.feedback.create({
       kind: optOneOf(o, 'kind', FEEDBACK_KINDS),
       text: text(o, 'text', { max: 20_000, multiline: true }),
-      screenshotFileId: optFileId(o, 'screenshotFileId'),
-      annotationFileId: optFileId(o, 'annotationFileId'),
+      ...(images?.length ? { imageFileIds: images } : {}),
       view: optText(o, 'view', { max: 120 }),
       conversationId: optId(o, 'conversationId'),
-      ...(audioFileIds ? { audioFileIds } : {}),
+      ...(dictated ? { dictated } : {}),
       ...(clientId ? { clientId } : {}),
       ...(client ? { client } : {}),
       ...(clientDiagnostics ? { clientDiagnostics } : {}),
@@ -108,11 +105,6 @@ export function register(table: HandlerTable): void {
   table.add('onboarding.start', (params, ctx) => {
     onlyKeys(input(params), []);
     return ctx.extras.onboarding.start();
-  });
-  table.add('import.legacy', async (params, ctx) => {
-    const o = input(params);
-    onlyKeys(o, ['path']);
-    return { imported: await ctx.extras.importLegacy(optText(o, 'path', { max: 1024 })) };
   });
 
   // ---------------------------------------------------------------- voice

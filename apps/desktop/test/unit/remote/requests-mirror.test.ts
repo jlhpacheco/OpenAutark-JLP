@@ -10,7 +10,7 @@ import { readDecide } from '../../../src/runtime/remote/mirror.ts';
 import { REQUEST_TTL_MS } from '../../../src/runtime/remote/requests.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import type { NewPerson } from '../../../src/shared/model/remote.ts';
-import { Lan, linkedIds, settle, type Pc } from './rig.ts';
+import { Lan, connectYes, linkedIds, settle, treesOf, type Pc } from './rig.ts';
 
 const ANNA = 'per_anna000000001';
 const code = (name: string) => (error: unknown) => error instanceof WorkforceError && error.code === name;
@@ -38,7 +38,8 @@ const mirrored = (pc: Pc) => pc.remote.state().incoming.filter((row) => row.via)
 
 test('a request on my server shows on my notebook with the same code; Accept there links the requester on the server', async () => {
   const { server, notebook, tower } = await office();
-  const out = await tower.remote.connect({ target: server.remote.remoteId() });
+  treesOf(server);
+  const out = await connectYes(tower, { target: server.remote.state().self.myId! }); // my ID: one of my devices, after my yes
   await settle();
   const [held] = server.remote.state().incoming;
   assert.equal(held.via, undefined, 'the holder shows its own row');
@@ -114,10 +115,11 @@ test('a link that goes takes its rows; when it comes back the list comes again; 
 
 test('F13: a new person accepted on my notebook is made once, on the server, when the PC links', async () => {
   const { server, notebook, tower, made, joined } = await office();
-  await tower.remote.connect({ target: server.remote.remoteId(), role: 'employee' });
+  await tower.remote.connect({ target: server.remote.remoteId(), name: 'Anna B' }); // its own device ID: a new member
   await settle();
   const [row] = mirrored(notebook);
   assert.equal(row.role, 'employee');
+  assert.equal(row.proposedName, 'Anna B', 'Eine-ID: the name she proposed shows on my notebook too');
   await notebook.remote.decide(row.id, true, undefined, { name: 'Anna', title: 'Design' });
   await settle();
   assert.deepEqual(made, [{ name: 'Anna', title: 'Design' }], 'made once, on the PC that holds the request');

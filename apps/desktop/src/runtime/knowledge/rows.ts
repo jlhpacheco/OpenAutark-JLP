@@ -1,12 +1,12 @@
-// Row mapping for the `knowledge` table: what stays in the database besides the memory files – the runtime's chat
-// observations and the old versions of memory files (rows with expired_at, `supersedes` = the file's id).
-// Owns: KnowledgeItem <-> SQLite row conversion, the list query, version chains, correcting, expiring and pinning a row
-// (a chat observation; a file's versions never change) and the deletion of rows.
+// Row mapping for the `knowledge` table: what stays in the database besides the memory files – the old versions of memory
+// files (rows with expired_at, `supersedes` = the file's id) – and the map of old `kn_…` ids to the files they moved to.
+// Owns: KnowledgeItem <-> SQLite row conversion, version chains, correcting, expiring and pinning a row (a file's versions
+// never change), the deletion of rows and reading the old-id map.
 // Never: deciding what a turn reads or ranking (acl.ts / search.ts).
 
 import { bool, int, json, toJson, type Db } from '../db/database.ts';
 import { WorkforceError } from '../../shared/errors.ts';
-import type { KnowledgeItem, KnowledgeListFilter, KnowledgeSource } from '../../shared/model/knowledge.ts';
+import type { KnowledgeItem, KnowledgeSource } from '../../shared/model/knowledge.ts';
 
 /** Upper bound for one correction chain (a chain is linear; this only guards against bad data). */
 const MAX_CHAIN = 1000;
@@ -61,18 +61,9 @@ export function getRow(db: Db, id: string): KnowledgeRow | undefined {
   return db.get<KnowledgeRow>(`SELECT ${ITEM_COLUMNS} FROM knowledge WHERE id = ?`, [id]);
 }
 
-/** Current rows (the observations) under a list filter, newest first. */
-export function currentRows(db: Db, filter: KnowledgeListFilter, scopeId: string | undefined, limit: number): KnowledgeItem[] {
-  const parts = ['expired_at IS NULL'];
-  const params: unknown[] = [];
-  if (filter.scope) { parts.push('scope = ?'); params.push(filter.scope); }
-  if (scopeId) { parts.push('scope_id = ?'); params.push(scopeId); }
-  if (filter.kind) { parts.push('kind = ?'); params.push(filter.kind); }
-  if (filter.kinds?.length) { parts.push(`kind IN (${filter.kinds.map(() => '?').join(', ')})`); params.push(...filter.kinds); }
-  if (typeof filter.pinned === 'boolean') { parts.push('pinned = ?'); params.push(filter.pinned ? 1 : 0); }
-  if (filter.before !== undefined) { parts.push('recorded_at < ?'); params.push(filter.before); }
-  params.push(limit);
-  return db.all<KnowledgeRow>(`SELECT ${ITEM_COLUMNS} FROM knowledge WHERE ${parts.join(' AND ')} ORDER BY recorded_at DESC, id DESC LIMIT ?`, params as never[]).map(toItem);
+/** The memory file an old `kn_…` id moved to on 01.11.2026 (one meta row per id, migration 090 for older maps). */
+export function movedTo(db: Db, id: string): string | undefined {
+  return db.get<{ value: string }>('SELECT value FROM meta WHERE key = ?', [`memory.old-id.${id}`])?.value;
 }
 
 /** `id` and every id linked to it through `supersedes`; [] when missing. */

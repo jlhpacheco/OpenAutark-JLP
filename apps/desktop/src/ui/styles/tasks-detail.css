@@ -1,0 +1,67 @@
+/* A to-do's or quest's detail on the Tasks page, where the calendar was (ui/tasks/TodoDetail.tsx, QuestDetail.tsx,
+   TodoWidget.tsx, TaskEdit.tsx): the top row (its quest, ⋯, ×), the head part – title 15 px (edited where it stands:
+   the caret shows as a ring around it, the box never changes), chips (a person's time chip opens the time field
+   under it), notes, the tool – which scrolls by itself up to a bit over half the column, and under it the task's own
+   thread (chat/TaskThread.tsx) filling the rest with its slim line at the bottom. Notes' headings are never larger than
+   the title (markdown.css .task-notes). The record widget's big teleprompter shows only while it records; before, its
+   script reads like the notes.
+   Owns: task-detail, detail-*, todo-tool, time-field, quest-* of the detail. Never: the thread's own rules
+   (chat-tree.css), the widgets' internals (widgets.css), colours outside tokens.css. */
+
+.task-detail { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; }
+.detail-top { display: flex; flex: none; align-items: center; gap: 8px; min-height: 44px; padding: 4px 8px 4px 16px; border-bottom: 1px solid var(--line); color: var(--secondary); font-size: calc(12.5px * var(--ui-text, 1)); }
+.detail-quest { display: inline-flex; align-items: center; gap: 6px; min-width: 0; margin-left: -6px; padding: 3px 6px; overflow: hidden; border-radius: var(--r-sm); color: var(--text); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.detail-quest:hover:not(.plain) { background: var(--hover); }
+.detail-gap { flex: 1 1 auto; }
+.detail-body { display: flex; flex-direction: column; flex: 0 1 auto; gap: 12px; max-height: 58%; padding: 14px 16px 12px; overflow: hidden auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.task-detail.quest .detail-body { max-height: 64%; }
+.detail-missing { display: grid; flex: 1 1 auto; place-items: center; }
+.detail-title { margin: 0; color: var(--text); font-size: calc(15px * var(--ui-text, 1)); font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.detail-title[contenteditable] { border-radius: 4px; outline: none; cursor: text; }
+.detail-title[contenteditable]:hover { box-shadow: 0 0 0 3px var(--hover); background: var(--hover); }
+.detail-title[contenteditable]:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 45%, transparent); background: none; }
+.detail-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.detail-meta .task-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+button.task-chip.time:hover { border-color: var(--line); }
+button.task-chip.time[aria-expanded=true] { border-color: var(--focus); }
+.popover.time-pop { padding: 10px; }
+.time-field { display: flex; flex-direction: column; gap: 8px; }
+.time-field-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 24px; }
+body:has(.mobile-shell) .time-field .input { font-size: calc(16px * var(--ui-text, 1)); } /* 16 px: no iOS zoom on focus */
+.detail-label { flex: none; margin: 0; padding: 8px 16px 2px; border-top: 1px solid var(--line); color: var(--muted); font-size: calc(11.5px * var(--ui-text, 1)); font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.detail-body .detail-label { padding: 0; border-top: 0; }
+.detail-created { margin-left: 8px; color: var(--muted); font-weight: 400; letter-spacing: 0; text-transform: none; }
+.task-detail > .task-thread { flex: 1 1 240px; }
+.task-detail .task-notes { color: var(--secondary); font-size: calc(13.5px * var(--ui-text, 1)); line-height: 1.55; }
+
+/* ---------------------------------------------------------------- the tool */
+.todo-tool { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--sidebar); }
+.todo-tool .ask-block { margin: 0; padding: 0; border: 0; background: none; box-shadow: none; }
+.todo-tool.plain { padding: 0; border: 0; background: none; } /* a plain to-do or a confirmation: its Done, no box */
+.todo-tool.todo-finished { margin: 0; color: var(--secondary); font-size: calc(13px * var(--ui-text, 1)); }
+.todo-decline { display: flex; flex-direction: column; gap: 8px; }
+/* the script reads like the notes until Record: the big teleprompter (widgets.css) only while it records */
+.todo-tool .w-record:not(:has(.w-record-dot)) .w-prompter-text {
+  min-height: 0; padding: 8px 12px; font-size: calc(14.5px * var(--ui-text, 1)); font-weight: 400; line-height: 1.5; letter-spacing: 0;
+}
+
+/* ---------------------------------------------------------------- a quest */
+.quest-done-when { margin: 0; color: var(--secondary); font-size: calc(13.5px * var(--ui-text, 1)); line-height: 1.5; }
+.quest-done-when b { color: var(--text); font-weight: 600; }
+.quest-progress { display: flex; flex-direction: column; gap: 4px; }
+.quest-stats { display: flex; justify-content: space-between; gap: 12px; min-height: 18px; } /* "AI this week" comes in on the same line: nothing moves */
+.quest-done-count, .quest-week { color: var(--muted); font-size: calc(12.5px * var(--ui-text, 1)); }
+.quest-done-count b, .quest-week b { color: var(--text); font-weight: 600; }
+.quest-bar { height: 6px; overflow: hidden; border-radius: 3px; background: var(--hover); }
+.quest-bar i { display: block; height: 100%; background: var(--qc); }
+.quest-rows { margin: 0; padding: 0; list-style: none; }
+.quest-row { display: grid; grid-template-columns: 18px 64px minmax(0, 1fr); align-items: start; gap: 6px; width: 100%; padding: 4px 6px; border-radius: 8px; color: var(--text); font-size: calc(13px * var(--ui-text, 1)); text-align: left; }
+.quest-row:hover { background: var(--hover); }
+.quest-ck { width: 14px; height: 14px; margin-top: 2px; border: 1.5px solid var(--field); border-radius: 50%; }
+.quest-row.you:not(.done) .quest-ck { border-color: var(--warn); }
+.quest-row.done .quest-ck { border-color: var(--success); background: var(--success); }
+.quest-who { overflow: hidden; color: var(--secondary); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.quest-what { display: flex; flex-direction: column; min-width: 0; }
+.quest-title { overflow-wrap: anywhere; }
+.quest-row.done .quest-title { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--field); }
+.quest-sub { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); }

@@ -1,9 +1,8 @@
 // Wires UpdateService (src/main/updates) to the desktop: restart-gate facts, the drain before
 // quitAndInstall and its undo, the auto-download preference, the browser opener for the manual
-// download (macOS) and state publication. From the rename release on, macOS wraps the updater with
-// mac-self-update.ts where that can work; from B-078 on, Windows and Linux install through their own
-// relaunch helper (updates/install-helper.ts); a while after a start settleAfterStart tidies up after a move
-// or a Mac self-update.
+// download (macOS) and state publication. macOS wraps the updater with mac-self-update.ts where that can work; from
+// B-078 on, Windows and Linux install through their own relaunch helper (updates/install-helper.ts); a while after a
+// start settleAfterStart tidies up after a Mac self-update.
 // Drain order: renderer saves drafts (prepareRestart ack) → runtime pauses wakes and checkpoints
 // (system.prepareRestart, B-080: with the version it installs) → runtime exits ('update').
 // B-080: installFile – a build from a file (app.install / system.install through main's host op) installs the same way:
@@ -11,6 +10,8 @@
 // F25 (16.11.2026): every company has its updater; the helper starts the company that installed again (its `args`, on a
 // Mac too), and
 // siblingVersion / installFailed pass a linked PC's version and a not-landed install on to the service.
+// 19.11.2026 (E4/E5): the Update pressed on another own PC (updateNow) answers what the updater said after its fresh check
+// and only then, ANSWER_FIRST_MS later, downloads and installs – the answer is out before the drain stops this app.
 // Owns: that order and the "drained" flag, binding electron to the updater wrapper. Never: talks to
 // electron-updater's download or install directly (the Updater is injected) or relaunches without the drain.
 
@@ -18,12 +19,10 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { Device } from '../shared/model/devices.ts';
+import type { Device, UpdateAnswer } from '../shared/model/devices.ts';
 import type { SystemInfo, UpdateState } from '../shared/model/system.ts';
 import { WorkforceError } from '../shared/errors.ts';
-import { NEW_PRODUCT_NAME, OLD_PRODUCT_NAME, finishIdentityMove, updaterCacheRoot } from './identity-move.ts';
-import { applyLauncher, runCommand, type LauncherDeps } from './launcher-tasks.ts';
-import { windowsTaskName } from './launcher-windows.ts';
+import { runCommand, type LauncherDeps } from './launcher-tasks.ts';
 import { appBundleOf, macSelfUpdater, settleMacUpdate, type FeedFile } from './updates/mac-self-update.ts';
 import { UpdateService } from './updates/update-service.ts';
 import type { Updater } from './updates/update-service.ts';
@@ -38,7 +37,6 @@ export interface DesktopUpdatesDeps {
   arch: string;
   version: string;
   autoDownload(): boolean;
-  setAutoDownload(enabled: boolean): Promise<void>; // settings.update via the runtime
   renderer: { readonly rendererReady: boolean; prepareRestart(timeoutMs: number): Promise<boolean> };
   idleSeconds(): number;
   runtime: {
@@ -47,6 +45,8 @@ export interface DesktopUpdatesDeps {
     prepareRestart(cancel: boolean, to?: string): Promise<void>;
     stop(reason: 'update'): Promise<void>;
     start(): void;
+    /** 19.11.2026: devices.bye {reason: 'update'} – my other PCs show "Updating…" instead of "Not reachable". */
+    bye?(reason: 'update'): Promise<unknown>;
   };
   /** B-080 (installFile): this app's process, executable, AppImage (Linux) and logs folder, and its quit; absent: no install from a file. */
   install?: { pid: number; exe: string; appImage?: string; logs: string; quit(): void; spawn?: typeof spawnHelper; exists?(file: string): boolean; args?: readonly string[] }; // F25: args – this company's start arguments
@@ -62,6 +62,9 @@ export interface DesktopUpdatesDeps {
 export const DRAFT_FLUSH_TIMEOUT_MS = 8000;
 /** installFile: how long after its quit request a still-running app waits before it takes its work back: after the install helper's own wait (install-helper.ts WAIT_SECONDS, 45 s), under the 60 s asked for on 18.11.2026. */
 export const INSTALL_FILE_WATCHDOG_MS = 50_000;
+/** updateNow: the longest the caller waits for the check's verdict (under the host bridge's 15 s), and the pause after it before an install drains this app. */
+export const ANSWER_WAIT_MS = 10_000;
+export const ANSWER_FIRST_MS = 3_000;
 
 /**
  * electron-updater's autoUpdater (loaded only for packaged builds). Its export is a getter that
@@ -97,7 +100,7 @@ async function relaunchingHelper(updater: Updater, log: ((line: string) => void)
 
 /** What this needs of electron's main module (its exports sit on the namespace or the default export, as for shell below). */
 interface ElectronMain {
-  app: { getName(): string; getVersion(): string; getPath(name: 'userData'): string; quit(): void; exit(code?: number): void };
+  app: { getVersion(): string; getPath(name: 'userData'): string; quit(): void; exit(code?: number): void };
   net: { fetch(url: string): Promise<Response> };
   shell: { trashItem(target: string): Promise<void> };
 }
@@ -122,7 +125,6 @@ async function selfUpdatingMac(updater: Updater, log: ((line: string) => void) |
   const bundle = appBundleOf(process.execPath);
   if (!bundle) return updater;
   const { app, net } = await electronMain();
-  if (app.getName() !== NEW_PRODUCT_NAME) return updater; // inert until the rename ships: the manual download stays until then
   return macSelfUpdater(updater, {
     bundle,
     version: app.getVersion(),
@@ -145,43 +147,23 @@ async function selfUpdatingMac(updater: Updater, log: ((line: string) => void) |
 
 export const SETTLE_AFTER_START_MS = 90_000; // after the runtime's STABLE_MS (repair/journal.ts) and the installer's own end
 
-/** Linux timers and autostart under the old name would fire beside the new ones; macOS keeps one label; Windows' old task goes by name. */
-export async function removeOldLauncher(deps: LauncherDeps): Promise<void> {
-  if (deps.platform === 'win32') await deps.run('schtasks', ['/Delete', '/TN', windowsTaskName(OLD_PRODUCT_NAME, deps.user), '/F']);
-  if (deps.platform === 'linux') await applyLauncher(false, { ...deps, name: OLD_PRODUCT_NAME });
-}
-
-/** Tidies up what a move of the product's identity or a Mac self-update left behind, once this start proved itself. */
+/** macOS: tidies up what a self-update left behind (the previous bundle), once this start proved itself. */
 export function settleAfterStart(deps: { dataDir: string; version: string; launcher: LauncherDeps; log(line: string): void }): void {
   const { platform, packaged, testMode } = deps.launcher;
-  if (!packaged || testMode) return;
+  if (!packaged || testMode || platform !== 'darwin') return;
   setTimeout(() => {
-    const finish = async () => {
-      await finishIdentityMove({
-        dataDir: deps.dataDir,
-        cacheRoot: updaterCacheRoot(platform, process.env, os.homedir()),
-        removeOldLauncher: () => removeOldLauncher(deps.launcher),
-        log: deps.log,
-      });
-      if (platform !== 'darwin') return;
+    const settle = async () => {
       const { shell } = await electronMain();
-      const bundle = appBundleOf(process.execPath);
-      const name = `${OLD_PRODUCT_NAME}.app`;
       await settleMacUpdate({
-        bundle,
+        bundle: appBundleOf(process.execPath),
         version: deps.version,
         dataDir: deps.dataDir,
         cacheDir: macCacheDir(),
-        leftovers: bundle && path.basename(bundle) !== name ? [path.join(path.dirname(bundle), name), path.join('/Applications', name), path.join(os.homedir(), 'Applications', name)] : [],
-        bundleId: async target => {
-          const result = await runCommand('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleIdentifier', path.join(target, 'Contents', 'Info.plist')]);
-          return result.code === 0 ? result.stdout.trim() : null;
-        },
         trash: target => shell.trashItem(target),
         log: deps.log,
       });
     };
-    void finish().catch((error: unknown) => deps.log(`settling after start failed: ${(error as Error)?.message ?? 'error'}`));
+    void settle().catch((error: unknown) => deps.log(`settling after start failed: ${(error as Error)?.message ?? 'error'}`));
   }, SETTLE_AFTER_START_MS).unref();
 }
 
@@ -243,6 +225,7 @@ export class DesktopUpdates {
   private drained = false; // runtime already stopped for the installer
   private paused = false; // runtime paused by system.prepareRestart
   private updateQuitPending = false; // native before-quit-for-update precedes the library's queued app.quit
+  private readonly watchers = new Set<(state: UpdateState) => void>(); // updateNow waits on the states it needs
 
   constructor(deps: DesktopUpdatesDeps) {
     this.deps = deps;
@@ -257,7 +240,7 @@ export class DesktopUpdates {
       prepareInstall: (to) => this.prepareInstall(to),
       cancelInstall: () => this.cancelInstall(),
       openExternal: url => openHttps(url, deps.openExternal),
-      changed: state => deps.publish(state),
+      changed: state => { for (const watch of [...this.watchers]) watch(state); deps.publish(state); },
       log: deps.log,
       now: deps.now,
       setTimer: deps.setTimer,
@@ -280,8 +263,38 @@ export class DesktopUpdates {
 
   state(): UpdateState { return this.service.state; }
   apply(): Promise<UpdateState> { return this.service.apply(); }
-  /** 19.11.2026 (host op app.update): the Update button pressed from another own PC – check the feed now, then apply. */
-  async updateNow(): Promise<UpdateState> { await this.service.check(); return this.service.apply(); }
+  /**
+   * 19.11.2026 (host op app.update): the Update button pressed from another own PC. Answers with the first state after a fresh
+   * check that says what happens (at most ANSWER_WAIT_MS); after the check, and ANSWER_FIRST_MS later, it downloads and
+   * installs what it found (a manual-only update stays offered here).
+   */
+  async updateNow(): Promise<UpdateState> {
+    const checked = this.service.check();
+    const verdict = this.until((state) => state.status !== 'idle' && state.status !== 'checking');
+    const late = new Promise<UpdateState>((resolve) => this.timer(() => resolve(this.service.state), ANSWER_WAIT_MS));
+    const answer = await Promise.race([verdict.state, checked, late]).finally(verdict.stop);
+    void checked.then(() => new Promise((resolve) => this.timer(() => resolve(undefined), ANSWER_FIRST_MS)))
+      .then(() => this.until((state) => state.status !== 'checking' && state.status !== 'downloading').state)
+      .then((state) => (state.status === 'downloaded' || (state.status === 'available' && state.automaticInstall) ? this.service.apply() : state))
+      .catch((error: unknown) => this.deps.log?.(`update from another PC did not go on: ${(error as Error)?.message ?? 'error'}`));
+    return answer;
+  }
+
+  /** The current state when it is `done`, else the next published one that is (`stop` gives up the wait). */
+  private until(done: (state: UpdateState) => boolean): { state: Promise<UpdateState>; stop(): void } {
+    let watch: ((state: UpdateState) => void) | undefined;
+    const now = this.service.state;
+    const state = done(now) ? Promise.resolve(now) : new Promise<UpdateState>((resolve) => {
+      watch = (next) => { if (done(next)) { this.watchers.delete(watch!); resolve(next); } };
+      this.watchers.add(watch);
+    });
+    return { state, stop: () => { if (watch) this.watchers.delete(watch); } };
+  }
+
+  private timer(fn: () => void, ms: number): void {
+    if (this.deps.setTimer) this.deps.setTimer(fn, ms);
+    else setTimeout(fn, ms).unref?.();
+  }
   defer(): UpdateState { return this.service.defer(); }
   start(): void { this.service.start(); }
   dispose(): void { this.service.dispose(); }
@@ -291,12 +304,6 @@ export class DesktopUpdates {
   siblingVersion(version: string): void { this.service.siblingVersion(version); }
   /** F25: this start's notice says the install of `version` did not land here. */
   installFailed(version: string): void { this.service.installFailed(version); }
-
-  async setAutoDownload(enabled: boolean): Promise<UpdateState> {
-    await this.deps.setAutoDownload(enabled);
-    this.service.autoDownloadChanged();
-    return this.service.state;
-  }
 
   /** The preference changed elsewhere (settings page) or the UI readiness changed. */
   reevaluate(): void { void this.service.evaluateRestart().catch(() => {}); }
@@ -369,6 +376,7 @@ export class DesktopUpdates {
       // A runtime that is not running has nothing to pause; anything else aborts the update.
       if (!(error instanceof WorkforceError && error.code === 'unavailable')) throw error;
     }
+    await this.deps.runtime.bye?.('update').catch(() => undefined);
     await this.deps.runtime.stop('update');
     this.drained = true;
     this.paused = false;
@@ -391,13 +399,10 @@ export class DesktopUpdates {
   }
 }
 
-/** 19.11.2026 (host op app.update – system.update {device}): this PC's Update button, pressed from another of the owner's PCs. */
-export async function updateFromElsewhere(updates: DesktopUpdates | null | undefined, log: (line: string) => void): Promise<void> {
-  try {
-    if (!updates) throw new Error('the updater wiring is not ready');
-    const state = await updates.updateNow();
-    log(`update from another PC: ${state.status}${state.availableVersion ? ` ${state.availableVersion}` : ''}`);
-  } catch (error) {
-    log(`update from another PC failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
+/** 19.11.2026 (host op app.update – system.update {device}): this PC's Update button, pressed from another of the owner's PCs; E4: what its updater said. */
+export async function updateFromElsewhere(updates: DesktopUpdates | null | undefined, log: (line: string) => void): Promise<UpdateAnswer> {
+  if (!updates) throw new WorkforceError('unavailable', 'The updater on this PC is not ready yet.');
+  const { status, version, availableVersion, message, automaticInstall } = await updates.updateNow();
+  log(`update from another PC: ${status}${availableVersion ? ` ${availableVersion}` : ''}`);
+  return { ok: true, status, version, automaticInstall, ...(availableVersion ? { availableVersion } : {}), ...(message ? { message } : {}) };
 }

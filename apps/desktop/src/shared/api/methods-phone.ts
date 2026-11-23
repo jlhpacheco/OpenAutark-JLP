@@ -33,17 +33,24 @@ export function remoteIdOfPairText(text: string): string | undefined {
 
 /**
  * What an agent asks the phone to do (the PhoneDriver's steps; coordinates in screen pixels). 'say' (app 0.3.15+):
- * args `{text (≤ PHONE_SAY_MAX), ask?: true}` – the line stays in the bubble until the next say or the job's end and
- * answers `{ok: true}`; with ask the bubble adds ✓ and ✕ and answers `{answer: PhoneSayAnswer}`. An older app answers
- * bad_request "Unknown step say.".
+ * args `{text (≤ PHONE_SAY_MAX), ask?: true, buttons?: string[]}` – the line stays in the bubble until the next say or
+ * the job's end and answers `{ok: true}`; with ask the bubble adds ✓ and ✕, with buttons (owner 19.11.2026) the AI's
+ * own labels – small ones beside the line, bigger ones under it – and ✕; it answers `{answer: PhoneSayAnswer}`. An
+ * older app answers bad_request "Unknown step say." and shows buttons as ✓. 'done' (owner 19.11.2026, args `{}`): the
+ * PC's run `job` is over, the bubble goes at once; an older app answers bad_request, which nobody waits for.
  */
-export type PhoneUseOp = 'ui_tree' | 'screenshot' | 'tap' | 'swipe' | 'type' | 'key' | 'open' | 'say';
+export type PhoneUseOp = 'ui_tree' | 'screenshot' | 'tap' | 'swipe' | 'type' | 'key' | 'open' | 'say' | 'done';
 
 /** The longest line the bubble shows. */
 export const PHONE_SAY_MAX = 120;
 
-/** The person's answer to a say with ask: ✓, ✕, or none within the phone's 60 s. */
-export type PhoneSayAnswer = 'yes' | 'no' | 'none';
+/** The most buttons one question carries, and the longest label (the app keeps the same). */
+export const PHONE_SAY_BUTTONS_MAX = 8;
+export const PHONE_BUTTON_MAX = 40;
+
+/** The person's answer to a question: 'yes' for ✓, 'no' for ✕, 'none' without a tap within the phone's 60 s, else the
+ *  label of the button they tapped. */
+export type PhoneSayAnswer = string;
 
 export interface PhoneUseRequest {
   /** The phone the request is for (only that device hears it). */
@@ -60,8 +67,8 @@ export interface PhoneUseRequest {
 export interface PhoneUseReply {
   id: string;
   result?: unknown;
-  /** 'off' (phone use is not on, or the person has not agreed to it in the app yet), 'paused' (the person touched the
-   *  phone or tapped Pause), 'ended' (their ✕ ended phone use for this job), 'bad_request' (a step the app does not know), … */
+  /** 'off' (phone use is not on, or the person has not agreed to it in the app yet), 'paused' (the person tapped Pause
+   *  in the bubble), 'ended' (their ✕ ended phone use for this job), 'bad_request' (a step the app does not know), … */
   error?: { code: string; message: string };
 }
 

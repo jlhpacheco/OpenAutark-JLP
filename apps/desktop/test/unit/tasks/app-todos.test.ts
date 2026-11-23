@@ -20,7 +20,6 @@ import { blockHelp, blockPrompt } from '../../../src/shared/blocks/prompt.ts';
 import { HUMAN_ID } from '../../../src/shared/ids.ts';
 import type { Message } from '../../../src/shared/model/chat.ts';
 import type { WakeReason } from '../../../src/shared/model/runs.ts';
-import { showAsOptions, widgetIcon } from '../../../src/ui/tasks/model.ts';
 import { setup } from '../agents/fixture.ts';
 import { agent, harness } from '../chat/harness.ts';
 import { TODO_ONLY, TestClient, rpcFixture } from '../rpc/s1-helpers.ts';
@@ -140,9 +139,6 @@ test('a mini-app to-do keeps its widget: no "Show as…", its own icon, and todo
   await finish(h, VOICE_APP, 'run_1');
   const [todo] = h.tasks.todos();
   assert.throws(() => h.tasks.changeWidget(todo.id, 'confirm'), /keeps its mini-app/);
-  assert.deepEqual(showAsOptions(todo), []);
-  assert.ok(showAsOptions({ ...todo, widget: { type: 'confirm', instructions: 'Plug in the camera' } }).length > 0, 'catalog widgets keep the menu');
-  assert.equal(widgetIcon(todo.widget), 'app-window');
   assert.deepEqual(appFrameAttrs(appWidgetOf(todo.widget)!), { todo: true, expand: false, permissions: ['microphone'], title: 'Voice take' },
     'the list frame is always a to-do, so wf.complete works there');
 });

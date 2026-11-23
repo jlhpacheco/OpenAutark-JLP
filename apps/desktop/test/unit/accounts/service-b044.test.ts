@@ -1,8 +1,7 @@
 // B-044 account service additions with the account harness: accounts.useReset reaches the Codex
 // engine and reads the limits again afterwards (through the RPC handler too); accounts.test lists an
 // endpoint's models with the typed key in process memory for that one call only – nothing stored,
-// logged or kept; and migration 72 leaves no OpenCode account, listing, session, 'opencode:' setting
-// or model choice pinning an OpenCode model; an account switched back on is checked again at once.
+// logged or kept; an account switched back on is checked again at once.
 // Owns: nothing in production. Never starts a real CLI or touches the network.
 
 import { test } from 'node:test';
@@ -12,8 +11,6 @@ import { register as registerProviders } from '../../../src/runtime/rpc/handlers
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import type { RpcExtras } from '../../../src/runtime/rpc/extras.ts';
 import type { ClientScope } from '../../../src/shared/api/protocol.ts';
-import { Db } from '../../../src/runtime/db/database.ts';
-import { migrate } from '../../../src/runtime/db/migrate.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import type { Account } from '../../../src/shared/model/providers.ts';
 import { harness, row } from './harness.ts';
@@ -91,54 +88,4 @@ test('an account switched back on is checked again at once (visual pass, round 3
 test('accounts.test: a refusing server answers with a user-safe message', async () => {
   const h = harness({ listModels: async () => { throw new Error(`HTTP 401 for ${KEY}`); } });
   await assert.rejects(h.service.test({ provider: 'openai', apiKey: KEY }), (error: unknown) => error instanceof WorkforceError && error.code === 'unavailable' && !error.message.includes(KEY));
-});
-
-test('migration 72: OpenCode accounts, their listings, catalog rows, sessions and opencode: routing settings go; the rest stays', () => {
-  const db = new Db(':memory:');
-  migrate(db, { until: 71 });
-  const account = (id: string, provider: string) => db.run(`INSERT INTO accounts (id, provider, label, auth, state, created_at) VALUES (?, ?, ?, 'cli', 'ok', 1)`, [id, provider, id]);
-  account('acc_oc', 'opencode');
-  account('acc_codex', 'codex');
-  db.run(`INSERT INTO kv (ns, key, value, updated_at) VALUES ('catalog', 'listing:acc_oc', '{}', 1), ('catalog', 'listing:acc_codex', '{}', 1)`);
-  db.run(`INSERT INTO engine_sessions (agent_id, conversation_id, engine, account_id, session_ref, updated_at) VALUES ('ag_1', 'c_1', 'opencode', 'acc_oc', 's1', 1), ('ag_1', 'c_1', 'codex', 'acc_codex', 't1', 1)`);
-  db.run(`INSERT INTO models (id, provider, model, name, engine, updated_at) VALUES ('opencode:big', 'opencode', 'big', 'Big', 'opencode', 1), ('codex:gpt-6', 'codex', 'gpt-6', 'GPT-6', 'codex', 1)`);
-  db.run(`INSERT INTO model_outcomes (model_id, category, updated_at) VALUES ('opencode:big', 'chat', 1), ('codex:gpt-6', 'chat', 1)`);
-  db.run(`INSERT INTO settings (key, value, updated_at) VALUES ('routing', ?, 1)`, [JSON.stringify({ costMode: 'best', helper: 'opencode:small', functions: { chat: 'opencode:big', image: 'openai:gpt-image-2' }, decisionModel: 'opencode:big', workPlan: 'opencode' })]);
-  migrate(db, { until: 72 }); // 87 drops model_outcomes
-  assert.deepEqual(db.all<{ id: string }>('SELECT id FROM accounts').map((r) => r.id), ['acc_codex']);
-  assert.deepEqual(db.all<{ key: string }>(`SELECT key FROM kv WHERE ns = 'catalog'`).map((r) => r.key), ['listing:acc_codex']);
-  assert.deepEqual(db.all<{ engine: string }>('SELECT engine FROM engine_sessions').map((r) => r.engine), ['codex']);
-  assert.deepEqual(db.all<{ id: string }>('SELECT id FROM models').map((r) => r.id), ['codex:gpt-6']);
-  assert.deepEqual(db.all<{ model_id: string }>('SELECT model_id FROM model_outcomes').map((r) => r.model_id), ['codex:gpt-6']);
-  const routing = JSON.parse(db.get<{ value: string }>(`SELECT value FROM settings WHERE key = 'routing'`)!.value);
-  assert.deepEqual(routing, { costMode: 'best', functions: { image: 'openai:gpt-image-2' } });
-});
-
-test('migration 72: model choices pinning an OpenCode model route automatically again; other choices stay', () => {
-  const db = new Db(':memory:');
-  migrate(db, { until: 71 });
-  const agent = (id: string, policy: unknown) => db.run(`INSERT INTO agents (id, name, avatar, model_policy, created_by, created_at, updated_at) VALUES (?, ?, '', ?, 'human', 1, 1)`, [id, id, JSON.stringify(policy)]);
-  agent('ag_oc', { pin: 'opencode:big', effort: 'high' });
-  agent('ag_codex', { pin: 'codex:gpt-6' });
-  db.run(`INSERT INTO kv (ns, key, value, updated_at) VALUES ('routing', 'default_policy', ?, 1)`, [JSON.stringify({ pin: 'opencode:big', floorTier: 'small' })]);
-  const chat = (id: string, settings: unknown) => db.run(`INSERT INTO conversations (id, title, settings, created_by, created_at, updated_at) VALUES (?, ?, ?, 'human', 1, 1)`, [id, id, JSON.stringify(settings)]);
-  chat('c_oc', { models: { ag_oc: 'opencode:big', ag_codex: 'codex:gpt-6' }, modelHints: { ag_oc: 'opencode:small' }, efforts: { ag_oc: 'high' } });
-  chat('c_plain', { models: { ag_codex: 'codex:gpt-6' } });
-  migrate(db);
-  const policy = (id: string) => JSON.parse(db.get<{ model_policy: string }>('SELECT model_policy FROM agents WHERE id = ?', [id])!.model_policy);
-  assert.deepEqual(policy('ag_oc'), { effort: 'high' });
-  assert.deepEqual(policy('ag_codex'), { pin: 'codex:gpt-6' });
-  assert.deepEqual(JSON.parse(db.get<{ value: string }>(`SELECT value FROM kv WHERE ns = 'routing' AND key = 'default_policy'`)!.value), { floorTier: 'small' });
-  const settings = (id: string) => JSON.parse(db.get<{ settings: string }>('SELECT settings FROM conversations WHERE id = ?', [id])!.settings);
-  assert.deepEqual(settings('c_oc'), { models: { ag_codex: 'codex:gpt-6' }, modelHints: {}, efforts: { ag_oc: 'high' } });
-  assert.deepEqual(settings('c_plain'), { models: { ag_codex: 'codex:gpt-6' } });
-});
-
-test('migration 72: a routing row that only named OpenCode goes; other rows stay untouched', () => {
-  const db = new Db(':memory:');
-  migrate(db, { until: 71 });
-  db.run(`INSERT INTO settings (key, value, updated_at) VALUES ('routing', ?, 1), ('voice', ?, 1)`, [JSON.stringify({ helper: 'opencode:small' }), JSON.stringify({ realtime: 'off' })]);
-  migrate(db);
-  assert.equal(db.get(`SELECT value FROM settings WHERE key = 'routing'`), undefined);
-  assert.equal(db.get<{ value: string }>(`SELECT value FROM settings WHERE key = 'voice'`)?.value, JSON.stringify({ realtime: 'off' }));
 });

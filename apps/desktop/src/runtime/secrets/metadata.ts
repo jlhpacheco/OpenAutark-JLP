@@ -16,7 +16,8 @@ import { createHash } from 'node:crypto';
 import { SECRET_GROUP_TEMPLATES, type SecretGroup, type SecretInfo } from '../../shared/model/security.ts';
 import type { RuntimeServices } from '../contracts.ts';
 import { foldText, searchTokens } from '../knowledge/normalize.ts';
-import { expandQuery, stem } from '../knowledge/query-rewrite.ts';
+import { expandQuery } from '../knowledge/query-rewrite.ts';
+import { stem } from '../../shared/text/normalize.ts';
 import { QUERY_WORDS, WordIndex, type WordDoc } from '../knowledge/words.ts';
 import { queryTokens } from '../subconscious/text.ts';
 

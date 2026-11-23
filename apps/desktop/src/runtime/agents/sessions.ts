@@ -143,12 +143,6 @@ export class SessionStore {
     } catch { /* bookkeeping only: the binding change goes on */ }
   }
 
-  /** Stamps a row from before SES2 (no key yet) with the key of the turn that accepts it – it is accepted once. */
-  stamp(agentId: string, thread: string | undefined, engine: EngineId, promptKey: string, mode: string): void {
-    this.db.run('UPDATE engine_sessions SET prompt_key = ?, mode = ? WHERE agent_id = ? AND conversation_id = ? AND engine = ? AND prompt_key IS NULL',
-      [promptKey, mode, agentId, thread ?? '', engine]);
-  }
-
   /**
    * B-080: the context window this engine last reported for `model` on any agent's thread – the window it really runs with
    * (Codex runs a model with another window than its API's); undefined when it never reported one.

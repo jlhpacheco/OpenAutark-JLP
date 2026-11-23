@@ -1,7 +1,8 @@
 // Chat details › Notes: the way into the chat's shared notes – the document every member edits (the owner, the
 // people of the chat, its agents). One row: "Notes" with who changed them last; a click opens the notes in the side
 // pane (side-pane.ts), also before anyone wrote any. Only on connections that may read notes; the runtime decides
-// which chats. It reads the notes meta only (notes.meta, again after every notes.updated), never the text.
+// which chats. It reads the notes meta only (notes.meta, again after every notes.updated and every reconnect –
+// lib/use-load.ts), never the text.
 // Owns: this row. Never: edits notes (the pane's notes tab does).
 
 import { useEffect, useState } from 'preact/hooks';
@@ -11,6 +12,7 @@ import '../../../shared/api/methods-notes.ts'; // the notes.* method shapes (mod
 import { rpc } from '../../lib/rpc.ts';
 import { can } from '../../lib/session.ts';
 import { agentName } from '../../lib/store.ts';
+import { useLoad } from '../../lib/use-load.ts';
 import { showNotes } from '../side-pane.ts';
 import { notesLine } from './notes-line.ts';
 
@@ -18,11 +20,11 @@ export function Notes(props: { chat: ConversationSummary }) {
   const { chat } = props;
   const allowed = can('notes.meta');
   const [meta, setMeta] = useState<NotesMeta | null>(null);
-  useEffect(() => {
+  useEffect(() => setMeta(null), [chat.id]); // another chat: never the last one's line
+  useLoad(() => {
     if (!allowed) return;
     let alive = true;
     const load = () => { rpc.call('notes.meta', { conversationId: chat.id }).then((next) => { if (alive) setMeta(next); }).catch(() => undefined); };
-    setMeta(null);
     load();
     const off = rpc.on('notes.updated', (update) => { if (update.conversationId === chat.id) load(); });
     return () => { alive = false; off(); };

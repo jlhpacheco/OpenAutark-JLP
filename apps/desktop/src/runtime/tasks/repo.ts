@@ -1,28 +1,27 @@
-// Repository for tasks (pieces and human to-dos included) and `tasks_fts`.
-// Owns: row ↔ model mapping (a row an older PC sends is read in the four states, bridge/kontext-1311.ts simpleTask),
-// list queries, the watcher's next_at queries, the FTS index. A task's chat changes only at insert or through chat
-// deletion. Columns the model no longer has (goal, mode, human_reason, attempts) are written empty at insert and left as
-// they are on save, so older PCs keep reading every row; a save without files (an older PC's row) keeps the stored ones.
-// An agent's list query can be narrowed to what it may read (filter.readableBy, tasks/access.ts).
+// Repository for tasks (quests, to-dos – the person's included) and `tasks_fts`.
+// Owns: row ↔ model mapping (a row an older PC sends is read with its due_at / estimate_min, bridge/quests-2011.ts),
+// list queries, the reads of the watcher (the person's rings at
+// `at`) and of the morning pass, the FTS index. A task's chat changes only at insert or through chat deletion. A save
+// without files (an older PC's row) keeps the stored ones; a save of an older PC's row keeps the stored kind.
 // Never: emits events, posts chat lines or wakes agents (tasks/service.ts does).
 
 import { json, toJson, type Db } from '../db/database.ts';
-import { nul, opt, optNumber } from '../store/rows.ts';
+import { nul, opt } from '../store/rows.ts';
 import { foldText, ftsQuery } from '../../shared/text/normalize.ts';
 import type { UiBlock } from '../../shared/blocks/catalog.ts';
 import type { Attachment } from '../../shared/model/chat.ts';
 import type { Task, TaskFilter, TaskLedger, TaskResult } from '../../shared/model/tasks.ts';
-import type { TaskPrep, TaskWindow } from '../../shared/model/calendar.ts';
 import type { Origin } from '../../shared/model/origin.ts';
-import { readableSql } from './access.ts';
 import { readableTasksSql } from '../people/access.ts';
-import { simpleTask } from '../bridge/kontext-1311.ts';
+import { isOlder, markOlder, olderPiece, questsRead } from '../bridge/quests-2011.ts';
 
 type Row = Record<string, unknown>;
 
 export function toTask(row: Row): Task {
+  const read = questsRead(row); // bridge 0.3.x: at ?? due_at, minutes ?? estimate_min
   const task: Task = {
     id: String(row.id),
+    kind: read.kind,
     title: String(row.title),
     notes: String(row.notes),
     status: String(row.status) as Task['status'],
@@ -42,27 +41,20 @@ export function toTask(row: Row): Task {
   set('messageId', opt<string>(row.message_id));
   set('parentId', opt<string>(row.parent_id));
   set('assigneeId', opt<string>(row.assignee_id));
-  set('dueAt', optNumber(row.due_at));
+  set('at', read.at);
+  set('minutes', read.minutes);
   set('doneWhen', opt<string>(row.done_when));
   set('widget', row.widget === null ? undefined : json<UiBlock | undefined>(row.widget, undefined));
   set('waitingOn', row.waiting_on === null ? undefined : json<Task['waitingOn']>(row.waiting_on, undefined));
   set('result', row.result === null ? undefined : json<TaskResult | undefined>(row.result, undefined));
-  set('nextAt', optNumber(row.next_at));
-  set('startedAt', optNumber(row.started_at));
-  set('completedAt', optNumber(row.completed_at));
+  set('completedAt', row.completed_at === null || row.completed_at === undefined ? undefined : Number(row.completed_at));
   set('assignedBy', opt<string>(row.assigned_by));
-  set('estimateMin', optNumber(row.estimate_min));
-  set('estimateSource', opt<Task['estimateSource']>(row.estimate_source));
-  set('spentMs', optNumber(row.spent_ms));
-  set('timerStartedAt', optNumber(row.timer_started_at));
-  set('window', row.window === null || row.window === undefined ? undefined : json<TaskWindow | undefined>(row.window, undefined));
-  set('prep', row.prep === null || row.prep === undefined ? undefined : json<TaskPrep | undefined>(row.prep, undefined));
   if (Number(row.private) === 1) task.private = true; // 0 = absent (compact rows)
   const after = json<string[]>(row.depends_on, []);
   if (after.length) task.dependsOn = after; // [] = absent (compact rows)
   const files = json<Attachment[]>(row.files, []);
   if (Array.isArray(files) && files.length) task.files = files; // [] or no column = absent
-  return simpleTask(task);
+  return read.older ? markOlder(task) : task;
 }
 
 /** The stored origin (source_label falls back to the source). */
@@ -71,10 +63,6 @@ function originOf(row: Row): Origin | undefined {
   return source === undefined ? undefined : { source: String(source), label: String(opt<string>(row.source_label) ?? source) };
 }
 
-/** My day's columns (migration 068) as statement parameters, in the order of DAY_COLUMNS. */
-const DAY_COLUMNS = `estimate_min, estimate_source, spent_ms, timer_started_at, "window", prep, private`;
-const dayValues = (t: Task) => [nul(t.estimateMin), nul(t.estimateSource), nul(t.spentMs), nul(t.timerStartedAt),
-  t.window ? toJson(t.window) : null, t.prep ? toJson(t.prep) : null, t.private ? 1 : 0];
 /** The own-place columns (migration 082) at insert: space_id, source, source_label. The space is stored only without a chat. */
 const ownValues = (t: Task) => [t.conversationId ? null : nul(t.spaceId), nul(t.origin?.source), nul(t.origin?.source ? t.origin.label : undefined)];
 
@@ -82,6 +70,8 @@ const STATUS_RANK = `CASE status WHEN 'open' THEN 0 WHEN 'waiting' THEN 1 WHEN '
 /** When a finished task finished (rows without completed_at fall back like the UI's finishedAt). */
 const FINISHED_AT = 'COALESCE(t.completed_at, t.updated_at)';
 const UNFINISHED_SQL = `status IN ('open', 'waiting')`;
+/** The person's own to-dos (the owner's have no assignee id). */
+const OWNERS_TODO = `assignee_kind = 'human' AND (assignee_id IS NULL OR assignee_id = 'human')`;
 
 export class TaskRepo {
   private readonly db: Db;
@@ -99,16 +89,17 @@ export class TaskRepo {
 
   insert(t: Task, clientId?: string): void {
     this.db.run(
-      `INSERT INTO tasks (id, conversation_id, message_id, parent_id, title, notes, status, assignee_kind, assignee_id, created_by,
-         priority, due_at, done_when, widget, waiting_on, result, ledger, attempts, sort, rev, next_at,
-         client_id, created_at, updated_at, started_at, completed_at, assigned_by, ${DAY_COLUMNS}, space_id, source, source_label, depends_on, files)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [t.id, nul(t.conversationId), nul(t.messageId), nul(t.parentId), t.title, t.notes, t.status, t.assigneeKind, nul(t.assigneeId), t.createdBy,
-        t.priority, nul(t.dueAt), nul(t.doneWhen), t.widget ? toJson(t.widget) : null,
-        t.waitingOn ? toJson(t.waitingOn) : null, t.result ? toJson(t.result) : null, toJson(t.ledger), t.sort, t.rev, nul(t.nextAt),
-        nul(clientId), t.createdAt, t.updatedAt, nul(t.startedAt), nul(t.completedAt), nul(t.assignedBy), ...dayValues(t),
+      `INSERT INTO tasks (id, conversation_id, message_id, parent_id, kind, title, notes, status, assignee_kind, assignee_id, created_by,
+         priority, "at", minutes, done_when, widget, waiting_on, result, ledger, sort, rev,
+         client_id, created_at, updated_at, completed_at, assigned_by, private, space_id, source, source_label, depends_on, files)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [t.id, nul(t.conversationId), nul(t.messageId), nul(t.parentId), t.kind, t.title, t.notes, t.status, t.assigneeKind, nul(t.assigneeId), t.createdBy,
+        t.priority, nul(t.at), nul(t.minutes), nul(t.doneWhen), t.widget ? toJson(t.widget) : null,
+        t.waitingOn ? toJson(t.waitingOn) : null, t.result ? toJson(t.result) : null, toJson(t.ledger), t.sort, t.rev,
+        nul(clientId), t.createdAt, t.updatedAt, nul(t.completedAt), nul(t.assignedBy), t.private ? 1 : 0,
         ...ownValues(t), toJson(t.dependsOn ?? []), toJson(t.files ?? [])],
     );
+    olderPiece(this.db, t); // bridge 0.3.x
     this.index(t);
   }
 
@@ -119,27 +110,21 @@ export class TaskRepo {
    */
   save(t: Task, expectedRev: number): boolean {
     const changes = this.db.run(
-      `UPDATE tasks SET message_id = ?, title = ?, notes = ?, status = ?, assignee_kind = ?, assignee_id = ?, priority = ?, due_at = ?,
-         done_when = ?, widget = ?, waiting_on = ?, result = ?, ledger = ?, next_at = ?,
-         sort = ?, rev = ?, updated_at = ?, started_at = ?, completed_at = ?, assigned_by = ?,
-         estimate_min = ?, estimate_source = ?, spent_ms = ?, timer_started_at = ?, "window" = ?, prep = ?, private = ?, depends_on = ?,
+      `UPDATE tasks SET message_id = ?, parent_id = ?, kind = COALESCE(?, kind), title = ?, notes = ?, status = ?, assignee_kind = ?, assignee_id = ?,
+         priority = ?, "at" = ?, minutes = ?, done_when = ?, widget = ?, waiting_on = ?, result = ?, ledger = ?,
+         sort = ?, rev = ?, updated_at = ?, completed_at = ?, assigned_by = ?, private = ?, depends_on = ?,
          files = COALESCE(?, files),
          space_id = CASE WHEN conversation_id IS NULL THEN COALESCE(?, space_id) END,
          source = COALESCE(?, source), source_label = CASE WHEN ? IS NULL THEN source_label ELSE ? END
        WHERE id = ? AND rev = ?`,
-      [nul(t.messageId), t.title, t.notes, t.status, t.assigneeKind, nul(t.assigneeId), t.priority, nul(t.dueAt),
-        nul(t.doneWhen), t.widget ? toJson(t.widget) : null,
-        t.waitingOn ? toJson(t.waitingOn) : null, t.result ? toJson(t.result) : null, toJson(t.ledger), nul(t.nextAt), t.sort, t.rev,
-        t.updatedAt, nul(t.startedAt), nul(t.completedAt), nul(t.assignedBy), ...dayValues(t), toJson(t.dependsOn ?? []), t.files?.length ? toJson(t.files) : null, nul(t.spaceId),
+      [nul(t.messageId), nul(t.parentId), isOlder(t) ? null : t.kind, t.title, t.notes, t.status, t.assigneeKind, nul(t.assigneeId),
+        t.priority, nul(t.at), nul(t.minutes), nul(t.doneWhen), t.widget ? toJson(t.widget) : null,
+        t.waitingOn ? toJson(t.waitingOn) : null, t.result ? toJson(t.result) : null, toJson(t.ledger), t.sort, t.rev,
+        t.updatedAt, nul(t.completedAt), nul(t.assignedBy), t.private ? 1 : 0, toJson(t.dependsOn ?? []), t.files?.length ? toJson(t.files) : null, nul(t.spaceId),
         nul(t.origin?.source), nul(t.origin?.source), nul(t.origin?.source ? t.origin.label : undefined), t.id, expectedRev],
     ).changes;
-    if (changes) this.index(t);
+    if (changes) { olderPiece(this.db, t); this.index(t); }
     return changes > 0;
-  }
-
-  /** Sets only the planned look (the watcher's and the follow-up's write; no rev, no event – nothing a person reads changed). */
-  setNext(id: string, at: number | undefined): void {
-    this.db.run('UPDATE tasks SET next_at = ? WHERE id = ?', [nul(at), id]);
   }
 
   delete(id: string): void {
@@ -169,6 +154,7 @@ export class TaskRepo {
     const params: Array<string | number> = [];
     if (!filter.includeSteps) where.push('t.parent_id IS NULL');
     if (filter.conversationId) { where.push('t.conversation_id = ?'); params.push(filter.conversationId); }
+    if (filter.kind) { where.push('t.kind = ?'); params.push(filter.kind); }
     if (filter.status?.length) { where.push(`t.status IN (${filter.status.map(() => '?').join(',')})`); params.push(...filter.status); }
     if (filter.assigneeKind) { where.push('t.assignee_kind = ?'); params.push(filter.assigneeKind); }
     if (filter.assigneeId) { where.push('t.assignee_id = ?'); params.push(filter.assigneeId); }
@@ -178,7 +164,6 @@ export class TaskRepo {
     }
     // The chat's space, else the chat-free task's own (a chat-free task without a space is in none).
     if (filter.spaceId) { where.push('COALESCE((SELECT c.space_id FROM conversations c WHERE c.id = t.conversation_id), t.space_id) = ?'); params.push(filter.spaceId); }
-    if (filter.readableBy) { const readable = readableSql(filter.readableBy); where.push(readable.sql); params.push(...readable.params); } // agents' queries
     if (filter.readableByPerson) { const readable = readableTasksSql(filter.readableByPerson); where.push(readable.sql); params.push(...readable.params); } // a person's queries
     if (filter.search?.trim()) {
       const query = ftsQuery(filter.search);
@@ -196,26 +181,19 @@ export class TaskRepo {
     const order = recent
       ? `${FINISHED_AT} DESC, t.created_at DESC`
       : filter.givenBy ? 't.updated_at DESC'
-        : `${STATUS_RANK.replaceAll('status', 't.status')}, t.priority DESC, COALESCE(t.due_at, 9e15), t.sort, t.created_at`;
+        : `${STATUS_RANK.replaceAll('status', 't.status')}, t.priority DESC, COALESCE(t."at", 9e15), t.sort, t.created_at`;
     return this.db.all<Row>(
       `SELECT t.* FROM tasks t ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${order} LIMIT ?`,
       params,
     ).map(toTask);
   }
 
-  /**
-   * The calm "My day" list: a person's open tasks, and those waiting for a ring – snoozed, or a repeating timer ticked
-   * off until its next time (waiting on outside; the UI keeps them under "Later"). What rang first (open, due passed),
-   * then the rest, the waiting ones last (so a limit never drops a to-do due now for a later one); each by due → priority → age.
-   */
+  /** A person's unfinished to-dos (the owner's without `personId`): open first, each by its time → priority → age. */
   todos(limit: number, personId?: string): Task[] {
-    // The owner's list has no assignee id; a person's list is theirs (runtime/people).
-    const whose = personId ? 'assignee_id = ?' : `(assignee_id IS NULL OR assignee_id = 'human')`;
+    const whose = personId ? `assignee_kind = 'human' AND assignee_id = ?` : OWNERS_TODO;
     return this.db.all<Row>(
-      `SELECT * FROM tasks WHERE assignee_kind = 'human' AND ${whose}
-         AND (status = 'open' OR (status = 'waiting' AND json_extract(waiting_on, '$.on') = 'outside'))
-       ORDER BY CASE WHEN status = 'waiting' THEN 1 ELSE 0 END,
-         CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at, priority DESC, created_at LIMIT ?`,
+      `SELECT * FROM tasks WHERE ${whose} AND kind = 'todo' AND ${UNFINISHED_SQL}
+       ORDER BY CASE WHEN status = 'waiting' THEN 1 ELSE 0 END, CASE WHEN "at" IS NULL THEN 1 ELSE 0 END, "at", priority DESC, created_at LIMIT ?`,
       personId ? [personId, limit] : [limit],
     ).map(toTask);
   }
@@ -223,28 +201,38 @@ export class TaskRepo {
   openFor(agentId: string): Task[] {
     return this.db.all<Row>(
       `SELECT * FROM tasks WHERE assignee_kind = 'agent' AND assignee_id = ? AND ${UNFINISHED_SQL}
-       ORDER BY priority DESC, COALESCE(due_at, 9e15), created_at`,
+       ORDER BY priority DESC, COALESCE("at", 9e15), created_at`,
       [agentId],
     ).map(toTask);
   }
 
-  /** The unfinished tasks whose look is due at `now`, and agents' rows with none planned (the watcher's pass, index tasks_next). */
-  dueLooks(now: number, limit = 1000): Task[] {
+  /** People's unfinished to-dos whose time falls in (from, to] – the rings the watcher sends. */
+  ringsBetween(from: number, to: number): Task[] {
     return this.db.all<Row>(
-      `SELECT * FROM tasks WHERE ${UNFINISHED_SQL} AND (next_at <= ? OR (next_at IS NULL AND assignee_kind <> 'human')) ORDER BY COALESCE(next_at, 0) LIMIT ?`,
-      [now, limit],
+      `SELECT * FROM tasks WHERE assignee_kind = 'human' AND ${UNFINISHED_SQL} AND "at" > ? AND "at" <= ? ORDER BY "at" LIMIT 200`, [from, to],
     ).map(toTask);
   }
 
-  /** People's unfinished rows with no look planned (rows from before the rebuild; planned once at start). */
-  unplannedOfPeople(): Task[] {
-    return this.db.all<Row>(`SELECT * FROM tasks WHERE ${UNFINISHED_SQL} AND next_at IS NULL AND assignee_kind = 'human'`).map(toTask);
+  /** The earliest time of a person's unfinished to-do after `now` (the watcher's ring timer). */
+  nextRingAfter(now: number): number | undefined {
+    const row = this.db.get<{ at: number | null }>(`SELECT MIN("at") AS at FROM tasks WHERE assignee_kind = 'human' AND ${UNFINISHED_SQL} AND "at" > ?`, [now]);
+    return row?.at === null || row?.at === undefined ? undefined : Number(row.at);
   }
 
-  /** The earliest planned look after `now` among unfinished tasks (the watcher's timer). */
-  nextLookAfter(now: number): number | undefined {
-    const row = this.db.get<{ at: number | null }>(`SELECT MIN(next_at) AS at FROM tasks WHERE next_at > ? AND ${UNFINISHED_SQL}`, [now]);
-    return row?.at === null || row?.at === undefined ? undefined : Number(row.at);
+  /**
+   * The open quests of an agent – its own, and those it holds an open to-do in – for which it has no active reminder on
+   * the quest or one of its to-dos (the morning pass).
+   */
+  questsWithoutNote(agentId: string): Task[] {
+    return this.db.all<Row>(
+      `SELECT q.* FROM tasks q WHERE q.kind = 'quest' AND q.${UNFINISHED_SQL}
+         AND ((q.assignee_kind = 'agent' AND q.assignee_id = ?)
+           OR EXISTS (SELECT 1 FROM tasks d WHERE d.parent_id = q.id AND d.assignee_kind = 'agent' AND d.assignee_id = ? AND d.${UNFINISHED_SQL}))
+         AND NOT EXISTS (SELECT 1 FROM schedules s WHERE s.owner_id = ? AND s.kind = 'reminder' AND s.active = 1
+           AND (s.task_id = q.id OR s.task_id IN (SELECT d.id FROM tasks d WHERE d.parent_id = q.id)))
+       ORDER BY q.priority DESC, q.created_at LIMIT 50`,
+      [agentId, agentId, agentId],
+    ).map(toTask);
   }
 
   /** The unfinished tasks that come after `id` (tasks/depends.ts). */

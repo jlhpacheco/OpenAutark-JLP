@@ -38,7 +38,7 @@ function fixture() {
     bridges: { list: record('bridges.list', [BRIDGE]), connectTelegram: record('connectTelegram', Promise.resolve(BRIDGE)), disconnect: record('disconnect', undefined) },
   } as unknown as RpcExtras;
   const table = createHandlerTable();
-  const ctx: HandlerContext = { scope: { kind: 'owner' }, services: {} as RuntimeServices, extras, topics: new Set(), signal: new AbortController().signal };
+  const ctx: HandlerContext = { scope: { kind: 'owner', person: true }, services: {} as RuntimeServices, extras, topics: new Set(), signal: new AbortController().signal };
   const call = async (method: string, params?: unknown) => table.get(method)!.handler(params as never, ctx);
   const last = () => calls.at(-1);
   return { table, call, calls, last };

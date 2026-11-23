@@ -124,6 +124,19 @@ test('B-083 (owner 09.11.): no Claude on the plan carries the temperature tag â€
   assert.doesNotMatch(lineOf(text, SOL), /temperature/);
 });
 
+test('the mode\'s minimum tier is a preference as in routing: with none at or above it connected, the list shows what the router runs', async () => {
+  const h = await standardSetup();
+  h.engine('codex').lists.set('codex', [{ model: 'gpt-6-luna', name: 'gpt-6-luna', efforts: ['none', 'low', 'medium', 'high'], vision: false }]);
+  h.engine('claude').lists.set('claude', [{ model: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', efforts: ['low', 'medium', 'high'], vision: true }]);
+  await h.catalog.refresh({ force: true });
+  const vic = agent('ag_vic', { mode: 'video' });
+  const text = await list(h.services, vic, 'video');
+  const routed = await h.router.route({ agent: vic, mode: MODES.video });
+  assert.ok(lineOf(text, routed.modelId), `the model the router runs (${routed.modelId}) is listed:\n${text}`);
+  assert.ok(lineOf(text, 'claude:claude-haiku-5-5') && lineOf(text, 'codex:gpt-6-luna'), text);
+  assert.doesNotMatch(text, /No model I can use fits/);
+});
+
 test('models without a usable account are hidden unless includeUnavailable asks for them', async () => {
   const h = await standardSetup();
   h.accounts.upsert(account('acc_claude', 'claude', { state: 'needs_login' }), false);

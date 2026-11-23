@@ -8,7 +8,8 @@
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DeviceIdentity } from '../../../src/runtime/devices/identity.ts';
-import { acceptSecure, connectSecure, socketPair, type SocketLike } from '../../../src/runtime/devices/channel.ts';
+import { acceptSecure, connectSecure, type SocketLike } from '../../../src/runtime/devices/channel.ts';
+import { socketPair } from '../../unit/devices/socket-pair.ts';
 import { PcRtc, pcOffer, SKIP_MS } from '../../../src/runtime/devices/rendezvous/pc-rtc.ts';
 import { systemClock } from '../../../src/runtime/system/clock.ts';
 import { fakeHost, memoryDb, silentLog } from '../../unit/devices/fakes.ts';

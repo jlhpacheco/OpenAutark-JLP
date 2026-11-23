@@ -11,7 +11,7 @@ import { AccountRepo } from '../../../src/runtime/accounts/repo.ts';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
 import { Bus } from '../../../src/runtime/bus.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import type { AccountCheck, Engine } from '../../../src/runtime/engines/types.ts';
 import type { Account, EngineId } from '../../../src/shared/model/providers.ts';
 import type { ExecutableFinder } from '../../../src/runtime/accounts/executables.ts';
@@ -44,7 +44,7 @@ export interface HarnessOptions {
   /** The accounts folder and the user's home folder (default: folders below `data` with no login in them). */
   accounts?: string;
   homeDir?: string;
-  /** The company's data folder (its homes of before in <data>/accounts move into `accounts` at the start: bridge/logins-1611.ts). */
+  /** The company's data folder. */
   data?: string;
   /** Homes are made on disk (a temporary `accounts` folder), not only recorded in `made`. */
   realMkdir?: boolean;
@@ -98,7 +98,7 @@ export function harness(options: HarnessOptions = {}) {
   const offline = async (): Promise<Response> => { throw new Error('offline'); };
   service = new AccountServiceImpl({
     db, bus, clock, paths: { accounts: options.accounts ?? ACCOUNTS, ...(options.data ? { data: options.data } : {}) }, env, homeDir: options.homeDir ?? path.resolve('data', 'home'), finder: options.finder ?? fakeFinder(clis), supervisor, secrets, signInUrlMs: options.signInUrlMs ?? 0,
-    engines: () => ({ get: engine, all: () => [], disposeIdle: async () => {} }),
+    engines: () => ({ get: engine, all: () => [] }),
     mkdir: options.realMkdir ? undefined : async (dir) => { made.push(dir); },
     detectDeps: { fetch: options.fetch ?? offline, probeTimeoutMs: 1 },
   });

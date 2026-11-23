@@ -40,10 +40,10 @@
 /* clip, not hidden, with a margin: a title or sub-line button's hover tint (a few px past the line) stays
    whole; focus rings lie inside the controls (base.css .frame-header :focus-visible), never across a line */
 .frame-header-line, .frame-header-sub { display: flex; align-items: center; min-width: 0; padding-left: 8px; overflow: clip; overflow-clip-margin: 6px; white-space: nowrap; }
-.frame-header-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 14px; font-weight: 500; line-height: 20px; }
-.frame-header.zone-side .frame-header-text { font-size: 17px; font-weight: 600; line-height: 24px; }
-.frame-header.zone-phone .frame-header-text { font-size: 20px; font-weight: 600; line-height: 26px; letter-spacing: -.3px; }
-.frame-header-sub { color: var(--muted); font-size: 12px; line-height: 16px; }
+.frame-header-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: calc(14px * var(--ui-text, 1)); font-weight: 500; line-height: max(20px, calc(20px * var(--ui-text, 1))); }
+.frame-header.zone-side .frame-header-text { font-size: calc(17px * var(--ui-text, 1)); font-weight: 600; line-height: max(24px, calc(24px * var(--ui-text, 1))); }
+.frame-header.zone-phone .frame-header-text { font-size: calc(20px * var(--ui-text, 1)); font-weight: 600; line-height: max(26px, calc(26px * var(--ui-text, 1))); letter-spacing: -.3px; }
+.frame-header-sub { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(16px, calc(16px * var(--ui-text, 1))); }
 .frame-header-sub > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------------------------------------------------------------- cells */
@@ -73,7 +73,7 @@
 .frame-header-badge {
   position: absolute; top: -2px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
   background: var(--badge-bg); color: var(--badge-fg); box-shadow: 0 0 0 2px var(--header-bg);
-  font-size: 10px; font-weight: 600; line-height: 16px; text-align: center; pointer-events: none;
+  font-size: calc(10px * var(--ui-text, 1)); font-weight: 600; line-height: max(16px, calc(16px * var(--ui-text, 1))); text-align: center; pointer-events: none;
 }
 .frame-header-badge.dot { top: 5px; right: 5px; min-width: 0; width: 8px; height: 8px; padding: 0; border-radius: 50%; }
 
@@ -84,7 +84,7 @@
 .frame-header-search {
   width: 100%; height: 100%; min-width: 0; margin: 0; padding: 0 32px 0 7px; /* 1 px border + 7 = the title's 8 px; 32 px for the ✕ */
   border: 1px solid var(--field); border-radius: var(--r-sm); background: var(--surface); color: var(--text);
-  font-size: 14px; line-height: 20px; outline: none; -webkit-appearance: none; appearance: none;
+  font-size: calc(14px * var(--ui-text, 1)); line-height: max(20px, calc(20px * var(--ui-text, 1))); outline: none; -webkit-appearance: none; appearance: none;
 }
 .frame-header-search:focus { border-color: var(--focus); }
 .frame-header-search::placeholder { color: var(--muted); }
@@ -99,7 +99,7 @@
   margin-right: max(0px, calc(var(--pane-reserve, 0px) - var(--caption-space, 0px)));
   container: header-panel / inline-size;
 }
-.frame-header-panel-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 13px; font-weight: 600; }
+.frame-header-panel-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: calc(13px * var(--ui-text, 1)); font-weight: 600; }
 @container header-panel (max-width: 110px) { .frame-header-panel-title { display: none; } }
 
 /* ---------------------------------------------------------------- status line */
@@ -118,12 +118,12 @@
 .status-note {
   display: flex; align-items: center; gap: 8px; max-width: 100%; min-height: 32px; padding: 3px 4px 3px 12px; pointer-events: auto;
   border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); box-shadow: var(--shadow-popover);
-  color: var(--text); font-size: 13px;
+  color: var(--text); font-size: calc(13px * var(--ui-text, 1));
 }
 .status-note.tone-warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 .status-note.tone-error { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); color: var(--danger); }
 .status-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.status-action.button { position: relative; flex: none; min-height: 24px; padding: 2px 10px; font-size: 12px; }
+.status-action.button { position: relative; flex: none; min-height: 24px; padding: 2px 10px; font-size: calc(12px * var(--ui-text, 1)); }
 .status-action.button[aria-busy=true] { color: transparent; }
 .status-action-spin { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text); }
 .status-dismiss { flex: none; }

@@ -1,34 +1,38 @@
 // Hash router for the single shell. Views:
-//   #/home · #/day[/<YYYY-MM-DD>] · #/chats · #/chat/<id>
-//   · #/tasks[/<filter>][?owner=<agentId|team>][&task=<taskId>]
+//   #/home · #/tasks[/<taskId>][?date=<YYYY-MM-DD>][&owner=<agentId>] · #/chats · #/chat/<id>
 //   · #/team[/<agentId>] · #/team/<agentId>/work · #/team/<agentId>/split/<splitId> · #/team/person/<personId>
 //   · #/team/person/new (F13: Add person – a page, person ids are 'per_…')
 //   · #/settings[/<page>]  (a split's page under its agent; a Settings page, or an older name mapped to the page that
 //     holds those rows, see settingsPage)
-// ('day' is My day – today without a date; an older #/tasks/for-you link opens it. 'chats' is the
-// phone list view; on desktop it shows the last chat or the empty main slot; `owner` – O5, "All
-// work" on an agent's page – narrows the task lists to one agent or the team; `task` is the task
-// open in Work's detail; F11 16.11.2026: an agent's `work` page – what it does now, its active tasks and its log.) An in-app `<a href="#/…">` navigates through routeLink.
+// Quests 20.11.2026: one Tasks page instead of My day and Work – `task` is the to-do or quest open in its detail (a
+// task id in the path; an older ?task= still opens it), `date` the calendar's day (none: today), `owner` narrows "AI at
+// work" to one agent (an agent's "All tasks"). An older '#/day[/<date>]' link (My day before – a push, a bookmark) opens
+// the page on that day; it is no route of its own. 'home' (the default) is the page.
+// 'chats' is the phone list view; on desktop it shows the last chat or the empty main slot. F11 16.11.2026: an agent's
+// `work` page – what it does now, its active tasks and its log. An in-app `<a href="#/…">` navigates through routeLink.
 // '#/chat/<id>?call=1' (owner 18.11.2026, the floating to-do button) also asks for that chat's call (callRequest).
+// A chat route to a task's own thread ('#/chat/task_…' – a search hit, a notification tap) opens the task (chatRoute),
+// since the thread lives in the task's detail.
 // Owns: the current route signal, parsing/formatting, navigation, in-app link clicks and back.
 // Never: loads data – views react to the route themselves.
 
 import { signal } from '@preact/signals';
+import { isId } from '../../shared/ids.ts';
 import { isLocalDate } from '../../shared/model/calendar.ts';
+import { isTaskThread } from '../../shared/model/chat.ts';
 
 export type Route =
   | { view: 'home' }
-  | { view: 'day'; date?: string }
   | { view: 'chats' }
   | { view: 'chat'; id: string }
-  | { view: 'tasks'; filter?: string; owner?: string; task?: string }
+  | { view: 'tasks'; task?: string; date?: string; owner?: string }
   | { view: 'team'; agentId?: string; personId?: string; splitId?: string; work?: true; addPerson?: true }
   | { view: 'settings'; section?: string };
 
 export type RouteView = Route['view'];
 
 /** The Settings pages (settings/sections.ts holds their titles and keywords), in nav order. */
-export const SETTINGS_PAGES = ['general', 'models', 'calendar', 'secrets', 'security', 'apps', 'skills', 'devices', 'feedback', 'about'] as const;
+export const SETTINGS_PAGES = ['general', 'models', 'calendar', 'scheduled', 'secrets', 'security', 'apps', 'skills', 'devices', 'feedback', 'about'] as const;
 export type SettingsPage = (typeof SETTINGS_PAGES)[number];
 export const DEFAULT_SETTINGS_PAGE: SettingsPage = 'general';
 
@@ -37,6 +41,7 @@ const PAGE_OF: Readonly<Record<string, SettingsPage>> = {
   accounts: 'models', providers: 'models', routing: 'models', usage: 'models', abilities: 'models',
   voice: 'models', speech: 'models', // B-078: the Voice page joined Models
   knowledge: 'skills', memory: 'skills',
+  schedules: 'scheduled', schedule: 'scheduled', // owner 21.11.2026: Settings › Scheduled
   permissions: 'security', access: 'security', // owner 16.11.2026: Settings › Security holds the PC access
   remote: 'devices', phone: 'devices', android: 'devices',
   profile: 'general', appearance: 'general', notifications: 'general', customize: 'general',
@@ -61,15 +66,15 @@ export function parseRoute(hash: string): Route {
   const [path, query = ''] = hash.replace(/^#\/?/, '').split('?');
   const parts = path.split('/').filter(Boolean).map((part) => decodeURIComponent(part));
   switch (parts[0]) {
-    case 'day': return isLocalDate(parts[1]) ? { view: 'day', date: parts[1] } : { view: 'day' }; // a day that does not exist opens today
-    case 'chat': return parts[1] ? { view: 'chat', id: parts[1] } : { view: 'chats' };
+    case 'day': return tasksRoute(isLocalDate(parts[1]) ? parts[1] : undefined); // My day before: the page on that day
+    case 'chat': return parts[1] ? chatRoute(parts[1]) : { view: 'chats' };
     case 'chats': return { view: 'chats' };
     case 'tasks': {
-      if (parts[1] === 'for-you') return { view: 'day' }; // For you moved to My day (B-041)
       const search = new URLSearchParams(query);
+      const task = isId(parts[1]) ? parts[1] : search.get('task') || undefined; // an older link's ?task=; an old filter name is no task
       const owner = search.get('owner') || undefined;
-      const task = search.get('task') || undefined;
-      return { view: 'tasks', ...(parts[1] ? { filter: parts[1] } : {}), ...(owner ? { owner } : {}), ...(task ? { task } : {}) };
+      const date = search.get('date') ?? undefined;
+      return { ...tasksRoute(isLocalDate(date) ? date : undefined), ...(task ? { task } : {}), ...(owner ? { owner } : {}) };
     }
     case 'team':
       if (parts[1] === 'person') return parts[2] === 'new' ? { view: 'team', addPerson: true } : parts[2] ? { view: 'team', personId: parts[2] } : { view: 'team' };
@@ -86,11 +91,10 @@ export function parseRoute(hash: string): Route {
 export function formatRoute(route: Route): string {
   const enc = encodeURIComponent;
   switch (route.view) {
-    case 'day': return route.date ? `#/day/${enc(route.date)}` : '#/day';
     case 'chat': return `#/chat/${enc(route.id)}`;
     case 'tasks': {
-      const query = [route.owner && `owner=${enc(route.owner)}`, route.task && `task=${enc(route.task)}`].filter(Boolean).join('&');
-      return `#/tasks${route.filter ? `/${enc(route.filter)}` : ''}${query ? `?${query}` : ''}`;
+      const query = [route.date && `date=${enc(route.date)}`, route.owner && `owner=${enc(route.owner)}`].filter(Boolean).join('&');
+      return `#/tasks${route.task ? `/${enc(route.task)}` : ''}${query ? `?${query}` : ''}`;
     }
     case 'team':
       if (route.addPerson) return '#/team/person/new';
@@ -103,13 +107,25 @@ export function formatRoute(route: Route): string {
   }
 }
 
+/** The Tasks page on `date` (none: today). */
+function tasksRoute(date: string | undefined): Extract<Route, { view: 'tasks' }> {
+  return date ? { view: 'tasks', date } : { view: 'tasks' };
+}
+
 export const route = signal<Route>(typeof location === 'undefined' ? { view: 'home' } : parseRoute(location.hash));
 
 /** Last non-settings route, so closing Settings returns where the user was. */
 let lastWorkRoute: Route = route.value.view === 'settings' ? { view: 'home' } : route.value;
 
+/** Where chat `id` opens: the chat – or, for a task's own thread (its id is the task's), the task. */
+export function chatRoute(id: string): Route {
+  return isTaskThread(id) ? { view: 'tasks', task: id } : { view: 'chat', id };
+}
+
 export function navigate(requested: Route, options: { replace?: boolean } = {}): void {
-  const next = requested.view === 'settings' ? settingsRoute(requested.section) : requested; // an older section name opens its page
+  // an older section name opens its page; a task's thread opens its task
+  const next = requested.view === 'settings' ? settingsRoute(requested.section)
+    : requested.view === 'chat' ? chatRoute(requested.id) : requested;
   const hash = formatRoute(next);
   if (route.value.view !== 'settings') lastWorkRoute = route.value;
   if (location.hash === hash) { route.value = next; return; }
@@ -160,8 +176,6 @@ export function startRouter(): void {
 /** Convenience helpers used across the app. */
 export const go = {
   home: () => navigate({ view: 'home' }),
-  /** My day: today, or the day `date` (YYYY-MM-DD). */
-  day: (date?: string) => navigate(date ? { view: 'day', date } : { view: 'day' }),
   chat: (id: string) => navigate({ view: 'chat', id }),
   agent: (agentId: string) => navigate({ view: 'team', agentId }),
   /** B-057: a split's page under its agent. */
@@ -173,5 +187,6 @@ export const go = {
   /** F13: Team › Add person, a page. */
   addPerson: () => navigate({ view: 'team', addPerson: true }),
   settings: (section?: string) => navigate(section ? { view: 'settings', section } : { view: 'settings' }),
-  tasks: (filter?: string, owner?: string) => navigate({ view: 'tasks', ...(filter ? { filter } : {}), ...(owner ? { owner } : {}) }),
+  /** The Tasks page; `owner` narrows "At work" to that agent (an older first argument, a Work filter, means nothing now). */
+  tasks: (_filter?: string, owner?: string) => navigate({ view: 'tasks', ...(owner ? { owner } : {}) }),
 };

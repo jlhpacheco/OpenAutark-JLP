@@ -6,12 +6,12 @@
 // Owns: the two pure selection rules. Never: reads signals, RPC or any store.
 
 import { HUMAN_ID } from '../ids.ts';
-import { directPair, type ConversationSummary } from '../model/chat.ts';
+import { directPair, isTaskThread, type ConversationSummary } from '../model/chat.ts';
 import type { Agent } from '../model/org.ts';
 import { chatSection } from './chat-sections.ts';
 
 /** What the chat rule looks at (a ConversationSummary has it). */
-export type ManagerChatInput = Pick<ConversationSummary, 'settings' | 'members' | 'createdAt' | 'archivedAt'>;
+export type ManagerChatInput = Pick<ConversationSummary, 'id' | 'settings' | 'members' | 'createdAt' | 'archivedAt'>;
 
 /**
  * The first Manager – the person's personal manager: the seed agent (manager template first, B-078: a department head
@@ -29,7 +29,7 @@ export function managerAgent(list: readonly Agent[]): Agent | undefined {
  * it), else the oldest visible chat whose only current agent member is the Manager.
  */
 export function managerFirstChat<C extends ManagerChatInput>(chats: readonly C[], managerId: string): C | undefined {
-  const visible = chats.filter((chat) => !chat.archivedAt && chatSection(chat) === 'main');
+  const visible = chats.filter((chat) => !chat.archivedAt && !isTaskThread(chat.id) && chatSection(chat) === 'main'); // a task's own thread is never the Manager's chat
   const ownersDefault = (chat: C) => {
     const pair = directPair(chat.settings, chat.members.filter((member) => !member.leftAt));
     return pair !== undefined && pair.includes(HUMAN_ID) && pair.includes(managerId);

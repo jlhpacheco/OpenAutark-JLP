@@ -5,16 +5,19 @@
 // text never clears the joiner's name (it goes back instead), while a text cleared later travels and stays cleared;
 // a section only the joiner has reaches the other PC; an older single 'settings' stamp counts for every section.
 // B-080: a key of a known section this PC does not know (a newer PC's) is left out of the patch and the rest applies –
-// no more refusal of every section (live: voice.dictation); the shared keys of every section are pinned, so a key
-// added to a section older PCs know becomes an OWN_UNITS entry or changes the pin on purpose (CONTRACT rule 9).
+// no more refusal of every section (live: voice.dictation). 22.11.2026: one rule across versions – the sections keep
+// the form PCs since 0.3.13 send (pinned below), every other key is its own unit with no list to extend, and what this
+// PC does not know is kept as it came and travels on (same value, same stamp: no echo); a kept unit this PC learns (a
+// later version) moves into settings.json.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import type { Settings } from '../../../src/shared/model/system.ts';
 import { DevicesRepo, type DeviceRecord } from '../../../src/runtime/devices/repo.ts';
-import { SettingsSync, settingsPatch, type SettingsMessage } from '../../../src/runtime/devices/sync/settings.ts';
+import { SettingsSync, settingsPatch, syncedSettings, type SettingsMessage } from '../../../src/runtime/devices/sync/settings.ts';
 import { Stamps, hashOf } from '../../../src/runtime/devices/sync/stamps.ts';
+import { KvRepo } from '../../../src/runtime/store/kv.ts';
 import { deepMerge } from '../../../src/runtime/settings/validate.ts';
 import { SECTIONS } from '../../../src/runtime/settings/schema.ts';
 import { ManualClock, memoryDb, recordingBus, silentLog } from './fakes.ts';
@@ -149,7 +152,7 @@ test('an older single settings stamp counts for every section; then a change sta
   edit(a, { voice: { realtime: 'auto' } });
   assert.ok(a.stamps.get('settings/voice')!.at > 5000, 'the changed section is stamped now');
   assert.equal(a.stamps.get('settings/profile')?.at, 5000, 'the others keep theirs');
-  assert.deepEqual(Object.keys(a.sync.current().sections).sort(), ['profile', 'profile.forEveryAgent', 'profile.notes', 'profile.pcAccess', 'routing', 'voice'], 'the link-up sends every section (and the units profile.notes, profile.pcAccess, profile.forEveryAgent)');
+  assert.deepEqual(Object.keys(a.sync.current().sections).sort(), ['profile', 'profile.notes', 'routing', 'voice'], 'the link-up sends every section (and the unit profile.notes)');
   off();
 });
 
@@ -177,7 +180,7 @@ test('B-078 with a 0.3.x PC: profile.notes travels as its own unit – the profi
   assert.deepEqual(copy.sections.profile.value, { name: 'Alex' });
   assert.equal(copy.sections.profile.h, hashOf({ name: 'Alex' }), 'the older PC sees no change of its own');
   assert.equal(copy.sections['profile.notes']!.value, 'German at work, du');
-  assert.deepEqual(Object.keys(copy.sections).sort(), ['library', 'profile', 'profile.forEveryAgent', 'profile.notes', 'profile.pcAccess', 'routing'], '0.3.x skips library and the units (no settings sections there)');
+  assert.deepEqual(Object.keys(copy.sections).sort(), ['library', 'profile', 'profile.notes', 'routing'], '0.3.x skips library and the units (no settings sections there)');
   // The older PC's message: its profile without notes, stamped later – the name follows, the notes stay.
   const old: SettingsMessage = { sections: { profile: { at: 9_000_000, h: hashOf({ name: 'Stan' }), value: { name: 'Stan' } } } };
   a.sync.receive(old, 'dev_old', false);
@@ -198,44 +201,23 @@ test('B-078 with a 0.3.x PC: profile.notes travels as its own unit – the profi
   for (const off of offs) off();
 });
 
-test('B-085 with a 0.3.4 PC: profile.pcAccess travels as its own unit – an older copy of the profile never clears it', () => {
-  const [a, b] = makePcs(
-    { profile: { name: 'Alex', pcAccess: 'careful' }, routing: { work: 'auto' } },
-    { profile: { name: 'Alex' }, routing: { work: 'auto' } },
-  );
+test('Umzug 21.11.2026: the section security stays on each PC; the units an older PC still sends for pcAccess and forEveryAgent change nothing here', () => {
+  const trust = { mode: 'trust', read: 'all', readFolders: [], money: 'yes' };
+  const [a, b] = makePcs({ profile: { name: 'Alex' }, security: trust }, { profile: { name: 'Alex' }, security: trust });
   const offs = [a.sync.attach(), b.sync.attach()];
-  const copy = a.sync.current();
-  assert.deepEqual(copy.sections.profile.value, { name: 'Alex' }, 'the profile looks as it does on 0.3.4');
-  assert.equal(copy.sections['profile.pcAccess']!.value, 'careful');
-  // The older PC wins the profile (its person edited the name there): the name follows, careful stays.
-  const old: SettingsMessage = { sections: { profile: { at: 9_000_000, h: hashOf({ name: 'Stan' }), value: { name: 'Stan' } } } };
-  a.sync.receive(old, 'dev_old', false);
-  assert.deepEqual(profileOf(a), { name: 'Stan', pcAccess: 'careful' });
-  // Between two new PCs the choice travels: full access given on A reaches B.
   a.clock.advance(10_000_000);
-  edit(a, { profile: { pcAccess: 'whole' } });
-  assert.equal(profileOf(b).pcAccess, 'whole');
-  // At the first link a missing choice never replaces one that is set.
-  const local = { profile: { name: 'Stan', pcAccess: 'careful' } } as unknown as Settings;
-  assert.deepEqual(settingsPatch(local, { 'profile.pcAccess': null }, true), {});
-  for (const off of offs) off();
-});
-
-test('16.11.2026 with a 0.3.8 PC: profile.forEveryAgent travels as its own unit – an older copy of the profile never resets it', () => {
-  const [a, b] = makePcs(
-    { profile: { name: 'Alex', forEveryAgent: 'I sign with my name.' }, routing: { work: 'auto' } },
-    { profile: { name: 'Alex', forEveryAgent: '' }, routing: { work: 'auto' } },
-  );
-  const offs = [a.sync.attach(), b.sync.attach()];
-  const copy = a.sync.current();
-  assert.deepEqual(copy.sections.profile.value, { name: 'Alex' }, 'the profile looks as it does on 0.3.8');
-  assert.equal(copy.sections['profile.forEveryAgent']!.value, 'I sign with my name.');
-  const old: SettingsMessage = { sections: { profile: { at: 9_000_000, h: hashOf({ name: 'Stan' }), value: { name: 'Stan' } } } };
-  a.sync.receive(old, 'dev_old', false);
-  assert.deepEqual(profileOf(a), { name: 'Stan', forEveryAgent: 'I sign with my name.' });
-  a.clock.advance(10_000_000);
-  edit(a, { profile: { forEveryAgent: 'I answer in German.' } });
-  assert.equal(profileOf(b).forEveryAgent, 'I answer in German.', 'between two new PCs the text travels');
+  edit(a, { security: { mode: 'secure', read: 'chosen', readFolders: ['C:\\Docs'] } });
+  assert.deepEqual(b.store.current.security, trust, 'each PC keeps its own mode');
+  edit(a, { profile: { name: 'Alexa' } });
+  assert.equal(profileOf(b).name, 'Alexa', 'the other sections still travel');
+  edit(a, { profile: { name: 'Alex' } });
+  const old: SettingsMessage = { sections: {
+    'profile.pcAccess': { at: 99_000_000, h: hashOf('careful'), value: 'careful' },
+    'profile.forEveryAgent': { at: 99_000_000, h: hashOf('Old line.'), value: 'Old line.' },
+  } };
+  b.sync.receive(old, 'dev_old', false);
+  assert.deepEqual(profileOf(b), { name: 'Alex' }, 'nothing of the two old keys arrives');
+  assert.equal(b.sync.current().sections['profile.pcAccess']?.value, 'careful', 'kept as it came: it travels on for a PC that knows it');
   for (const off of offs) off();
 });
 
@@ -260,31 +242,68 @@ test('B-080: a newer PC\'s key in a known section is left out of the patch; the 
   assert.equal((a.store.current.voice as unknown as { realtime: string }).realtime, 'auto');
   assert.equal('dictation' in (a.store.current.voice as unknown as Record<string, unknown>), false);
   assert.equal((a.store.current.routing as unknown as { work: string }).work, 'acc_1:gpt', 'the other section of the message applies too');
-  assert.equal(updates.length, 1);
+  assert.equal(updates.length, 1, 'one patch, and no echo after it');
+  const voice = a.sync.current().sections.voice;
+  assert.deepEqual(voice.value, { realtime: 'auto', dictation: 'local' }, '22.11.2026: the key this PC lacks is kept with the section and travels on');
+  assert.equal(voice.h, message.sections.voice.h, 'the same hash: the newer PC sees no change of its own');
+});
+
+test('22.11.2026: a unit a newer PC sends that this PC does not know is kept as it came – passed on, sent again with its stamp, replaced by a newer copy', () => {
+  const [a, b] = makePcs({ profile: { name: 'Alex' }, voice: { realtime: 'off' } }, { profile: { name: 'Alex' }, voice: { realtime: 'off' } });
+  const offs = [a.sync.attach(), b.sync.attach()];
+  const unit = (value: string, at: number): SettingsMessage => ({ sections: { 'voice.dictation': { at, h: hashOf(value), value } } });
+  a.sync.receive(unit('local', 9_000_000), 'dev_new', false);
+  assert.deepEqual(a.store.current.voice, { realtime: 'off' }, 'nothing of it in settings.json');
+  for (const pc of [a, b]) assert.deepEqual(pc.sync.current().sections['voice.dictation'], { at: 9_000_000, h: hashOf('local'), value: 'local' }, `${pc.id}: kept and passed on`);
+  edit(a, { voice: { realtime: 'auto' } });
+  assert.equal(b.sync.current().sections['voice.dictation']?.value, 'local', 'an edit of the section leaves it standing');
+  a.sync.receive(unit('cloud', 9_500_000), 'dev_new', false);
+  for (const pc of [a, b]) assert.equal(pc.sync.current().sections['voice.dictation']?.value, 'cloud', `${pc.id}: the newer copy`);
+  a.sync.receive(unit('local', 9_100_000), 'dev_new', false);
+  assert.equal(a.sync.current().sections['voice.dictation']?.value, 'cloud', 'an older one never wins');
+  for (const off of offs) off();
+});
+
+test('22.11.2026: a kept unit this PC knows now (a later version) moves into settings.json – with its stamp, so nothing goes out', () => {
+  const [a] = makePcs({ profile: { name: 'Alex' } }, {});
+  new KvRepo(a.s.db).set('sync.settings', 'profile.notes', { v: 'du' }, 1); // kept by an earlier version that lacked the key
+  a.stamps.set('settings/profile.notes', { at: 7_000, h: hashOf('du') });
+  const off = a.sync.attach();
+  assert.equal(profileOf(a).notes, 'du', 'in settings.json now');
+  assert.deepEqual(new KvRepo(a.s.db).list('sync.settings'), [], 'no longer kept');
+  assert.deepEqual(a.stamps.get('settings/profile.notes'), { at: 7_000, h: hashOf('du') }, 'the same stamp: no change of its own');
+  off();
 });
 
 /**
- * B-080 (CONTRACT rule 9): the keys each shared settings section carries as of this build. A key added to a section that
- * older PCs know makes them drop it on the way in and send the section back without it – such a key becomes an
- * OWN_UNITS entry (devices/sync/settings.ts) or, for a section no older PC has, this pin changes on purpose.
+ * 22.11.2026: the form of each section as PCs since 0.3.13 send it (frozen: devices/sync/settings.ts BASE). Every other
+ * key of a section travels as its own unit without an entry anywhere – today profile.notes and notifications.computerUse.
  */
-const SHARED_KEYS: Record<string, string[]> = {
-  profile: ['name', 'company', 'avatarFileId', 'language', 'timezone', 'notes', 'pcAccess', 'forEveryAgent'], // notes, pcAccess, forEveryAgent: OWN_UNITS
-  preferences: ['theme', 'sidebarOpen', 'sidebarWidth', 'workspaceOpen', 'workspaceWidth', 'enterSends', 'closeToTray', 'openAtLogin', 'autoDownloadUpdates'],
-  notifications: ['enabled', 'sound', 'computerUse', 'quietHours', 'pushFor'], // computerUse: OWN_UNITS
+const SECTION_FORM: Record<string, string[]> = {
+  profile: ['name', 'company', 'avatarFileId', 'language', 'timezone'],
+  preferences: ['theme', 'enterSends', 'openAtLogin', 'autoDownloadUpdates'], // the window layout never travels
+  notifications: ['enabled', 'sound', 'quietHours', 'pushFor'],
   voice: ['ttsVoice', 'vocabulary', 'realtime', 'talker', 'localStt', 'localTts'],
   routing: ['work', 'decision', 'voice', 'stt', 'tts', 'image', 'video', 'music', 'sound', 'embeddings', 'costMode', 'allowPaidFallback'],
-  providers: [],
-  day: ['workStart', 'workEnd', 'bufferMin', 'autoPlan', 'planAt', 'aiHelps', 'keepAwake', 'agentLane'],
+  day: ['workStart', 'workEnd', 'bufferMin', 'planAt', 'aiHelps', 'keepAwake'],
   calendar: ['googleClientId', 'googleSecretId'],
   lifecycle: ['retention'],
   feedback: ['includeDiagnostics'],
   library: ['publish'],
   onboarding: ['completed', 'step'],
 };
+const LAYOUT_KEYS = ['sidebarOpen', 'sidebarWidth', 'workspaceOpen', 'workspaceWidth'];
 
-test('B-080: the shared keys of every known settings section are pinned (voice.dictation is gone)', () => {
-  const shared = Object.fromEntries(SECTIONS.filter((section) => !['devices', 'pwa'].includes(section.key)).map((section) => [section.key, section.keys.map((key) => key.key)]));
-  assert.deepEqual(shared, SHARED_KEYS, 'a key added to a known section: an OWN_UNITS entry, or this pin on purpose');
-  assert.equal(SHARED_KEYS.voice.includes('dictation'), false);
+test('22.11.2026: the sections keep the form PCs since 0.3.13 send; every other key – a new one too – is its own unit', () => {
+  const settings = Object.fromEntries(SECTIONS.map((section) => [section.key, section.free ? { prv_1: { kind: 'openai' } } : Object.fromEntries(section.keys.map((key) => [key.key, `${section.key}.${key.key}`]))]));
+  const shared = syncedSettings(settings as unknown as Settings);
+  const units: string[] = [];
+  for (const section of SECTIONS) {
+    if (['devices', 'pwa', 'security'].includes(section.key)) { assert.equal(shared[section.key], undefined, `${section.key} stays on each PC`); continue; }
+    if (section.free) { assert.deepEqual(shared[section.key], { prv_1: { kind: 'openai' } }, `${section.key} travels whole`); continue; }
+    assert.deepEqual(Object.keys((shared[section.key] ?? {}) as object).sort(), [...(SECTION_FORM[section.key] ?? [])].sort(), `${section.key}: the frozen form (a section added later: units only)`);
+    for (const key of section.keys) if (!SECTION_FORM[section.key]?.includes(key.key) && !(section.key === 'preferences' && LAYOUT_KEYS.includes(key.key))) units.push(`${section.key}.${key.key}`);
+  }
+  assert.deepEqual(Object.keys(shared).filter((name) => name.includes('.')).sort(), units.sort(), 'each other key as its own unit');
+  assert.ok(units.includes('profile.notes') && units.includes('notifications.computerUse'), 'the two keys older PCs know as units');
 });

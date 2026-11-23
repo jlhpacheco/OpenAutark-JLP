@@ -25,7 +25,7 @@ import { parseDevices, parseDump, parseWmSize, renderDump, screenOf, type PhoneD
 import { spawnAdb, type AdbExec, type ExecResult } from './adb-exec.ts';
 import { connectPhone, disconnectPhone, discoverPhones, pairPhone, type AdbRun } from './connect.ts';
 import { inputText, keycode, sdkCandidates, shQuote } from './adb-args.ts';
-import type { PhoneDriver, PhoneSaid, PhoneShot, PhoneStepOptions, PhoneTree, PhoneWireless } from './driver.ts';
+import type { PhoneDriver, PhoneOpenTarget, PhoneSaid, PhoneShot, PhoneStepOptions, PhoneTree, PhoneWireless } from './driver.ts';
 
 export type { AdbExec, ExecResult } from './adb-exec.ts';
 export { inputText, keycode, sdkCandidates, shQuote } from './adb-args.ts';
@@ -51,6 +51,8 @@ export interface AdbDeps {
 }
 
 const DUMP_PATH = '/data/local/tmp/workforce-ui.xml';
+/** Over ADB an app opens by its package; the name under its icon works through the Autark app. */
+const OPEN_BY_NAME_ADB = 'Over ADB I open an app by its package (adb shell pm list packages lists them); the name under its icon works on a phone with the Autark app.';
 const MAX_EDGE = 1600;
 const REUSE_MS = 1000;
 
@@ -182,8 +184,9 @@ export class AdbPhone implements PhoneDriver, PhoneWireless {
     return code;
   }
 
-  async open(serial: string | undefined, target: { url?: string; package?: string }, step?: PhoneStepOptions): Promise<string> {
+  async open(serial: string | undefined, target: PhoneOpenTarget, step?: PhoneStepOptions): Promise<string> {
     const device = await this.pick(serial);
+    if (target.app && !target.url && !target.package) throw new WorkforceError('bad_request', OPEN_BY_NAME_ADB);
     if (target.url) {
       let url: URL;
       try { url = new URL(target.url); } catch { throw new WorkforceError('bad_request', 'Give a valid URL.'); }

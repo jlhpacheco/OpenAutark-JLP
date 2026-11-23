@@ -1,4 +1,4 @@
-// The expanded body of a mini-app to-do on My day's list (F01): the agent's ```app fence, rendered from its
+// The expanded body of a mini-app to-do on the For-you list (F01): the agent's ```app fence, rendered from its
 // message by the chat's own AppFrame – sandbox, frame budget (a collapsed or answered item unmounts it and frees
 // its slot) and the permission row, so a microphone app works in the list; its wf.complete answers through
 // blocks.answer and the item leaves. Only one to-do is expanded at a time, so there is one copy of the app.

@@ -14,7 +14,8 @@ import { agentName } from '../lib/store.ts';
 import { rpc } from '../lib/rpc.ts';
 import { toastError } from '../lib/toasts.ts';
 import { plainPreview } from '../lib/format.ts';
-import { STATUS_LABELS, canToggleStep, orderedSteps, ownerOf } from './model.ts';
+import { STATUS_LABELS, canToggleStep, orderedSteps } from './model.ts';
+import { ownerOf } from './work-model.ts';
 import { putTask } from './task-cache.ts';
 import { openTaskDetail } from './jump.ts';
 

@@ -270,7 +270,8 @@ test('volatile environment: the companies on this PC and the linked PCs by name 
   const two = setup({ tools: ['tools.call'] });
   wire(two, pcs);
   const text = environmentNow(two.services, { agent: two.vid, mode: GENERAL });
-  assert.ok(text.includes('Companies on this PC: Teydra lab (this one), company-2 – tools.call with company: "<name>" runs a tool in another one · Linked PCs: laptop (online).'), text);
+  // Umzug 21.11.2026: in the agent's own environment the linked PCs carry one clause on where its record goes.
+  assert.ok(text.includes('Companies on this PC: Teydra lab (this one), company-2 – tools.call with company: "<name>" runs a tool in another one · Linked PCs: laptop (online) – my record goes with me to the PC I work on; while mine is off I wait for it – agents.update homes names the PCs that go on with me.'), text);
   assert.equal(companiesLine(two.services, new Set()), 'Companies on this PC: Teydra lab (this one), company-2 · Linked PCs: laptop (online).', 'the way only where tools.call is offered');
   wire(two, pcs.slice(0, 1));
   assert.equal(companiesLine(two.services, new Set()), 'Companies on this PC: Teydra lab (this one), company-2.', 'several companies, no linked PC');

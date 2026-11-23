@@ -16,7 +16,6 @@ tools:
   - "tasks.*"
   - "chat.*"
   - "skills.*"
-  - "schedules.*"
 category: research
 workspace: docs
 verifier: Every non-obvious claim has a source with link and date; key numbers were cross-checked in a second source or marked as single-source; the question asked is answered in the first lines.

@@ -9,7 +9,7 @@ import type { ConversationSettings } from '../../../src/shared/model/chat.ts';
 import type { EventMap } from '../../../src/shared/api/events.ts';
 import { Notifications, inQuietHours } from '../../../src/runtime/notify/service.ts';
 import { SettingsStore } from '../../../src/runtime/settings/service.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { clock, memoryDb, recordingBus } from '../store/helpers.ts';
 
 function setup() {

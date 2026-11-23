@@ -2,7 +2,7 @@
 // argument array and answers from small handlers – no real adb ever runs.
 
 import { AdbPhone, type ExecResult } from '../../../src/runtime/phone/adb.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 
 export const DEVICES = [
   'List of devices attached',

@@ -18,7 +18,7 @@ import { brokerState, localBroker, type BrokerAccess } from '../../src/runtime/c
 import { createHelper } from '../../src/runtime/computer/drivers.ts';
 import { ComputerService } from '../../src/runtime/computer/service.ts';
 import { Supervisor } from '../../src/runtime/system/supervisor.ts';
-import { MemoryLogger } from '../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../unit/fakes.ts';
 import type { Host } from '../../src/runtime/host.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));

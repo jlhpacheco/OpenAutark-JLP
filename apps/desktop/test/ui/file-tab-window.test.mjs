@@ -2,7 +2,8 @@
 // own, Up goes up; a typed text gets the dot, Ctrl+S writes it; a change on disk is followed while nothing waits and is a
 // notice with Reload under typed text; a 1 MB file stays usable; a binary and a very large file say so; a path that holds
 // nothing shows the not-found page with Create; the path slot takes a typed path; a draft survives leaving the tab; Settings' file cell opens the tab (a right click keeps Open with system); Skills &
-// memory opens a skill and a memory; an agent's SYSTEM.md opens; light and dark, 640×480. A temp profile, the demo engine.
+// memory opens a skill and a memory; an agent's SYSTEM.md opens; a Markdown file opens as a read page (front matter as a
+// box) and Edit / Read switches in a fixed cell; light and dark, 640×480. A temp profile, the demo engine.
 // Owns: these user paths. Never: touches the person's profile.
 
 import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
@@ -15,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -40,7 +42,7 @@ test('the file tab: folder list, editor, changes on disk, settings and skills op
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.waitForSelector('.shell, .mobile-shell', { timeout: 60_000 });
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('settings.update', { onboarding: { step: 'done' } });
   const dataRoot = (await rpc.call('system.root')).path;
@@ -56,6 +58,8 @@ test('the file tab: folder list, editor, changes on disk, settings and skills op
   const field = page.locator('textarea.file-field');
   const status = page.locator('.pane-file .pane-foot-text');
   const dirty = () => page.locator('.file-dot.is-dirty').count();
+  const readPage = page.locator('.pane-file .file-read');
+  const mode = page.locator('.pane-file .file-mode');
   const shownTitle = () => page.locator('.browser-strip-tab.selected .browser-strip-title').textContent();
   const newTab = async () => { await strip.getByRole('button', { name: 'New tab', exact: true }).click(); await page.locator('.new-tab-row').first().waitFor(); };
   const row = (name) => page.locator('.new-tab .new-tab-row', { has: page.locator('.new-tab-label', { hasText: new RegExp(`^${name.replace(/[.\\]/g, '\\$&')}$`) }) });
@@ -95,11 +99,40 @@ test('the file tab: folder list, editor, changes on disk, settings and skills op
   await shot('02-settings-json-light');
   await scheme('dark'); await shot('03-settings-json-dark'); await scheme('light');
 
+  // ---- 22.11.2026: a Markdown file opens as a read page; its front matter is a box, not a rule and a heading
+  const report = path.join(elsewhere, 'report.md');
+  await writeFile(report, [
+    '---', 'title: Check', 'stage: 1', '---', '# Result for Thomas · Stage 1', '',
+    '**Yes: MCP answers can flow straight into a local script.** The checked way uses the existing connection, no new API key.', '',
+    '## Proof, not promise', '', '- PDF v5 with 16 pages checked; an independent review is there.',
+    '- Live call with metadata and an empty test search worked. Format: `results[]`, `per_country`.', '- **40 tests passed, 0 failures.**', '',
+    '| Step | Result |', '| --- | --- |', '| Transform | passed |', '| Local output | passed |', '',
+    '> Regional views are derived instead of kept twice.', '', '```json', '{ "results": [] }', '```', '',
+  ].join('\n'));
+  await openPath(report);
+  await readPage.waitFor();
+  assert.equal(await readPage.locator('h1').textContent(), 'Result for Thomas · Stage 1');
+  assert.equal(await readPage.locator('.file-doc > :first-child').evaluate((node) => node.tagName), 'PRE', 'front matter is a box');
+  assert.equal(await readPage.locator('table tr').count(), 3);
+  assert.equal(await mode.getByRole('button').textContent(), 'Edit');
+  await shot('04a-markdown-read-light');
+  await scheme('dark'); await shot('04b-markdown-read-dark'); await scheme('light');
+  await expectStable(page, ['.pane-file .file-dot', '.pane-file .file-mode', '.pane-file .pane-foot-action', '.browser-address-form'], async () => {
+    await mode.getByRole('button', { name: 'Edit' }).click();
+    await field.waitFor();
+  });
+  assert.match(await field.inputValue(), /^---\ntitle: Check/);
+  await mode.getByRole('button', { name: 'Read' }).click();
+  await readPage.waitFor();
+
   // ---- typing, the dot in its cell, Ctrl+S; nothing shifts
   const note = path.join(elsewhere, 'note.md');
   await writeFile(note, 'first line\r\nsecond line\r\n');
   await openPath(note);
   await page.waitForFunction(() => document.querySelector('.browser-strip-tab.selected .browser-strip-title')?.textContent === 'note.md');
+  await readPage.waitFor();
+  assert.match(await readPage.textContent(), /first line/);
+  await mode.getByRole('button', { name: 'Edit' }).click(); // the tab keeps this choice while the app runs
   await field.waitFor();
   assert.equal(await field.inputValue(), 'first line\nsecond line\n');
   assert.equal(await dirty(), 0);
@@ -213,7 +246,7 @@ test('the file tab: folder list, editor, changes on disk, settings and skills op
   await row('sub').click();
   await row('new.md').waitFor();
   await page.getByRole('button', { name: 'Browser menu' }).click();
-  assert.equal(await page.locator('.popover .menu-title', { hasText: 'Open on' }).count(), 0, 'no linked PC: no Open on');
+  assert.equal(await page.locator('.popover').getByRole('menuitem', { name: /^Open on/ }).count(), 0, 'no other PC: no Open on row (21.11.2026: one row for every tab kind)');
   await page.keyboard.press('Escape');
   await openPath(elsewhere);
   await row('note.md').waitFor();
@@ -260,13 +293,13 @@ test('the file tab: folder list, editor, changes on disk, settings and skills op
   await scheme('dark'); await shot('13-skills-memory-dark'); await scheme('light');
   await skill.click();
   await page.waitForFunction(() => document.querySelector('.browser-strip-tab.selected .browser-strip-title')?.textContent === 'SKILL.md');
-  await field.waitFor();
-  assert.match(await field.inputValue(), /^---/);
+  await readPage.waitFor();
+  assert.equal(await readPage.locator('.file-doc > :first-child').evaluate((node) => node.tagName), 'PRE', 'the skill\'s front matter is a box');
   const tree = page.locator('#settings-memory .file-tree-row');
   await tree.filter({ hasText: 'company' }).click();
   await tree.filter({ hasText: 'supplier.md' }).click();
   await page.waitForFunction(() => document.querySelector('.browser-strip-tab.selected .browser-strip-title')?.textContent === 'supplier.md');
-  await page.waitForFunction(() => /Fridays/.test(document.querySelector('textarea.file-field')?.value ?? ''));
+  await page.waitForFunction(() => /Fridays/.test(document.querySelector('.pane-file .file-read')?.textContent ?? ''));
   await shot('14-memory-open-light');
 
   // ---- an agent's page: SYSTEM.md and last-prompt.md open the same way
@@ -275,7 +308,7 @@ test('the file tab: folder list, editor, changes on disk, settings and skills op
   const systemRow = page.locator('.agent-row', { hasText: 'SYSTEM.md' });
   await systemRow.getByRole('button', { name: 'Open' }).click();
   await page.waitForFunction(() => document.querySelector('.browser-strip-tab.selected .browser-strip-title')?.textContent === 'SYSTEM.md');
-  await field.waitFor();
+  await readPage.waitFor();
   await shot('15-agent-system-light');
   await page.locator('.agent-row', { hasText: 'last-prompt.md' }).getByRole('button', { name: 'Open' }).click();
   await page.waitForFunction(() => document.querySelector('.browser-strip-tab.selected .browser-strip-title')?.textContent === 'last-prompt.md');

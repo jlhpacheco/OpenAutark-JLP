@@ -1,16 +1,18 @@
 // A file tab of another PC reads and writes there (src/runtime/devices/sync/paths.ts, B-076): read, write and list go
 // to that PC and answer with its rules – a save on an old stamp stays a conflict there –, a path without another PC
 // (or this PC's own id) stays here, an offline PC says "<name> is offline." at once, a PC that is no CEO link gets
-// nothing; a media file stored there comes back with its `files` row taken here like a synced row; a save too large for
-// one mesh frame is refused before it goes, a read too large for one answers 'large'; B-081: a missing path answers
-// with that PC's similar paths, and 'root' names that PC's folders (CEO links only). Where a tab is
+// nothing unless shared (21.11.2026: an employee's or the company's PC gets a path only inside one shared with its
+// person, a colleague's PC through the company's PC with `for`); a media file stored there comes back with its `files`
+// row taken here like a synced row; a save too large for one mesh frame is refused before it goes, a read too large for
+// one answers 'large'; B-081: a missing path answers with that PC's similar paths, and 'root' names that PC's folders
+// (CEO links only). Where a tab is
 // scrolled to (positions.ts) goes to the CEO PCs under the tab's shared id and arrives under the local one; a bad value
 // is refused, the oldest of too many go.
 // Owns: these assertions only. Never: network, Electron.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { PathList, PathRead, PathWritten } from '../../../src/shared/api/methods-files.ts';
@@ -23,6 +25,8 @@ import { positionOf, POSITIONS_MAX, tabPositions } from '../../../src/runtime/de
 import { onDevice, PATH_OPS } from '../../../src/runtime/rpc/handlers/files-path.ts';
 import type { HandlerContext } from '../../../src/runtime/rpc/table.ts';
 import { link, makePc, Net, settle, type Pc } from './sync-net.ts';
+import { addShare } from '../../../src/runtime/pane/shares.ts';
+import { relayHandler } from '../../../src/runtime/pane/relay.ts';
 
 const silent = { debug() {}, info() {}, warn() {}, error() {} };
 
@@ -68,18 +72,65 @@ test('a file of A, opened on B, is read, saved and listed on A – with A\'s sta
   assert.equal(net.calls.length, calls, 'this PC\'s own id, or none: read here');
 });
 
-test('an offline PC says so at once; a PC that is no CEO link is refused both ways', async (t) => {
+test('an offline PC says so at once; a PC that is no CEO link gets no path that is not shared with its person, both ways', async (t) => {
   const { a, b, net, done } = pair();
   t.after(done);
   net.up = false;
   await assert.rejects(remotePathsOf(b.h.services).forward(a.id, 'read', { path: '/x' }), (error: unknown) => code('unavailable')(error) && (error as Error).message === 'dev_a is offline.');
   assert.equal(net.calls.length, 0, 'nothing was sent');
-  await assert.rejects(remotePathsOf(b.h.services).forward('dev_nobody', 'read', { path: '/x' }), code('not_found'));
+  await assert.rejects(remotePathsOf(b.h.services).forward('dev_nobody', 'read', { path: '/x' }), code('unavailable'), 'no link and no company to pass it on');
 
   const employee = pair('pe_1');
   t.after(employee.done);
-  await assert.rejects(remotePathsOf(employee.a.h.services).forward(employee.b.id, 'read', { path: '/x' }), code('not_found'), 'an employee\'s PC is not asked');
+  await assert.rejects(remotePathsOf(employee.a.h.services).forward(employee.b.id, 'read', { path: '/x' }), code('forbidden'), 'the employee\'s PC answers the company: nothing shared');
   await assert.rejects(employee.a.handlers.get('files.path')!({ op: 'read', path: '/x' }, employee.b.id), code('forbidden'), 'and gets nothing');
+});
+
+test('21.11.2026: a path inside a folder shared with the employee passes; one outside it, a .. out of it and root do not', async (t) => {
+  const employee = pair('pe_1');
+  t.after(employee.done);
+  const { a, b, dir } = employee; // a: the company's PC, b: pe_1's PC
+  const shared = path.join(dir, 'shared');
+  mkdirSync(shared);
+  writeFileSync(path.join(shared, 'in.md'), 'shared text');
+  writeFileSync(path.join(dir, 'out.md'), 'private');
+  addShare(a.h.services, `path:${shared}`, ['pe_1']);
+  const read = await onDevice(ctxOf(b), { path: path.join(shared, 'in.md'), device: a.id }, 'read', PATH_OPS.read) as PathRead;
+  assert.equal(read.text, 'shared text');
+  const list = await onDevice(ctxOf(b), { path: shared, device: a.id }, 'list', PATH_OPS.list) as PathList;
+  assert.deepEqual(list.entries.map((entry) => entry.name), ['in.md']);
+  for (const asked of [path.join(dir, 'out.md'), `${shared}${path.sep}..${path.sep}out.md`, dir]) {
+    await assert.rejects(onDevice(ctxOf(b), { path: asked, device: a.id }, 'read', PATH_OPS.read), code('forbidden'), asked);
+  }
+  await assert.rejects(onDevice(ctxOf(b), { device: a.id }, 'root', async () => 'here'), code('forbidden'));
+  addShare(b.h.services, `path:${shared}`, ['owner']);
+  assert.equal((await onDevice(ctxOf(a), { path: path.join(shared, 'in.md'), device: b.id }, 'read', PATH_OPS.read) as PathRead).text, 'shared text', 'the company asks the employee\'s PC for its CEO');
+});
+
+test('21.11.2026: an employee\'s PC reads a colleague\'s shared file through the company\'s PC, which passes on the caller\'s person', async (t) => {
+  const net = new Net();
+  const company = makePc(net, 'dev_c');
+  const one = makePc(net, 'dev_e1');
+  const two = makePc(net, 'dev_e2');
+  link(company, one, 'per_1');
+  link(company, two, 'per_2');
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'wf-relay-paths-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  for (const pc of [one, two]) {
+    pc.h.services.files = new Blobs({ db: pc.h.db, blobs: path.join(dir, pc.id, 'blobs'), clock: pc.h.clock, log: silent });
+    const paths = new RemotePaths(pc.h.services, pc.sync, PATH_OPS);
+    pc.handlers.set('files.path', (params, from) => paths.serve(params, from));
+  }
+  const relay = relayHandler(() => company.h.services);
+  company.handlers.set('pane.relay', (params, from) => relay(params, from, new AbortController().signal));
+  const note = path.join(dir, 'on-e2.md');
+  writeFileSync(note, 'from per_2');
+  await assert.rejects(onDevice(ctxOf(one), { path: note, device: two.id }, 'read', PATH_OPS.read), code('forbidden'), 'not shared yet');
+  addShare(two.h.services, `path:${dir}`, ['per_1']);
+  assert.equal((await onDevice(ctxOf(one), { path: note, device: two.id }, 'read', PATH_OPS.read) as PathRead).text, 'from per_2');
+  const last = net.calls.at(-1)!;
+  assert.deepEqual([last.from, last.to, last.method, (last.params as { for?: string }).for], ['dev_c', 'dev_e2', 'files.path', 'per_1']);
+  assert.ok(net.calls.some((call) => call.from === 'dev_e1' && call.to === 'dev_c' && call.method === 'pane.relay'), 'through the company');
 });
 
 test('a media file of A, opened on B, is stored on A and its row arrives on B with the answer', async (t) => {

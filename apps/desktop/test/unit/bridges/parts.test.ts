@@ -9,8 +9,8 @@ import { bodyOf, displayName, matchesChat, senderOf } from '../../../src/runtime
 import { TelegramApi, TelegramError, botIdOf, scrub } from '../../../src/runtime/bridges/telegram-api.ts';
 import type { TgMessage } from '../../../src/runtime/bridges/telegram-api.ts';
 import { TelegramPoller, backoffMs } from '../../../src/runtime/bridges/poller.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { ManualClock } from '../fakes.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { TOKEN } from './fake-telegram.ts';
 
 test('toPlainText: Markdown marks removed, code kept, several blocks in a row become one line', () => {

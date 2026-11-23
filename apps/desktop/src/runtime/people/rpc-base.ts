@@ -5,7 +5,7 @@
 // a person's drafts stay in their browser), system facts without this PC's folder, the agents they
 // see as colleagues (people/access.ts visibleAgents – never another space's agents beyond their
 // chats and reporting lines), their live work (status lines only in the person's chats), their spaces, the people
-// directory and the 1:1 chat with another human, and notifications on their device (pwa.push*: the subscription
+// directory (their 1:1 with anyone is chats.direct, rpc-chats.ts), and notifications on their device (pwa.push*: the subscription
 // is bound to that device; pwa/person-push.ts sends a new message of their chats). Every call first checks that
 // the person's token and access still hold (PeopleService.caller).
 // F13: a CEO's session names their role, and their agents and people come whole – they edit agents and manage members
@@ -21,9 +21,8 @@ import { bad, id, input, onlyKeys, optBool, optText } from '../rpc/params.ts';
 import { isTopic } from '../rpc/scopes.ts';
 import { allowedScope, type HandlerContext, type HandlerTable } from '../rpc/table.ts';
 import { maySeeSpace, mayUseAgent, ownersOwnAgent, visibleAgents } from './access.ts';
-import { directChat } from './direct-chat.ts';
 import { personActivity, personMaySubscribe } from './events.ts';
-import { personSettings, personSystemInfo, realId, viewAgent, viewPerson } from './perspective.ts';
+import { personSettings, personSystemInfo, viewAgent, viewPerson } from './perspective.ts';
 
 export const MAX_PERSON_TOPICS = 40;
 
@@ -106,17 +105,6 @@ export function registerPersonBase(table: HandlerTable): void {
     const person = caller(ctx);
     const ceo = person.role === 'ceo';
     return (ctx.services.people?.list() ?? []).filter((entry) => ceo || entry.status !== 'revoked').map((entry) => viewPerson(person.id, entry, ceo));
-  });
-  table.addPerson('people.directChat', (params, ctx) => {
-    const person = caller(ctx);
-    const other = realId(person.id, id(input(params)));
-    if (other === person.id) bad('id', 'someone else');
-    if (!person.scopes.startChats && !ctx.services.db.get('SELECT 1 FROM members a JOIN members b ON a.conversation_id = b.conversation_id WHERE a.member_id = ? AND b.member_id = ? AND a.left_at IS NULL AND b.left_at IS NULL LIMIT 1', [person.id, other])) {
-      throw new WorkforceError('forbidden', 'You may not start chats here. Ask the owner of the organisation.');
-    }
-    const conversationId = directChat(ctx.services, person.id, other);
-    if (ctx.services.chats.get(conversationId)?.archivedAt !== undefined) ctx.services.chats.unarchive(conversationId); // B-050 K1: they could not write in it otherwise
-    return { conversationId };
   });
 }
 

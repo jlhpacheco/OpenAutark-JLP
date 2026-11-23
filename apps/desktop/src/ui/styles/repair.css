@@ -33,15 +33,15 @@
   color: var(--secondary);
 }
 .repair-card > .icon, .repair-card > svg { color: var(--warn); }
-.repair-card h1 { margin: 4px 0 0; color: var(--text); font-size: 18px; font-weight: 600; line-height: 1.35; }
-.repair-card p { margin: 0; font-size: 14px; line-height: 1.5; }
+.repair-card h1 { margin: 4px 0 0; color: var(--text); font-size: calc(18px * var(--ui-text, 1)); font-weight: 600; line-height: 1.35; }
+.repair-card p { margin: 0; font-size: calc(14px * var(--ui-text, 1)); line-height: 1.5; }
 .repair-detail {
   padding: 8px 10px;
   border-radius: 8px;
   background: var(--chrome);
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 12px !important;
+  font-size: calc(12px * var(--ui-text, 1)) !important;
   overflow-wrap: anywhere;
 }
 .repair-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
@@ -53,13 +53,13 @@
   gap: 12px;
   padding: 10px 0;
   border-bottom: 1px solid var(--line);
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-text, 1));
   color: var(--text);
 }
 .repair-copy > span { min-width: 0; overflow-wrap: anywhere; }
 .repair-note { color: var(--text); overflow-wrap: anywhere; }
 .repair-note.error { color: var(--danger); }
-.repair-muted { color: var(--muted); font-size: 12px !important; }
+.repair-muted { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)) !important; }
 
 @media (max-width: 420px) {
   .repair-card { padding: 18px 16px; }

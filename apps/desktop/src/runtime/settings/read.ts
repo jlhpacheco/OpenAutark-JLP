@@ -8,7 +8,6 @@ import { isDeepStrictEqual } from 'node:util';
 import type { Settings } from '../../shared/model/system.ts';
 import { SECTIONS, defaultOf, type KeyDef, type PcDefaults } from './schema.ts';
 import { RETIRED_SECTIONS, checkPatchShape, deepMerge, isSettingsSection, unknownKeys, validateSettings } from './validate.ts';
-import { migrateModelSettings } from '../routing/uses-settings.ts';
 
 type Plain = Record<string, unknown>;
 const isPlain = (value: unknown): value is Plain => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -88,12 +87,11 @@ export interface ReadSettings {
  * version no longer has never costs the whole section. "$schema" (the file's pointer to its JSON Schema) is no section.
  */
 export function settingsFrom(file: Plain, base: Settings, defaults: Settings): ReadSettings {
-  const data = migrateModelSettings(file); // older model keys become the uses (routing/uses-settings.ts)
   const problems: FileProblem[] = [];
   const rejected: Plain = {};
   const dropped: string[] = [];
   const out = structuredClone(defaults) as unknown as Plain;
-  for (const [section, written] of Object.entries(data)) {
+  for (const [section, written] of Object.entries(file)) {
     if (section === '$schema') continue;
     if (RETIRED_SECTIONS.has(section)) { dropped.push(section); continue; }
     let value = withoutNulls(written);
@@ -128,35 +126,6 @@ export function noticeText(problems: readonly FileProblem[], whole?: string): st
   const sections = [...new Set(problems.map((problem) => problem.section))];
   const first = problems[0]?.detail ?? 'a value is invalid';
   return `settings.json: ${sections.join(', ')} ${sections.length === 1 ? 'was' : 'were'} not applied (${first}). The last good values stay until the file is fixed.`;
-}
-
-/** Sections of the old split store that were in settings.json; the others lived in the database only. */
-const OLD_FILE_SECTIONS: ReadonlySet<string> = new Set(['profile', 'preferences', 'notifications', 'voice', 'routing', 'day', 'org', 'lifecycle']);
-/** Keys of those sections that never reached the old file. */
-const OLD_DATABASE_KEYS: Readonly<Record<string, readonly string[]>> = {
-  preferences: ['closeToTray', 'openAtLogin', 'autoDownloadUpdates'],
-  routing: ['allowPaidFallback'],
-};
-
-/**
- * The one-time move of the old `settings` table (one stored section per row) into the file's sections: without a
- * usable file the rows are everything; with one, the file's values win and the rows add what the old file never
- * held (the database-only sections and keys).
- */
-export function withOldRows(file: Plain | undefined, rows: Plain): Plain {
-  if (!file) return structuredClone(rows);
-  const out: Plain = { ...file };
-  for (const [section, row] of Object.entries(rows)) {
-    if (!isPlain(row)) continue;
-    if (!OLD_FILE_SECTIONS.has(section)) {
-      if (!(section in out)) out[section] = structuredClone(row);
-      continue;
-    }
-    const extra: Plain = {};
-    for (const key of OLD_DATABASE_KEYS[section] ?? []) if (row[key] !== undefined) extra[key] = row[key];
-    if (Object.keys(extra).length) out[section] = { ...extra, ...(isPlain(out[section]) ? out[section] : {}) };
-  }
-  return out;
 }
 
 /** True when two settings say the same. */

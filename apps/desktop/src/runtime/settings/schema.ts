@@ -15,7 +15,7 @@ import { MODEL_USES, OFFABLE_USES, USE_ABOUT, USE_AUTO, USE_LABELS, type ModelUs
 import { KEY_HANDLE, PROVIDER_ID, PROVIDER_PROTOCOLS, providerNotes } from '../../shared/model/provider-entries.ts';
 import { DEFAULT_RELAY, DEFAULT_STUN } from '../../shared/model/relay.ts';
 import { MAX_WORDS } from '../../shared/voice/vocabulary.ts';
-import { humanDefault, MAX_HUMAN_MD } from '../../shared/model/agent-core.ts';
+import { SECURITY_SECTION } from './security-keys.ts';
 
 type Plain = Record<string, unknown>;
 type Literal = string | number | boolean;
@@ -100,15 +100,10 @@ export const SECTIONS: readonly SectionDef[] = [
     text('name', 'Your name; agents address you by it', 'text up to 120 characters', { maxLength: 120, default: '' }),
     text('company', 'Your company\'s name (also the name of the company space)', 'text up to 200 characters', { maxLength: 200, default: '' }),
     text('avatarFileId', 'Your picture: the id of a stored file', 'a file id, or null (none)', { maxLength: 80 }),
-    // Owner 18.11.2026: nothing in the app defaults to German, on no PC – profile.language and forEveryAgent start English.
+    // Owner 18.11.2026: nothing in the app defaults to German, on no PC – profile.language starts English.
     text('language', 'The language the agents speak with you (starts English on every PC; the AI sets it when you speak another)', 'a language code such as "en" or "de"', { pattern: PATTERNS.language, default: 'en' }),
     text('timezone', 'Your time zone', 'an IANA time zone such as "Europe/Berlin"', { maxLength: 64, default: fromPc('timezone') }),
     text('notes', 'How you want to be spoken to, kept by the AI (a language per topic, a form of address) – every agent reads it', `text up to ${NOTES_MAX} characters`, { maxLength: NOTES_MAX, default: '' }),
-    // B-085: chosen on the first run's About card; absent = whole. New hires read it into their SYSTEM.md; nothing enforces it.
-    { key: 'pcAccess', about: 'How far the team goes on its own on this PC: whole = anywhere, careful = freely in its own folders and checks with you before changes elsewhere (null: whole)', type: 'string', options: ['whole', 'careful'] },
-    // Owner 16.11.2026 (Settings › Security): one text for every agent, after each agent's own HUMAN.md (context/prompt-stable.ts).
-    text('forEveryAgent', 'Your lines to every agent: the last part of each agent\'s instructions, after what you wrote to that agent alone (its HUMAN.md); you and the agents change it here or in Settings › Security', `text up to ${MAX_HUMAN_MD} characters, "" = none`,
-      { maxLength: MAX_HUMAN_MD, default: () => humanDefault('en') }),
   ] },
   { key: 'preferences', title: 'Window and app', keys: [
     choice('theme', 'Colour scheme of the window', ['system', 'light', 'dark'], 'system'),
@@ -117,7 +112,6 @@ export const SECTIONS: readonly SectionDef[] = [
     flag('workspaceOpen', 'The side pane on the right (the browser) is open', false),
     int('workspaceWidth', 'Width of the side pane in pixels', 280, 1200, 420),
     flag('enterSends', 'Enter sends a message, Shift+Enter starts a new line (false: Ctrl+Enter sends)', true),
-    flag('closeToTray', 'Closing the window keeps the app and the agents running', true),
     flag('openAtLogin', 'Whether the app starts with the PC', false),
     flag('autoDownloadUpdates', 'New versions download by themselves', false),
   ] },
@@ -131,13 +125,13 @@ export const SECTIONS: readonly SectionDef[] = [
       options: ['todo', 'blocker', 'important', 'done', 'reply'], default: ['todo', 'blocker', 'important'] },
   ] },
   { key: 'voice', title: 'Voice – how the app hears and speaks', keys: [
-    text('ttsVoice', 'The voice that reads answers aloud', 'a voice name of this PC, or null (the default voice)', { maxLength: 200 }),
+    text('ttsVoice', 'The voice that reads answers aloud', 'a speaker number of this PC\'s voice ("0"–"9"), a system voice name (then every device reads with its own voice), or null (this PC\'s voice)', { maxLength: 200 }),
     { key: 'vocabulary', about: 'Extra names and terms speech recognition knows (for words it otherwise gets wrong)', type: 'array',
       allowed: `a list of up to ${MAX_WORDS} words, each up to 120 characters`, default: [], schema: { maxItems: MAX_WORDS, items: { type: 'string', minLength: 1, maxLength: 120 } } },
     choice('realtime', 'Voice conversations: auto = Realtime voice when an OpenAI or Google key offers it (billed per minute), off = this PC\'s speech', ['auto', 'off'], 'off'),
     flag('talker', 'A call without a real-time model: the Decisions model answers each spoken line at once while the agent works (false: the agent itself answers every line)', true),
     choice('localStt', 'This PC\'s speech-to-text model ("" = none; wf call voice.pullLocal downloads one)', ['', ...localSpeechIds('stt')], ''),
-    choice('localTts', 'This PC\'s text-to-speech model ("" = none: the system voice reads)', ['', ...localSpeechIds('tts')], ''),
+    choice('localTts', 'This PC\'s text-to-speech model, the voice every device reads with ("" = none chosen: a downloaded one, else the PC fetches its default voice when the disk has room; meanwhile each device\'s own voice)', ['', ...localSpeechIds('tts')], ''),
   ] },
   { key: 'routing', title: 'Models', keys: [
     ...MODEL_USES.map((use) => useKey(use)),
@@ -145,15 +139,13 @@ export const SECTIONS: readonly SectionDef[] = [
     flag('allowPaidFallback', 'Pay-per-use API keys: true = they compete with plans on every turn, false = an API key runs only when no plan or local model can', false),
   ] },
   { key: 'providers', title: 'Providers – the API connections', optional: true, free: true, keys: [], notes: providerNotes() },
-  { key: 'day', title: 'My day', keys: [
+  { key: 'day', title: 'Your day – working hours and the Tasks line', keys: [
     clock('workStart', 'Start of your working hours', DEFAULT_DAY_SETTINGS.workStart),
     clock('workEnd', 'End of your working hours (after workStart)', DEFAULT_DAY_SETTINGS.workEnd),
-    int('bufferMin', 'Minutes between planned blocks', 0, MAX_BUFFER_MIN, DEFAULT_DAY_SETTINGS.bufferMin),
-    flag('autoPlan', 'A plan of the day every morning', DEFAULT_DAY_SETTINGS.autoPlan),
-    clock('planAt', 'When the morning plan is made', DEFAULT_DAY_SETTINGS.planAt),
-    flag('aiHelps', 'My day: the AI tidies, sorts and prepares', DEFAULT_DAY_SETTINGS.aiHelps),
+    int('bufferMin', 'Minutes kept free around your appointments when a free time is looked for', 0, MAX_BUFFER_MIN, DEFAULT_DAY_SETTINGS.bufferMin),
+    clock('planAt', 'End of the night: from workEnd until then the PC stays awake while agent work is queued (with keepAwake)', DEFAULT_DAY_SETTINGS.planAt),
+    flag('aiHelps', 'Each line of the Tasks page stands at once as your to-do and your assistant sorts it, the AI\'s part to an agent (false: every line is "Only me" – sorted too, never handed to an agent)', DEFAULT_DAY_SETTINGS.aiHelps),
     flag('keepAwake', 'The screen stays on while agents work, and the PC awake while agent work is queued after working hours', DEFAULT_DAY_SETTINGS.keepAwake),
-    flag('agentLane', 'The agents\' scheduled runs show in My day\'s calendar', DEFAULT_DAY_SETTINGS.agentLane),
   ] },
   { key: 'calendar', title: 'Calendar – your own Google client (calendars are connected with the tool calendar.connect)', optional: true, keys: [
     text('googleClientId', 'Your own Google OAuth client id for Google Calendar', 'a client id, or null (none)', { pattern: PATTERNS.googleClientId }),
@@ -180,6 +172,7 @@ export const SECTIONS: readonly SectionDef[] = [
   { key: 'feedback', title: 'Feedback reports', keys: [
     flag('includeDiagnostics', 'Unused since B-078: every report carries the end of the app\'s log, redacted', true),
   ] },
+  SECURITY_SECTION, // owner 19.11.2026: Trust AI mode or Secure mode (security-keys.ts)
   { key: 'library', title: 'Public skill library (library.openautark.com)', keys: [
     flag('publish', 'Skills and notes worth sharing go to the public library (free for everyone, no sign-in), after the checks find nothing internal or secret', true),
   ] },

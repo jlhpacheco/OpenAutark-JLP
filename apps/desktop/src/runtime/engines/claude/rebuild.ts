@@ -1,6 +1,7 @@
 // Claude Code native rebuild (B-048 E2).
-// Owns: where a rebuilt transcript lives, how a turn resumes it, the model-free probe per CLI version, and
-// the deletion of superseded sessions the app created.
+// Owns: where a rebuilt transcript lives, how a turn resumes it, the model-free probe per CLI version, the
+// deletion of superseded sessions the app created, and the engine's one set of file operations (FileOps, on disk:
+// nodeFiles).
 // Tiers: 'path' (default) – the transcript in the app's own data folder (<data>/engine-transcripts/claude/<id>.jsonl),
 // resumed with `--resume <absolute path>`; 'project' – only when the probe shows path resume fails and only for
 // the app's own isolated homes (<data>/accounts/…): the transcript in that home's fixed project folder
@@ -15,6 +16,7 @@
 // Never: reads credential or settings files of a home, writes into a home that is not the app's own, or
 // deletes a file that is not named after a session id the app created.
 
+import { promises as fsp } from 'node:fs';
 import * as path from 'node:path';
 import type { Account } from '../../../shared/model/providers.ts';
 import type { RebuildProbe } from '../types.ts';
@@ -31,8 +33,10 @@ export const PROJECT_REF = 'project:';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PROBE_TIMEOUT_MS = 30_000;
 
-export interface RebuildFiles {
+/** The Claude Code engine's file operations (engine.ts, rebuilder.ts, fork.ts); tests give in-memory ones. */
+export interface FileOps {
   writeFile(file: string, data: string): Promise<void>;
+  readFile(file: string): Promise<Uint8Array>;
   mkdir(dir: string): Promise<void>;
   rm(file: string): Promise<void>;
   /** Removes a folder and what it holds (a session's subagent/tool-result folder). */
@@ -45,6 +49,31 @@ export interface RebuildFiles {
   tail(file: string, maxBytes: number): Promise<string | undefined>;
   append(file: string, data: string): Promise<void>;
 }
+
+async function readTail(file: string, maxBytes: number): Promise<string | undefined> {
+  let handle: Awaited<ReturnType<typeof fsp.open>> | undefined;
+  try {
+    handle = await fsp.open(file, 'r');
+    const { size } = await handle.stat();
+    const length = Math.min(size, maxBytes);
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, size - length);
+    return buffer.toString('utf8');
+  } catch { return undefined; } finally { await handle?.close().catch(() => undefined); }
+}
+
+/** FileOps on this PC's disk (a written file readable by its owner only). */
+export const nodeFiles: FileOps = {
+  writeFile: (file, data) => fsp.writeFile(file, data, { mode: 0o600 }),
+  readFile: (file) => fsp.readFile(file),
+  rm: (file) => fsp.rm(file, { force: true }),
+  mkdir: async (dir) => { await fsp.mkdir(dir, { recursive: true }); },
+  rmDir: (dir) => fsp.rm(dir, { recursive: true, force: true }),
+  size: (file) => fsp.stat(file).then((stat) => (stat.isFile() ? stat.size : undefined), () => undefined),
+  folders: (dir) => fsp.readdir(dir, { withFileTypes: true }).then((entries) => entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name), () => [] as string[]),
+  tail: readTail,
+  append: (file, data) => fsp.appendFile(file, data),
+};
 
 /** How a turn resumes a session ref: the --resume argument and the extra env (the 'project' tier's folder name). */
 export function resumeTarget(ref: string): { resume: string; env: Record<string, string>; path?: string } {
@@ -84,7 +113,7 @@ export function lastRecord(tail: string): { uuid: string; sessionId?: string; ve
 }
 
 /** A rebuilt transcript written for its tier; returns the session ref. */
-export async function writeTranscript(files: RebuildFiles, where: { tier: 'path' | 'project'; transcriptsDir: string; home?: string }, sessionId: string, lines: string[]): Promise<string> {
+export async function writeTranscript(files: FileOps, where: { tier: 'path' | 'project'; transcriptsDir: string; home?: string }, sessionId: string, lines: string[]): Promise<string> {
   if (where.tier === 'project') {
     if (!where.home) throw new Error('no app-owned Claude home for the project tier');
     const dir = path.join(where.home, 'projects', PROJECT_DIR_NAME);
@@ -105,7 +134,7 @@ export async function writeTranscript(files: RebuildFiles, where: { tier: 'path'
  * ref – the CLI's own transcript of its session id in the account home (projects/<folder>/<id>.jsonl plus its
  * <id>/ folder). `cliCopies` (the probe's own never-bound session): a path ref's CLI copies go too.
  */
-export async function deleteTranscripts(files: RebuildFiles, ref: string, where: { transcriptsDir: string; home?: string }, options: { cliCopies?: boolean } = {}): Promise<'deleted' | 'missing'> {
+export async function deleteTranscripts(files: FileOps, ref: string, where: { transcriptsDir: string; home?: string }, options: { cliCopies?: boolean } = {}): Promise<'deleted' | 'missing'> {
   const id = sessionIdOf(ref);
   if (!UUID.test(id)) return 'missing';
   let deleted = false;
@@ -158,7 +187,7 @@ export function probeOutcome(stdout: string): { ok: boolean; reason?: string } {
 }
 
 export interface ProbeDeps {
-  supervisor: Supervisor; files: RebuildFiles; exe: Executable; env: NodeJS.ProcessEnv; transcriptsDir: string; uuid: () => string; now: () => number;
+  supervisor: Supervisor; files: FileOps; exe: Executable; env: NodeJS.ProcessEnv; transcriptsDir: string; uuid: () => string; now: () => number;
 }
 
 /** One tier's probe: write the probe transcript, start `claude -p --resume` with initialize only, clean up. */

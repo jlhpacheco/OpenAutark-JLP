@@ -1,6 +1,6 @@
 ---
 name: proactive-follow-ups
-description: I read this when I close a task and when I plan recurring routines. Thinking one step ahead after finishing work with visible, cancellable follow-up schedules and self-reminders (e.g. answering YouTube comments after publishing).
+description: I read this when I close a to-do or quest and when I plan recurring routines. Thinking one step ahead after finishing work with visible notes to myself and repeating ones (e.g. answering YouTube comments after publishing).
 metadata:
   modes:
     - general
@@ -18,7 +18,7 @@ A good employee does not stop at "uploaded". They think of what that implies and
 without being asked. So do I - visibly and quietly; what I do not follow up, nobody does.
 
 ## The follow-through question
-Before I close a task, I ask myself: **what follows from this?** I go through these categories:
+Before I close a to-do or quest, I ask myself: **what follows from this?** I go through these categories:
 - **Monitor** - does it keep working? (site uptime, backups and free disk, render queue, delivery status)
 - **Respond** - will people react? (comments, replies, emails, reviews)
 - **Document** - should someone find this later? (notes, knowledge, changelog)
@@ -26,24 +26,21 @@ Before I close a task, I ask myself: **what follows from this?** I go through th
 - **Promote / reuse** - share, cross-post, turn into a template or skill
 - **Deadlines** - renewals, expiries, payment dates, follow-up meetings
 
-The small ones I do now; the ones that need time I schedule.
-What the person would not want I leave out; when unsure, I schedule it and mention it - a visible,
-cancellable schedule is better than a silent assumption or a question.
+The small ones I do now; the ones that need time get a to-do and a note to myself.
+What the person would not want I leave out; when unsure, I set it up and mention it - a visible note
+is better than a silent assumption or a question.
 
-## Schedules and self-reminders
-- A **self-reminder** is a note to my future self, written in first person with the reason:
-  "I published the video yesterday and set this up to answer the first comments. Check
-  comments, reply to questions, flag anything sensitive."
-- A **routine** is a recurring schedule, usually with an end: daily for 14 days, weekly ×4 (`until`
-  or `count`). One that runs for good has a reason I can name.
-- Timing is one `when` for every schedule tool: `{"at": "+2h"}` (or a time like
-  `"2026-10-26T09:00"` – without a zone it is the profile time zone) or `{"repeat": {…}}` with one of
-  `"every": "1d"`, `"times": ["09:00", "17:30"]` or `"cron": "0 18 * * 1"`, plus optional `days`
-  (`["mon", "wed"]`), `window`, `start`, `until`, `count` and `ifMissed`. I check the next runs the tool
+## Notes to myself
+- A note to myself (`tasks.remind`) is the one way I look at something again later. I write it the way I want to read it
+  then, with the reason: "I published the video yesterday to answer the first comments. Check comments, reply to
+  questions, flag anything sensitive." It arrives with its quest as it stands – every open to-do of mine, my colleagues'
+  and the person's – so I see what is still open and how long it has stood.
+- A routine is a repeating note, usually with an end: `repeat` with one of `"every": "1d"`, `"times": ["09:00", "17:30"]`
+  or `"cron": "0 18 * * 1"`, plus optional `days` (`["mon", "wed"]`), `window`, `start`, `until`, `count` and
+  `ifMissed`; once is `at` ("+2h", "tomorrow 9:00", "2026-10-26T09:00" in the person's zone). I check the next runs it
   answers with.
-- I re-time, pause, resume or reword a schedule with `schedules.update`; it keeps its history.
-  A schedule the person paused stays paused until they resume it; a new copy would undo their pause.
-- I attach schedules to the task so they are visible in its details and can be paused.
+- Every open quest of mine has its next note; one without gets the morning's look by itself.
+- `tasks.remind` with `list` shows my notes, `cancel` ends one; a new time is a new note.
 - Each run stays silent unless it has something worth reporting.
 
 ## Typical routines
@@ -65,10 +62,10 @@ cancellable schedule is better than a silent assumption or a question.
 4. Complaints, legal threats, press, partnerships and anything I am unsure about go to the person or
    manager with a short summary. They speak for the company there.
 5. Recurring questions I note - they are ideas for the next video or the description.
-6. I report when something notable happened; otherwise a quiet line in the task.
+6. I report when something notable happened; otherwise a quiet line in the to-do's thread.
 
 ## Telling people
-I mention what I scheduled where it matters to the reader (a date they should know, a
+I mention what I set up where it matters to the reader (a date they should know, a
 check they would otherwise wonder about). There is no fixed report format.
 
 ## Pitfalls

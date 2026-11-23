@@ -54,6 +54,7 @@ test('helperThread: lean config merged on top of the isolation, environments emp
   assert.deepEqual(lean.config.projects, { '/w': { trust_level: 'untrusted' } }, 'the isolation stays');
   assert.equal(lean.config.project_doc_max_bytes, 0);
   assert.equal(lean.config.web_search, 'disabled');
+  assert.equal('model_auto_compact_token_limit' in lean.config, false, 'Runde "Halb": a helper thread keeps Codex\'s own compaction limit');
   for (const key of ['include_permissions_instructions', 'include_apps_instructions', 'include_collaboration_mode_instructions', 'include_environment_context']) {
     assert.equal(lean.config[key], false, key);
   }

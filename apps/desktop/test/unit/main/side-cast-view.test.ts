@@ -10,7 +10,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GIVE_BACK_MS, SideCaster, castView } from '../../../src/main/side-driver/caster.ts';
+import { GIVE_BACK_MS, SideCaster } from '../../../src/main/side-driver/caster.ts';
+import { castView } from '../../../src/main/side-driver/cast-params.ts';
 import { screenshot } from '../../../src/main/side-driver/read.ts';
 import { SideTab, WATCHER_ECHO_MS } from '../../../src/main/side-driver/tab.ts';
 import type { SideBrowserCall } from '../../../src/shared/model/side-browser.ts';

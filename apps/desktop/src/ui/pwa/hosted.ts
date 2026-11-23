@@ -2,7 +2,7 @@
 // website's appUrl, an origin of its own) loads this PC's own UI into its document and reaches the PC through the meeting server. What the UI does
 // differently there goes through one explicit contract, window.autarkHosted v1: its RPC socket (a WebSocket-like on a
 // tunnel stream – a service worker cannot carry WebSockets), the base every relative PC path lives under (the shell's
-// service worker relays it to the PC), the frame URL of an ```app block, and "Forget this phone".
+// service worker relays it to the PC), the frame URL of an ```app block, "Forget this phone" and (W, 19.11.2026) Wake.
 // Owns: that contract's shape and the accessors the UI uses. Never: talks to the PC itself.
 
 /** D6, said honestly wherever the iPhone app shows what it can do. */
@@ -28,6 +28,11 @@ export interface AutarkHosted {
   frameUrl(path: string): string;
   /** Asks, then unsubscribes push, clears this phone's pairing, token and caches and shows the connect screen. */
   forget(): Promise<void>;
+  /**
+   * W (19.11.2026): wakes the PC whose wake helper key is `key` (Device.caps.wakeKey, named `name` in errors) through the
+   * phone's own meeting-server link – also when none of my PCs is online. Absent in a shell from before that day.
+   */
+  wake?(key: string, name: string): Promise<void>;
 }
 
 declare global {

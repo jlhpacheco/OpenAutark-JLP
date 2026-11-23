@@ -24,9 +24,10 @@ export function personName(id: string): string | undefined {
   return peopleMap.value.get(id)?.name;
 }
 
-/** People other than the caller who are still in the organisation, by name. */
+/** People other than the caller who are still in the organisation, by name – the ones a chat can add. Team-Call
+ *  21.11.2026: a company colleague shown on an employee's PC (fromEmployer) is no member here, so no chat picker lists them. */
 export function colleagues(): Person[] {
-  return people.value.filter((person) => person.status !== 'revoked' && person.id !== 'human').sort((a, b) => a.name.localeCompare(b.name));
+  return people.value.filter((person) => person.status !== 'revoked' && person.id !== 'human' && !person.fromEmployer).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function loadPeople(): Promise<void> {

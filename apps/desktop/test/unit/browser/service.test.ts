@@ -11,7 +11,7 @@ import { BrowserService, type LaunchOptions } from '../../../src/runtime/browser
 import type { ContextLike, DownloadLike, LocatorLike, PageLike } from '../../../src/runtime/browser/page.ts';
 import { normaliseUrl } from '../../../src/runtime/browser/page.ts';
 import { channelCandidates, detectChannel } from '../../../src/runtime/browser/channel.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 
 class FakeLocator implements LocatorLike {
   readonly page: FakePage;
@@ -174,7 +174,8 @@ test('password field values never show in a snapshot', async () => {
   page.snapshot = '- textbox "Password" [ref=e5]: correct horse\n- text: correct horse is a famous example';
   const text = (await browser.snapshot('ag_1')).snapshot;
   assert.match(text, /textbox "Password" \[ref=e5\]: •••• \(password field\)/);
-  assert.match(text, /- text: correct horse is a famous example/, 'only field lines are masked');
+  // 22.11.2026: a long hidden value is masked on every line (Stripe showed a card number on a text line); the rest stays
+  assert.match(text, /- text: •••• \(password field\) is a famous example/, 'the page text around it stays');
   await browser.close();
 });
 

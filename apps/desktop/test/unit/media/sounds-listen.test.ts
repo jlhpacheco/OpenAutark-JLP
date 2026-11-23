@@ -14,7 +14,7 @@ import type { HostMedia } from '../../../src/runtime/host.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import { NO_LISTENER } from '../../../src/runtime/decision/listener.ts';
 import { setSoundTagger, SoundTagger, type SoundEvent } from '../../../src/runtime/media/sounds.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { mediaTools } from '../../../src/runtime/tools/builtin/media.ts';
 import type { ToolContext } from '../../../src/runtime/tools/types.ts';
 import { encodeWav } from '../../../src/shared/voice/wav.ts';

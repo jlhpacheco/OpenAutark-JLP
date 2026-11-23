@@ -8,17 +8,28 @@
 // the server stalled for up to 70 s): a socket is terminated only after SILENT_MS (a minute, 4 pings) without any
 // frame – a stall of up to a minute on either PC keeps the link, a dead link still closes within about 60–75 s.
 // `onSilent` hears the socket and its silence just before it is cut (the peer sockets mark and log it).
-// Owns: that interval and the last-life times. Never: closes healthy sockets or keeps one after close.
+// Fest round 22.11.2026: a page's socket (http/ws.ts marks it with page() once its Hello is accepted) – every client
+// notices a silent connection the same way, but a page cannot see pings (the browser answers them below JavaScript) – also
+// gets BEAT, a tiny text frame, with every ping; ui/lib/rpc.ts closes and reconnects after a minute without any frame.
+// G: the time from a page's ping to its pong is one round trip to its device (devices/link-quality.ts) – no new traffic.
+// Owns: that interval, the last-life times, which sockets get BEAT and whose round trips they are. Never: closes healthy
+// sockets or keeps one after close.
 
 import type { WebSocket } from 'ws';
+import { noteRoundTrip } from '../devices/link-quality.ts';
 
 export const KEEPALIVE_MS = 15_000;
 /** Pings without any frame back before a socket is cut (B-080). */
 const SILENT_PINGS = 4;
+/** The text frame a page's socket gets with every ping: neither an answer nor an event, so every client passes over it. */
+export const BEAT = '{}';
+
+/** A socket's state: its last frame; for a page whether it beats, its device and when its last ping went out. */
+interface SocketState { lastLife: number; beat?: true; device?: string; pingAt?: number }
 
 /** One interval for all sockets, armed only while sockets exist; peers silent for SILENT_PINGS intervals are terminated. */
 export class Keepalive {
-  private readonly sockets = new Map<WebSocket, { lastLife: number }>();
+  private readonly sockets = new Map<WebSocket, SocketState>();
   private readonly intervalMs: number;
   private readonly now: () => number;
   private readonly onSilent?: (ws: WebSocket, silentMs: number) => void;
@@ -35,10 +46,14 @@ export class Keepalive {
   get silentMs(): number { return this.intervalMs * SILENT_PINGS; }
 
   add(ws: WebSocket): void {
-    const state = { lastLife: this.now() };
+    const state: SocketState = { lastLife: this.now() };
     this.sockets.set(ws, state);
     const alive = () => { state.lastLife = this.now(); };
-    ws.on('pong', alive);
+    ws.on('pong', () => {
+      alive();
+      if (state.device && state.pingAt !== undefined) noteRoundTrip(state.device, state.lastLife - state.pingAt, state.lastLife);
+      state.pingAt = undefined; // one pong per ping
+    });
     ws.on('message', alive);
     ws.once('close', () => this.remove(ws));
     if (!this.timer) {
@@ -46,6 +61,14 @@ export class Keepalive {
       this.timer = setInterval(() => this.tick(), this.intervalMs);
       this.timer.unref?.();
     }
+  }
+
+  /** A page's socket: from now on it also gets BEAT with every ping, and its round trips count for `deviceId` (a phone's or browser's). */
+  page(ws: WebSocket, deviceId?: string): void {
+    const state = this.sockets.get(ws);
+    if (!state) return;
+    state.beat = true;
+    if (deviceId) state.device = deviceId;
   }
 
   remove(ws: WebSocket): void {
@@ -79,7 +102,11 @@ export class Keepalive {
         this.remove(ws);
         continue;
       }
-      try { ws.ping(); } catch { /* closing */ }
+      try {
+        state.pingAt = now;
+        ws.ping();
+        if (state.beat) ws.send(BEAT);
+      } catch { /* closing */ }
     }
   }
 }

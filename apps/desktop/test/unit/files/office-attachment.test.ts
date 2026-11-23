@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { Blobs } from '../../../src/runtime/files/store.ts';
-import { nullLogger } from '../../../src/runtime/system/log.ts';
+import { nullLogger } from '../fakes.ts';
 import { clock, memoryDb, tempDir } from '../store/helpers.ts';
 import { docx, pptx, zip } from './office-fixture.ts';
 import { sttSetup } from '../media/stt-fixture.ts';

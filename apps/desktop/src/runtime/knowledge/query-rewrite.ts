@@ -1,10 +1,11 @@
 // Lexical query expansion for knowledge search (free, no model): the query's tokens (prefix match) plus
-// light stems of inflected words ("Rechnungen" also finds "Rechnung"), an exact phrase for every ID-like
+// light stems of inflected words ("Rechnungen" also finds "Rechnung"; the app's one stem, shared/text/normalize.ts), an exact phrase for every ID-like
 // token ("INV-2024-0042" as the sequence inv 2024 0042, so the exact ID outranks rows that share one of its
 // parts) and a small German/English work vocabulary ("Rechnung" <-> "invoice") for mixed-language stores.
 // Owns: these expansion rules. Never: calls a model or stores a query.
 
 import { foldText, searchTokens } from './normalize.ts';
+import { stem } from '../../shared/text/normalize.ts';
 
 export interface ExpandedQuery {
   /** FTS5 MATCH expression (undefined: nothing searchable). */
@@ -36,17 +37,6 @@ const LOOKUP = (() => {
   }
   return map;
 })();
-
-const SUFFIXES = ['ungen', 'ing', 'ies', 'en', 'er', 'es', 'ed', 'e', 's', 'n'];
-
-/** A light stem: the longest common inflection suffix removed, at least 4 letters kept. */
-export function stem(token: string): string {
-  if (token.length < 5 || /\d/.test(token)) return token;
-  for (const suffix of SUFFIXES) {
-    if (token.endsWith(suffix) && token.length - suffix.length >= 4) return suffix === 'ungen' ? `${token.slice(0, -suffix.length)}ung` : token.slice(0, -suffix.length);
-  }
-  return token;
-}
 
 /** Tokens that look like identifiers: letters and digits mixed, or long digit runs, as typed. */
 export function idTokens(text: string): string[] {

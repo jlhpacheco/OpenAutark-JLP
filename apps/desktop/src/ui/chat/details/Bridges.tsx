@@ -1,6 +1,6 @@
 // Chat details › Telegram: links this chat to a Telegram chat through a bot (bridges.*), lists
 // the links with their status and disconnects them; each row offers "Link my Telegram" (C9,
-// BridgeOwner.tsx). Kept fresh by bridge.upserted (topic 'chats').
+// BridgeOwner.tsx). Kept fresh by bridge.upserted (topic 'chats') and loaded again after every reconnect (lib/use-load.ts).
 // Owns: the rows and the connect form. Never: keeps the bot token after a successful connect
 // (it goes straight to the runtime, which stores it in the secret vault) or shows vault ids.
 
@@ -9,15 +9,16 @@ import type { Bridge } from '../../../shared/model/bridges.ts';
 import { errorText, rpc } from '../../lib/rpc.ts';
 import { toastError } from '../../lib/toasts.ts';
 import { Button, confirm, Icon, Spinner } from '../../lib/ui.tsx';
+import { useLoad } from '../../lib/use-load.ts';
 import { BridgeOwner } from './BridgeOwner.tsx';
 import { applyBridge, connectProblem, statusText } from './bridges-model.ts';
 
 function useBridges(conversationId: string) {
   const [list, setList] = useState<Bridge[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
+  useEffect(() => setList(null), [conversationId]); // another chat: never the last one's rows
+  useLoad(() => {
     let alive = true;
-    setList(null);
     rpc.call('bridges.list', { conversationId })
       .then((items) => { if (alive) { setList(items); setError(null); } })
       .catch((err) => { if (alive) setError(errorText(err)); });

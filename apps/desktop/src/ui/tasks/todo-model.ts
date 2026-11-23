@@ -1,6 +1,6 @@
 // Pure helpers behind the person's to-dos (split out of tasks/model.ts, which re-exports them): a person's join
-// request said as one sentence (the notice band's words too), where a list answer goes, widget icons (a mini-app
-// to-do, F01: own icon), the "Show as…" choices (none for mini-apps or host-bound cards) and the due state.
+// request said as one sentence (the notice band's words too), where a widget's answer goes, widget icons (a mini-app
+// to-do, F01: own icon) and the "Show as…" choices (none for mini-apps or host-bound cards).
 // Owns: these rules (unit-tested in test/unit/ui/tasks-model.test.ts and todo-model.test.ts).
 // Never: imports the store, rpc or the DOM – callers pass data in, so tests run in Node.
 
@@ -9,8 +9,6 @@ import { SYSTEM_ID } from '../../shared/ids.ts';
 import { isHostBoundTodo } from '../../shared/blocks/catalog.ts';
 import type { Task, TodoWidget } from '../../shared/model/tasks.ts';
 import type { IconName } from '../lib/icons.tsx';
-
-export const DAY_MS = 86_400_000;
 
 // ------------------------------------------------------------------ join requests, icons, "Show as…"
 
@@ -26,7 +24,7 @@ export function joinRequestLabel(task: Pick<Task, 'title' | 'widget' | 'createdB
   return match ? `${match[2].split(' · ')[0]} wants to join from ${match[1]}` : null;
 }
 
-/** Row label of a to-do: its title; a person's join request reads as one sentence (the same words in My day and the notice band). */
+/** Row label of a to-do: its title; a person's join request reads as one sentence (the same words on the Tasks page and the notice band). */
 export function todoLabel(task: Pick<Task, 'title' | 'widget' | 'createdBy'>): string {
   return joinRequestLabel(task) ?? task.title;
 }
@@ -69,12 +67,4 @@ export const SHOW_AS: ReadonlyArray<{ type: string; label: string }> = [
 export function showAsOptions(task: Pick<Task, 'widget' | 'createdBy' | 'assigneeKind'>): ReadonlyArray<{ type: string; label: string }> {
   if (task.assigneeKind !== 'human' || isHostBoundTodo(task) || appWidgetOf(task.widget)) return [];
   return SHOW_AS;
-}
-
-export type DueState = 'none' | 'overdue' | 'soon' | 'later';
-
-export function dueState(dueAt: number | undefined, now: number): DueState {
-  if (dueAt === undefined) return 'none';
-  if (dueAt < now) return 'overdue';
-  return dueAt - now < DAY_MS ? 'soon' : 'later';
 }

@@ -14,7 +14,7 @@ import type {
   Conversation, ConversationSettings, ConversationSummary, Member, Message, MessageMeta, SendMessageInput, StatusLine,
 } from '../shared/model/chat.ts';
 import type {
-  CreateTaskInput, Schedule, Task, TaskFilter, TaskResult, TaskView,
+  CreateTaskInput, Schedule, Task, TaskFilter, TaskResult, TaskView, TodoRepeat,
 } from '../shared/model/tasks.ts';
 import type { FinishInput, TaskPatch } from './tasks/service.ts';
 import type { NextRoute } from './agents/next-route.ts';
@@ -35,6 +35,7 @@ import type { DeviceService, FileStore, McpHub, NotificationService, RunJournal,
 export type * from './contracts/models.ts';
 export type * from './contracts/safety.ts';
 import type { SpeechToText } from './contracts/voice.ts';
+import type { SecurityService } from './security/service.ts';
 export type * from './contracts/voice.ts';
 /** Addition (CTX4): skill modes on save and skills from agent files (augments contracts/models.ts). */
 export type * from './contracts/skills.ts';
@@ -100,15 +101,16 @@ export interface OrgService {
 // ------------------------------------------------------------------ chats
 
 export interface ChatService {
-  /** `includeHidden`: also team rooms, system chats and (C2) archived chats – one list the views sort. */
-  list(options?: { includeHidden?: boolean; search?: string; forMember?: string }): ConversationSummary[];
+  /** `includeHidden`: also team rooms, system chats and (C2) archived chats – one list the views sort. `threads`: also tasks' threads (tasks/thread.ts – in no list otherwise). */
+  list(options?: { includeHidden?: boolean; search?: string; forMember?: string; threads?: boolean }): ConversationSummary[];
   get(id: string): Conversation | undefined;
   summary(id: string): ConversationSummary;
   members(id: string): Member[];
-  /** `settings` (C2): applied at creation, so a hidden or system chat never shows in the main list first. */
-  create(input: { title?: string; agentIds: string[]; humans?: boolean; people?: string[]; createdBy: string; spaceId?: string; lead?: string; settings?: Partial<ConversationSettings> }): Conversation; // people (F-52): person ids, members as 'human'
+  /** `settings` (C2): applied at creation, so a hidden or system chat never shows in the main list first. `id` (runtime only): a task's thread is made with its task's id (tasks/thread.ts). */
+  create(input: { id?: string; title?: string; agentIds: string[]; humans?: boolean; people?: string[]; createdBy: string; spaceId?: string; lead?: string; settings?: Partial<ConversationSettings> }): Conversation; // people (F-52): person ids, members as 'human'
   update(id: string, patch: { title?: string; pinned?: boolean; settings?: Partial<ConversationSettings> }, by: string): Conversation;
-  setMembers(id: string, change: { add?: string[]; remove?: string[]; lead?: string }, by: string): Member[];
+  /** `quiet`: no "Added …" or lead lines (a task's thread: its event line says it). */
+  setMembers(id: string, change: { add?: string[]; remove?: string[]; lead?: string }, by: string, options?: { quiet?: boolean }): Member[];
   archive(id: string): void;
   /** C2: back into the person's list (archive only hides a chat; its agents keep working there). */
   unarchive(id: string): void;
@@ -178,9 +180,8 @@ export interface TaskService {
   /** The person answered a widget/to-do: store, post their line, wake the author; {declined: true, reason?} with
    *  `decline` (todos.decline) drops it instead (tasks/decline.ts). A mini-app's data never declines. */
   answer(input: { taskId?: string; messageId?: string; blockIndex?: number; answer: unknown; by: string; clientId?: string; decline?: boolean }): TaskView | undefined;
-  /** Free text → the person's own to-do. */
-  addTodo(text: string, conversationId?: string): Promise<TaskView>;
-  changeWidget(id: string, type: string): TaskView;
+  /** "Show as" another widget; `repeat` (with 'timer') makes the to-do repeat at its time. */
+  changeWidget(id: string, type: string, repeat?: TodoRepeat): TaskView;
   /** A to-do waits until `until` and rings again (no receipt, nobody woken). */
   snooze(ref: string | { messageId: string; blockIndex: number }, until: number): TaskView;
   /** A repeating to-do stops repeating and is done. */
@@ -272,7 +273,7 @@ export interface WakeQueue {
 export interface Scheduler {
   create(input: Omit<Schedule, 'id' | 'nextAt' | 'lastAt' | 'runs' | 'active' | 'pausedBy' | 'createdAt'> & { active?: boolean }): Schedule;
   /** `by` ('human' or an agent id): a pause records it; an agent cannot resume what the person paused (B-044). */
-  update(id: string, patch: Partial<Pick<Schedule, 'title' | 'spec' | 'payload' | 'active'>>, by?: string): Schedule;
+  update(id: string, patch: Partial<Pick<Schedule, 'conversationId' | 'title' | 'spec' | 'payload' | 'active'>>, by?: string): Schedule;
   remove(id: string): void;
   list(filter?: { conversationId?: string; ownerId?: string; taskId?: string }): Schedule[];
   runNow(id: string): void;
@@ -362,11 +363,6 @@ export interface Subconscious {
    * `fact` (addition, B-080): the failure is a runtime fact (a named file is missing, a link does not answer), not a
    * model's doubt – only such a failure wakes the assignee (tasks/verification.ts). */
   verify(task: Task, result: TaskResult): Promise<{ ok: boolean; reason: string; checked?: boolean; fact?: boolean }>;
-  /** Free text → ask block for the human list. */
-  widgetFor(text: string): Promise<UiBlock>;
-  /** Addition (F05), optional so simple fakes stay valid: the props `text` gives that `block` lacks – the
-   * text's own first, then the cheap model; the type stays. */
-  fillWidget?(block: UiBlock, text: string): Promise<UiBlock>;
   /** Addition (01.11.2026), optional: what the main AI's history gets before this turn's model call – the trace kept for the thread; undefined = nothing. `said`: what people wrote for this turn; `woke` (v1, 14.11.2026): what other agents wrote for it; `taskText`: the turn's task as it reads it, its title and newest note (else its notes) – with content (`said` when a person wrote, else `woke` with content, else `taskText`), one call sets the turn's model and effort – not while a request of the agent's own or of its task (`taskId`) holds the turn –, opens the hits of the word search it chooses (first in the trace) and condenses context items whose job is done, and the turn waits for it, bounded (subconscious/service.ts, route-turn.ts, look.ts); `vision`: the turn shows an image (the call offers only models that see); `callId` (FIXES-3 D2): this turn answers a line of that running call (a task's turn too) – it does not wait for the call. `signal`: the turn's stop, which ends that call too. Never throws. */
   beforeTurn?(input: { agent: Agent; thread: string; conversationId?: string; taskId?: string; mode?: string; said?: string; woke?: string; taskText?: string; vision?: boolean; callId?: string; signal?: AbortSignal }): Promise<SubconsciousTrace | undefined>;
   /** Addition (01.11.2026), optional: a turn that never reached its engine gives back what beforeTurn gave it, a native turn the timeout decisions it could not take in (agents/native-timeout.ts); the next turn on the thread shows it. Never throws. */
@@ -416,4 +412,6 @@ export interface RuntimeServices {
   runs: RunJournal;
   /** Addition (MM1): speech to text for dictation and agents hearing recordings (voice/transcribe.ts). */
   stt: SpeechToText;
+  /** Sicher-Runde 19.11.2026: the security gate – Trust AI or Secure mode, approval requests (security/service.ts). */
+  security: SecurityService;
 }

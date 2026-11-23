@@ -112,7 +112,7 @@ test('a busy button keeps its box: transparent label under a centred spinner, ne
 });
 
 test('no column or side panel rounds its own corner; the frame draws the sheet edge once', () => {
-  for (const [file, selector] of [['shell.css', '.main-slot'], ['shell.css', '.global-pane'], ['chat.css', '.chat-panel'], ['tasks.css', '.tasks-detail']]) {
+  for (const [file, selector] of [['shell.css', '.main-slot'], ['shell.css', '.global-pane'], ['chat.css', '.chat-panel'], ['tasks-page.css', '.tasks-side']]) {
     assert.doesNotMatch(rule(css(file), selector), /radius/, `${selector} keeps no rounded corner`);
   }
   const shell = css('shell.css');
@@ -130,10 +130,10 @@ test('no column or side panel rounds its own corner; the frame draws the sheet e
   // it, the divider starts under the row
   assert.match(rule(shell, '.global-pane::before'), /top:\s*0;/);
   assert.match(rule(shell, '.shell > .app-frame.strip-in-row > .global-pane::before'), /top:\s*var\(--header-h\)/);
-  // B-044 decision 3: the chat side panel and the task detail are content below the header row, so
-  // their dividers start at their own top (= the row's bottom edge).
+  // B-044 decision 3: the chat side panel and the Tasks page's right column (calendar or detail) are content below the
+  // header row, so their dividers start at their own top (= the row's bottom edge) – the column's own left border.
   assert.match(rule(css('chat.css'), '.chat-panel:not(.sheet)::before'), /top:\s*0[;\s]/);
-  assert.match(rule(css('tasks.css'), '.tasks-detail::before'), /top:\s*0[;\s]/);
+  assert.match(rule(css('tasks-page.css'), '.tasks-side'), /border-left:\s*1px solid var\(--line\)/);
 });
 
 test('a chat\'s area opens below the chat header row in one fixed height, attached to the chat; the global pane keeps its Chrome look', () => {

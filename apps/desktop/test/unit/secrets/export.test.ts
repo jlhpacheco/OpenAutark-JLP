@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { SecretVault } from '../../../src/runtime/secrets/service.ts';
 import { defaultExportFile, EXPORT_COLUMNS, exportSecrets } from '../../../src/runtime/secrets/export.ts';
 import { GENERIC_EXPORT, parseCsv, parseExport, OWN_EXPORT } from '../../../src/runtime/secrets/import-parse.ts';

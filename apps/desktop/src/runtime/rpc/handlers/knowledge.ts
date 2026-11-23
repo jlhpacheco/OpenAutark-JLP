@@ -11,6 +11,7 @@
 import { WorkforceError } from '../../../shared/errors.ts';
 import { HUMAN_ID } from '../../../shared/ids.ts';
 import { fingerprint, mentions } from '../../privacy/mentions.ts';
+import { forgetOnMyPcs } from '../../devices/sync/ledger-forget.ts';
 import '../../contracts/ledger.ts';
 import type { KnowledgeItem, KnowledgeKind, KnowledgeListFilter, KnowledgeQuery, KnowledgeScope } from '../../../shared/model/knowledge.ts';
 import {
@@ -23,7 +24,7 @@ const CHAT = { capability: 'chat' } as const;
 const MANAGE = { capability: 'manage' } as const;
 const SECURE_MANAGE = { capability: 'manage', secure: true } as const;
 const SCOPES: readonly KnowledgeScope[] = ['global', 'space', 'agent', 'conversation', 'website', 'app', 'mode', 'reference']; // mode: scopeId = mode key (CTX3)
-const KINDS: readonly KnowledgeKind[] = ['fact', 'preference', 'experience', 'procedure', 'plan', 'observation', 'note', 'reference'];
+const KINDS: readonly KnowledgeKind[] = ['fact', 'preference', 'experience', 'procedure', 'plan', 'note', 'reference'];
 const PAGE = 50;
 const SKILL_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -123,6 +124,7 @@ export function register(table: HandlerTable): void {
     const print = fingerprint(ctx.services.knowledge.history(itemId).flatMap((item) => [item.title, item.body]));
     const ids = ctx.services.knowledge.forget(itemId, HUMAN_ID).ids;
     try { ctx.services.ledger?.forget?.((text) => mentions(text, print)); } catch (error) { ctx.services.log.warn('forget: the context ledger was not cleared', { error: String(error) }); } // what the agents' working context still holds of it
+    try { forgetOnMyPcs(ctx.services, print); } catch (error) { ctx.services.log.warn('forget: not sent to my other PCs', { error: String(error) }); } // Umzug 21.11.2026: their copies of the records too
     ctx.services.subconscious?.forget?.((text) => mentions(text, print)); // what still waits to be shown to them
     return { ok: true, ids };
   });

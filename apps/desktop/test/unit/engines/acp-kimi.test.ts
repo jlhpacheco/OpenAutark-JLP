@@ -14,7 +14,7 @@ import { engineCwd } from '../../../src/runtime/system/paths.ts';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
 import { Bus } from '../../../src/runtime/bus.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import type { SpawnFn } from '../../../src/runtime/system/supervisor.ts';
 import { isAcpPlan } from '../../../src/shared/model/providers.ts';
 import { cliRowView, needsSignIn, PC_CLIS, PROVIDER_NAMES, providerGroup, SIGN_IN, SIGN_OUT } from '../../../src/ui/settings/providers.ts';

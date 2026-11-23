@@ -79,11 +79,12 @@ export class ConversationRepo {
     return Number(row.last_seq);
   }
 
-  /** Visible list rows: not archived, pinned first, most recent activity first. */
-  list(options: { includeArchived?: boolean; forMember?: string } = {}): Conversation[] {
+  /** Visible list rows: not archived, never a task's thread (its id is the task's, tasks/thread.ts) unless `threads`, pinned first, most recent activity first. */
+  list(options: { includeArchived?: boolean; forMember?: string; threads?: boolean } = {}): Conversation[] {
     const where: string[] = [];
     const params: string[] = [];
     if (!options.includeArchived) where.push('c.archived_at IS NULL');
+    if (!options.threads) where.push(`c.id NOT LIKE 'task\\_%' ESCAPE '\\'`);
     if (options.forMember) {
       where.push('EXISTS (SELECT 1 FROM members m WHERE m.conversation_id = c.id AND m.member_id = ? AND m.left_at IS NULL)');
       params.push(options.forMember);

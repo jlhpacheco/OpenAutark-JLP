@@ -8,8 +8,7 @@
 //     clears both and the chip names the routed model again; a search that matches nothing says "No models";
 //   * at 375 px (phone layout) the menu stays on screen and the page has no horizontal scroll;
 //   * screenshots light, dark and 375 px; no renderer errors.
-// Run: npm run test:ui (needs a fresh build). WORKFORCE_EXECUTABLE selects an unpacked CI package;
-// SCREENSHOTS=<dir> keeps the screenshots.
+// Run: npm run test:ui   (needs a fresh build)   SCREENSHOTS=<dir> keeps the screenshots.
 
 import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
@@ -21,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -29,7 +29,6 @@ test('model chip: the routed model, a chosen model and effort per chat, search, 
   const profile = await mkdtemp(path.join(os.tmpdir(), 'workforce-model-menu-'));
   const shots = process.env.SCREENSHOTS ? path.resolve(process.env.SCREENSHOTS) : path.join(profile, 'shots');
   await mkdir(shots, { recursive: true });
-  const packaged = process.env.WORKFORCE_EXECUTABLE;
   const app = await electron.launch({
     executablePath: packaged ? path.resolve(packaged) : electronPath, args: packaged ? [] : [root], cwd: root, timeout: 60_000,
     env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }),
@@ -38,7 +37,7 @@ test('model chip: the routed model, a chosen model and effort per chat, search, 
   t.after(async () => {
     rpc?.close?.();
     await app.close().catch(() => undefined);
-    await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }).catch(() => undefined);
+    if (!process.env.SCREENSHOTS) await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }).catch(() => undefined);
   });
 
   const page = await app.firstWindow();
@@ -49,7 +48,7 @@ test('model chip: the routed model, a chosen model and effort per chat, search, 
   const size = (width, height) => app.evaluate(({ BrowserWindow }, [w, h]) => { const [win] = BrowserWindow.getAllWindows(); win.setMinimumSize(320, 480); win.setSize(w, h); }, [width, height]);
   await size(1280, 820);
   const shot = async (name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('settings.update', { onboarding: { step: 'done' } });
   const manager = (await rpc.call('agents.list')).find((agent) => agent.template === 'manager');
@@ -68,7 +67,7 @@ test('model chip: the routed model, a chosen model and effort per chat, search, 
   // Before the first turn: the model the app routes the agent to now, by name.
   const routed = await rpc.call('routing.preview', { agentId: manager.id, conversationId: chat.id, ignorePin: true });
   const routedNames = [routed.modelId, models.find((model) => model.id === routed.modelId)?.name ?? ''];
-  await page.waitForFunction(() => document.querySelector('.composer-actions .model-chip .chip-label .sub')?.textContent?.trim(), undefined, { timeout: 10_000 });
+  await page.waitForFunction(() => document.querySelector('.composer-actions .model-chip .chip-label')?.textContent?.trim(), undefined, { timeout: 10_000 });
   const routedLabel = (await chip.locator('.chip-label').textContent()).trim();
   assert.match(routedLabel, /^Auto\s+\S/);
   const routedName = routedLabel.replace(/^Auto\s+/, '');
@@ -102,7 +101,7 @@ test('model chip: the routed model, a chosen model and effort per chat, search, 
   await menu.getByRole('textbox', { name: 'Search models' }).fill('');
 
   // Pick the first model: stored as the agent's suggestion in this chat (no hard pin); the chip keeps its box.
-  const first = menu.locator('.model-option:not(.unavailable)').first();
+  const first = menu.locator('[role="menuitemradio"]').nth(1);
   const firstId = await first.getAttribute('title');
   const firstModel = models.find((model) => model.id === firstId);
   assert.ok(firstModel, 'the first choice is an available catalog model in the fixture');

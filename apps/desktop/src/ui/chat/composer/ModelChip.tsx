@@ -18,7 +18,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ConversationSettings, ConversationSummary } from '../../../shared/model/chat.ts';
 import type { Effort, ModelInfo } from '../../../shared/model/providers.ts';
 import { Icon, Popover } from '../../lib/ui.tsx';
-import { loadModels, messagesFor, models } from '../../lib/store.ts';
+import { messagesFor, models } from '../../lib/store.ts';
 import { rpc } from '../../lib/rpc.ts';
 import { can } from '../../lib/session.ts';
 import { toastError } from '../../lib/toasts.ts';
@@ -126,12 +126,7 @@ export function ModelChip(props: { chat: ConversationSummary; agentId: string | 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   useEffect(() => { if (props.openSignal) setOpen(true); }, [props.openSignal]);
-  useEffect(() => {
-    // the catalog from the start: the chip names its model by the catalog's name and the menu opens with its list
-    // (loaded only on open, the name changed and the list filled in after the click); asked again while still empty
-    if (!models.peek().length) void loadModels().catch(() => undefined);
-    if (!open) setQuery('');
-  }, [open]);
+  useEffect(() => { if (!open) setQuery(''); }, [open]); // the catalog comes with every (re)connect (store.loadAll)
   const used = agentId ? lastUsed(chat.id, agentId) : undefined;
   const route = useRoutePreview(agentId, chat.id, [used, models.value]); // asked anew after a turn on another model
   if (!agentId) return <span class="chip model-chip placeholder" aria-hidden="true" />;

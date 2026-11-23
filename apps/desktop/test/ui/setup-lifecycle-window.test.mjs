@@ -3,7 +3,7 @@
 //   * the first-run layer goes card by card (AI → About you) and each card writes its step; "Back" goes to the card
 //     before; another window moving the step on is followed;
 //   * About you's Start creates nobody, completes the onboarding and opens the Manager's first chat with the app's
-//     start text as the person's line, once; My day shows no setup line;
+//     start text as the person's line, once (the spotlight tour over it is skipped); My day shows no setup line;
 //   * Team's Add menu offers "Start setup again" (its confirm's Cancel changes nothing); the command palette's
 //     "Set up team again" asks the same confirm, then resets onboarding (step 'ai', not completed) and shows the layer
 //     on Home from its first card;
@@ -19,6 +19,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -50,7 +51,7 @@ test('first-run cards and Back; Start → the Manager\'s chat, no setup line; "S
   const shot = async (name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
   const step = async () => (await page.locator('.first-run-step').textContent())?.trim();
 
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   const onboarding = async () => (await rpc.call('settings.get')).onboarding;
   const manager = (await rpc.call('agents.list')).find((agent) => agent.template === 'manager' && !agent.archivedAt);
@@ -89,11 +90,17 @@ test('first-run cards and Back; Start → the Manager\'s chat, no setup line; "S
   assert.deepEqual(await onboarding(), { completed: true, step: 'done' }, 'Start completes the onboarding');
   const human = (await rpc.call('messages.list', { conversationId: chatId, limit: 20 })).filter((message) => message.authorKind === 'human');
   assert.equal(human.length, 1, "the start text, once, as the person's line");
-  assert.match(human[0].body, /^Automatic message: /);
+  // F07: the start line says the app sent it at Start (resources/prompts/onboarding.md, in the profile's language)
+  assert.match(human[0].body, /^(Sent by Autark when I clicked Start|Von Autark gesendet, als ich auf Start geklickt habe|Envoyé par Autark quand j'ai cliqué sur Start|Enviado por Autark cuando hice clic en Start) ?: /);
+  // B-085 T2: the spotlight tour opens over that chat once (a modal dialog over the window); Skip ends it
+  const spotlight = page.locator('dialog.spotlight');
+  await spotlight.waitFor({ timeout: 15_000 });
+  await spotlight.getByRole('button', { name: 'Skip' }).click();
+  await spotlight.waitFor({ state: 'detached', timeout: 5_000 });
 
   // Home (My day): no "is setting up your team with you" line.
   await go('#/home');
-  await page.locator('.day-view').waitFor({ timeout: 15_000 });
+  await page.locator('.main-slot .tasks-page').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(500);
   assert.equal(await page.locator('[data-notice="setup"]').count(), 0, 'no setup line');
   await shot('lifecycle-02-home-light');

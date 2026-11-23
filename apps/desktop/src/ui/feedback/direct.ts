@@ -7,12 +7,14 @@
 // clientId, so a retry whose first answer got lost finds its own letter: 409 = it arrived). The receiver (public key,
 // project, web API key) is built into the page (scripts/build.mjs from resources/feedback/receiver.json).
 // Text, view, place and the device's own diagnostics are redacted here (shared/secrets/redact-text.ts) – the PC's vault
-// never sees these words. A recording that does not fit beside the text and the image stays behind (the text goes).
+// never sees these words. Owner 20.11.2026: a report is its words – a dictated one goes as its transcript (`dictated`).
+// Owner 21.11.2026: its images go as `images`, in order.
 // Owns: the payload, the seal and the create request of a page. Never: sends without a Send, sends anything but the
 // sealed bytes, or reaches a host other than the mailbox; null (the PC sends instead) where this page cannot seal.
 
-import { FEEDBACK_AUDIO_MAX, FEEDBACK_CLIENT_DIAGNOSTICS_MAX, FEEDBACK_CLIENT_MAX, FEEDBACK_SEALED_LIMIT } from '../../shared/model/feedback-delivery.ts';
+import { FEEDBACK_CLIENT_DIAGNOSTICS_MAX, FEEDBACK_CLIENT_MAX, FEEDBACK_SEALED_LIMIT } from '../../shared/model/feedback-delivery.ts';
 import { redactText } from '../../shared/secrets/redact-text.ts';
+import { entryImages } from './outbox.ts';
 import type { OutboxEntry, ReportLine } from './outbox.ts';
 
 declare const __FEEDBACK_RECEIVER__: { publicKey: string; project: string; apiKey: string } | null | undefined;
@@ -60,14 +62,7 @@ export async function sealWeb(publicKey: string, bytes: Uint8Array<ArrayBuffer>,
   return join(MAGIC, ephemeral, nonce, body);
 }
 
-/** The recording's container by its magic bytes (runtime/feedback/letter.ts audioType). */
-function audioMime(bytes: Uint8Array): 'audio/webm' | 'audio/mp4' | undefined {
-  if (bytes.length > 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) return 'audio/webm';
-  if (bytes.length > 12 && String.fromCharCode(...bytes.subarray(4, 8)) === 'ftyp') return 'audio/mp4';
-  return undefined;
-}
-
-/** The letter's JSON bytes: the report as the team reads it; the recordings only when everything fits. */
+/** The letter's JSON bytes: the report as the team reads it. */
 export async function letterOf(entry: OutboxEntry, version: string): Promise<Uint8Array<ArrayBuffer>> {
   const clean = (value: string, max: number) => redactText(value).slice(0, max);
   const payload: Record<string, unknown> = {
@@ -75,22 +70,11 @@ export async function letterOf(entry: OutboxEntry, version: string): Promise<Uin
     os: clean(entry.client.split(' · ').slice(0, 2).join(' · '), 120), client: clean(entry.client, FEEDBACK_CLIENT_MAX),
     ...(entry.where.view ? { view: clean(entry.where.view, 120) } : {}),
     ...(entry.clientDiagnostics ? { clientDiagnostics: clean(entry.clientDiagnostics, FEEDBACK_CLIENT_DIAGNOSTICS_MAX) } : {}),
-    ...(entry.audio.length ? { dictated: true } : {}),
+    ...(entry.dictated ? { dictated: true } : {}),
   };
-  const image = entry.image ? /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(entry.image) : null;
-  if (image) payload.screenshot = { mime: image[1], base64: image[2] };
-  const encode = () => new TextEncoder().encode(JSON.stringify(payload));
-  const takes: Array<{ mime: string; base64: string }> = [];
-  for (const take of entry.audio.slice(0, FEEDBACK_AUDIO_MAX)) {
-    const bytes = new Uint8Array(await take.blob.arrayBuffer());
-    const mime = audioMime(bytes);
-    if (mime) takes.push({ mime, base64: base64(bytes) });
-  }
-  if (takes.length) {
-    payload.audio = takes;
-    if (encode().length + SEAL_BYTES > FEEDBACK_SEALED_LIMIT) delete payload.audio; // too large: the text and the image go
-  }
-  const bytes = encode();
+  const images = entryImages(entry).map((src) => /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(src)).filter((image) => image !== null);
+  if (images.length) payload.images = images.map((image) => ({ mime: image[1], base64: image[2] }));
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
   if (bytes.length + SEAL_BYTES > FEEDBACK_SEALED_LIMIT) throw new Error('This report is too large to send.');
   return bytes;
 }

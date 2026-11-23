@@ -25,10 +25,16 @@ export class KvRepo {
     return this.db.run('DELETE FROM kv WHERE ns = ? AND key = ?', [ns, key]).changes > 0;
   }
 
-  list<T>(ns: string): Array<{ key: string; value: T; updatedAt: number }> {
+  /** The rows of `ns` (only the keys that start with `prefix`, when given), by key. */
+  list<T>(ns: string, prefix = ''): Array<{ key: string; value: T; updatedAt: number }> {
     return this.db
-      .all<{ key: string; value: string; updated_at: number }>('SELECT key, value, updated_at FROM kv WHERE ns = ? ORDER BY key', [ns])
+      .all<{ key: string; value: string; updated_at: number }>('SELECT key, value, updated_at FROM kv WHERE ns = ? AND substr(key, 1, ?) = ? ORDER BY key', [ns, prefix.length, prefix])
       .map((row) => ({ key: row.key, value: json<T>(row.value, undefined as T), updatedAt: Number(row.updated_at) }));
+  }
+
+  /** Removes every key of `ns` that starts with `prefix`; how many went. */
+  deletePrefix(ns: string, prefix: string): number {
+    return this.db.run('DELETE FROM kv WHERE ns = ? AND substr(key, 1, ?) = ?', [ns, prefix.length, prefix]).changes;
   }
 }
 

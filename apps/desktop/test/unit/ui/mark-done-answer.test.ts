@@ -1,6 +1,6 @@
-// "Mark done" on a mini-app to-do (HumanItem.tsx, wave-8 F06 leftover): the answer it sends is
+// "Mark done" on a mini-app to-do (tasks/TodoWidget.tsx, wave-8 F06 leftover): the answer it sends is
 // told apart from a real wf.complete result in the person's line (B-076: the agent reads that line too).
-// The answer is read from HumanItem.tsx's source (a .tsx file the node test runner cannot
+// The answer is read from TodoWidget.tsx's source (a .tsx file the node test runner cannot
 // import), so a change there – `manual` dropped, another note – fails here.
 
 import { test } from 'node:test';
@@ -11,12 +11,12 @@ import { fileURLToPath } from 'node:url';
 import { answerText, oneLine } from '../../../src/shared/blocks/answer-text.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const item = readFileSync(path.join(root, 'src/ui/tasks/HumanItem.tsx'), 'utf8');
+const item = readFileSync(path.join(root, 'src/ui/tasks/TodoWidget.tsx'), 'utf8');
 
-/** HumanItem.tsx's MARKED_DONE_ANSWER object literal, parsed as JSON (quoted strings, bare keys). */
+/** TodoWidget.tsx's MARKED_DONE_ANSWER object literal, parsed as JSON (quoted strings, bare keys). */
 function markedDoneAnswer(): Record<string, unknown> {
   const literal = item.match(/const MARKED_DONE_ANSWER = (\{[^}]*\})/)?.[1];
-  assert.ok(literal, 'HumanItem.tsx declares MARKED_DONE_ANSWER');
+  assert.ok(literal, 'TodoWidget.tsx declares MARKED_DONE_ANSWER');
   const json = literal
     .replace(/'((?:[^'\\]|\\.)*)'/g, (_match, text: string) => JSON.stringify(text.replace(/\\'/g, "'")))
     .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":');

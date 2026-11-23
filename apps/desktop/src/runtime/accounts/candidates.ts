@@ -2,7 +2,7 @@
 // Owns: engine → provider mapping; the health filter – state, cooling and used-up limit windows
 // (a window at 100 % with a future reset counts as cooling until then; model windows such as
 // weekly-opus only for matching models; a plan whose owner switched on its extra usage – Account.extraUsage – is not
-// held by a used-up window, only by cooling, and ranks behind every plan with quota left, like a paying key); ordering (B-083: accounts that pay per use – models/pricing.ts chargeOf 'paid' –
+// held by a used-up window, only by cooling, and ranks behind every plan with quota left, like a paying key); ordering (B-083: accounts that pay per use – shared/model/charge.ts accountCharge 'paid' –
 // behind plans, keys holding a plan's monthly API credits and free ones, whatever their priority; then the plan whose
 // current weekly reading resets first – `weeklyReset` –, then priority, then the smallest remaining share of the windows
 // that apply). Every signed-in plan of a provider takes turns (owner 09.11.2026: "Die müssen einspringen können …
@@ -16,9 +16,9 @@
 // model's provider, so they never serve another provider's model).
 // Never: touches the DB or the clock (callers pass `now`).
 
-import { isAcpPlan, MEDIA_ONLY_PROVIDERS, type Account, type EngineId, type LimitWindow, type ProviderId } from '../../shared/model/providers.ts';
-import { isPlanProvider, isUsableState } from '../../shared/model/plan-roles.ts';
-import { chargeOf } from '../models/pricing.ts';
+import { MEDIA_ONLY_PROVIDERS, type Account, type EngineId, type LimitWindow, type ProviderId } from '../../shared/model/providers.ts';
+import { isUsableState } from '../../shared/model/plan-roles.ts';
+import { accountCharge } from '../../shared/model/charge.ts';
 import { weeklyWindow, windowApplies, windowScope } from './limits.ts';
 
 export const ENGINE_PROVIDERS: Record<EngineId, ProviderId[]> = {
@@ -58,7 +58,7 @@ export function applicableWindows(account: Account, now: number, model?: string)
  * by the provider): a used-up window does not hold it, the provider goes on serving the turn. A turn the provider refuses
  * anyway (extra usage not switched on there, its cap reached) comes back as a limit and cools the account as always.
  */
-const goesOnPastLimit = (account: Account) => account.extraUsage === true && planQuota(account);
+const goesOnPastLimit = (account: Account) => account.extraUsage === true && accountCharge(account) === 'plan';
 
 /** The account's turn on `model` runs on extra usage now: a plan allowed to, with a used-up window that applies. */
 export function inOverage(account: Account, now: number, model?: string): boolean {
@@ -80,12 +80,6 @@ export function isHealthy(account: Account, now: number, model?: string): boolea
   return isUsableState(account) && blockedUntil(account, now, model) === undefined;
 }
 
-/** Remaining weekly percent; undefined when unknown. */
-export function weeklyHeadroom(account: Account, now: number): number | undefined {
-  const weekly = weeklyWindow(account.limits, now);
-  return weekly ? Math.max(0, 100 - weekly.usedPercent) : undefined;
-}
-
 /** Smallest remaining percent of the windows that apply (5h, weekly, the model's own window); undefined when unknown. */
 export function headroom(account: Account, now: number, model?: string): number | undefined {
   const windows = applicableWindows(account, now, model);
@@ -104,18 +98,13 @@ export function modelOnlyLimit(account: Account, now: number, model: string): bo
 
 // ------------------------------------------------------------------ the plan whose week resets first
 
-/** A plan login (subscription quota that resets), not a key that pays per use or a local runtime. */
-function planQuota(account: Account): boolean {
-  return (isPlanProvider(account.provider) || isAcpPlan(account.provider)) && account.auth === 'cli' && account.plan?.trim().toLowerCase() !== 'api';
-}
-
 /**
  * When a plan's current weekly reading resets – its quota left by then is lost, so the plan that resets first runs first
  * (owner 09.11.2026). Infinity for keys, local runtimes and plans without a current weekly reading (never read, or the
  * reading's reset has passed and the monitor has not read the new week yet): those rank behind, by priority.
  */
 export function weeklyReset(account: Account, now: number): number {
-  if (!planQuota(account)) return Infinity;
+  if (accountCharge(account) !== 'plan') return Infinity; // a key paying per use or a local runtime has no week to lose
   return weeklyWindow(account.limits, now)?.resetsAt ?? Infinity;
 }
 
@@ -129,7 +118,7 @@ export function selectCandidates(accounts: Account[], engine: EngineId, now: num
   }
   return out.sort((a, b) => {
     // B-083: credits and plans before paying keys; 17.11.2026: a plan running on its extra usage counts as paying (behind every plan with quota left)
-    const paid = Number(chargeOf(a) === 'paid' || inOverage(a, now, model)) - Number(chargeOf(b) === 'paid' || inOverage(b, now, model));
+    const paid = Number(accountCharge(a) === 'paid' || inOverage(a, now, model)) - Number(accountCharge(b) === 'paid' || inOverage(b, now, model));
     if (paid) return paid;
     const ra = weeklyReset(a, now); // the plan whose week resets first goes first
     const rb = weeklyReset(b, now);

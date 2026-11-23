@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { AccountMonitor } from '../../../src/runtime/accounts/monitor.ts';
 import { mergeLimits, normalizeCodexLimits } from '../../../src/runtime/accounts/limits.ts';
 import { Bus } from '../../../src/runtime/bus.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import type { Account, AccountLimits } from '../../../src/shared/model/providers.ts';
 
 const T0 = Date.UTC(2026, 9, 25, 12);

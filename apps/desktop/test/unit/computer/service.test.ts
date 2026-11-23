@@ -10,7 +10,8 @@ import type { HelperClient } from '../../../src/runtime/computer/helper.ts';
 import type { HelperOp } from '../../../src/runtime/computer/protocol.ts';
 import type { Host } from '../../../src/runtime/host.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
+import { SECRET_LABEL } from '../../../src/shared/secrets/secret-places.ts';
 import { decodePng, encodePng, pngSize } from '../../../src/runtime/computer/png.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 
@@ -110,7 +111,7 @@ test('screenshots report geometry; screenshot-pixel clicks are mapped to the scr
   assert.equal(shot.scale, 2.4);
   assert.deepEqual(shot.origin, { x: 1920, y: 0 });
   assert.equal(Buffer.from(shot.data).toString(), 'jpeg-bytes');
-  assert.deepEqual(helper.calls[0].args, { screen: 1, hwnd: undefined, region: undefined, maxEdge: 1600, quality: 70, format: 'jpeg' });
+  assert.deepEqual(helper.calls[0].args, { screen: 1, hwnd: undefined, region: undefined, maxEdge: 1600, quality: 70, format: 'jpeg', secretLabel: SECRET_LABEL.source }, '22.11.2026: the helper paints card, code and password fields black');
   await computer.click({ x: 800, y: 450, coords: 'screenshot', agentId: 'ag_1', motion: 'instant' });
   assert.deepEqual(helper.calls[1], { op: 'click', args: { x: 1920 + 1921, y: 1081, button: 'left', count: 1 } });
   await assert.rejects(computer.click({ x: 1, y: 1, coords: 'screenshot', agentId: 'ag_other' }), /No screenshot yet/);

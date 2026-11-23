@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  addedDevices, createDeviceChooser, deviceConstraint, devicesOf, discardTake, heldTakes, holdTake, limitKeepingHeld,
+  addedDevices, createDeviceChooser, deviceConstraint, devicesOf, discardTake, heldTakes, holdTake,
   preferredDevice, realDevice, releaseTake, rememberDevice, rememberedDevice, takeBusy,
 } from '../../../src/ui/blocks/ui/media-devices.ts';
 import type { DeviceChoice, DeviceInfo, StorageLike } from '../../../src/ui/blocks/ui/media-devices.ts';
@@ -256,13 +256,6 @@ test('held takes: two widgets on one key, release and discard', () => {
   releaseTake('task_2', a);
   assert.equal(heldTakes.value.size, 0);
   assert.doesNotThrow(() => discardTake('task_9'), 'no widget and no IndexedDB here: nothing to do');
-});
-
-test("Home's limit keeps a held item in order", () => {
-  const items = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
-  assert.deepEqual(limitKeepingHeld(items, 5, () => false), ['a', 'b', 'c', 'd', 'e']);
-  assert.deepEqual(limitKeepingHeld(items, 5, (item) => item === 'g'), ['a', 'b', 'c', 'd', 'e', 'g']);
-  assert.deepEqual(limitKeepingHeld(items, undefined, () => false), items);
 });
 
 test('stored takes older than a week count as stale', () => {

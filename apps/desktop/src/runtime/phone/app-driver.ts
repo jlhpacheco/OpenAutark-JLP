@@ -3,20 +3,26 @@
 // request per step on the bus, with the run (`job`) and the agent's name (`by`), and waits for its phoneUse.reply (20 s,
 // a question APP_PHONE_ASK_TIMEOUT_MS, or the run's cancel). The serial of an app phone is its device id. On the phone
 // an AccessibilityService reads nothing until a request asks, and a bubble names the agent while it acts (feedback
-// 16.11.2026 F16, apps/android phoneuse/*): the person's touch pauses phone use until 5 s after their last touch, their
-// Pause holds until Continue, their ✕ ends it for the job; `say` puts the AI's line or question (✓ / ✕) in the bubble.
+// 16.11.2026 F16, apps/android phoneuse/*): the person's Pause holds until Continue, their ✕ ends it for the job; their
+// own taps and typing change nothing (owner 20.11.2026) – my next look shows the screen as it is. `say` puts the AI's
+// line or question (✓ / ✕) in the bubble. `open` with `app` opens an app by the name under its icon (Konrad 19.11.2026
+// guessed SimplySign's package twice); an app before that answers bad_request, which becomes OLD_APP_OPEN.
+// `say` with buttons (owner 19.11.2026) puts the AI's own labels there. When a run that used a phone is over
+// (run.upserted with its end), that phone hears 'done' and its bubble goes at once instead of lingering (owner 19.11.:
+// "sehe ich immer noch, dass sie gerade mein Handy verwendet, obwohl sie schon längst aufgehört hat").
 // The phone's refusals reach the AI in its own words; an app older than 0.3.15 that does not know `say` gets OLD_APP_SAY.
 // A type step brings back what the field reads afterwards (`text`, chat sweep 16.11.: extra words in a field show at once).
 // useOf tells the rest of the runtime (RuntimeServices.phones) whether an app phone is attached and its phone use on.
-// Owns: the attached phones, the request/answer pairing and turning answers into PhoneDriver values.
+// Owns: the attached phones, the request/answer pairing, the runs that used each phone, and turning answers into
+// PhoneDriver values.
 // Never: reaches a phone that is not attached, or keeps a request beyond its timeout.
 
 import { randomBytes } from 'node:crypto';
 import type { Bus } from '../bus.ts';
 import type { Device } from '../../shared/model/devices.ts';
-import { PHONE_SAY_MAX, type PhoneUseAttach, type PhoneUseOp, type PhoneUseReply } from '../../shared/api/methods-phone.ts';
+import { PHONE_BUTTON_MAX, PHONE_SAY_BUTTONS_MAX, PHONE_SAY_MAX, type PhoneUseAttach, type PhoneUseOp, type PhoneUseReply } from '../../shared/api/methods-phone.ts';
 import { WorkforceError, type ErrorCode } from '../../shared/errors.ts';
-import type { PhoneDriver, PhoneSaid, PhoneShot, PhoneStepOptions, PhoneTree } from './driver.ts';
+import type { PhoneDriver, PhoneOpenTarget, PhoneSaid, PhoneShot, PhoneStepOptions, PhoneTree } from './driver.ts';
 import { renderDump, screenOf, type PhoneDevice, type PhoneNode } from './uiautomator.ts';
 
 export const APP_PHONE_TIMEOUT_MS = 20_000;
@@ -28,8 +34,15 @@ export const FIELD_MAX = 300;
 /** What I read when the phone's app does not know `say` yet. */
 export const OLD_APP_SAY = 'The Autark app on this phone is older than 0.3.15; it updates itself in the app. Until then my phone steps work without a line or question in the bubble.';
 
+/** What I read when the phone's app does not open apps by name yet. */
+export const OLD_APP_OPEN = 'The Autark app on this phone opens apps by package only until its next update (it updates itself in the app). Until then I open the app with its package, or tap its icon in the app list.';
+
 /** What the phone says when phone use is not on yet (it shows the enable notification itself). */
 export const PHONE_USE_OFF = 'Phone use is off on this phone. The app showed the person a notification "Let the AI use this phone"; one tap opens Android\'s Accessibility settings (an app from outside the Play Store first needs Settings › Apps › Autark › ⋮ › Allow restricted settings). I try again once it is on.';
+
+/** How many running jobs the driver remembers per phone use (a run that never reports its end drops out first). */
+const JOBS_KEPT = 64;
+const ENDED: ReadonlySet<string> = new Set(['done', 'failed', 'interrupted']);
 
 export interface AppPhonesDeps {
   bus: Pick<Bus, 'on' | 'emit'>;
@@ -53,6 +66,8 @@ export class AppPhones implements PhoneDriver {
   private readonly deps: AppPhonesDeps;
   private readonly attached = new Map<string, Attached>();
   private readonly pending = new Map<string, Pending>();
+  /** Runs that sent a step, and the phones they used: each hears 'done' when its run ends. */
+  private readonly jobs = new Map<string, Set<string>>();
   private readonly offs: Array<() => void>;
 
   constructor(deps: AppPhonesDeps) {
@@ -60,6 +75,7 @@ export class AppPhones implements PhoneDriver {
     this.offs = [
       deps.bus.on('phoneUse.attached', (event) => this.attach(event)),
       deps.bus.on('phoneUse.reply', (reply) => this.answer(reply)),
+      deps.bus.on('run.upserted', (run) => { if (ENDED.has(run?.status)) this.finished(run.id); }),
     ];
   }
 
@@ -129,20 +145,27 @@ export class AppPhones implements PhoneDriver {
     return typeof result?.key === 'string' ? result.key : name;
   }
 
-  async open(serial: string | undefined, target: { url?: string; package?: string }, step?: PhoneStepOptions): Promise<string> {
-    const result = await this.ask(this.pick(serial), 'open', { ...(target.url ? { url: target.url } : {}), ...(target.package ? { package: target.package } : {}) }, step) as { opened?: unknown } | undefined;
-    return typeof result?.opened === 'string' ? result.opened : (target.url ?? target.package ?? '');
+  async open(serial: string | undefined, target: PhoneOpenTarget, step?: PhoneStepOptions): Promise<string> {
+    const args = { ...(target.url ? { url: target.url } : {}), ...(target.package ? { package: target.package } : {}), ...(target.app ? { app: target.app } : {}) };
+    const byName = Boolean(target.app && !target.url && !target.package);
+    const result = await this.ask(this.pick(serial), 'open', args, step)
+      .catch((error: unknown) => { throw byName && oldOpen(error) ? new WorkforceError('unavailable', OLD_APP_OPEN) : error; }) as { opened?: unknown } | undefined;
+    return typeof result?.opened === 'string' ? result.opened : (target.url ?? target.package ?? target.app ?? '');
   }
 
-  /** My line in the bubble (until the next one or the job's end); with `ask` the person's ✓ / ✕, 'none' after the phone's 60 s. */
-  async say(serial: string | undefined, value: string, ask: boolean, step?: PhoneStepOptions): Promise<PhoneSaid> {
+  /** My line in the bubble (until the next one or the job's end); with `buttons` a question – the tapped label ('yes'
+   *  for ✓, 'no' for ✕), 'none' after the phone's 60 s. `ask` goes along, so an app before buttons shows ✓ and ✕. */
+  async say(serial: string | undefined, value: string, buttons: string[] | undefined, step?: PhoneStepOptions): Promise<PhoneSaid> {
     const line = sayLine(value);
     if (!line) throw new WorkforceError('bad_request', 'phone.say needs a text.');
     const device = this.pick(serial);
-    const result = await this.ask(device, 'say', { text: line, ...(ask ? { ask: true } : {}) }, step, ask ? APP_PHONE_ASK_TIMEOUT_MS : undefined)
+    const labels = buttons === undefined ? undefined : sayButtons(buttons);
+    const asks = labels !== undefined;
+    const own = labels?.length && !(labels.length === 1 && labels[0] === '✓') ? { buttons: labels } : {};
+    const result = await this.ask(device, 'say', { text: line, ...(asks ? { ask: true, ...own } : {}) }, step, asks ? APP_PHONE_ASK_TIMEOUT_MS : undefined)
       .catch((error: unknown) => { throw oldApp(error) ? new WorkforceError('unavailable', OLD_APP_SAY) : error; }) as { answer?: unknown } | undefined;
-    if (!ask) return { serial: device };
-    const answer = result?.answer === 'yes' || result?.answer === 'no' ? result.answer : 'none';
+    if (!asks) return { serial: device };
+    const answer = typeof result?.answer === 'string' && result.answer ? result.answer.slice(0, PHONE_BUTTON_MAX) : 'none';
     return { serial: device, answer };
   }
 
@@ -175,8 +198,27 @@ export class AppPhones implements PhoneDriver {
         entry.off = () => step.signal?.removeEventListener('abort', cancel);
       }
       this.pending.set(id, entry);
+      if (step?.job) this.used(step.job, deviceId);
       this.deps.bus.emit('phoneUse.request', { deviceId, id, op, args, ...(step?.job ? { job: step.job } : {}), ...(by ? { by } : {}) });
     });
+  }
+
+  /** A run is over: every phone it used hears 'done' (no answer awaited – an older app's refusal goes nowhere). */
+  private finished(job: string | undefined): void {
+    const devices = job ? this.jobs.get(job) : undefined;
+    if (!job || !devices) return;
+    this.jobs.delete(job);
+    for (const deviceId of devices) {
+      if (this.attached.has(deviceId)) this.deps.bus.emit('phoneUse.request', { deviceId, id: `pu_${randomBytes(8).toString('hex')}`, op: 'done', args: {}, job });
+    }
+  }
+
+  private used(job: string, deviceId: string): void {
+    const devices = this.jobs.get(job) ?? new Set<string>();
+    devices.add(deviceId);
+    this.jobs.delete(job);
+    this.jobs.set(job, devices); // newest last: the oldest drops out first
+    if (this.jobs.size > JOBS_KEPT) this.jobs.delete(this.jobs.keys().next().value as string);
   }
 
   private settle(id: string, entry: Pending, error?: Error, value?: unknown): void {
@@ -223,6 +265,23 @@ export class AppPhones implements PhoneDriver {
 export function sayLine(value: string): string {
   const line = String(value ?? '').replace(/\s+/g, ' ').trim();
   return line.length > PHONE_SAY_MAX ? `${line.slice(0, PHONE_SAY_MAX - 1)}…` : line;
+}
+
+/** The question's buttons: whitespace folded, cut to PHONE_BUTTON_MAX, distinct, at most PHONE_SAY_BUTTONS_MAX; empty
+ *  ones dropped. An empty list still asks (✕ alone; the app adds ✓ for ask). */
+export function sayButtons(values: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const value of values) {
+    let label = String(value ?? '').replace(/\s+/g, ' ').trim();
+    if ([...label].length > PHONE_BUTTON_MAX) label = `${[...label].slice(0, PHONE_BUTTON_MAX - 1).join('')}…`;
+    if (label && !out.includes(label) && out.length < PHONE_SAY_BUTTONS_MAX) out.push(label);
+  }
+  return out;
+}
+
+/** An app before `open` by name answers it with bad_request "Give an http(s) link or a package name.". */
+function oldOpen(error: unknown): boolean {
+  return error instanceof WorkforceError && error.code === 'bad_request' && /link or a package name/i.test(error.message);
 }
 
 /** An app before 0.3.15 answers a say with bad_request "Unknown step say.". */

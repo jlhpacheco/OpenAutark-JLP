@@ -20,7 +20,7 @@ import { MAX_WORDS } from '../../shared/voice/vocabulary.ts';
 import { NOTES_MAX, PATTERNS, SECTIONS, optionsOf, rangeOf } from './schema.ts';
 
 const STUN_URL = new RegExp(PATTERNS.stun); // F25: settings.devices.stun
-import { MAX_HUMAN_MD } from '../../shared/model/agent-core.ts';
+import { validateSecurity } from './security-keys.ts';
 
 type Plain = Record<string, unknown>;
 
@@ -116,15 +116,12 @@ export function validateSettings(s: Settings): void {
   if (!validTimezone(p.timezone)) bad('profile.timezone', 'an IANA time zone');
   // B-078: the AI's note (line breaks and tabs are fine, other control characters are not)
   if (p.notes !== undefined && (typeof p.notes !== 'string' || p.notes.length > NOTES_MAX || /[\u0000-\u0008\u000b-\u001f]/.test(p.notes))) bad('profile.notes', `text up to ${NOTES_MAX} characters`);
-  if (p.pcAccess !== undefined) oneOf(p.pcAccess, 'profile.pcAccess'); // B-085: absent = whole
-  // owner 16.11.2026: the lines for every agent (line breaks and tabs are fine, like the notes)
-  if (p.forEveryAgent !== undefined && (typeof p.forEveryAgent !== 'string' || p.forEveryAgent.length > MAX_HUMAN_MD || /[\u0000-\u0008\u000b-\u001f]/.test(p.forEveryAgent))) bad('profile.forEveryAgent', `text up to ${MAX_HUMAN_MD} characters`);
 
   const ui = s.preferences;
   oneOf(ui.theme, 'preferences.theme');
   intIn(ui.sidebarWidth, 'preferences.sidebarWidth');
   intIn(ui.workspaceWidth, 'preferences.workspaceWidth');
-  for (const key of ['sidebarOpen', 'workspaceOpen', 'enterSends', 'closeToTray', 'openAtLogin', 'autoDownloadUpdates'] as const) boolean(ui[key], `preferences.${key}`);
+  for (const key of ['sidebarOpen', 'workspaceOpen', 'enterSends', 'openAtLogin', 'autoDownloadUpdates'] as const) boolean(ui[key], `preferences.${key}`);
 
   const n = s.notifications;
   boolean(n.enabled, 'notifications.enabled');
@@ -158,6 +155,7 @@ export function validateSettings(s: Settings): void {
   oneOf(s.onboarding.step, 'onboarding.step'); // B-044 first run
   boolean(s.feedback.includeDiagnostics, 'feedback.includeDiagnostics');
   if (s.library !== undefined) { if (!isPlain(s.library)) bad('library', 'an object'); boolean(s.library.publish, 'library.publish'); } // B-078
+  if (s.security !== undefined) validateSecurity(s.security, bad); // owner 19.11.2026: the mode and its switches (security-keys.ts)
   boolean(s.pwa.enabled, 'pwa.enabled');
   oneOf(s.pwa.bind, 'pwa.bind');
   oneOf(s.devices.peer, 'devices.peer');
@@ -188,11 +186,11 @@ function validateProviders(providers: NonNullable<Settings['providers']>): void 
   }
 }
 
-/** B-041 Settings › day: working hours (start before end), the planning buffer, the morning plan, the switches. */
+/** B-041 Settings › day: working hours (start before end), the buffer, the end of the night, the switches. */
 function validateDay(day: NonNullable<Settings['day']>): void {
   if (!isPlain(day)) bad('day', 'an object');
   for (const key of ['workStart', 'workEnd', 'planAt'] as const) if (typeof day[key] !== 'string' || !HHMM.test(day[key])) bad(`day.${key}`, 'a time as "HH:MM"');
   if (clockMinutes(day.workStart)! >= clockMinutes(day.workEnd)!) bad('day.workEnd', 'a time after day.workStart');
   intIn(day.bufferMin, 'day.bufferMin');
-  for (const key of ['autoPlan', 'aiHelps', 'keepAwake', 'agentLane'] as const) boolean(day[key], `day.${key}`);
+  for (const key of ['aiHelps', 'keepAwake'] as const) boolean(day[key], `day.${key}`);
 }

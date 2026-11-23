@@ -47,7 +47,7 @@ test('checkModeSwitch: switching my own mode names a colleague who works in it (
   const f = fixture();
   assert.deepEqual(checkModeSwitch(f.services, { agentId: 'ag_tom', mode: 'video', to: 'video' }), {});
   const check = checkModeSwitch(f.services, { agentId: 'ag_tom', mode: 'general', to: 'video' });
-  assert.match(check.advice ?? '', /^Vid \(ag_vid\) works in video mode\. A part that stands on its own I can give them \(tasks\.create or tasks\.give\)/);
+  assert.match(check.advice ?? '', /^Vid \(ag_vid\) works in video mode\. A part that stands on its own I can give them \(tasks\.add, or tasks\.update with for\)/);
   assert.deepEqual(checkModeSwitch(f.services, { agentId: 'ag_tom', mode: 'general', to: 'computer' }), {});
 });
 

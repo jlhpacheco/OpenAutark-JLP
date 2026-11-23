@@ -77,17 +77,17 @@ test('company.open: a new company is a folder, then its start; this window goes 
   assert.ok(existsSync(path.join(b.dir, 'teydra')));
 });
 
-test('B-078 company.open start: the company menu\'s "+" starts a new company with --start=mine|employee; startFlag reads it back', () => {
+test('B-078 company.open start: the company menu\'s "+" starts a new company with --start=join (Eine-ID: no role); startFlag reads it back', () => {
   const b = bench(null, 'start');
   const code = (fn: () => unknown) => { try { fn(); return 'none'; } catch (error) { return (error as WorkforceError).code; } };
-  openCompany({ create: true, start: 'mine' }, b.deps);
-  openCompany({ create: true, start: 'employee' }, b.deps);
+  openCompany({ create: true, start: 'join' }, b.deps);
   openCompany({ create: true, start: 'new' }, b.deps);
   assert.deepEqual(b.calls.filter((call) => call.startsWith('spawn')), [
-    'spawn --company=company-2 --start=mine', 'spawn --company=company-3 --start=employee', 'spawn --company=company-4',
+    'spawn --company=company-2 --start=join', 'spawn --company=company-3',
   ], "'new' is the plain first run");
-  assert.equal(code(() => openCompany({ create: true, start: 'boss' } as never, b.deps)), 'bad_request');
-  assert.equal(startFlag(['app.exe', '--company=company-2', '--start=mine']), 'mine');
+  for (const old of ['boss', 'mine', 'employee']) assert.equal(code(() => openCompany({ create: true, start: old } as never, b.deps)), 'bad_request', old);
+  assert.equal(startFlag(['app.exe', '--company=company-2', '--start=join']), 'join');
+  assert.equal(startFlag(['app.exe', '--start=mine']), undefined, 'the old role starts are plain starts');
   assert.equal(startFlag(['app.exe', '--start=boss']), undefined, 'an unknown start is a plain start');
   assert.equal(startFlag(['app.exe']), undefined);
 });

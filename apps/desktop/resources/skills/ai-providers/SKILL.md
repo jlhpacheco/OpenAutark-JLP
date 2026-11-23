@@ -99,6 +99,10 @@ models in at once. Removing the entry removes the account; the person's catalog 
 
 ## Choosing a model for a use
 
+`wf call models.uses` shows every use with what it runs on now and its `choices` (local models with how they fit this PC);
+`wf call models.setUse '{"use":"stt","value":"codex"}'` sets one use to one value in one call – the same change the selects
+make, a local model's download included – and answers with the uses again.
+
 A use is one key in `settings.json`, in the Models section, the same one the selects in Settings › Models write:
 
 ```
@@ -110,9 +114,10 @@ routing.image  routing.video  routing.music  routing.sound  routing.embeddings
   name, or a model the server does not list, works as soon as it is written here. A plan or a found server takes what
   `models.list` shows, with its provider in front: `"claude:claude-opus-5-5"`. An older `"compatible:<model>"` still finds its model.
 - Work can also name a plan, `"codex"` or `"claude"`: that plan's best fit for each turn.
-- `"off"` turns a media use or embeddings off. `"local"` is this PC's own model for `tts` and `embeddings`; `voice.localStt` is
-  that key for speech to text, and `wf call voice.pullLocal '{"id":"…"}'` brings a model to this PC (`voice.localModels` lists them).
-- `routing.image` `"codex"` makes images on the ChatGPT plan.
+- `"off"` turns a media use or embeddings off. `"local"` is this PC's own model for `tts`, `stt` and `embeddings`; a local
+  speech model's id as the value picks that one (and brings it to this PC).
+- `"codex"`: on `routing.image` images on the ChatGPT plan, on `routing.stt` the plan's dictation – what `"auto"` takes first
+  while a Codex plan login is here.
 - `routing.voice` works while `voice.realtime` is `"auto"`: an OpenAI or OpenAI-compatible connection speaks OpenAI Realtime, a Google key speaks Gemini Live (`"google:gemini-3.8-live"`).
 - A call without a real-time model keeps talking through the Decisions model while the agent works (`voice.talker`, on by default).
 - `routing.allowPaidFallback` `true` lets API keys compete with plans on every turn; `false` (the default) uses a key only
@@ -128,7 +133,8 @@ How I think about the pick:
   it runs), `"<connection>:<model>"` a connected embedding model (the tool `models.list` with `category` `"embeddings"`
   lists the ids) – for example an OpenAI key's `text-embedding-3-small`, DeepInfra's `Qwen/Qwen3-Embedding-8B`, `bge-m3` on
   Ollama. While it is `"auto"` or `"off"` nothing is embedded and finding goes by words, which ranked the right skill first
-  more often than MiniLM on this app's own data. Vectors of two models do not compare, so changing it embeds everything again.
+  more often than MiniLM on this app's own data. Vectors of two models do not compare: after a change each text gets the
+  new model's meaning when a search next asks for it.
 - Work deserves the strongest model the person is paying for anyway, which is why a plan's pick for each turn is often the
   right answer. For media, I look at the price per image or minute next to what the person wants to make.
 

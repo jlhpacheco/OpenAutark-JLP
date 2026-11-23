@@ -33,7 +33,6 @@ export const IPC = {
   updateGet: 'update:get',
   updateApply: 'update:apply',
   updateDefer: 'update:defer',
-  updateAutoDownload: 'update:auto-download',
   updateReady: 'update:ready', // renderer → main: UI is in a restart-safe state (sent on change only)
   updateState: 'update:state', // main → renderer
   prepareRestart: 'app:prepare-restart', // main → renderer (request id)
@@ -53,7 +52,14 @@ export const IPC = {
   titleBarDim: 'window:title-bar-dim', // renderer → main (send): boolean, on change – a modal's backdrop dims the window (main/title-bar.ts dimmedColors)
   feedbackKey: 'feedback:key', // main → renderer: FeedbackKeyStep – Ctrl+Shift+F (Cmd on macOS) pressed or released anywhere in the window
   online: 'app:online', // renderer → main (send): the window's navigator 'online' event; main pushes host power 'online' (B-044)
+  // owner 19.11.2026: voice goes on while the window is hidden, and the floating bubble shows and ends the page's call
+  voiceLive: 'voice:live', // renderer → main (send): boolean, on change – a call, conversation or dictation of the page is live
+  bubbleCall: 'bubble:call', // renderer → main (send): BubbleCall | null, on change – the page's call the bubble shows
+  bubbleEnd: 'bubble:end-call', // main → renderer: conversation id – the bubble's End
 } as const;
+
+/** The call the page holds, as the floating bubble shows it (owner 19.11.2026): the chat and its title (the agent's name in a 1:1). */
+export interface BubbleCall { conversationId: string; title: string }
 
 /**
  * Envelope of every invoke channel's answer (main never throws across IPC, so the preload can
@@ -68,8 +74,8 @@ export type RuntimeStatus =
   | { state: 'stopped' };
 
 export type PickKind = 'files' | 'folder' | 'images' | 'audio' | 'video';
-/** What a picked folder is for – main chooses the dialog's title and button from it (Settings › About: the backup to restore). */
-export type FolderPurpose = 'backup' | 'restore' | 'chats';
+/** What a picked folder is for – main chooses the dialog's title and button from it (Settings › About: the backup to restore; Settings › Security: a folder the team works in). */
+export type FolderPurpose = 'backup' | 'restore' | 'chats' | 'security';
 
 /** Where the app window opens: a chat or a task; `call` (the floating to-do button, owner 18.11.2026) starts the chat's call there. */
 export interface NavigateRequest { conversationId?: string; taskId?: string; call?: true }
@@ -77,21 +83,10 @@ export interface NavigateRequest { conversationId?: string; taskId?: string; cal
 /**
  * `window.workforce` (desktop only; the PWA has no such object).
  *
- * Connecting to the runtime (package C1): contextBridge cannot pass MessagePorts, so the
- * preload re-posts the port to the page with window.postMessage. Install the listener first:
- *
- *   const port = await new Promise<MessagePort>(resolve => {
- *     const onMessage = (e: MessageEvent) => {
- *       if (e.source !== window || e.data !== PORT_MESSAGE || !e.ports[0]) return;
- *       window.removeEventListener('message', onMessage);
- *       resolve(e.ports[0]);
- *     };
- *     window.addEventListener('message', onMessage);
- *     void window.workforce.connect();
- *   });
- *   port.start();  // JSON-RPC frames (protocol.ts) both ways, owner scope
- *
- * After `onRuntime({state:'up'})` following a restart, connect again.
+ * Connecting to the runtime (package C1): contextBridge cannot pass MessagePorts, so the preload re-posts the port to
+ * the page with window.postMessage, where the main-world wrapper takes it (see the guarded hand-over below); the port
+ * carries JSON-RPC frames (protocol.ts) both ways, owner scope. After `onRuntime({state:'up'})` following a restart,
+ * connect again.
  */
 export interface WorkforceDesktopApi {
   workspaceBrowser?: WorkspaceBrowserApi;
@@ -112,7 +107,6 @@ export interface WorkforceDesktopApi {
     state(): Promise<UpdateState>;
     apply(): Promise<UpdateState>;
     defer(): Promise<UpdateState>;
-    setAutoDownload(enabled: boolean): Promise<UpdateState>;
     /** Tell main whether the UI is safe to restart (no open dialog/settings, empty composer). Send on change. */
     setReady(ready: boolean): void;
   };
@@ -134,12 +128,17 @@ export interface WorkforceDesktopApi {
   clipboard: { writeText(text: string): Promise<void> };
   openExternal(url: string): Promise<void>;
   onNavigate(listener: (request: NavigateRequest) => void): () => void;
+  /** A call, conversation or dictation of this page is live (true) or none is: main keeps the hidden window's page at full
+   *  speed meanwhile (send on change). */
+  voiceLive?(on: boolean): void;
+  /** The call this page holds now, or null – the floating bubble shows it (send on change). */
+  bubbleCall?(call: BubbleCall | null): void;
+  /** The floating bubble's End: end this page's call in that chat. */
+  onEndCall?(listener: (conversationId: string) => void): () => void;
 }
 
 /**
- * The guarded hand-over of the runtime port (preload/main-world.ts and ui/lib/runtime-port.ts).
- * The contract above (window.workforce.connect() + a 'message' listener for PORT_MESSAGE) is the
- * fallback for a window without the main-world wrapper. With the wrapper:
+ * The guarded hand-over of the runtime port (preload/main-world.ts and ui/lib/runtime-port.ts) – the one way:
  *
  * - `window.workforce.claimConnector()` is one-shot: the UI boot claims it before any other
  *   code loads and gets a connector `(done: (port?: MessagePort, error?: unknown) => void) =>

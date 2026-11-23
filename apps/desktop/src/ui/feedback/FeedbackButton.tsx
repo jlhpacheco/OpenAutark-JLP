@@ -48,6 +48,11 @@ function cellDictation(): DictationButton {
   return talk;
 }
 
+/** The form's × (the + turned): the cell's take goes – recording or being transcribed, its words never reach the field. */
+export function cancelTalk(): void {
+  talk?.cancel();
+}
+
 /** Escape during talk discards it (the field never gets its words) – and closes nothing else. */
 const escape = (event: KeyboardEvent) => {
   if (event.key !== 'Escape') return;

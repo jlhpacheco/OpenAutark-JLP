@@ -12,7 +12,6 @@ import { BRIEF_MAX, setupLines, welcomeLanguage } from '../../../src/runtime/onb
 import { unansweredMessages } from '../../../src/runtime/chat/delivery-recovery.ts';
 import { groupWakes } from '../../../src/runtime/agents/dispatch-groups.ts';
 import { PromptTemplates } from '../../../src/runtime/context/templates.ts';
-import { personAsks } from '../../../src/runtime/routing/person-turn.ts';
 import { SettingsStore } from '../../../src/runtime/settings/service.ts';
 import { HandlerTable } from '../../../src/runtime/rpc/table.ts';
 import { register as registerChats } from '../../../src/runtime/rpc/handlers/chats.ts';
@@ -83,7 +82,7 @@ test("start(): the start line as the person's, the Manager's greeting right belo
   assert.deepEqual(h.settings.get().onboarding, { completed: true, step: 'done' });
 });
 
-test("the person's answer is the first turn: one 'message' wake with no note, routed as a person's request, one group", () => {
+test("the person's answer is the first turn: one 'message' wake with no note, one group", () => {
   const h = withServices(harness());
   const { conversationId } = h.onboarding.start();
   h.chats.send({ conversationId, body: 'Deutsch mit mir, intern Englisch. Leg los.', authorId: HUMAN_ID, authorKind: 'human' });
@@ -92,7 +91,6 @@ test("the person's answer is the first turn: one 'message' wake with no note, ro
   assert.equal(rows[0].conversation_id, conversationId);
   assert.equal(rows[0].reason, 'message');
   assert.equal(rows[0].note, null, 'no separate note');
-  assert.equal(personAsks(h.services, { agent: h.manager, conversationId }), true, "routed as a person's request: the strongest model");
   assert.equal(groupWakes(h.wakes.claim(h.manager.id)).length, 1, 'one claim, one group: one turn');
 });
 
@@ -125,12 +123,12 @@ test('an own prompt without a start part posts the greeting alone; the shipped p
   assert.match(fallback.answer, /^Hi Lena Hess, I'm your Manager/);
 });
 
-test('every shipped language has the five questions; other languages get English; careful access asks for its own area', () => {
+test('every shipped language has the five questions; other languages get English; Secure mode asks for its own area', () => {
   const h = withServices(harness());
   for (const [code, expected] of [['de-AT', 'de'], ['fr', 'fr'], ['es-MX', 'es'], ['en-GB', 'en'], ['it', 'en'], ['', 'en'], [undefined, 'en']] as const) assert.equal(welcomeLanguage(code), expected, String(code));
   for (const code of ['de', 'fr', 'es', 'en']) {
     for (const careful of [false, true]) {
-      h.settings.update({ profile: { language: code, pcAccess: careful ? 'careful' : 'whole' } });
+      h.settings.update({ profile: { language: code }, security: { mode: careful ? 'secure' : 'trust' } });
       const { start, answer: text } = setupLines(h.services);
       assert.match(start, START[code], `${code}: its own start line`);
       assert.doesNotMatch(start, /\{\{|<!--|\u0000|\n/, `${code}: one clean line`);
@@ -144,7 +142,7 @@ test('every shipped language has the five questions; other languages get English
       assert.match(text, careful ? /(eigenen Bereich|propre espace|propio espacio|own area)/ : /(ganz offen|entièrement ouvert|totalmente abierto|fully open)/, `${code} ${careful}`);
     }
   }
-  h.settings.update({ profile: { language: 'it', pcAccess: 'whole', name: '' } });
+  h.settings.update({ profile: { language: 'it', name: '' }, security: { mode: 'trust' } });
   assert.match(setupLines(h.services).answer, /^Hi, I'm your Manager/, 'no name leaves no gap');
 });
 

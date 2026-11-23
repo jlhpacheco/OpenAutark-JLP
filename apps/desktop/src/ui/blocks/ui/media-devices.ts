@@ -261,8 +261,3 @@ export function discardTake(key: string): void {
   for (const discard of [...(holders.get(key)?.values() ?? [])]) discard();
   void dropTake(key);
 }
-
-/** A list cut to `limit` (Home shows five) that still keeps every held item, in order. */
-export function limitKeepingHeld<T>(items: readonly T[], limit: number | undefined, held: (item: T) => boolean): T[] {
-  return limit ? items.filter((item, index) => index < limit || held(item)) : [...items];
-}

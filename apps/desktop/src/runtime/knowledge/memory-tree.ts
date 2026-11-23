@@ -30,7 +30,7 @@ const SLUG_MAX = 60;
 const EDIT_SLACK_MS = 2000;
 const DEFAULT_CONFIDENCE = 0.7;
 
-const KINDS: ReadonlySet<string> = new Set(['fact', 'preference', 'experience', 'procedure', 'plan', 'observation', 'note', 'reference']);
+const KINDS: ReadonlySet<string> = new Set(['fact', 'preference', 'experience', 'procedure', 'plan', 'note', 'reference']);
 const SOURCE = /^(user|message|run|web|file|agent|import)(?::(.*))?$/s;
 const KNOWN_KEYS: ReadonlySet<string> = new Set(['title', 'kind', 'tags', 'updated', 'source', 'valid-from', 'valid-to', 'by', 'confidence', 'untrusted']);
 

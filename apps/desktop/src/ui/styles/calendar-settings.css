@@ -1,4 +1,4 @@
-/* Settings › Calendar (B-041 §4–§5, src/ui/settings/calendar-*.tsx, track G): the My day
+/* Settings › Calendar (B-041 §4–§5, src/ui/settings/calendar-*.tsx, track G): the working hours
    rows and the connected calendars; groups and rows are settings.css's (.set-group, .set-row). Here only the calendar
    link's small form, the "Use your own Google app" dialog's hint and fields, the text buttons' optical end at the
    controls' edge and the colour of a sync problem.
@@ -27,5 +27,5 @@
 }
 
 /* "Use your own Google app" (a dialog, calendar-sources.tsx): where to find the client ID above its two fields. */
-.calendar-google-hint { margin: 0 0 14px; font-size: 13px; }
+.calendar-google-hint { margin: 0 0 14px; font-size: calc(13px * var(--ui-text, 1)); }
 .calendar-google-app .input + .field-label { margin-top: 14px; }

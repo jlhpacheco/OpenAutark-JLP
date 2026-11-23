@@ -1,6 +1,6 @@
 // B-050 K10 (tools/builtin/chat.ts, chat-rooms.ts, chat-members.ts, chat-lines.ts): agents act in chats like a human
 // member – chat.direct finds or makes the default 1:1 with an agent, the person or a colleague (per_…), or a new
-// chat of the two about a topic; chat.create and chat.add_members take every kind of member in members (the older
+// chat of the two about a topic; chat.create's members and chat.update's add take every kind of member (the older
 // agentIds and includeHuman are gone); chat.send takes a level (urgent / silent stay); chat.read and
 // chat.search show the context's own lines (context/render.ts) with the #seq, persons by name; chat.list shows the
 // title the agent sees and marks the default 1:1.
@@ -79,7 +79,7 @@ test('chat.direct: one default 1:1 per pair for an agent, the person or a collea
   }
 });
 
-test('chat.create and chat.add_members take agents, the person and colleagues alike in members; the older names are gone', async () => {
+test('chat.create and chat.update add take agents, the person and colleagues alike; the older names are gone', async () => {
   const h = setup();
   const created = await h.run('chat.create', { title: 'Launch', members: ['ag_ben', HUMAN_ID, ANNA] });
   assert.equal(created.failed, false, created.text);
@@ -93,14 +93,14 @@ test('chat.create and chat.add_members take agents, the person and colleagues al
   assert.equal((await h.run('chat.create', { members: ['ag_ava'] })).failed, true, 'no member besides oneself');
 
   const room = (await h.run('chat.create', { title: 'Q4', members: ['ag_ben'] })).data!.chatId as string;
-  const added = await h.run('chat.add_members', { chatId: room, members: [ANNA] }, h.ctx('ag_ava', room));
+  const added = await h.run('chat.update', { chatId: room, add: [ANNA] }, h.ctx('ag_ava', room));
   assert.equal(added.failed, false, added.text);
   assert.ok(h.active(room).includes(ANNA));
-  assert.match((await h.run('chat.add_members', { chatId: room, members: [GONE] })).text, /not a person of the organisation/);
+  assert.match((await h.run('chat.update', { chatId: room, add: [GONE] })).text, /not a person of the organisation/);
   assert.ok(!h.active(room).includes(GONE), 'nothing changed');
-  assert.equal((await h.run('chat.add_members', { chatId: room, members: ['ag_ben', ANNA] })).failed, false, 'agents and colleagues together');
+  assert.equal((await h.run('chat.update', { chatId: room, add: ['ag_ben', ANNA] })).failed, false, 'agents and colleagues together');
   // B-078 D7: the person is reached in my 1:1 with them or a group with them – never added to a room
-  assert.match((await h.run('chat.add_members', { chatId: room, members: [HUMAN_ID] })).text, /The person is not added to rooms/);
+  assert.match((await h.run('chat.update', { chatId: room, add: [HUMAN_ID] })).text, /The person is not added to rooms/);
   assert.ok(!h.active(room).includes(HUMAN_ID));
 });
 

@@ -7,7 +7,7 @@
 
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { STALL_IDLE_MS, STALL_MESSAGE, STALL_TOOL_MS, StallWatch, stallError, type StallTimers } from '../../../src/runtime/agents/stall-watch.ts';
 import { canFailover, runAttempt } from '../../../src/runtime/agents/turn-attempt.ts';
 import { accountFailure, recordAccountFailure } from '../../../src/runtime/accounts/failure.ts';

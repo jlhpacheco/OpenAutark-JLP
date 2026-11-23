@@ -11,7 +11,7 @@ import type { AddressInfo } from 'node:net';
 import { connectMcp } from '../../../src/runtime/apps/client/index.ts';
 import { McpAuthRequired } from '../../../src/runtime/apps/types.ts';
 import { Mcp } from '../../../src/runtime/mcp/hub.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import type { ToolSpec } from '../../../src/runtime/tools/types.ts';
 import type { Agent } from '../../../src/shared/model/org.ts';

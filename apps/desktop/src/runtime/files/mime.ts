@@ -1,9 +1,10 @@
-// Content type detection by magic bytes (never trusts the file name for binaries) plus cheap
-// image dimension parsing from headers.
-// Owns: the signature table and header parsers. Never: reads files (callers pass bytes).
+// Content type detection of a stored file: the binary signatures (shared/files/mime.ts sniffBinary, one rule with the
+// desktop) first, then UTF-8 text typed by the name's extension, plus cheap image dimension parsing from headers.
+// Owns: the text-by-extension table and the header parsers. Never: reads files (callers pass bytes).
+
+import { sniffBinary } from '../../shared/files/mime.ts';
 
 const ascii = (bytes: Uint8Array, start: number, end: number) => String.fromCharCode(...bytes.subarray(start, end));
-const startsWith = (bytes: Uint8Array, signature: number[], offset = 0) => signature.every((byte, index) => bytes[offset + index] === byte);
 
 /** Text types we recognise by extension once the bytes decode as UTF-8 text. */
 const TEXT_EXTENSIONS: Record<string, string> = {
@@ -12,35 +13,6 @@ const TEXT_EXTENSIONS: Record<string, string> = {
   tsx: 'text/x-typescript', xml: 'application/xml', svg: 'image/svg+xml', yaml: 'application/yaml', yml: 'application/yaml',
   srt: 'application/x-subrip', vtt: 'text/vtt', txt: 'text/plain', log: 'text/plain',
 };
-
-/** Binary signatures → mime (checked in order). */
-export function sniffBinary(bytes: Uint8Array): string | undefined {
-  if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'image/png';
-  if (startsWith(bytes, [0xff, 0xd8, 0xff])) return 'image/jpeg';
-  if (bytes.length >= 12 && ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 12) === 'WEBP') return 'image/webp';
-  if (bytes.length >= 12 && ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 12) === 'WAVE') return 'audio/wav';
-  if (bytes.length >= 12 && ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 12) === 'AVI ') return 'video/x-msvideo';
-  if (bytes.length >= 6 && ['GIF87a', 'GIF89a'].includes(ascii(bytes, 0, 6))) return 'image/gif';
-  if (bytes.length >= 5 && ascii(bytes, 0, 5) === '%PDF-') return 'application/pdf';
-  if (bytes.length >= 12 && ascii(bytes, 4, 8) === 'ftyp') {
-    const brand = ascii(bytes, 8, 12);
-    if (['heic', 'heix', 'mif1', 'msf1'].includes(brand)) return 'image/heic';
-    if (brand === 'avif') return 'image/avif';
-    if (brand.startsWith('M4A')) return 'audio/mp4';
-    if (brand === 'qt  ') return 'video/quicktime';
-    return 'video/mp4';
-  }
-  if (startsWith(bytes, [0x1a, 0x45, 0xdf, 0xa3])) return 'video/webm'; // EBML (webm/mkv)
-  if (bytes.length >= 4 && ascii(bytes, 0, 4) === 'OggS') return 'audio/ogg';
-  if (bytes.length >= 4 && ascii(bytes, 0, 4) === 'fLaC') return 'audio/flac';
-  if (bytes.length >= 3 && ascii(bytes, 0, 3) === 'ID3') return 'audio/mpeg';
-  if (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0 && (bytes[1] & 0x06) !== 0) return 'audio/mpeg';
-  if (startsWith(bytes, [0x50, 0x4b, 0x03, 0x04])) return 'application/zip'; // also docx/xlsx/pptx (refined by extension)
-  if (startsWith(bytes, [0x1f, 0x8b])) return 'application/gzip';
-  if (bytes.length >= 2 && ascii(bytes, 0, 2) === 'BM') return 'image/bmp';
-  if (startsWith(bytes, [0x00, 0x00, 0x01, 0x00])) return 'image/x-icon';
-  return undefined;
-}
 
 const OFFICE: Record<string, string> = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',

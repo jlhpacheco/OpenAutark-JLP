@@ -4,7 +4,7 @@
 // and setup-notice files stay removed. About you asks only the name and the company (kept in the card's draft over
 // a remount), there is no permission question, and Start calls onboarding.start without params. The AI card's
 // Continue waits until a model can answer: there is no Skip; B-085: it has Back (to the choice), and the About card's
-// PC access rows are checked in first-run.test.ts and pc-access.test.ts.
+// security mode rows are checked in security-model.test.ts and security-mode.test.ts.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,7 +14,7 @@ import type { SessionInfo } from '../../../src/shared/api/methods.ts';
 import type { ConversationSummary } from '../../../src/shared/model/chat.ts';
 import type { Agent } from '../../../src/shared/model/org.ts';
 import type { Settings } from '../../../src/shared/model/system.ts';
-import { managerAgent, managerFirstChat } from '../../../src/ui/onboarding/manager.ts';
+import { managerAgent, managerFirstChat } from '../../../src/shared/text/manager-chat.ts';
 import { rpc } from '../../../src/ui/lib/rpc.ts';
 import { session } from '../../../src/ui/lib/session.ts';
 import { settings } from '../../../src/ui/lib/store.ts';

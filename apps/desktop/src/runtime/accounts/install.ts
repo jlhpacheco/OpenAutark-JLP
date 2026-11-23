@@ -2,8 +2,9 @@
 // Claude Code: its official native installer (code.claude.com/docs/en/setup, ported from legacy
 // accounts.cjs). Codex: its official standalone installer first (chatgpt.com/codex/install.ps1 on
 // Windows → %LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe, install.sh elsewhere → ~/.local/bin;
-// CODEX_NON_INTERACTIVE=1 and redirected stdio answer every prompt "no"); `npm i -g @openai/codex` only
-// when that route failed and npm exists. A route counts once the finder sees the CLI (fresh PATH).
+// CODEX_NON_INTERACTIVE=1 and redirected stdio answer every prompt "no"); `npm i -g @openai/codex@latest` only
+// when that route failed and npm exists – the same command updates a Codex in npm's global folder (engines/cli-update.ts,
+// Fest 22.11.2026). A route counts once the finder sees the CLI (fresh PATH).
 // B-051 integration: demo mode (WORKFORCE_FAKE_ENGINE, e2e and window tests) never runs a real installer.
 // B-080 wave 3 (live 08.–09.11.2026: Codex's shell on Windows was Windows PowerShell 5.1, whose pipes into programs are
 // ASCII – "Nächste" reached a file as "N?chste"): PowerShell 7 for the engines' shells, the way the CLIs come –
@@ -23,7 +24,8 @@ import type { Executable, ExecutableFinder } from './executables.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import { pwshDir } from '../engines/wf-shim.ts';
 
-const NPM_PACKAGES = { codex: '@openai/codex' } as const;
+/** npm's newest release, by name: an install and an update are the same command. */
+const NPM_PACKAGES = { codex: '@openai/codex@latest' } as const;
 export const INSTALL_FAILED = {
   claude: 'Could not install Claude Code. Check your connection and try again.',
   codex: 'Could not install Codex. Check your connection and try again.',
@@ -52,7 +54,7 @@ export function codexInstaller(platform: NodeJS.Platform, env?: NodeJS.ProcessEn
     : { command: '/bin/bash', env: quiet, args: ['-c', 'set -o pipefail; curl -fsSL https://chatgpt.com/codex/install.sh | sh'] };
 }
 
-/** `npm install -g <package>` (Codex's fallback); npm.cmd cannot be spawned without a shell – all arguments are constants, so cmd /c is safe. */
+/** `npm install -g @openai/codex@latest` (Codex's fallback install and an npm install's update); npm.cmd cannot be spawned without a shell – all arguments are constants, so cmd /c is safe. */
 export function npmInstaller(npm: Executable, platform: NodeJS.Platform, env?: NodeJS.ProcessEnv): InstallRoute {
   if (platform === 'win32' && npm.path.toLowerCase().endsWith('.cmd') && npm.command === npm.path) {
     return { command: 'cmd.exe', env, args: ['/d', '/s', '/c', 'npm', 'install', '-g', NPM_PACKAGES.codex] };

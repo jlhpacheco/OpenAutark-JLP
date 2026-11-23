@@ -91,9 +91,9 @@ test('design-together: the loop as one principle, the offer, pins, the pointer l
   assert.match(body, phrase("In a running call a pin is a line of the call. Otherwise it lands in the chat's draft"));
   assert.match(body, phrase('`<name> (person) rests on <element>, last move <n> s ago` (or `is moving over …`), kept for 5 minutes'));
   assert.match(body, phrase('their words are relative to it'));
-  assert.match(body, phrase("I open the page in this chat's area with `browser.show`"));
+  assert.match(body, phrase("I open the page in this chat's area with `browser.show` (`where: 'chat'`)"));
   assert.match(body, phrase('One change per step, so the person can tie what they see to what I did'));
-  assert.match(body, phrase("each its own tab in this chat's area (`browser.show` with `newTab: true`"));
+  assert.match(body, phrase("each its own tab in this chat's area (`browser.show` with `where: 'chat'` and `newTab: true`"));
   assert.match(body, phrase('I ring them with `chat.call`: `why` is the line their ringing screen shows, `say` my first sentence'));
   // Owner 08.11.: the principle, not example cases (no invented names, values or addresses to anchor on)
   assert.doesNotMatch(body, /Lukas|Buy now|localhost:\d|2 px|\?v=|## Pitfalls/);
@@ -116,8 +116,9 @@ test("decision 5: a chat's work goes in its area, global is the person's own acr
   assert.match(model, /A tab for a chat's work – a page, file, folder or media – I put in that chat's space \(`chat:<id>`/);
   assert.match(model, /with the logins the person made in them \(one sign-in for every area\)/);
   const showWhere = (browserShowTools[0]!.inputSchema.properties as Record<string, { description: string }>).where!.description;
-  assert.match(showWhere, /^chat \(default\), global: the person's pane across chats, or agent: my area on my agent page\.$/);
-  assert.match(browserShowTools[0]!.description, /This chat's work goes there so everyone here finds it/);
+  // 21.11.2026 (owner: "Ein Agent ist nicht ein Chat"): browser.show gives a person's pane by default; a chat's area is where: 'chat'
+  assert.match(showWhere, /^chat: a chat's area instead of a person's pane; agent: my area on my agent page \(pages only\)\.$/);
+  assert.match(browserShowTools[0]!.description, /where: 'chat' puts it in a chat's area instead \(this chat or chatId: everyone in that chat\)/);
   const readme = readFileSync(path.join(APP, 'src', 'runtime', 'root', 'readme.ts'), 'utf8');
   assert.match(readme, /\(global, the person\\'s own across chats\)/);
   assert.match(readme, /\(chat:<chat id>, shared by everyone in that chat – where that chat\\'s pages, files and media go\)/);

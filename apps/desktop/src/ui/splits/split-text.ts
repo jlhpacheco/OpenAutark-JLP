@@ -11,7 +11,7 @@ import type { Effort } from '../../shared/model/providers.ts';
 import type { AgentActivity } from '../../shared/model/runs.ts';
 import { SPLIT_TERMINAL } from '../../shared/model/splits.ts';
 import type { SplitGroupView, SplitStatus, SplitView } from '../../shared/model/splits.ts';
-import { EFFORT_LABEL, partsWorking } from '../chat/live-text.ts';
+import { EFFORT_LABEL } from '../chat/live-text.ts';
 import { durationText } from '../../shared/text/run-notes.ts';
 
 /** The parent's tool call that splits its work (runtime/tools/builtin/agents-split.ts). */
@@ -53,12 +53,6 @@ export function groupDone(group: Pick<SplitGroupView, 'parts' | 'splits'>): stri
   return `${counts.done} of ${counts.total} done`;
 }
 
-/** A running group's line: "3 of 5 parts working" while parts run, else how many are done. */
-export function groupWorking(group: Pick<SplitGroupView, 'parts' | 'splits'>): string {
-  const counts = groupCounts(group);
-  return counts.running ? partsWorking(counts.running, counts.total) : `${counts.done} of ${counts.total} done`;
-}
-
 /** A group still at work: started and not every part settled (pending = the parent's turn has not ended yet). */
 export function isLiveGroup(group: Pick<SplitGroupView, 'status' | 'splits'>): boolean {
   return group.status === 'running' && group.splits.some((split) => !isSettled(split.status));
@@ -80,7 +74,10 @@ export function partOf(split: Pick<SplitView, 'idx' | 'of'>): string {
 }
 
 const isEffort = (value: unknown): value is Effort => typeof value === 'string' && Object.prototype.hasOwnProperty.call(EFFORT_LABEL, value);
-const REQUESTED: Record<string, string> = { cheap: 'Cheaper model', strong: 'Stronger model' };
+/** What the agent asked for before the part is routed – a kind of model, or (Halb 21.11.2026) what the piece's hardest step needs. */
+const REQUESTED: Record<string, string> = {
+  cheap: 'Cheaper model', strong: 'Stronger model', check: 'Small model', chain: 'Strong model', judgment: 'Strongest model',
+};
 
 /**
  * The model · effort slot: what the split's run ran on ("Claude Opus 5.5 · High"), else – while it runs (its run row

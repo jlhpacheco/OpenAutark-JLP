@@ -25,6 +25,7 @@ import type { Logger } from '../contracts.ts';
 import { hashToken } from '../pwa/tokens.ts';
 import { DecisionTodos, type DecisionText, type TodoServices } from '../remote/todo.ts';
 import { canWelcome, welcomeMember } from '../org/member-welcome.ts';
+import { isPersonScope } from '../security/rpc-guard.ts';
 
 export const JOIN_TTL_MS = 24 * 60 * 60_000;
 export const CODE_TTL_MS = 10 * 60_000;
@@ -68,9 +69,12 @@ export interface JoinDeps {
 const same = (a: string, b: string): boolean => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** Only the owner on this PC (or an in-process caller) admits a person's device. */
+/**
+ * Only the person on this PC (or an in-process caller) admits a person's device – Sicher-Runde 19.11.2026 (REVIEW-2 10, the
+ * H1 rule): an owner session that is not the person (an agent's wf, a runtime.json token) admits nobody, nor does a phone.
+ */
 export function mayAdmit(scope: ClientScope | undefined): boolean {
-  return !scope || scope.kind === 'owner';
+  return !scope || (scope.kind === 'owner' && isPersonScope(scope));
 }
 
 export class JoinRequests {

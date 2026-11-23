@@ -3,7 +3,10 @@
 // uses, models/embeddings.ts for Embeddings. Settings' selects show this, so a person sees the model that really runs,
 // also while the file says "auto". Decisions without a decision connection name the chat model that stands in, as one
 // step left ('setup', "Set up with AI"). The state and the one action of a media use come from the abilities
-// overview (runtime/abilities/**), which keeps its own rules for the AI's abilities.status.
+// overview (runtime/abilities/**), which keeps its own rules for the AI's abilities.status. 21.11.2026: Speech to text names
+// the ChatGPT plan's dictation first while routing.stt is "auto" or "codex" and a plan login is here (the order
+// voice/transcribe.ts hears in), and says so when Codex is signed in on this PC but not used here yet; a call on this
+// PC's speech names the model it hears with; every use carries its choices (use-choices.ts).
 // Owns: mapping those answers onto UseNow. Never: decides a route itself, changes anything, or calls a network (the
 // router may refresh an empty catalog once, as for a turn).
 
@@ -11,7 +14,9 @@ import type { RuntimeServices } from '../contracts.ts';
 import type { Ability, AbilityAction, AbilityId } from '../../shared/model/abilities.ts';
 import { accountCharge } from '../../shared/model/charge.ts';
 import { localSpeechModel } from '../../shared/model/local-speech-models.ts';
-import { isProviderChoice, MODEL_USES, useValue, USE_AUTO, USE_LOCAL, USE_OFF, type ModelUse, type UseNow } from '../../shared/model/models-uses.ts';
+import { isProviderChoice, MODEL_USES, PLAN_DICTATION, PLAN_DICTATION_NAME, planHears, useValue, USE_AUTO, USE_LOCAL, USE_OFF, type ModelUse, type UseNow } from '../../shared/model/models-uses.ts';
+import { planAccount } from '../voice/plan-transcribe.ts';
+import { useChoices } from './use-choices.ts';
 import type { Agent } from '../../shared/model/org.ts';
 import type { RouteDecision } from '../../shared/model/providers.ts';
 import { modelOwner } from '../../shared/model/provider-entries.ts';
@@ -87,7 +92,20 @@ function voiceUse(s: RuntimeServices, stored: string): Resolved {
   return { kind: 'model', accountId: choice.account.id, modelId: `${modelOwner(choice.account, quiet(() => s.settings.get().providers, undefined))}:${choice.model}`, name: choice.model, thisPc: true, ...gone };
 }
 
+/** A Codex login this PC found that is no account here yet (accounts/adoption.ts: only offered until "Use"). */
+const FOUND_CODEX = 'Codex is signed in on this PC – Use it under the plans above and dictation goes through the ChatGPT plan';
+
 function sttUse(s: RuntimeServices, stored: string, facts: ReturnType<typeof abilityFacts>): Resolved {
+  const thisPc = facts.engine;
+  // the order transcribe.ts hears in: the plan's dictation first while nothing or the plan is picked, then this PC's model
+  const plan = planHears({ stt: stored }) ? quiet(() => planAccount(s), undefined) : undefined;
+  if (plan) return { kind: 'plan', accountId: plan.id, modelId: PLAN_DICTATION, name: PLAN_DICTATION_NAME, thisPc };
+  const found = stored === USE_AUTO && quiet(() => s.accounts.lastDetection?.()?.found?.some((entry) => entry.provider === 'codex' && entry.where === 'this-pc' && !entry.declined), false);
+  const resolved = sttLocalOrService(s, stored, facts);
+  return found ? { ...resolved, note: FOUND_CODEX } : stored === PLAN_DICTATION ? { ...resolved, gone: PLAN_DICTATION_NAME } : resolved;
+}
+
+function sttLocalOrService(s: RuntimeServices, stored: string, facts: ReturnType<typeof abilityFacts>): Resolved {
   const thisPc = facts.engine;
   if (facts.stt && facts.engine) return { kind: 'this-pc', modelId: facts.stt.id, name: facts.stt.label, thisPc };
   const status = quiet(() => functionStatus(s, 'stt'), { settingUnavailable: false, off: false } as ReturnType<typeof functionStatus>);
@@ -139,11 +157,12 @@ const STATE_OF: Readonly<Record<UseNow['kind'], UseNow['state']>> = { model: 're
 
 /** The row's state, note and action: a media use's from its ability, the rest from what it resolves to (an action left: one step). */
 function finish(use: ModelUse, stored: string, now: Resolved, ability: Ability | undefined): UseNow {
-  const picked = now.kind === 'model' && stored !== USE_AUTO && !now.gone; // an account chosen on purpose: nothing left to do
+  // an account chosen on purpose, or the plan's dictation: nothing left to do
+  const picked = (now.kind === 'model' && stored !== USE_AUTO && !now.gone) || (use === 'stt' && now.kind === 'plan');
   const useAbility = ability && !picked && now.kind !== 'off';
   return {
     ...now, use, stored, state: useAbility ? ability.state : now.action ? 'setup' : STATE_OF[now.kind],
-    ...(useAbility && ability.note ? { note: ability.note } : {}),
+    ...(useAbility && ability.note && !now.note ? { note: ability.note } : {}),
     ...(useAbility && ability.action ? { action: ability.action } : {}),
   };
 }
@@ -166,7 +185,14 @@ export async function modelUses(s: RuntimeServices): Promise<UseNow[]> {
   };
   const list = await Promise.all(MODEL_USES.map(answer));
   // A call on this PC's speech hears and speaks with the stt and tts models: name those, not a mode word (B-072).
-  const named = (use: ModelUse) => list.find((now) => now.use === use && now.kind !== 'none' && now.kind !== 'off')?.name;
-  const speech = [named('stt'), named('tts')].filter(Boolean).join(' + ');
-  return list.map((now) => now.use === 'voice' && now.kind === 'this-pc' && !now.name && speech ? { ...now, name: speech } : now);
+  // 21.11.2026: its model cell is the model it hears with, so the row can change it like Speech to text's.
+  const named = (use: ModelUse) => list.find((now) => now.use === use && now.kind !== 'none' && now.kind !== 'off');
+  const hears = named('stt');
+  const speech = [hears?.name, named('tts')?.name].filter(Boolean).join(' + ');
+  const heard = hears && (hears.kind === 'plan' || hears.kind === 'this-pc') && hears.modelId ? { modelId: hears.modelId } : {};
+  const choices = useChoices(s, list);
+  return list.map((now) => {
+    const call = now.use === 'voice' && now.kind === 'this-pc' && !now.name ? { ...(speech ? { name: speech } : {}), ...heard } : {};
+    return { ...now, ...call, choices: choices[now.use] };
+  });
 }

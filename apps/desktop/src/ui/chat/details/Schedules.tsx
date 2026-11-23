@@ -1,8 +1,11 @@
-// Chat details › Scheduled: this chat's scheduled messages, agent reminders, routines and human timers
-// (schedules.list by conversation) – the title, the rule in words when it repeats ("Every Monday at 09:00"), the next run
-// or its state (No next run · Paused · Ended – the one rule of tasks/schedule-state.ts), the level when not Normal. The row's right-click menu: Pause/Resume, Edit (the person's own scheduled message: the
-// composer opens in schedule mode with it, composer/schedule-mode.ts) and Delete. A message is scheduled from the composer
-// ("Schedule…"); an agent sets up its own ("send this every Monday at 9"). Kept fresh by schedule.upserted / schedule.removed events.
+// Chat details › Scheduled: this chat's two kinds of schedules (schedules.list by conversation; Quests round 20.11.2026) –
+// a message sent later ("Send later", once or repeating) and an agent's reminder (its own note at a time) – each one row:
+// the title, the rule in words when it repeats ("Every Monday at 09:00"), the next run or its state (No next run · Paused
+// · Ended – the one rule of tasks/schedule-state.ts), the level when not Normal, whose it is. The row's right-click menu:
+// Pause/Resume, Edit (the person's own scheduled message: the composer opens in schedule mode with it,
+// composer/schedule-mode.ts) and Delete. A message is scheduled from the composer ("Schedule…"); an agent sets up its own
+// ("send this every Monday at 9"). Kept fresh by schedule.upserted / schedule.removed events and loaded again after every
+// reconnect (lib/use-load.ts).
 // Owns: the list. Never: builds specs or creates schedules.
 
 import { useEffect, useState } from 'preact/hooks';
@@ -15,6 +18,7 @@ import { setChatPanel } from '../../lib/shell-state.ts';
 import { toastError } from '../../lib/toasts.ts';
 import { confirm, Icon, Spinner } from '../../lib/ui.tsx';
 import type { IconName } from '../../lib/ui.tsx';
+import { useLoad } from '../../lib/use-load.ts';
 import { useContextMenu } from '../../lib/context-menu.tsx';
 import { editableSchedule } from '../composer/schedule-form.ts';
 import { editSchedule, localZone } from '../composer/schedule-mode.ts';
@@ -22,13 +26,11 @@ import { repeats, ruleLine } from '../composer/schedule-rule.ts';
 import { byNextRun, scheduleState, type ScheduleState } from '../../tasks/schedule-state.ts';
 
 /** The meta line of a schedule without a next run (the one state rule: tasks/schedule-state.ts). */
-const STATE_TEXT: Record<Exclude<ScheduleState, 'next'>, string> = { none: 'No next run', paused: 'Paused', ended: 'Ended' };
+export const STATE_TEXT: Record<Exclude<ScheduleState, 'next'>, string> = { none: 'No next run', paused: 'Paused', ended: 'Ended' };
 
 const KIND: Record<Schedule['kind'], { icon: IconName; label: string }> = {
-  message: { icon: 'chat-text', label: 'Message' },
+  message: { icon: 'chat-text', label: 'Send later' },
   reminder: { icon: 'bell', label: 'Reminder' },
-  routine: { icon: 'arrow-clockwise', label: 'Routine' },
-  timer: { icon: 'clock', label: 'Timer' },
 };
 
 const weekdayTime = new Intl.DateTimeFormat(locale, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
@@ -43,10 +45,10 @@ export function whenText(ms: number, now = Date.now()): string {
 function useChatSchedules(conversationId: string, allowed: boolean) {
   const [list, setList] = useState<Schedule[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
+  useEffect(() => setList(null), [conversationId]); // another chat: never the last one's rows
+  useLoad(() => {
     if (!allowed) return;
     let alive = true;
-    setList(null);
     rpc.call('schedules.list', { conversationId })
       .then((items) => { if (alive) { setList(items); setError(null); } })
       .catch((err) => { if (alive) setError(errorText(err)); });

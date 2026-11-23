@@ -1,5 +1,5 @@
 // Mode strategy: the mode is the agent's own (13.11.2026) – no chat or task mode. When a part of my work is another kind of
-// work, a colleague who works in that mode can take it (tasks.create / tasks.give); when the rest of my work is, I switch
+// work, a colleague who works in that mode can take it (tasks.add, or tasks.update with for); when the rest of my work is, I switch
 // my own mode (agents.update). checkModeSwitch names those colleagues when I switch.
 // Owns: that check and the specialist lookup. Never: switches a mode or gives work itself, or forbids anything (a
 // colleague hint is only advice).
@@ -33,5 +33,5 @@ export function checkModeSwitch(services: Pick<RuntimeServices, 'org'>, input: {
   const colleagues = specialistsFor(services, input.to, input.agentId);
   if (!colleagues.length) return {};
   const names = colleagues.map((colleague) => `${colleague.name} (${colleague.id})`).join(', ');
-  return { advice: `${names} ${colleagues.length === 1 ? 'works' : 'work'} in ${input.to} mode. A part that stands on its own I can give them (tasks.create or tasks.give): their knowledge stays with it and I go on meanwhile.` };
+  return { advice: `${names} ${colleagues.length === 1 ? 'works' : 'work'} in ${input.to} mode. A part that stands on its own I can give them (tasks.add, or tasks.update with for): their knowledge stays with it and I go on meanwhile.` };
 }

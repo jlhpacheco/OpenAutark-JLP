@@ -11,13 +11,13 @@ import { DirectFailed, letterOf, sealWeb, sendDirect, type Receiver } from '../.
 import { FeedbackOutbox, type OutboxEntry } from '../../../src/ui/feedback/outbox.ts';
 
 const JPEG = `data:image/jpeg;base64,${Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).toString('base64')}`;
-const WEBM = new Blob([new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 9, 9, 9, 9])], { type: 'audio/webm' });
+const PNG = `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 4]).toString('base64')}`;
 
 function entry(over: Partial<OutboxEntry> = {}): OutboxEntry {
   return {
     clientId: 'fc-abc-0123456789ab', at: 1_700_000_000_000, send: true, text: 'The list jumps. My key is password: hunter2',
     where: { view: 'tasks' } as OutboxEntry['where'], client: 'Android app 0.3.15 · Android 16 · samsung SM-S918B · 412×915 @3x · de',
-    image: JPEG, audio: [{ blob: WEBM, mime: 'audio/webm' } as OutboxEntry['audio'][number]], clientDiagnostics: 'crash at mail me@example.com',
+    images: [JPEG, PNG], dictated: true, clientDiagnostics: 'crash at mail me@example.com',
     ...over,
   };
 }
@@ -33,9 +33,11 @@ test('a phone\'s sealed letter opens with the team key and reads like a PC\'s, r
   assert.equal(opened.item.appVersion, '0.3.15');
   assert.equal(opened.item.os, 'Android app 0.3.15 · Android 16');
   assert.equal(opened.item.view, 'tasks');
-  assert.equal(opened.item.screenshot?.mime, 'image/jpeg');
-  assert.equal(opened.audio?.length, 1);
-  assert.equal(opened.item.dictated, true);
+  assert.deepEqual(opened.item.images?.map((image) => image.mime), ['image/jpeg', 'image/png'], 'every image, in order (owner 21.11.2026)');
+  const older = itemOf('x', JSON.parse(new TextDecoder().decode(await letterOf(entry({ images: undefined, image: JPEG }), '0.3.15'))), 1);
+  assert.deepEqual(older?.item.images?.map((image) => image.mime), ['image/jpeg'], 'an entry an older build kept: its one image');
+  assert.equal(opened.item.dictated, true, 'a dictated report goes as its words');
+  assert.equal(JSON.parse(openReport(keys.privateKey, sealed).toString('utf8')).audio, undefined, 'never a recording (owner 20.11.2026)');
 });
 
 test('sendDirect creates feedback/<clientId> once; 409 counts as arrived; no connection is DirectFailed', async () => {

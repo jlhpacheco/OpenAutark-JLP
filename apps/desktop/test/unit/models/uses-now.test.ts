@@ -132,3 +132,25 @@ test('routesFor: a value naming the free route takes it first, whatever else is 
   assert.equal(routesFor(services, 'speech').first?.via, 'local');
   assert.equal(functionStatus(services, 'tts').off, false);
 });
+
+test('21.11.2026: Speech to text names the ChatGPT plan\'s dictation while nothing or the plan is picked; this PC picked: not the plan', async () => {
+  const { h, read } = await setupUses();
+  const auto = await read('stt');
+  assert.deepEqual([auto.kind, auto.accountId, auto.modelId, auto.name, auto.state], ['plan', 'acc_codex', 'codex', 'ChatGPT dictation', 'ready']);
+  assert.ok(auto.choices?.some((choice) => choice.value === 'codex'), 'the AI sees the plan among the choices');
+  h.settings.update({ routing: { stt: 'local' } });
+  assert.notEqual((await read('stt')).kind, 'plan');
+  h.settings.update({ routing: { stt: 'codex' } });
+  assert.equal((await read('stt')).kind, 'plan');
+  h.accounts.upsert(account('acc_codex', 'codex', { enabled: false }), false);
+  const gone = await read('stt');
+  assert.deepEqual([gone.kind === 'plan', gone.gone], [false, 'ChatGPT dictation'], 'no plan login: named as gone, the next way stands in');
+});
+
+test('every use carries its choices: auto, off where it can be off, the connected models', async () => {
+  const { h } = await setupUses();
+  const list = await modelUses(h.services);
+  for (const now of list) assert.equal(now.choices?.[0]?.value, 'auto', now.use);
+  assert.ok(list.find((now) => now.use === 'work')?.choices?.some((choice) => choice.value === 'codex:gpt-6.1-sol'));
+  assert.ok(!list.find((now) => now.use === 'work')?.choices?.some((choice) => choice.value === 'off'), 'Work is never off');
+});

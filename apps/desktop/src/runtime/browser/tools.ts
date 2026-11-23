@@ -12,8 +12,8 @@
 // a window I then work in with computer.*) – decided before Places, so every other browser tool keeps own, chat and
 // global; in the person's browser a step named by its words is looked up there first (side.ts); every tab line names
 // its browser (place.ts tabLine).
-// B-081: browser.batch glides by default like browser.act (motion.ts, ≤ 300 ms per pointed step); `instant` jumps in
-// the agent's own browser when it passes it – the person's browser glides whatever is passed.
+// 21.11.2026 (owner): browser.batch moves like a hand by default, like browser.act (motion.ts, DEFAULT_MOTION); the agent
+// passes `glide` (≤ 300 ms per pointed step) or `instant` (a jump) for a step or batch that should be quick, in either browser.
 // 18.11.2026 (owner: "the AI can always see each human's tabs"): browser.tabs in chat or global also lists what that
 // space holds on the person's other PCs (other-pc-tabs.ts) – a chat's area is what everyone in that chat sees.
 // Owns: schemas, where a call goes, summaries and outputs. Never: puts secret values into outputs.
@@ -22,7 +22,7 @@ import type { ToolContext, ToolDef, ToolOutput } from '../tools/types.ts';
 import { text } from '../tools/types.ts';
 import { defineTool } from '../tools/builtin/util.ts';
 import { imageOutput } from '../computer/tools.ts';
-import { MOTION_STYLES, type MotionStyle } from '../../shared/model/pointer-motion.ts';
+import { DEFAULT_MOTION, MOTION_STYLES, type MotionStyle } from '../../shared/model/pointer-motion.ts';
 import { BATCH_MAX, type BatchOutcome, type BatchStep, type BrowserService } from './service.ts';
 import { describeTarget, type BrowserAction, type BrowserTarget } from './page.ts';
 import { WorkforceError } from '../../shared/errors.ts';
@@ -65,7 +65,7 @@ const STEP_PROPS = {
   submit: { type: 'boolean', description: 'true when it sends, posts, pays, books or signs in; journaled as an outside effect.' },
 };
 
-const MOTION_PROP = { type: 'string', enum: [...MOTION_STYLES], description: 'glide (default, at most 300 ms), human or instant.' };
+const MOTION_PROP = { type: 'string', enum: [...MOTION_STYLES], description: 'human (default, a hand-like move), glide (at most 300 ms) or instant.' };
 const FULL_PROP = { type: 'boolean', description: 'true: the whole snapshot instead of what changed.' };
 
 type ActArgs = StepArgs & BrowserTarget & { action: BrowserAction; submit?: boolean };
@@ -224,7 +224,7 @@ export function browserTools(browser: BrowserService, computer?: ComputerService
     inputSchema: { type: 'object', properties: { ...STEP_PROPS, tab: TAB_PROP, where: WHERE_PROP, motion: MOTION_PROP, full: FULL_PROP }, required: ['action'], additionalProperties: false },
     category: 'device', ...device,
     describe: (args) => ({ summary: stepSummary(args), reversible: args.submit !== true, external: args.submit === true }),
-    run: (args, ctx) => runSteps(browser, places, ctx, { tab: args.tab, where: args.where, full: args.full, motion: args.motion, steps: [args] }, 'glide'),
+    run: (args, ctx) => runSteps(browser, places, ctx, { tab: args.tab, where: args.where, full: args.full, motion: args.motion, steps: [args] }, DEFAULT_MOTION),
   });
 
   const batch = defineTool<On & { steps: ActArgs[]; motion?: MotionStyle; full?: boolean }>({
@@ -243,7 +243,7 @@ export function browserTools(browser: BrowserService, computer?: ComputerService
       const outside = args.steps.some((step) => step.submit === true);
       return { summary: `Batch of ${args.steps.length}: ${args.steps.map(stepSummary).join('; ')}`.slice(0, 900), reversible: !outside, external: outside };
     },
-    run: (args, ctx) => runSteps(browser, places, ctx, args, 'glide'),
+    run: (args, ctx) => runSteps(browser, places, ctx, args, DEFAULT_MOTION),
   });
 
   const screenshot = defineTool<On & { fullPage?: boolean }>({

@@ -1,7 +1,8 @@
 // Agent page (#/team/<agentId>, the avatar click target): its profile – identity and live status, "Show work", its
 // model, folder and skills, its schedules. "Show work" opens its Work page (#/team/<agentId>/work, AgentWork.tsx; owner
 // F12, 15.11.2026): what it does right now, its really active tasks and its activity log – one place for the log, so the
-// profile carries none. The header (lib/header.tsx) has no icon cells of its own: the agent's NAME is the dropdown, with the same
+// profile carries none. Team-Call 21.11.2026: under "Show work", "New chat" with it and the chats shared with it
+// (MemberChats.tsx). The header (lib/header.tsx) has no icon cells of its own: the agent's NAME is the dropdown, with the same
 // menu as a right click on the agent anywhere (menus.ts agentMenu: Message · Browser · Connect Telegram… ·
 // Duplicate · Change reports-to… · Export · Archive). "Browser" shows the live view of the agent's own browser and its own area (agent:<id>,
 // AgentBrowser.tsx) instead of the profile, "Profile" brings it back. An archived agent is read-only with "Restore" in that menu. On the
@@ -27,6 +28,8 @@ import { agentBrowser, agentMenu } from './menus.ts';
 import { ensureSpaces } from './org-state.ts';
 import { keptPage } from '../lib/kept-page.ts';
 import { phoneFeedbackCells } from '../feedback/cell.tsx';
+import { can } from '../lib/session.ts';
+import { MemberChats } from './MemberChats.tsx';
 
 /** The agent from the store, or (archived / not yet loaded) fetched once. */
 export function useAgent(agentId: string): { agent: Agent | undefined; missing: boolean } {
@@ -73,6 +76,7 @@ export function AgentView(props: { agentId: string }) {
           {archived && <p class="agent-archived">Archived</p>}
           <AgentProfile agent={agent} readOnly={archived} />
           <button type="button" class="text-button agent-work-link" onClick={() => go.work(agent.id)}>Show work</button>
+          <MemberChats memberId={agent.id} canStart={!archived && can('chats.create')} />
           <AgentDetails agent={agent} />
         </div>
       </div>}

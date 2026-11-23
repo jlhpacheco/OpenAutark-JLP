@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -48,11 +49,12 @@ test('pages: a file in <data>/pages is a tab that reaches the app', { timeout: 4
   const profile = await mkdtemp(path.join(os.tmpdir(), 'workforce-pages-'));
   const out = path.resolve(process.env.SCREENSHOTS ?? path.join(profile, 'shots'));
   await mkdir(out, { recursive: true });
-  const launch = () => electron.launch({
+  let launchedAt = 0; // a restart reads the runtime.json of its own start (lib/runtime-info.mjs)
+  const launch = () => { launchedAt = Date.now(); return electron.launch({
     executablePath: path.join(root, 'node_modules/electron/dist', process.platform === 'win32' ? 'electron.exe' : 'electron'),
     args: [root], cwd: root, timeout: 60_000,
     env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1' }),
-  });
+  }); };
   const outside = createServer((_request, response) => { response.writeHead(200, { 'access-control-allow-origin': '*' }); response.end('from outside'); });
   await new Promise((resolve) => { outside.listen(0, '127.0.0.1', resolve); });
   const api = `http://127.0.0.1:${outside.address().port}/`;
@@ -69,7 +71,7 @@ test('pages: a file in <data>/pages is a tab that reaches the app', { timeout: 4
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.waitForSelector('.shell, .mobile-shell', { timeout: 60_000 });
-  let info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  let info = await runtimeInfo(profile); // the window can show before a fresh profile's runtime wrote it (lib/runtime-info.mjs)
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('settings.update', { onboarding: { step: 'done' } });
   const dataRoot = (await rpc.call('system.root')).path;
@@ -100,7 +102,7 @@ test('pages: a file in <data>/pages is a tab that reaches the app', { timeout: 4
 
   // ---- a new file shows up on an open "+" page, without a reload, below the fixed rows
   await newTab();
-  await row('Screen').waitFor();
+  await row('Media').waitFor(); // one of the fixed rows (B-078 cut Screen and Activity there – NewTabPage.tsx)
   assert.equal(await row('board').count(), 0);
   await writeFile(path.join(pages, 'board.html'), BOARD('First', api));
   await row('board').waitFor({ timeout: 10_000 });
@@ -172,9 +174,9 @@ await wf.ready; line.textContent = 'tock ' + (await wf.rpc('system.info')).versi
 
   // ---- the task that waits, as the person sees it
   await newTab();
-  await row('Work').click();
+  await row('Tasks').click();
   await page.locator('.workspace-pane', { hasText: 'Build the page' }).waitFor({ timeout: 15_000 });
-  await shot('04c-work-waiting');
+  await shot('04c-tasks-waiting');
 
   // ---- wf.open opens a website tab beside the page
   await strip().locator('.browser-strip-tab', { hasText: 'example' }).click();
@@ -213,7 +215,7 @@ await wf.ready; line.textContent = 'tock ' + (await wf.rpc('system.info')).versi
   page.setDefaultTimeout(30_000);
   page.on('pageerror', (error) => errors.push(error.message));
   await page.waitForSelector('.shell', { timeout: 60_000 });
-  info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  info = await runtimeInfo(profile, 60_000, launchedAt);
   rpc = await connect(info.port, info.token, 'cli');
   await page.locator('iframe.pane-page-frame').waitFor({ timeout: 30_000 });
   await frame().locator('#word', { hasText: 'Second' }).waitFor({ timeout: 20_000 });

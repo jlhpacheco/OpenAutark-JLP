@@ -16,7 +16,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/ho
 import { Button, IconButton } from '../../lib/ui.tsx';
 import { toastError } from '../../lib/toasts.ts';
 import { duration } from '../ask.ts';
-import { uploadBlob } from '../host.ts';
+import { uploadBlob } from '../../lib/files.ts';
 import { Markdown } from '../markdown.tsx';
 import type { AskWidgetProps } from './ask-types.ts';
 import { LIVE_TITLE, liveLine, useLiveWords } from './live-words.ts';

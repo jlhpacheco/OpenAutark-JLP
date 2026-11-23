@@ -234,7 +234,7 @@ export interface AppToolHost {
 
 /** The connectors service (RuntimeServices.apps, contracts/apps.ts). */
 export interface AppsService {
-  /** Applies the files (once migrating old Settings › Apps records), registers cached tools and starts watching. */
+  /** Applies the files, registers cached tools and starts watching. */
   start(): void;
   /** Ends sign-ins and the watcher, closes connections and stdio servers. */
   stop(): Promise<void>;

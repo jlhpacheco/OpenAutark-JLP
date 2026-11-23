@@ -7,7 +7,15 @@
 // person's app, the one in front right at its open, 20 s later with its page): frameOnly names a Chrome or Edge window
 // whose tree holds no page document, with the cause – Chrome puts the page into its tree once it has loaded in a window
 // that is not covered.
+// 22.11.2026 (live 21.11.: the card number typed into a billing form in the person's Chrome came back in clear text as
+// `edit "Card Number *" … = "5412 …"`; the helper hides only password fields): a text field whose name or id names a
+// card, code or password shows "•••• 1234" / "•••• (3 characters)" instead of its value (shared/secrets/secret-places.ts).
 // Never: talks to the helper or acts on elements.
+
+import { fieldMask, isSecretLabel } from '../../shared/secrets/secret-places.ts';
+
+/** Roles whose value a person types (a list or a combobox shows a choice, e.g. the expiry month, and stays). */
+const TYPED = new Set(['edit']);
 
 export interface UiNode {
   d: number; // depth in the helper walk
@@ -103,7 +111,10 @@ export function nodeLine(node: UiNode, ref: string): string {
   if (node.name) parts.push(quote(node.name.slice(0, 200)));
   parts.push(`[ref=${ref}]`);
   if (node.aid && node.aid !== node.name) parts.push(`#${node.aid.slice(0, 80)}`);
-  if (node.value !== undefined && node.value !== '') parts.push(`= ${typeof node.value === 'number' ? node.value : quote(String(node.value).slice(0, 300))}`);
+  if (node.value !== undefined && node.value !== '') {
+    const secret = typeof node.value === 'string' && TYPED.has(node.role) && (isSecretLabel(node.name) || isSecretLabel(node.aid));
+    parts.push(`= ${typeof node.value === 'number' ? node.value : quote(secret ? fieldMask(String(node.value)) : String(node.value).slice(0, 300))}`);
+  }
   if (node.toggle) parts.push(`[${node.toggle}]`);
   if (node.expand && node.expand !== 'leafnode') parts.push(`[${node.expand}]`);
   if (node.selected) parts.push('[selected]');

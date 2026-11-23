@@ -1,5 +1,5 @@
 // Owns: the website APK's update check (B-078, D18; Android 0.3.6) – in the release build, at start and on return at most
-// every 30 minutes (UpdateRelease.INTERVAL_MS; at once when the clock went back), it reads latest-android.json (full) or latest-android-lite.json (Lite)
+// once a minute (UpdateRelease.INTERVAL_MS, owner 19.11.2026: every opening; at once when the clock went back), it reads latest-android.json (full) or latest-android-lite.json (Lite)
 // of the newest public release (github.com/teydra/OpenAutark: {versionCode, versionName, url, sha256, bytes, signer}); a
 // newer versionCode shows the update line at the top (UpdateBar) of the screen on display when the answer arrives, until
 // it is installed. Owner 10.11.2026 ("automatisch downloaden … kein Aufwand"): once the person allowed Autark to install

@@ -54,8 +54,12 @@ export interface HostOps {
   sideBrowser: { args: SideBrowserCall; result: SideBrowserResult };
   /** B-058 G6: a stored recording or video (blob id) decoded by main's media analyzer to 16 kHz mono PCM, from `startMs` for at most `maxMs` (AUDIO_DECODE_LIMITS). */
   'media.audio': { args: { fileId: string; mime?: string; startMs?: number; maxMs?: number }; result: DecodedAudio };
-  /** B-058 G10: a stored image (blob id) normalized by main's media analyzer – JPEG/PNG, longest edge ≤ maxPx, optionally a region (IMAGE_LIMITS). */
-  'media.image': { args: { fileId: string; mime?: string; maxPx?: number; region?: ImageRegion }; result: NormalizedImage };
+  /**
+   * B-058 G10: a stored image (blob id) normalized by main's media analyzer – JPEG/PNG, longest edge ≤ maxPx, optionally a region (IMAGE_LIMITS).
+   * 21.11.2026: `cover` – rectangles of the whole image (fractions) painted solid black after it is drawn (an agent's feedback,
+   * nothing private leaves the PC); `maxBytes` – a smaller byte limit than IMAGE_LIMITS.maxBytes (a PNG over it becomes a JPEG).
+   */
+  'media.image': { args: { fileId: string; mime?: string; maxPx?: number; region?: ImageRegion; cover?: ImageRegion[]; maxBytes?: number }; result: NormalizedImage };
   /** 17.11.2026: a light copy of a stored video (blob id) made by main's hidden preview window (main/media-preview.ts) – H.264/MP4, short edge ≤ 720, ≈ 2.5 Mbit/s, index in front (PREVIEW_LIMITS); the result names a temp file the runtime stores and removes. */
   'media.preview': { args: { fileId: string; mime?: string }; result: VideoPreview };
   /** B-072: opens a company on this PC (main/companies.ts; create: a new folder first); this window goes to the tray. */
@@ -77,16 +81,6 @@ export interface HostOps {
   /** B-076: a new http(s) address, back, forward or reload in that tab, or the answer to its open dialog. */
   sideNav: { args: { tab: string; url?: string; action?: 'back' | 'forward' | 'reload'; dialog?: 'accept' | 'dismiss' }; result: { ok: true } };
   /**
-   * Owner 07.11.2026: the person's Codex plan hears a dictation over WebRTC (runtime/voice/codex-hear.ts). Main's hidden
-   * voice window (main/voice-rtc.ts) decodes the take (blob id), feeds it into a peer connection – never a speaker – and
-   * answers with its offer once the ICE candidates are gathered.
-   */
-  'voice.rtcOffer': { args: { fileId: string; mime?: string }; result: { jobId: number; sdp: string; durationMs: number } };
-  /** The server's answer to that offer: the take is sent in real time with RTC_LIMITS' silence before and after; resolves once it is. */
-  'voice.rtcAnswer': { args: { jobId: number; sdp: string }; result: { durationMs: number } };
-  /** Ends the job: the connection closes and its window goes (also after a failure; an unknown job is fine). B-082: `sessionMs` – the voice's own meter (usage.audio_duration_ms) as the page saw it last; `windowMs` – the window's connection time (answer → close). */
-  'voice.rtcClose': { args: { jobId: number }; result: { ok: true; sessionMs?: number; windowMs?: number } };
-  /**
    * B-080: installs an Autark build on this PC the way an update installs (main/updates-wiring.ts installFile: the same
    * drain, the relaunch helper with this installer, quit). Main answers first and acts on the next tick, so the reply
    * reaches the runtime before its shutdown; macOS and a build without the updater wiring refuse in main's log only.
@@ -95,16 +89,11 @@ export interface HostOps {
   /**
    * Feedback 1b136d01 (owner 19.11.2026: "wenn ein PC noch nicht geupdatet ist … per PC einfach updaten mit einem Klick"):
    * this PC's Update button, pressed from elsewhere – a fresh check of the official feed, then the same download and
-   * install (main/updates-wiring.ts updateNow). Main answers first and acts on the next tick.
+   * install (main/updates-wiring.ts updateNow). E4/E5 (19.11.2026): main answers what its updater said after the check
+   * (devices.ts UpdateAnswer) and downloads and installs only after that answer.
    */
-  'app.update': { args: Record<string, never>; result: { ok: true } };
+  'app.update': { args: Record<string, never>; result: import('../model/devices.ts').UpdateAnswer };
 }
-
-/**
- * Limits of the voice.rtc* ops: the longest take sent (realtime costs plan usage per second), the silence before and
- * after it, the wait for the page's offer, for the connection, for the answer after the offer, and an SDP's size.
- */
-export const RTC_LIMITS = { maxMs: 10 * 60_000, leadMs: 1_000, tailMs: 2_000, offerMs: 20_000, connectMs: 15_000, answerMs: 60_000, sdpChars: 64 * 1024 } as const;
 
 /** MM4: limits of `media.analyze` – frames per call, longest image edge, one job's time, jobs waiting behind it. */
 export const KEYFRAME_LIMITS = { frames: 12, defaultFrames: 6, edge: 768, jobMs: 30_000, waiting: 3 } as const;
@@ -134,6 +123,9 @@ export interface DecodedAudio { sampleRate: 16_000; pcm: Uint8Array; durationMs:
  */
 export const IMAGE_LIMITS = { maxPx: 1568, maxBytes: 3_750_000, jobMs: 20_000, waiting: 8 } as const; // maxBytes: Anthropic's 5 MB as base64 (B-058 i1), so a big PNG copy becomes a JPEG in the page
 
+/** 21.11.2026: covering rectangles one `media.image` request carries at most. */
+export const IMAGE_COVER_MAX = 50;
+
 /** B-058 G10: a part of an image as fractions 0..1 of its width and height (x, y = top left). */
 export interface ImageRegion { x: number; y: number; w: number; h: number }
 
@@ -153,7 +145,6 @@ export const HOST_OPS: readonly HostOp[] = [
   'company.open', // B-072
   'company.remove', // 16.11.2026
   'sideCast', 'sideInput', 'sideNav', // B-076
-  'voice.rtcOffer', 'voice.rtcAnswer', 'voice.rtcClose', // owner 07.11.2026: dictation heard by the Codex plan
   'app.install', // B-080
   'app.update', // 19.11.2026
 ];
@@ -194,6 +185,8 @@ export type RuntimeToMain = HostRequest | RuntimeReady;
 export interface InitMessage {
   type: 'init';
   token: string; // launch token: proves to main that the runtime is ours; also the local CLI token
+  /** FX1 19.11.2026: a test profile's person token (owner scope marked `person`); absent otherwise – the window is its port. */
+  personToken?: string;
   protocol: number;
   app: AppInfo;
 }
@@ -262,6 +255,7 @@ export function parseMainMessage(value: unknown): MainToRuntime | null {
   switch (value.type) {
     case 'init':
       if (typeof value.token !== 'string' || typeof value.protocol !== 'number' || !isObject(value.app)) return null;
+      if (value.personToken !== undefined && typeof value.personToken !== 'string') return null;
       return value as unknown as InitMessage;
     case 'host-result':
       if (!Number.isSafeInteger(value.id) || typeof value.ok !== 'boolean') return null;

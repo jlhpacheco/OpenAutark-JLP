@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { SkillLibrary } from '../../../src/runtime/skills/service.ts';
 import { parseFrontMatter } from '../../../src/runtime/skills/frontmatter.ts';
 import { GENERAL_MODE, ModeLibrary } from '../../../src/runtime/modes/service.ts';

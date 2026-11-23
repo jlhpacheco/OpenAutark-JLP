@@ -13,7 +13,7 @@
 
 import type { Account, EngineId, ModelInfo } from '../../shared/model/providers.ts';
 import type { AccountService, ModelCatalog, SettingsService } from '../contracts.ts';
-import { chargeOf } from '../models/pricing.ts';
+import { accountCharge } from '../../shared/model/charge.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import { callSignal, routeHelper, runOnce, type EngineRunnerDeps } from './engine-runner.ts';
 
@@ -66,7 +66,7 @@ export function listenOptions(deps: Pick<ListenerDeps, 'accounts' | 'catalog' | 
   for (const model of models) {
     for (const account of deps.accounts.candidates(model.engine, model.model)) {
       if (account.provider !== model.provider || (model.accounts.length && !model.accounts.includes(account.id))) continue;
-      if (chargeOf(account) === 'paid') paid.set(account.id, account);
+      if (accountCharge(account) === 'paid') paid.set(account.id, account);
       else free = true;
     }
   }
@@ -93,7 +93,7 @@ export interface ListenInput {
 export interface Heard {
   text: string;
   modelId: string;
-  /** The turn ran on a pay-per-use account (models/pricing.ts chargeOf). */
+  /** The turn ran on a pay-per-use account (shared/model/charge.ts accountCharge). */
   paid: boolean;
   /** The provider's own price of the turn (OpenRouter), when it reported one. */
   costUsd?: number;
@@ -118,7 +118,7 @@ export function createListener(deps: ListenerDeps): Listener {
     const account = deps.accounts.get(route.accountId);
     const model = deps.catalog.get(route.modelId);
     if (!account || !model || !hearing.has(model.id)) throw new WorkforceError('unavailable', NO_LISTENER);
-    const paid = chargeOf(account) === 'paid';
+    const paid = accountCharge(account) === 'paid';
     if (paid && !allowPaid) throw new WorkforceError('unavailable', PAID_OFF, { details: { modelId: model.id, paid: false, billed: false } });
     const result = await runOnce(deps, listenEngine(model), { account, model: model.model, effort: route.effort }, {
       system, input: [{ type: 'text', text: prompt }, { type: 'audio', ...audio }], signal: callSignal(deps, signal),

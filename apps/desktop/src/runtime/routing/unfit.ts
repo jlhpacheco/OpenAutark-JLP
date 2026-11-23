@@ -12,7 +12,8 @@ import type { RouteRequest, RuntimeServices } from '../contracts.ts';
 import type { Account, ModelInfo } from '../../shared/model/providers.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import { excerpt } from '../../shared/text/chat-names.ts';
-import { blockedUntil, engineFor } from '../accounts/candidates.ts';
+import { engineFor } from '../accounts/candidates.ts';
+import { holdOf } from '../accounts/plan-hold.ts';
 import { LIMIT_COOLDOWN_MS } from '../accounts/failure.ts';
 import { profileZone, stampText } from '../context/time.ts';
 import { categoryLabel } from './categories.ts';
@@ -46,10 +47,9 @@ export function backAt(s: Pick<RuntimeServices, 'accounts'>, models: readonly Mo
     for (const id of model.accounts) {
       const account = byId.get(id);
       if (!account) continue;
-      const at = blockedUntil(account, now, model.model);
-      if (at === undefined || (until !== undefined && at >= until)) continue;
-      until = at;
-      limited = blockedUntil({ ...account, coolingUntil: undefined }, now, model.model) !== undefined; // as accounts/plan-hold.ts
+      const hold = holdOf(account, now, model.model);
+      if (!hold || (until !== undefined && hold.until >= until)) continue;
+      ({ until, limited } = hold);
     }
   }
   return { ...(until !== undefined ? { until } : {}), limited };
@@ -128,11 +128,10 @@ function waitOf(account: Account, models: readonly ModelInfo[], now: number): { 
   let wait: { at: number; used: boolean } | undefined;
   for (const model of models) {
     if (model.provider !== account.provider || (model.accounts.length && !model.accounts.includes(account.id))) continue;
-    const at = blockedUntil(account, now, model.model);
-    if (at === undefined) return undefined;
-    if (wait && at >= wait.at) continue;
-    const limited = blockedUntil({ ...account, coolingUntil: undefined }, now, model.model) !== undefined; // as backAt
-    wait = { at, used: !pausedOnly({ until: at, limited }, now) };
+    const hold = holdOf(account, now, model.model);
+    if (!hold) return undefined;
+    if (wait && hold.until >= wait.at) continue;
+    wait = { at: hold.until, used: !pausedOnly(hold, now) };
   }
   return wait;
 }

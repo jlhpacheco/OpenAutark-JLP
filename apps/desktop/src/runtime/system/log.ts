@@ -98,15 +98,3 @@ export class FileLogger implements Logger {
     this.open();
   }
 }
-
-/** Logger that discards everything (tests that do not inspect logs). */
-export const nullLogger: Logger = { debug() {}, info() {}, warn() {}, error() {} };
-
-/** Logger that records entries in memory (tests that inspect logs). */
-export class MemoryLogger implements Logger {
-  readonly entries: Array<{ level: Level; message: string; data?: Record<string, unknown> }> = [];
-  debug(message: string, data?: Record<string, unknown>): void { this.entries.push({ level: 'debug', message, data }); }
-  info(message: string, data?: Record<string, unknown>): void { this.entries.push({ level: 'info', message, data }); }
-  warn(message: string, data?: Record<string, unknown>): void { this.entries.push({ level: 'warn', message, data }); }
-  error(message: string, data?: Record<string, unknown>): void { this.entries.push({ level: 'error', message, data }); }
-}

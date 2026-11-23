@@ -10,8 +10,8 @@
 // own in its first turn (the standard's role part says so; skill system-prompt). The creator's instructions are the new
 // agent's "who you are"; for a template hire by an agent they stand below the template's body (withTemplateBody). A text that begins with "## My role" is the whole own part; one that begins with "# How I work" is
 // a whole SYSTEM.md. A hire without a name gets a free human first name (org/first-names.ts); a taken name gets a number;
-// the template's role stays its role. The person's PC-access choice (settings.profile.pcAccess 'careful') renders the
-// careful line in "What I have here" (systemMdValues). A hire starts without a fixed effort (modelPolicy {}).
+// the template's role stays its role. How far the team goes on this PC is no line of SYSTEM.md: the security mode stands
+// in the stable prompt (owner 19.11.2026, security/agreements.ts). A hire starts without a fixed effort (modelPolicy {}).
 // Owns: these hiring rules and the new agent's fields. Never: saves it or emits events
 // (org/service.ts), or reads the database itself – the org facts come from the caller.
 
@@ -50,11 +50,10 @@ export interface HireFacts {
 /** The longest instructions a hire takes (cleanText's limit below). */
 const MAX_INSTRUCTIONS = MAX_SYSTEM_MD; // one cap for SYSTEM.md (shared/model/agent-core.ts)
 
-/** The system-md prompt's values from the settings: the person's name (or "the person"), `careful` for careful PC access. */
+/** The system-md prompt's values from the settings: the person's name (or "the person"). */
 export function systemMdValues(settings: Pick<Settings, 'profile'>): Record<string, string> {
   const owner = settings.profile.name.trim() || 'the person';
-  const careful = settings.profile.pcAccess === 'careful';
-  return { owner, user_name: owner, ...(careful ? { careful: 'yes' } : {}) };
+  return { owner, user_name: owner };
 }
 
 /** `text` split at "## What I have here": what stands above it and that part itself ('' without one). */

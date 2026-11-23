@@ -9,7 +9,9 @@
 // element step and act-and-verify element-act.ts (a refused element click runs as the element's own
 // pattern action where that is the same step, quiet-actions.ts). MP7: every helper call goes through the activity hub
 // (activity.ts – the person's Stop refuses and ends input ops). B-044: agents may operate the
-// Workforce app's own window like any other.
+// Workforce app's own window like any other – in Trust AI mode. Sicher-Runde 19.11.2026: in Secure mode the helper's
+// Guard holds Autark's process ids (its windows refuse input) and, for computer 'chosen', the apps input may reach
+// (helper.ts withGuardConfig, security/policy.ts guardConfig); the window list feeds security.apps (security/apps.ts).
 // B-055: the raw pointer and keyboard steps, their human-priority gate and the motion of the
 // pointer live in pointer-input.ts; one agent at a time holds mouse and keyboard (lease.ts), each
 // agent has its own ref table (one counter: a ref names one agent's observation), windows remember
@@ -25,7 +27,9 @@ import type { Host } from '../host.ts';
 import type { Supervisor } from '../system/supervisor.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import { finite, toScreen, validPoint, type Point, type Rect, type ShotGeometry } from './geometry.ts';
-import type { HelperClient } from './helper.ts';
+import { CLOSED_GUARD, withGuardConfig, type HelperClient, type HelperGuard } from './helper.ts';
+import { guardConfig } from '../security/policy.ts';
+import { registerWindowApps } from '../security/apps.ts';
 import { createHelper, driverFor } from './drivers.ts';
 import { forbiddenCombo, parseCombo } from './keys.ts';
 import { helperShot, hostShot, type Screenshot } from './capture.ts';
@@ -106,6 +110,7 @@ export class ComputerService {
       now: () => this.now(), canControl: () => this.canControl(), requireControl: (feature) => this.requireWindows(feature),
     });
     try { const services = deps.services?.(); if (services) bindComputerActivity(services, this.activity); } catch { /* bound by registerDeviceHandlers */ }
+    try { const services = deps.services?.(); if (services) registerWindowApps(services, () => this.windows()); } catch { /* Settings › Security lists no apps then */ }
   }
 
   /** One line per other pointer on this screen for `caller`'s result (the person – read once now, B-081 –, other agents); '' when nobody else is there. */
@@ -323,8 +328,19 @@ export class ComputerService {
     this.helperClient ??= createHelper(this.platform, {
       supervisor: this.deps.supervisor, resourcesDir: this.deps.resourcesDir, log: this.deps.log, unpacked: unpackedPath,
     });
-    this.guarded ??= this.input.counted(this.activity.wrapHelper(this.helperClient));
+    const guardedHelper = this.platform === 'win32' ? withGuardConfig(this.helperClient, () => this.guard()) : this.helperClient; // Sicher-Runde: the helper's Guard
+    this.guarded ??= this.input.counted(this.activity.wrapHelper(guardedHelper));
     return this.guarded;
+  }
+
+  /** Sicher-Runde: the helper's guard from the security settings (undefined before the runtime is wired); settings that cannot be read close input (fail closed). */
+  private guard(): HelperGuard | undefined {
+    let services: RuntimeServices | undefined;
+    try { services = this.deps.services?.(); } catch { services = undefined; }
+    if (!services?.security) return undefined;
+    const pids = [services.host?.app?.pid, process.pid, process.ppid].filter((pid): pid is number => typeof pid === 'number');
+    try { return guardConfig(services.security.current(), pids, services.security.openApps?.() ?? []); }
+    catch { return { ...CLOSED_GUARD, appPids: pids }; }
   }
 
   /** Time: injected (tests), else the runtime clock, else the system clock (before wiring). */

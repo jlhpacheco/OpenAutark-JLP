@@ -9,7 +9,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentBrowsers, createBrowserFeed, frameSrc, mergeLocal } from '../../../src/ui/workspace/browser-feed.ts';
+import { createBrowserFeed, frameSrc, mergeLocal } from '../../../src/ui/workspace/browser-feed.ts';
 import type { BrowserFeedView } from '../../../src/ui/workspace/browser-feed.ts';
 import type { BrowserFrame, BrowserPull, BrowserSessionInfo, BrowserViewState } from '../../../src/shared/model/browser.ts';
 
@@ -257,11 +257,32 @@ test('B-081 refresh: the next pull starts now, past what the view has, at most o
   p.feed.refresh('ag_none');
 });
 
-test("the agents' open browsers and the session list after browser.sessions", () => {
+test('the session list after browser.sessions', () => {
   const sessions: BrowserSessionInfo[] = [
     { agentId: 'ag_web', tabs: 2, url: 'https://b.test/', title: 'B' },
     { agentId: 'ag_other', tabs: 1, url: 'https://c.test/', title: 'C' },
   ];
-  assert.deepEqual(agentBrowsers(sessions, ['ag_mira', 'ag_web']).map((entry) => entry.agentId), ['ag_web']);
   assert.deepEqual(mergeLocal(sessions, ['ag_web', 'ag_new']).map((entry) => [entry.agentId, entry.title]), [['ag_web', 'B'], ['ag_new', '']], 'closed ones drop out, new ones appear');
+});
+
+test('21.11.2026: pull mode is decided per browser – an agent on another PC is pulled, one here is subscribed', async () => {
+  const calls: string[] = [];
+  const feed = createBrowserFeed({
+    subscribe: async (agentId) => { calls.push(`subscribe ${agentId}`); return { state: { agentId, open: true, tabs: [], live: true, at: 1 } }; },
+    unsubscribe: async (agentId) => { calls.push(`unsubscribe ${agentId}`); },
+    onState: () => () => undefined,
+    onFrame: () => () => undefined,
+    onOpen: () => () => undefined,
+    errorText: (error) => (error as Error).message,
+    pulls: (agentId) => agentId === 'ag_far',
+    pull: (agentId) => { calls.push(`pull ${agentId}`); return new Promise<BrowserPull>(() => undefined); },
+    pullPart: async () => ({ data: '' }),
+  });
+  const offHere = feed.subscribe('ag_here', () => undefined);
+  const offFar = feed.subscribe('ag_far', () => undefined);
+  await settle();
+  assert.deepEqual(calls, ['subscribe ag_here', 'pull ag_far']);
+  offFar();
+  offHere();
+  assert.deepEqual(calls, ['subscribe ag_here', 'pull ag_far', 'unsubscribe ag_here'], 'a pulled browser has nothing to unsubscribe');
 });

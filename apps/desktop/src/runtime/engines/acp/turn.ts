@@ -1,7 +1,7 @@
 // One ACP prompt turn in a live session: the turn's model and effort (best effort), the prompt
 // blocks (instructions or context, text, images, files; B-058 G7: recordings as audio blocks for an agent
 // that declares audio), session/update → EngineEvents,
-// permission requests answered allow (reject on a readOnly turn), session/cancel on abort and the
+// permission requests answered allow (reject on a readOnly turn; in Secure mode the gate answers, permissions.ts), session/cancel on abort and the
 // prompt answer → EngineTurnResult; plus the error mapping engine.ts shares (sign-in, limit, gone).
 // Owns: the per-turn wiring and its end (interrupted after a 10 s grace when the agent does not
 // confirm a cancel).
@@ -17,6 +17,8 @@ import { nextConfigRequest } from './config.ts';
 import { applyUpdate, hubToolName, hubToolOf, isHubPermission, newTurnState, permissionOutcome, promptUsage, stopFor } from './updates.ts';
 import { ERR, isRecord, str } from '../shared.ts';
 import { acpDown, providerDownMessage } from '../provider-outage.ts'; // B-059 #184
+import type { SecurityService } from '../../security/service.ts';
+import { acpAllowed } from './permissions.ts';
 
 const CANCEL_GRACE_MS = 10_000;
 const SESSION_GONE = /session.*(not found|unknown|does not exist|expired)|unknown session|no such session/i;
@@ -90,6 +92,8 @@ function nameFromId(id: string): string | undefined {
 
 export async function runAcpTurn(args: {
   proc: AcpProcess; session: LiveSession; input: EngineTurnInput; context?: string; readFile: ReadFile; resumed: boolean; cancelGraceMs?: number;
+  /** Secure mode (Sicher-Runde 19.11.2026): the service whose gate answers the agent's own permission requests. */
+  security?: SecurityService;
 }): Promise<EngineTurnResult> {
   const { proc, session, input } = args;
   const name = proc.launch.name;
@@ -110,11 +114,14 @@ export async function runAcpTurn(args: {
         if (id) state.hubCalls.set(id, hubToolOf(call) ?? nameFromId(id) ?? 'workforce');
         return permissionOutcome(options, 'allow');
       }
-      return permissionOutcome(options, input.readOnly ? 'deny' : 'allow');
+      if (input.readOnly) return permissionOutcome(options, 'deny');
+      // Sicher-Runde 19.11.2026: Secure mode – the agent's own step goes through the gate (permissions.ts).
+      if (args.security) return permissionOutcome(options, (await acpAllowed(args.security, { agentId: input.agentId, runId: input.runId }, call, input.signal)) ? 'allow' : 'deny');
+      return permissionOutcome(options, 'allow');
     },
   };
   const onAbort = () => {
-    proc.conn.notify('session/cancel', { sessionId: session.id });
+    try { proc.conn.notify('session/cancel', { sessionId: session.id }); } catch { /* connection gone: the grace below ends the turn */ }
     grace = setTimeout(giveUp, args.cancelGraceMs ?? CANCEL_GRACE_MS);
     grace.unref?.();
   };

@@ -1,7 +1,8 @@
 // PCs on this network, without anyone typing an address: while this PC accepts connection requests
 // (settings.devices.findable) a UDP socket on port 47813 answers the LAN probe {q:'wf-hello',v:1,n}
 // from the LAN, link-local or loopback (lanSource) with its public identity – device id, name,
-// fingerprint, Remote ID, peer addresses, (B-084) its chain to the person code and (F09) its company's name – each company
+// fingerprint, Remote ID, peer addresses, (B-084) its chain to the company ID, (Eine-ID 22.11.2026) its chain to its
+// own "my ID" (`me`) and (F09) its company's name – each company
 // on a PC answers for itself with its own key, so the asking PC lists them under that PC. The asking PC sends one probe to 255.255.255.255 and
 // each IPv4 interface's directed broadcast and collects answers for at most 1.5 s (Settings ›
 // Devices lists them; "Connect" by Remote ID looks here first). An answer is only a hint where to
@@ -28,11 +29,12 @@ export const MAX_HELLO_ANSWERS = 32;
 const MAX_MESSAGE = 4096;
 
 /**
- * A PC that answered a hello probe (its own Remote ID checked against its fingerprint); `chain`: its chain to my person
- * code's root (remote/code.ts), kept only when it ends at that fingerprint; `company`: F09 – the company that answered
+ * A PC that answered a hello probe (its own Remote ID checked against its fingerprint); `chain`: its chain to its company
+ * ID's root, `me`: its chain to its my-ID root (remote/code.ts; Eine-ID 22.11.2026), each kept only when it ends at that
+ * fingerprint; `company`: F09 – the company that answered
  * (≤ 80 characters; older PCs send none).
  */
-export interface Candidate { deviceId: string; name: string; fingerprint: string; addresses: string[]; remoteId: string; chain?: unknown; company?: string }
+export interface Candidate { deviceId: string; name: string; fingerprint: string; addresses: string[]; remoteId: string; chain?: unknown; me?: unknown; company?: string }
 
 /** The longest company name a hello answer carries (shared/model/companies.ts companyLabel cuts there too). */
 export const MAX_COMPANY = 80;
@@ -106,8 +108,9 @@ export function parseAnswer(message: Buffer, nonce: string): Candidate | undefin
   if (value.remoteId !== remoteIdOf(fingerprint)) return undefined;
   const list = Array.isArray(addresses) ? addresses.filter((item): item is string => typeof item === 'string' && validAddress(item)).slice(0, 8) : [];
   const chain = value.chain !== undefined && chainEnd(value.chain) === fingerprint ? { chain: value.chain } : {};
+  const me = value.me !== undefined && chainEnd(value.me) === fingerprint ? { me: value.me } : {};
   const company = typeof value.company === 'string' && value.company.trim() && value.company.length <= MAX_COMPANY ? { company: value.company.trim() } : {};
-  return { deviceId, name: name.trim(), fingerprint, addresses: list, remoteId: value.remoteId as string, ...chain, ...company };
+  return { deviceId, name: name.trim(), fingerprint, addresses: list, remoteId: value.remoteId as string, ...chain, ...me, ...company };
 }
 
 /**

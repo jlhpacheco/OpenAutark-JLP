@@ -1,7 +1,6 @@
 // Small shared pieces of every task surface: the round status glyph (spinner only for a real
 // running turn), the clamped notes (B-078; the verification mark is gone from the UI), the owner avatar (an
-// agent's rounded square, a person's round one) or "Team" badge, the thin progress bar, the due
-// text (a timer's ring time with its countdown in the last hour, F04), a snoozed to-do's line and the phone's ⋯ menu button.
+// agent's rounded square, a person's round one) or "Team" badge, the thin progress bar and the phone's ⋯ menu button.
 // Owns: their markup and accessible labels. Never: data loading or actions.
 
 import { useState } from 'preact/hooks';
@@ -12,9 +11,8 @@ import type { MenuSection } from '../lib/ui.tsx';
 import { openContextMenu } from '../lib/context-menu.tsx';
 import { agentName, isMobile } from '../lib/store.ts';
 import { go } from '../lib/router.ts';
-import { fullDate, relative } from '../lib/format.ts';
-import { durationText } from '../blocks/ui/Timer.tsx';
-import { STATUS_LABELS, countdownMs, dueState, ownerOf, progressPercent, whenText } from './model.ts';
+import { STATUS_LABELS, progressPercent } from './model.ts';
+import { ownerOf } from './work-model.ts';
 
 /** Notes longer than this (or than four lines) are clamped. */
 const NOTES_CLAMP_CHARS = 320;
@@ -89,41 +87,6 @@ export function ProgressBar(props: { done: number; total: number; label?: string
     <span class="task-bar" role="progressbar" aria-valuemin={0} aria-valuemax={props.total} aria-valuenow={props.done} aria-label={props.label ?? 'Progress'}>
       <span class="task-bar-value" style={{ width: `${value}%` }} />
     </span>
-  );
-}
-
-/** A ring time: "17:00 · in 5 min" in its last hour, "17:00 · 2 minutes ago" once past, else "Tomorrow 09:00". */
-function ringText(at: number, now: number): string {
-  const left = countdownMs(at, now);
-  if (left !== undefined) return `${whenText(at, now)} · in ${durationText(left)}`;
-  return at <= now ? `${whenText(at, now)} · ${relative(at, now)}` : whenText(at, now);
-}
-
-/**
- * Due time as relative text ("in 3 hours"), overdue in the warning tone. With `timer` (F04) it is
- * a reminder's ring time as a clock time with the quiet countdown of its last hour (ringText).
- */
-export function DueText(props: { dueAt: number | undefined; now?: number; timer?: boolean }) {
-  if (props.dueAt === undefined) return null;
-  const now = props.now ?? Date.now();
-  const state = dueState(props.dueAt, now);
-  const text = props.timer ? ringText(props.dueAt, now)
-    : state === 'overdue' ? `Overdue · ${relative(props.dueAt, now)}` : relative(props.dueAt, now);
-  return (
-    <time class={`due-text ${state}${props.timer ? ' tabular' : ''}`} dateTime={new Date(props.dueAt).toISOString()}
-      title={`${props.timer ? 'Rings' : 'Due'} ${fullDate(props.dueAt)}`}>
-      {text}
-    </time>
-  );
-}
-
-/** A snoozed to-do's line: "Snoozed until 17:10" when its ring is known (tasks/todo-time.ts snoozeEnd), else "Snoozed". */
-export function SnoozedText(props: { until: number | undefined; now: number }) {
-  if (props.until === undefined) return <span class="due-text snoozed">Snoozed</span>;
-  return (
-    <time class="due-text snoozed tabular" dateTime={new Date(props.until).toISOString()} title={`Rings again ${fullDate(props.until)}`}>
-      {`Snoozed until ${whenText(props.until, props.now)}`}
-    </time>
   );
 }
 

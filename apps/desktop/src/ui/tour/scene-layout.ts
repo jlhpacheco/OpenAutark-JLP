@@ -51,6 +51,10 @@ export interface Layout {
   /** Where the pointer rests on the poster, and its size (the cursor's height, the fingertip's width). */
   start: Point;
   pointer: number;
+  /** The Android app's bubble chapter (owner 19.11.2026): the to-do bubble's round icon left of the top row's title,
+   *  and where the pull drops the bubble; null where there is no bubble (the computer). */
+  handle: Rect | null;
+  drop: Point | null;
 }
 
 /** The computer's frame: the rail, the chat sidebar and where the main sheet starts; the caption controls' width. */
@@ -74,12 +78,6 @@ function dockRow(dock: DockFrame, sceneH: number): Pick<Layout, 'close' | 'mic' 
   };
 }
 
-/** Where the dock's top is while its field holds one line (it grows upward from there). */
-export function dockTop(layout: Layout): number {
-  const { dock } = layout;
-  return layout.send.y + layout.send.h - 38 - 8 - dock.row - dock.padTop - 1;
-}
-
 const DESKTOP_CELL: Rect = { x: 960 - CAPTION_W - 12 - 32, y: 8, w: 32, h: 32 };
 const DESKTOP_DOCK: DockFrame = { x: 100, w: 760, bottom: 12, border: 1, padX: 12, padTop: 10, padBottom: 8, row: 32, note: 16 };
 
@@ -99,6 +97,8 @@ export const DESKTOP: Layout = {
   status: { x: 960 - 12 - 236, y: 48 + 8, w: 236, h: 32 },
   start: { x: 612, y: 440 },
   pointer: 52,
+  handle: null,
+  drop: null,
 };
 
 const PHONE_DOCK: DockFrame = { x: 0, w: 360, bottom: 0, border: 0, padX: 12, padTop: 10, padBottom: 20, row: 40, note: 32 };
@@ -120,6 +120,8 @@ export const PHONE: Layout = {
   status: { x: 12, y: 56 + 8, w: 336, h: 32 },
   start: { x: 236, y: 560 },
   pointer: 44,
+  handle: { x: 8, y: 12, w: 32, h: 32 },
+  drop: { x: 300, y: 420 },
 };
 
 export const center = (rect: Rect): Point => ({ x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 });

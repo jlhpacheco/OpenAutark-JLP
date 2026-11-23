@@ -5,7 +5,7 @@
 // https address – http/ws.ts and bridges/external-agents.ts enforce it) and the RPC shape of
 // chats.connectExternal, merged into Methods by module augmentation because api/methods.ts is at
 // its size limit (it can move there unchanged). B-050 K8 (e): a sender behind a connector
-// ('ext:api:<key>:<sender hash>:<label>', isConnectorSender) is an outside contact, not an external agent.
+// ('ext:api:<key>:<sender hash>:<label>', five segments) is an outside contact, not an external agent.
 // Owns: those shapes and rules. Never: behaviour (runtime/bridges/external-agents.ts connects,
 // authenticates and revokes; ui/chat/details/Members.tsx shows them).
 
@@ -17,14 +17,6 @@ const segments = (memberId: string): number => memberId.split(':').length;
 /** True for a member id of an external agent: 'ext:api:<key>:<label>' (exactly four segments – a sender behind a connector is not one). */
 export function isExternalAgent(memberId: string | undefined): boolean {
   return typeof memberId === 'string' && memberId.startsWith(EXTERNAL_AGENT_PREFIX) && segments(memberId) === 4;
-}
-
-/**
- * B-050 K8 (e): True for a sender a connector posts for ('ext:api:<token key>:<sender hash>:<label>',
- * runtime/bridges/external-rpc.ts) – an outside contact like a bridged one (a WhatsApp or Signal contact), never an agent.
- */
-export function isConnectorSender(memberId: string | undefined): boolean {
-  return typeof memberId === 'string' && memberId.startsWith(EXTERNAL_AGENT_PREFIX) && segments(memberId) === 5;
 }
 
 /** The label of an external agent's member id – its last segment. */

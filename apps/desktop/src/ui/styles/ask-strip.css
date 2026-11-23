@@ -12,7 +12,7 @@
 .ask-strip-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
 .ask-strip-text {
   display: flex; flex: 1 1 auto; align-items: center; gap: 6px; min-width: 0; height: 100%; padding: 0;
-  color: var(--text); font-size: 13px; text-align: left; white-space: nowrap;
+  color: var(--text); font-size: calc(13px * var(--ui-text, 1)); text-align: left; white-space: nowrap;
 }
 .ask-strip-who { flex: none; color: var(--secondary); font-weight: 600; }
 .ask-strip-question { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -20,7 +20,7 @@
 .ask-strip-answers { display: flex; flex: none; align-items: center; gap: 4px; }
 .ask-strip-answer {
   flex: none; max-width: 140px; height: 28px; padding: 0 10px; overflow: hidden; border: 1px solid var(--field);
-  border-radius: 999px; background: var(--surface); color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap;
+  border-radius: 999px; background: var(--surface); color: var(--text); font-size: calc(12px * var(--ui-text, 1)); text-overflow: ellipsis; white-space: nowrap;
 }
 .ask-strip-answer:hover { background: var(--hover); }
 .ask-strip-answer.quiet { border-color: transparent; background: none; color: var(--secondary); }

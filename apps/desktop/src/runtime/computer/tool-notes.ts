@@ -10,11 +10,11 @@ import type { ToolDef, ToolOutput } from '../tools/types.ts';
 import { MOTION_STYLES } from '../../shared/model/pointer-motion.ts';
 import { callerOf, type ComputerCaller } from './lease.ts';
 
-/** The pointer tools' `motion` (default glide, the shared model's DEFAULT_MOTION). */
+/** The pointer tools' `motion` (default human, the shared model's DEFAULT_MOTION). */
 export const MOTION_ARG = {
   type: 'string', enum: [...MOTION_STYLES],
   // Sent on four tools every turn, so it stays one short sentence (computer/motion.test.ts).
-  description: 'glide (default, short and visible), human (a hand-like curve, real mouse movement) or instant.',
+  description: 'human (default, a hand-like curve, real mouse movement), glide (short and visible) or instant.',
 };
 
 /** `output` with `lines` appended to its last text part (empty lines dropped). */

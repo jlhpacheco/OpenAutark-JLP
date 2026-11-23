@@ -14,6 +14,7 @@ import { TurnExecutor } from '../../../src/runtime/agents/turn.ts';
 import { SessionStore } from '../../../src/runtime/agents/sessions.ts';
 import { ULTRA_NOTE } from '../../../src/runtime/context/split-section.ts';
 import { NOTHING_BACK, turnEndedEarly } from '../../../src/runtime/agents/split-turn.ts';
+import { TOLD_ITEM } from '../../../src/runtime/splits/results.ts';
 import { recordStart, startOf } from '../../../src/runtime/agents/session-key.ts';
 import type { Agent } from '../../../src/shared/model/org.ts';
 import type { RouteRequest, RuntimeServices, SplitService } from '../../../src/runtime/contracts.ts';
@@ -322,8 +323,7 @@ test('B-080: a done part counts as done only when it brought something back – 
   h.state.text = '';
   await h.runSplit('run_quiet');
   h.state.onRun = async () => {
-    h.s.runs.item('run_told', { kind: 'tool_call', name: 'agents.split_tell', effectStatus: 'none',
-      data: { callId: 'call_1', args: JSON.stringify({ to: 'origin', text: 'The cut list is in cuts.md.' }), summary: 'To my origin: The cut list is in cuts.md.' } });
+    h.s.runs.item('run_told', { kind: 'note', name: TOLD_ITEM, effectStatus: 'none', data: { text: 'The cut list is in cuts.md.' } }); // agents.split_tell {to: 'origin'}
   };
   await h.runSplit('run_told'); // Mara's case: its piece went to its origin through agents.split_tell
   assert.deepEqual(h.calls.ends.map((entry) => entry.end), [

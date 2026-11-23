@@ -23,6 +23,9 @@ import { watchRemovedChats } from '../root/side-tabs.ts';
 import { watchTheme } from '../root/theme.ts';
 import { watchPages } from '../root/pages.ts';
 import { SecretVault } from '../secrets/service.ts';
+import { createSecurity } from '../security/service.ts';
+import { securityTopics } from '../security/topics.ts';
+import { vaultRefusal } from '../security/policy.ts';
 import { Blobs } from '../files/store.ts';
 import { needBlob, onArrival } from '../devices/sync/blobs.ts';
 import { RELAY_METHOD, receiveNotification, relayNotification } from '../devices/sync/notify.ts';
@@ -149,11 +152,12 @@ export async function createCore(options: CoreOptions): Promise<Core> {
   // <data>/settings.json is the only settings store (settings/service.ts; the AI edits it – skill app-settings). `db`: the one-time move of old rows.
   const settings = new SettingsStore({ db, bus, clock, log, dataDir: paths.data, root: s.rootWatcher });
   s.settings = settings;
+  s.security = createSecurity(services); // Sicher-Runde: the security gate (Trust AI / Secure mode, approval requests); late-bound to the rest
   // <data>/theme.css is the app's look (root/theme.ts): an edit is pushed as theme.updated; stopping s.rootWatcher ends it.
   watchTheme({ dataDir: paths.data, root: s.rootWatcher, bus, log });
   watchPages({ dataDir: paths.data, root: s.rootWatcher, bus }); // <data>/pages: custom tabs of the side pane (root/pages.ts)
   watchRemovedChats({ dataDir: paths.data, bus, log }); // a deleted chat's space leaves <data>/side-tabs.json (root/side-tabs.ts)
-  const secrets = new SecretVault({ db, host, clock, log });
+  const secrets = new SecretVault({ db, host, clock, log, refuse: (entry, agentId) => vaultRefusal(s.security.current(), entry, agentId, settings.get().profile.name?.trim() || undefined) }); // Secure mode: no card data for agents
   await secrets.init();
   s.secrets = secrets;
   // B-044: the vault's metadata files (secrets/files.ts): missing ones written, disk edits of name/purpose taken over. Stop step 'secret files'.
@@ -236,6 +240,7 @@ export async function createCore(options: CoreOptions): Promise<Core> {
   const engines = createEngineRegistry({
     supervisor, finder, paths, version: options.version, fake: options.fakeEngine,
     apiKey: (account) => accounts.apiKey(account.id),
+    security: () => s.security, // Sicher-Runde 19.11.2026: Secure mode routes native tools through the gate
     acp: accounts.acpLaunch, // PR8: an ACP plan runs the launch its detection confirmed (unavailable until then)
     warn: (message, data) => log.warn(message, data),
     onLimits: (accountId, limits) => { try { accounts.updateLimits(accountId, limits); } catch (error) { log.warn('limits update failed', { error: String(error) }); } },
@@ -268,11 +273,11 @@ export async function createCore(options: CoreOptions): Promise<Core> {
   s.ledger = new ContextLedgerService({ services }); // the context ledger: captures turns from the run journal, marks by item id (context/ledger)
   s.ledger.start?.();
   startSecurityLog({ bus, settings, kv: new KvRepo(db), now: () => clock.now() }); // Settings › Security's change log (settings/security-log.ts)
+  securityTopics(s); // Sicher-Runde: the topic files' watcher entry exists before the first turn (security/topics.ts)
   s.subconscious = new SubconsciousImpl({ services });
   s.evidence = createEvidenceChecker(); // B-047 D11: deterministic evidence checks of task results (subconscious/verify.ts)
-  s.vectors = createVectors(s); // vector.embed / vector.search (runtime/vectors/create.ts)
-  knowledge.startMemory(s.rootWatcher); // the memory tree follows the watcher and is embedded where it is not yet; stop step 'memory'
-  bus.on('settings.updated', () => knowledge.embedderChanged());
+  s.vectors = createVectors(s); // meaning inside the one word search, vector.embed's files (runtime/vectors/create.ts)
+  knowledge.startMemory(s.rootWatcher); // the memory tree follows the watcher; stop step 'memory'
   const localSpeech = new LocalSpeech({ services });
   s.stt = new Transcriber({ services, local: localSpeech }); // dictation (RPC voice) and agents hearing recordings; B-047 D14: local speech models
   new LocalSpeechAuto({ services, local: localSpeech }).start(); // B-058 G1: the recommended local speech model downloads by itself once (voice/local/auto.ts)
@@ -292,8 +297,8 @@ export async function createCore(options: CoreOptions): Promise<Core> {
 
   // Every PC is home of its own data; linked PCs are peers (the mesh keeps them connected).
   const identity = await DeviceIdentity.load({ db, host, clock });
-  // A ping answers this PC's load: free memory and the turns at work (devices/load.ts; the dispatcher exists by then).
-  const mesh = new DeviceMesh({ db, identity, clock, log, bus, dial: dialPeer, load: () => deviceLoad(dispatcher.activity().length) });
+  // A ping answers this PC's load: free memory and the turns at work (devices/load.ts; the dispatcher exists by then), and its security mode (Umzug 21.11.2026).
+  const mesh = new DeviceMesh({ db, identity, clock, log, bus, dial: dialPeer, load: () => deviceLoad(dispatcher.activity().length, s.security.current()) });
   s.devices = mesh;
   mesh.register(RELAY_METHOD, (params, from) => receiveNotification(s, notifications, params, from));
   createChatMirror(s); // B-050 K8 (a): the derived chat folders <data>/chats (chat-files/mirror.ts; after the mesh: chat.json names this PC); stop step 'chat mirror'

@@ -15,7 +15,7 @@
 // left out of what a rebuild would change (needsRebuild) and never marked by the subconscious: the native session never held it.
 // KI-Runde 17.11.2026 (the fold, agents/context-fold.ts): fold() pins the hand-over a run wrote (its checkpoint items) for good
 // and hides everything of the agent's own work before it by 'fold' (window.ts foldHides; what stays: the chat lines, the words
-// the agent posted in a chat, the tasks.finish calls since the hand-over before it, at the first fold those of the run that just ended – staysInFold – and pins); a checkpoint is
+// the agent posted in a chat, the tasks.update calls that finished a task since the hand-over before it, at the first fold those of the run that just ended – staysInFold – and pins); a checkpoint is
 // never condensed or hidden by a mark – only a later fold takes it out of view. lines() is the thread's chat lines, the others'
 // and the agent's own posted words, which share one reach.
 // Never: posts, routes or rebuilds sessions itself; treats ledger text as instructions; lets a capture
@@ -51,8 +51,9 @@ export const KEEP_PIN = Number.MAX_SAFE_INTEGER;
  * 17.11.2026: 15,000 at two characters per token (shared CHARS_PER_TOKEN) – the same ~30k characters the 10,000 held at three.
  */
 export const KEEP_TOKENS = 15_000;
-/** The call a fold leaves in view: its arguments are the task's summary, evidence and follow-ups. */
-const FINISH_CALL = 'tasks.finish';
+/** The calls a fold leaves in view (Quests round 20.11.2026): the tasks.update calls that finished a task – their arguments are its result and evidence. */
+const FINISH_CALL = 'tasks.update';
+const FINISHED_ARGS = ['%"status":"done"%', '%"status":"dropped"%'];
 
 export interface LedgerOptions {
   services: () => RuntimeServices;
@@ -188,14 +189,14 @@ export class ContextLedgerService implements ContextLedger {
 
   /**
    * What a fold leaves in view besides the chat lines and the pins: the agent's own words it posted in a chat (they follow the
-   * chat lines' reach from then on) and the tasks.finish calls made since the hand-over before this one – what was finished
+   * chat lines' reach from then on) and the tasks.update calls that finished a task since the hand-over before this one – what was finished
    * earlier is one line in that earlier hand-over, so those calls' arguments are no longer needed whole. At my first fold
    * (no hand-over before it) they are the calls of the run that just ended: the newest run of mine before the fold's own.
    */
   private staysInFold(agentId: string, conversationId: string, rows: readonly LedgerRow[], before: number, foldRun: string): Set<string> {
     const earlier = rows.reduce((max, row) => (row.kind === 'checkpoint' && Number(row.order) < before ? Math.max(max, Number(row.order)) : max), 0);
     const ended = earlier ? undefined : rows.filter((row) => row.kind !== 'message' && row.run_id && row.run_id !== foldRun && Number(row.order) < before).at(-1)?.run_id;
-    const finishes = this.store.callItems(agentId, conversationId, FINISH_CALL);
+    const finishes = this.store.callItems(agentId, conversationId, FINISH_CALL, FINISHED_ARGS);
     const stays = this.store.postedItems(agentId, conversationId);
     for (const row of rows) if (finishes.has(row.item_id) && (earlier ? Number(row.order) > earlier : row.run_id === ended)) stays.add(row.item_id);
     return stays;

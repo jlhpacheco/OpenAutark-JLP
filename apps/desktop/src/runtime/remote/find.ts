@@ -2,8 +2,9 @@
 // (the LAN hello answers, devices/discovery.ts) and then at the meeting server (it knows the PCs
 // that accept requests by Remote ID; one still connecting is waited for – a free host wakes slowly);
 // a typed address is asked directly (/.well-known/workforce).
-// Every answer is only a hint: its key must give the typed Remote ID – or (B-084) its chain must prove that key belongs
-// to that person code (remote/code.ts belongs) –, and the request itself proves
+// Every answer is only a hint: its key must give the typed Remote ID – or (B-084) one of its chains must prove that key
+// belongs (remote/code.ts belongs; Eine-ID 22.11.2026: its company chain or its `me` chain, for a typed Company ID or
+// My ID – the entry found then carries that proving chain as `chain`) –, and the request itself proves
 // that key (remote/sas.ts). Answers naming the same device with different keys stay separate (an
 // impostor never hides the real PC); the first one that matches is asked. Nothing found: not_found
 // says what was searched and what to do, and names a meeting server that is off or not reachable.
@@ -16,9 +17,9 @@ import type { RemoteTarget } from './id.ts';
 
 /**
  * A PC found for a target: where to send the request (http(s) base URLs or the meeting server's `relay:<fp>`); `chain`:
- * its chain to a person code (remote/code.ts) when it answered for one.
+ * its chain to the typed ID (remote/code.ts) when it answered for one; `me`: its my-ID chain from the LAN hello.
  */
-export interface Found { deviceId: string; name: string; fingerprint: string; addresses: string[]; chain?: unknown }
+export interface Found { deviceId: string; name: string; fingerprint: string; addresses: string[]; chain?: unknown; me?: unknown }
 
 export interface FindDeps {
   self: string;
@@ -45,6 +46,11 @@ export function notFoundText(target: RemoteTarget, meeting?: string): string {
   return meeting ? `${meeting.replace(/\.$/, '')} – no PC with this Remote ID on this network. ${open}` : `No PC with this Remote ID is online. ${open}`;
 }
 
+/** LAN answers with `chain` set to whichever of their chains proves `remoteId` (the `me` chain for a typed My ID). */
+function provenBy(remoteId: string, found: readonly Found[]): Found[] {
+  return found.map((entry) => (entry.me !== undefined && !belongs(remoteId, entry.fingerprint, entry.chain) && belongs(remoteId, entry.fingerprint, entry.me) ? { ...entry, chain: entry.me } : entry));
+}
+
 /** Candidates for the typed target: at the address, else on this network, else at the meeting server; none: not_found. */
 export async function findTarget(deps: FindDeps, target: RemoteTarget): Promise<Found[]> {
   if ('address' in target) {
@@ -53,7 +59,7 @@ export async function findTarget(deps: FindDeps, target: RemoteTarget): Promise<
     throw new WorkforceError('not_found', notFoundText(target));
   }
   const matches = (found: Found) => found.deviceId !== deps.self && belongs(target.remoteId, found.fingerprint, found.chain);
-  const near = (await (deps.lan?.().catch((): Candidate[] => []) ?? Promise.resolve([]))).filter(matches);
+  const near = provenBy(target.remoteId, await (deps.lan?.().catch((): Candidate[] => []) ?? Promise.resolve([]))).filter(matches);
   if (near.length) return near;
   let gap: string | undefined;
   const far = await deps.meeting?.(target.remoteId, AbortSignal.timeout(MEETING_TIMEOUT_MS)).catch((error: unknown): Found[] => {

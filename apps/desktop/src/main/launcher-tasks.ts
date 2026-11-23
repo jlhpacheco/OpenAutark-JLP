@@ -1,7 +1,7 @@
 // "Keep agents running" (B-044, preferences.openAtLogin), the OS side – replaces "Open at login", no
 // polling and no periodic starts:
 //  * Windows: ONE per-user Task Scheduler task – sign-in, a crash or hang of the app, the next due work
-//    after a deliberate quit (launcher-windows.ts); the sign-in item of earlier versions is removed;
+//    after a deliberate quit (launcher-windows.ts);
 //  * macOS: the login item plus a LaunchAgent (KeepAlive {SuccessfulExit: false}: started at sign-in,
 //    restarted when it exits with an error); Linux: an XDG autostart entry plus a systemd --user service
 //    (Restart=on-failure) and a timer that starts it once after sign-in. Both start `--background --launcher`
@@ -9,7 +9,7 @@
 // Only in packaged builds outside test mode (it would register electron.exe); turning the preference off
 // removes all of it; an unchanged registration is not written again. Never throws (logged). B-072: another company
 // registers its own task, LaunchAgent, units and autostart entry ("<name> <id>", with --company=<id>); the login
-// item and the old sign-in item stay the first company's.
+// item stays the first company's.
 // Owns: applying the preference, the macOS/Linux unit texts and the login item. Never: decides a launch
 // (launcher.ts) or imports electron at runtime (types only).
 
@@ -27,8 +27,8 @@ export const MAC_LABEL = 'com.teydralab.workforce.launcher';
 export const macLabel = (company?: string | null) => (company ? `${MAC_LABEL}.${company}` : MAC_LABEL);
 
 export interface LauncherDeps extends WindowsTaskDeps {
-  getLoginItemSettings(options?: { args?: string[] }): { openAtLogin: boolean };
-  setLoginItemSettings(settings: { openAtLogin: boolean; args?: string[] }): void;
+  getLoginItemSettings(): { openAtLogin: boolean };
+  setLoginItemSettings(settings: { openAtLogin: boolean }): void;
   executable: string; // the binary to start (APPIMAGE when running as AppImage, else process.execPath)
   user: string; // Windows: DOMAIN\user; elsewhere the user name
   uid: number; // macOS launchctl domain
@@ -146,12 +146,7 @@ async function loginItem(enabled: boolean, deps: LauncherDeps): Promise<void> {
     else await rm(file, { force: true });
     return;
   }
-  if (deps.company) return; // the login item (no arguments) and the old sign-in item are the first company's
-  if (deps.platform === 'win32') { // the task's sign-in trigger replaces the sign-in item of earlier versions
-    const args = [BACKGROUND_FLAG];
-    if (deps.getLoginItemSettings({ args }).openAtLogin) deps.setLoginItemSettings({ openAtLogin: false, args });
-    return;
-  }
+  if (deps.company) return; // the login item (no arguments) is the first company's
   // macOS login items cannot carry arguments; a sign-in start there opens the window.
   if (deps.getLoginItemSettings().openAtLogin !== enabled) deps.setLoginItemSettings({ openAtLogin: enabled });
 }
@@ -159,10 +154,10 @@ async function loginItem(enabled: boolean, deps: LauncherDeps): Promise<void> {
 /** Applies the preference; idempotent and never throws (each part is logged on its own). */
 export async function applyLauncher(enabled: boolean, deps: LauncherDeps): Promise<void> {
   if (!deps.packaged || deps.testMode) return;
-  const parts: Array<[string, () => Promise<void>]> = [['login item', () => loginItem(enabled, deps)]];
-  if (deps.platform === 'win32') parts.push(['task', () => windowsTask(enabled, deps)]);
-  else if (deps.platform === 'darwin') parts.push(['launch agent', () => macAgent(enabled, deps)]);
-  else if (deps.platform === 'linux') parts.push(['timer', () => linuxTimer(enabled, deps)]);
+  const parts: Array<[string, () => Promise<void>]> = [];
+  if (deps.platform === 'win32') parts.push(['task', () => windowsTask(enabled, deps)]); // its sign-in trigger is the login item
+  else if (deps.platform === 'darwin') parts.push(['login item', () => loginItem(enabled, deps)], ['launch agent', () => macAgent(enabled, deps)]);
+  else if (deps.platform === 'linux') parts.push(['login item', () => loginItem(enabled, deps)], ['timer', () => linuxTimer(enabled, deps)]);
   for (const [part, apply] of parts) {
     try { await apply(); } catch (error) { deps.log?.(`launcher ${part} not updated: ${(error as Error)?.message ?? 'error'}`); }
   }
@@ -184,7 +179,7 @@ export function launcherDeps(app: App, input: { platform: string; testMode: bool
     platform: input.platform,
     packaged: app.isPackaged,
     testMode: input.testMode,
-    getLoginItemSettings: (options) => app.getLoginItemSettings(options),
+    getLoginItemSettings: () => app.getLoginItemSettings(),
     setLoginItemSettings: (settings) => app.setLoginItemSettings(settings),
     executable: process.env.APPIMAGE || process.execPath,
     name: input.company ? `${input.name} ${input.company}` : input.name, // B-072: a task, unit and entry of its own

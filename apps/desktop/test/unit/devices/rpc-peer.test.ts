@@ -10,7 +10,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { LINK_DROPPED, RpcPeer } from '../../../src/runtime/devices/rpc-peer.ts';
-import { acceptSecure, connectSecure, socketPair, type SecureChannel, type SocketLike } from '../../../src/runtime/devices/channel.ts';
+import { acceptSecure, connectSecure, type SecureChannel, type SocketLike } from '../../../src/runtime/devices/channel.ts';
+import { socketPair } from './socket-pair.ts';
 import { fingerprintOf, generateEd25519, rawPublic, signEd25519 } from '../../../src/runtime/devices/keys.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 

@@ -16,13 +16,14 @@ import { OWNER, TestClient, rpcFixture } from './s1-helpers.ts';
 /** Owner-only methods and why they stay on the PC. Adding an owner-only method means adding it here. */
 const PC_LOCAL: Record<string, string> = {
   'system.resources': 'PC diagnostics',
+  'security.saveTrustAgreement': "an agent's or the person's save of a Trust agreement text on this PC (20.11.2026)",
   'system.restartReadiness': 'desktop updater',
   'system.prepareRestart': "desktop updater – main's own link only (16.11.2026)",
+  'devices.bye': "the goodbye before a deliberate stop – main's own link only (19.11.2026)",
   'files.open': 'opens a file on this PC',
   'files.openPath': 'opens a file on this PC',
   'pages.list': 'the views in the pages folder of this PC',
   'pages.read': 'the views in the pages folder of this PC',
-  'import.legacy': 'reads a path on this PC',
   'onboarding.reset': 'desktop first run ("Set up team again")',
   'onboarding.start': "desktop first run: the app's start text in the Manager's chat (B-044)",
   'computer.preview': "screenshot of this PC's screen",
@@ -48,7 +49,6 @@ const PC_LOCAL: Record<string, string> = {
   'people.removeDevice': 'people administration (F-52)',
   'people.audit': 'people administration (F-52)',
   'people.chats': 'people administration (F-52)',
-  'people.directChat': 'the owner’s 1:1 chat with a person (F-52)',
   'people.join': 'tokenless join of a person’s device (F-52, rpc/tokenless.ts)',
   'people.awaitJoin': 'tokenless join of a person’s device (F-52, rpc/tokenless.ts)',
   'catalog.refresh': 'provider and catalog fetches from this PC',
@@ -97,19 +97,19 @@ const MANAGE = ['agents.create', 'agents.update', 'agents.archive', 'agents.expo
   // B-076: the phone's side pane is its PC's – its tabs and their view positions.
   'tabs.get', 'tabs.set', 'tabs.position', 'tabs.positions'];
 /** B-076: the file tabs' paths (read, write, list, media) – the whole disk – for 'manage' only on a secure transport. */
-const MANAGE_SECURE = ['files.readPath', 'files.writePath', 'files.listPath', 'files.uploadPath',
+const MANAGE_SECURE = ['files.readPath', 'files.writePath', 'files.listPath', 'files.uploadPath', 'files.allowHost' /* 20.11.2026: the person's yes to a network host */,
   /* 16.11.2026 ("vom Handy alles"): the data folder, the chat export, skills and modes, and a page opened in the PC's pane */
   'system.root', 'chats.export', 'skills.delete', 'modes.save', 'modes.delete', 'side.open'];
 /** B-078 ("alles vom Handy"): plans, keys and sign-ins from the owner's phone app – its loopback tunnel is secure. */
 const SETTINGS_SECURE = ['apps.reconnect', 'apps.setEnabled', 'apps.remove', 'apps.validateAdd', 'apps.add', 'accounts.list', 'accounts.detect', 'accounts.add', 'accounts.update', 'accounts.login', 'accounts.loginCode' /* B-091 */, 'accounts.logout', 'accounts.remove',
   'accounts.install', 'accounts.useReset', 'accounts.test', 'accounts.try',
   /* B-084 (D6): Settings › Devices and Models from the owner's phone app */
-  'models.uses', 'devices.list', 'devices.rename', 'devices.revoke', 'remote.state', 'remote.connect', 'remote.cancel', 'remote.decide',
+  'models.uses', 'devices.list', 'devices.rename', 'devices.revoke', 'devices.wake' /* 19.11.2026 */, 'remote.state', 'remote.connect', 'remote.cancel', 'remote.decide',
   'remote.relay', 'remote.nearby', 'phone.pairLink', 'people.invite', 'people.closeInvite', 'voice.pullLocal',
   /* 16.11.2026 ("vom Handy alles"): Settings › Calendar, About's backup, Models' provider histories and Feedback's inbox */
   'calendar.addIcs', 'calendar.updateSource', 'calendar.removeSource', 'calendar.sync', 'calendar.google', 'calendar.connectGoogle',
   'system.backup', 'system.restore', 'system.restoreStatus', 'system.restartRuntime', 'privacy.providerHistories', 'privacy.purgeProviderHistory',
-  'feedback.inboxList', 'feedback.inboxFetch', 'feedback.inboxRemove', 'feedback.inboxMark', 'feedback.inboxScreenshot', 'feedback.inboxAudio'];
+  'feedback.inboxList', 'feedback.inboxFetch', 'feedback.inboxRemove', 'feedback.inboxMark', 'feedback.inboxImage'];
 const PERMISSIONS = ['secrets.list', 'secrets.save', 'secrets.delete', 'secrets.deleteGroup', 'spend.list',
   'secrets.groups', 'secrets.saveGroup' /* X05 */, 'secrets.folder' /* B-044 */, 'secrets.import' /* 29.10.2026 password import */,
   'secrets.export' /* 16.11.2026: from the owner's phone too; the file stays on the PC */];

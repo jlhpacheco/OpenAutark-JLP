@@ -28,7 +28,7 @@
 // disk too: 'agentCore.changed'); its skills are listed from the home folder (untrusted, bounded, cached).
 // Owner 15.11.2026: HUMAN.md (human.ts) – the person writes it (setHuman, or on disk: 'agentCore.changed'; the agent may
 // too), the prompt reads it (human); no edit of the instructions touches it. A hire starts without one (16.11.2026: the
-// default line stands for every agent in settings profile.forEveryAgent).
+// "I'm not a robot" line now lives in the security topic texts, <data>/security/<mode>/captcha.md – 19.11.2026).
 // Owns: these rules. Never: stores instructions anywhere else, treats file text as a permission, or polls.
 
 import { mkdirSync, rmSync } from 'node:fs';

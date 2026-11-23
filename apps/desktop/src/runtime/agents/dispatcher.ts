@@ -2,7 +2,8 @@
 // announces due agents (onDueWakes: immediate wakes in a microtask batch, future ones from its
 // single timer); after every turn the agent is pumped again. No polling.
 //   pump(agent): claim due wakes → group by (chat, task) → drop stale message
-//   groups → run the most important group, release the others → TurnExecutor.execute →
+//   groups → run the most important group, chat groups due beside it riding along (Runde „Halb“ 21.11.2026,
+//   dispatch-groups.ts ridersOf), release the others → TurnExecutor.execute →
 //   wakes done (released instead on shutdown/urgent abort) → idle → pump again → nothing ran: quiet pickup (K4).
 // Guarantees: at most ONE running turn per agent on its main lane. One capacity rule (07.11.2026, B-080 for splits): every
 // turn starts at once – an agent's own and each of its splits; no global limit for any lane, no slot FIFO, no RAM
@@ -41,7 +42,9 @@
 // someone else, a colleague's line (a push line too) and an urgent task wait the one turn it takes, and no live voice is
 // relayed into it.
 // Linked PCs (owner 31.10.2026): an agent runs on its home PC – one whose home is another CEO PC starts no turn and no
-// quiet pickup here; its due wakes go there (devices/sync/home.ts homeElsewhere, rows.ts hands them over).
+// quiet pickup here; its due wakes go there (devices/sync/home.ts homeElsewhere, rows.ts hands them over). Umzug 21.11.2026:
+// leave() ends what an agent runs here once it moved to another PC (agents/move.ts); one that just came here starts no
+// turn while it waits for the hand-over from the PC it came from (isArriving).
 // Owns: when and what runs – pump gates, interrupt/stop, held (paused) agents, the idle moment.
 // Never: runs two main-lane turns for one agent, drops wakes of a paused agent, or polls.
 
@@ -50,7 +53,7 @@ import type { Agent } from '../../shared/model/org.ts';
 import type { AgentActivity } from '../../shared/model/runs.ts';
 import { SPLIT_LIMITS } from '../../shared/model/splits.ts';
 import {
-  addPick, answeredNote, groupWakes, isStaleHandOver, isStaleMessageGroup, isUrgent, nextGroup, settleWithin, taskFacts,
+  addPick, answeredNote, groupWakes, isStaleHandOver, isStaleMessageGroup, isUrgent, nextGroup, ridersOf, settleWithin, taskFacts,
   waitsFor, wakeIds, type UrgentPick, type WakeGroup,
 } from './dispatch-groups.ts';
 import { hasPerson, type SteerResult } from './dispatch-steer.ts';
@@ -64,7 +67,9 @@ import { stopPendingSplits } from './split-stop.ts'; // B-057 S13
 import { recordShutdownRuns } from '../runs/journal.ts';
 import { pickUpQuiet, QUIET_DELAY_MS } from '../chat/quiet-pickup.ts';
 import { homeElsewhere } from '../devices/sync/home.ts';
+import { fromEmployer } from '../devices/sync/employee.ts';
 import { noteAway } from './dispatch-wait-lines.ts'; // B-079: why a line waits, in its chat
+import { isArriving } from './move.ts'; // Umzug 21.11.2026
 import type { FoldWhy } from './compaction-policy.ts';
 import { foldWaitsFor } from './context-fold.ts'; // KI-Runde 17.11.2026: what holds a context fold back
 
@@ -221,6 +226,29 @@ export class DispatcherImpl implements Dispatcher {
     return true;
   }
 
+  /**
+   * Umzug 21.11.2026 (agents/move.ts): the agent now runs on another PC – its work here stops at once like the person's Stop
+   * (review M5: the call in flight is cut through its signal), its wakes back in the queue with a continue-wake carrying
+   * `note`, so they follow it there; its running parts stop. `ownRun`: the turn whose own agents.update call moved it – it ends
+   * right after that call returns (its result is kept). Resolves once all of them ended; false when none ran.
+   */
+  async leave(agentId: string, note: string, ownRun?: string): Promise<boolean> {
+    const parts = this.runs.lanes(agentId);
+    for (const part of parts) this.lanes.stop(part.split!.splitId, 'human');
+    const entry = this.runs.get(agentId);
+    const cut = () => {
+      if (!entry || entry.controller.signal.aborted || this.runs.get(agentId) !== entry) return;
+      const { conversationId, taskId } = entry;
+      if (entry.reason !== 'fold') this.deps.services().wakes.wake({ agentId, reason: entry.reason, conversationId, taskId, note, coalesceKey: `moved:${conversationId ?? ''}:${taskId ?? ''}` });
+      abortTurn(entry, 'I moved to another PC.', 'urgent', 'release');
+    };
+    if (entry && entry.runId === ownRun) entry.boundary.at(cut);
+    else cut();
+    const ended = [...parts, ...(entry ? [entry] : [])];
+    await Promise.allSettled(ended.map((item) => item.finished));
+    return ended.length > 0;
+  }
+
   /** B-083: a note of the agent to itself into its running turn `runId` (main or split lane; dispatch-lanes.ts tellRun – a refused one is tried again, `onLost` when that turn ends without it). */
   tell(agentId: string, runId: string, text: string, onLost?: () => void): Promise<SteerResult> {
     return tellRun({ services: this.deps.services(), runs: this.runs, folds: this.folds }, `${agentId}:note:${++this.told}`, { agentId, runId, text }, onLost);
@@ -254,7 +282,9 @@ export class DispatcherImpl implements Dispatcher {
     const services = this.deps.services();
     try {
       const home = homeElsewhere(services, agentId);
+      if (home && fromEmployer(services.db, agentId)) { services.wakes.done(services.wakes.claim(agentId).map((wake) => wake.id)); return false; } // 21.11.2026: my employer's agent – the company delivers the line itself
       if (home) { noteAway(services, agentId, home, this.awayTold); return false; } // its home PC runs it: the wakes stay unclaimed for the hand-over
+      if (isArriving(services, agentId)) return false; // Umzug 21.11.2026: it just came here – its first turn waits for the PC it came from (agents/move.ts)
       return this.pumpNow(services, agentId);
     } catch (error) {
       services.log.error('dispatcher pump failed', { agentId, error: String(error) });
@@ -288,15 +318,18 @@ export class DispatcherImpl implements Dispatcher {
     if (waiting.length) services.wakes.release(wakeIds(waiting), undefined, true);
     const live = groups.filter((group) => !stale.includes(group) && !waiting.includes(group));
     taskFacts(live, (id) => taskOf(services, id), services.clock.now());
-    const { group, left } = nextGroup(live, picks);
+    const { group, left: named } = nextGroup(live, picks);
+    // Runde „Halb“ 21.11.2026: the chat groups due beside it ride along in its turn (dispatch-groups.ts ridersOf); their picks end with it.
+    const riders = group ? ridersOf(services.chats, agentId, group, live.filter((item) => item !== group)) : [];
+    const rest = live.filter((item) => item !== group && !riders.includes(item));
+    const left = named.filter((pick) => rest.some((other) => isUrgent(other, pick)));
     if (left.length) this.urgentPick.set(agentId, left);
     else this.urgentPick.delete(agentId);
     if (!group) return false;
-    const rest = live.filter((item) => item !== group);
     if (rest.length) services.wakes.release(wakeIds(rest), undefined, true);
     const answered = answeredNote(services.chats, agentId, group);
     if (answered) group.aware = { text: answered, at: services.clock.now() };
-    this.runs.start(services, agent, group);
+    this.runs.start(services, agent, group, riders);
     return true;
   }
 

@@ -1,5 +1,5 @@
 // The look before a turn (subconscious/service.ts lookFirst, v1: one routing call): a message with content – else, findings 14.11., the
-// turn's task with content (re-review 14.11.: also while one of my parts has a tool call in that chat). Marking (context-tools.ts): context.condense words whole originals through the LLM in one call; a
+// turn's task with content (re-review 14.11.: also while one of my parts has a tool call in that chat). Marking (context-tools.ts): context.condense puts the lean form of whole originals in their place, built by code; a
 // brain's context.restore gives the main AI the originals as a real call and pins them (v1: every run is the main AI's own call). A kept
 // output of an engine's own tool stays whole in a rebuild.
 // Owns: these assertions only. Never: real models or engines.
@@ -10,6 +10,7 @@ import path from 'node:path';
 import { RESOURCES } from '../context/fixture.ts';
 import { ledgerSetup } from '../context/ledger-fixture.ts';
 import { PromptTemplates } from '../../../src/runtime/context/templates.ts';
+import { leanText } from '../../../src/runtime/context/ledger/window.ts';
 import { contextTools } from '../../../src/runtime/subconscious/context-tools.ts';
 import { runFlow } from '../../../src/runtime/subconscious/flow.ts';
 import { SubconsciousImpl } from '../../../src/runtime/subconscious/service.ts';
@@ -41,11 +42,11 @@ function fourTurns(t: ReturnType<typeof ledgerSetup>): void {
   }
 }
 
-function runOf(t: ReturnType<typeof ledgerSetup>, word?: FlowRun['word']): { run: FlowRun; shown: TraceCall[] } {
+function runOf(t: ReturnType<typeof ledgerSetup>): { run: FlowRun; shown: TraceCall[] } {
   const shown: TraceCall[] = [];
   const run = {
     services: t.services, agent: t.tom, conversationId: t.chat.id, thread: 'main', signal: new AbortController().signal,
-    hits: new Map(), searches: [], word, show: (call: TraceCall) => { shown.push(call); }, finish: () => {},
+    hits: new Map(), searches: [], show: (call: TraceCall) => { shown.push(call); }, finish: () => {},
   } as unknown as FlowRun;
   return { run, shown };
 }
@@ -84,56 +85,33 @@ test("no call before a bare go-ahead or without anyone's words and a task; a tas
   } finally { t.cleanup(); }
 });
 
-test('context.condense: several ids in one call, the LLM reads the whole original, the stamp stands in the view, protection holds', async () => {
+test('context.condense: several ids in one call, the lean form of the whole original by code, the stamp stands in the view, protection holds', async () => {
   const t = ledgerSetup();
   try {
     fourTurns(t);
-    const asked: string[] = [];
-    const { run } = runOf(t, async (_system, prompt) => {
-      asked.push(prompt);
-      return prompt.includes('build 1') ? 'build 1 finished in 401 seconds' : 'build 2 finished in 402 seconds';
-    });
+    const { run } = runOf(t);
     const out = String(await tool('context.condense').run({ ids: ['t1', 't2', 't4'] }, run));
     assert.match(out, /^condensed t1: about \d+ tokens saved/m);
     assert.match(out, /^condensed t2: about \d+ tokens saved/m);
     assert.match(out, /^t4 stays as it is: in the newest turn\./m);
-    assert.equal(asked.length, 2, 'a protected item costs no model');
-    assert.match(asked[0], /THE END 1/, 'not only the head of the original');
+    const original = t.ledger.original(t.tom.id, 'main', 't1')!;
+    const lean = leanText(original.args ? `${original.args}\n${original.text}` : original.text);
     const view = t.ledger.view(t.tom.id, 'main').find((entry) => entry.itemId === 't1')!;
-    assert.match(view.call?.output ?? '', /^build 1 finished in 401 seconds\n\{"compacted":"t1","was":"\d+ tokens","restore":"context\.restore"\}$/);
-  } finally { t.cleanup(); }
-});
-
-test('context.condense: an invented value is asked again once with the reason, then refused; no LLM leaves the item as it is', async () => {
-  const t = ledgerSetup();
-  try {
-    fourTurns(t);
-    const asked: string[] = [];
-    const { run } = runOf(t, async (_system, prompt) => { asked.push(prompt); return asked.length === 1 ? 'took 999 seconds' : 'build 1 finished in 401 seconds'; });
-    assert.match(String(await tool('context.condense').run({ ids: ['t1'] }, run)), /^condensed t1/);
-    assert.match(asked[1], /could not be used: it names values the original lacks: 999/);
-    const { run: stubborn } = runOf(t, async () => 'took 999 seconds');
-    assert.match(String(await tool('context.condense').run({ ids: ['t2'] }, stubborn)), /^t2 not condensed: it names values the original lacks: 999\./);
-    const { run: without } = runOf(t);
-    assert.match(String(await tool('context.condense').run({ ids: ['t2'] }, without)), /^t2 not condensed: no model could word it\./);
-    assert.equal(t.ledger.items(t.tom.id, 'main').find((item) => item.itemId === 't2')!.state, 'keep');
-  } finally { t.cleanup(); }
-});
-
-test('context.condense: a text about something else is asked again, an item condensed already costs no model', async () => {
-  const t = ledgerSetup();
-  try {
-    fourTurns(t);
-    const asked: string[] = [];
-    const { run } = runOf(t, async (_system, prompt) => {
-      asked.push(prompt);
-      return asked.length === 1 ? 'Objektiv denken, Probleme möglichst selbst lösen, wirklich alles probieren, danach melden.' : 'build 1 finished in 401 seconds, many log lines';
-    });
-    assert.match(String(await tool('context.condense').run({ ids: ['t1'] }, run)), /^condensed t1/);
-    assert.match(asked[1], /could not be used: it is about something else/);
-    assert.equal(asked.length, 2);
+    assert.ok((view.call?.output ?? '').startsWith(`${lean}\n{"compacted":"t1",`), view.call?.output);
+    assert.match(lean, /build 1 finished in 401 seconds/, 'how it began');
     assert.match(String(await tool('context.condense').run({ ids: ['t1'] }, run)), /^t1 is condensed already\./);
-    assert.equal(asked.length, 2);
+  } finally { t.cleanup(); }
+});
+
+test('context.condense with a text of its own: an invented value or a text about something else is refused, the item stays', async () => {
+  const t = ledgerSetup();
+  try {
+    fourTurns(t);
+    const { run } = runOf(t);
+    assert.match(String(await tool('context.condense').run({ texts: { t2: 'took 999 seconds' } }, run)), /^t2 not condensed: it names values the original lacks: 999\./);
+    assert.match(String(await tool('context.condense').run({ texts: { t2: 'Objektiv denken, Probleme möglichst selbst lösen, wirklich alles probieren, danach melden.' } }, run)), /^t2 not condensed: it is about something else/);
+    assert.equal(t.ledger.items(t.tom.id, 'main').find((item) => item.itemId === 't2')!.state, 'keep');
+    assert.match(String(await tool('context.condense').run({ texts: { t2: 'build 2 finished in 402 seconds' } }, run)), /^condensed t2/);
   } finally { t.cleanup(); }
 });
 

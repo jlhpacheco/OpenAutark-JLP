@@ -1,8 +1,7 @@
 // Team › Add person (#/team/person/new; F13, owner 15.11.2026: no pop-up over everything, and one way for people's
 // devices – "zusammenführen mit dem normalen System"): a page in the main zone, on the phone a pushed screen with Back.
-// First name, title and whom they report to; below, on the same page, how their device joins: this PC's connect code as
-// QR and digits (phone.pairLink – their phone scans it in the Autark app, Autark on their PC types it under Join a
-// company), then each request that arrives here (remote.state; my own PCs' requests stay in Settings › Devices) as the
+// First name, title and whom they report to; below, on the same page, how their device joins (PersonJoin.tsx – the one
+// way, also "Invite a device" on a person's page): this PC's connect code as QR and digits, then each request that arrives here (remote.state; my own PCs' requests stay in Settings › Devices) as the
 // Settings › Devices row with this person already named (connect-rows.tsx IncomingRow `newPerson`): Accept makes the
 // person as their device links (remote.decide newPerson) and their page opens once they are in. Until a name is typed
 // one fixed row holds the requests' place and says what to do. Only while this PC has an address on the network
@@ -15,36 +14,22 @@
 
 import { useEffect, useState } from 'preact/hooks';
 import { Header, backCell } from '../lib/header.tsx';
-import { isPersonSession, people, upsertPerson } from '../lib/people.ts';
+import { people, upsertPerson } from '../lib/people.ts';
 import { rpc } from '../lib/rpc.ts';
 import { back, navigate } from '../lib/router.ts';
 import { withSelf } from '../lib/self-identity.ts';
 import { can, isOwner } from '../lib/session.ts';
 import type { PersonRole } from '../../shared/model/people.ts';
 import { agents, isMobile, settings } from '../lib/store.ts';
-import { pushToast, toastError } from '../lib/toasts.ts';
+import { toastError } from '../lib/toasts.ts';
 import { Button, EmptyState, Select } from '../lib/ui.tsx';
 import { phoneFeedbackCells } from '../feedback/cell.tsx';
-import { Group, Row, useAsync } from '../settings/controls.tsx';
+import { Group, Row } from '../settings/controls.tsx';
 import { IncomingRow, useConnectState } from '../settings/connect-rows.tsx';
-import { groupDigits } from '../settings/connect-text.ts';
-import { ADD_PERSON_CODE_HINT, browserReachable, managerOptions, newPersonOf, requestSlotHint, ROLE_OPTIONS, roleHint } from './people-model.ts';
+import { managerOptions, newPersonOf, requestSlotHint, ROLE_OPTIONS, roleHint } from './people-model.ts';
+import { CodeRow, copyInviteLink, useLinkReachable } from './PersonJoin.tsx';
 
 const value = (event: Event) => (event.currentTarget as HTMLInputElement).value;
-
-/** This PC's connect code: the QR their phone scans and the digits their PC types (the same ID). */
-function CodeRow() {
-  const code = useAsync(() => (can('phone.pairLink') ? rpc.call('phone.pairLink') : Promise.resolve(undefined)), []);
-  const digits = code.data ? groupDigits(code.data.remoteId) : '';
-  const hint = code.error ?? (digits ? `${digits} · ${ADD_PERSON_CODE_HINT}` : ADD_PERSON_CODE_HINT);
-  return (
-    <Row class="remote-phone-row" label="Connect code" hint={<span title={hint}>{hint}</span>}>
-      <div class={`remote-qr${code.data || code.error ? '' : ' loading'}`} aria-busy={code.loading || undefined}>
-        {code.data && <img class="remote-qr-code" src={code.data.qrDataUrl} alt="QR code for their phone" width={96} height={96} />}
-      </div>
-    </Row>
-  );
-}
 
 export function PersonNew() {
   const [name, setName] = useState('');
@@ -54,8 +39,7 @@ export function PersonNew() {
   const [copying, setCopying] = useState(false);
   const [accepted, setAccepted] = useState<{ name: string; before: string[] } | null>(null);
   const { remote } = useConnectState();
-  // F13: a CEO's device reaches this PC, so their link row shows (people.invite answers this PC's address).
-  const lan = useAsync(() => (can('pwa.state') ? rpc.call('pwa.state').then((state) => browserReachable(state.urls)) : Promise.resolve(isPersonSession() && can('people.invite'))), []);
+  const reachable = useLinkReachable(); // F13: a CEO's device reaches this PC too (people.invite answers its address)
   const pickRole = (next: PersonRole) => {
     if (next === 'ceo' && role !== 'ceo') setManager(''); // a CEO sits at the top
     setRole(next);
@@ -81,13 +65,8 @@ export function PersonNew() {
     try {
       const person = await rpc.call('people.save', { name: fresh.name, title: fresh.title ?? '', ...(fresh.managerId ? { managerId: fresh.managerId } : {}), ...(fresh.role ? { role: fresh.role } : {}) });
       upsertPerson(person);
-      const invite = await rpc.call('people.invite', { id: person.id });
+      await copyInviteLink(person);
       navigate({ view: 'team', personId: person.id }, { replace: true });
-      const allows = isOwner() ? 'You allow' : 'The owner of the organisation allows';
-      await navigator.clipboard.writeText(invite.url).then(
-        () => pushToast({ title: 'Link copied', body: `It opens once, for 72 hours, in a browser on this network. ${allows} ${person.name}'s device in My day.` }),
-        (error: unknown) => toastError(error, 'Could not copy the link'),
-      );
     } catch (error) {
       toastError(error, 'Could not add the person');
     } finally {
@@ -131,8 +110,8 @@ export function PersonNew() {
                 onDecided={(yes) => { if (yes && fresh) setAccepted({ name: fresh.name, before: list.map((person) => person.id) }); }} />
             ))}
             {!rows.length && <Row label="Their request" hint={requestSlotHint({ named: Boolean(fresh), waiting: requests.length, accepted: accepted?.name })} reserve />}
-            {lan.data === true && (
-              <Row label="Link for a browser on this network" hint="Opens once, for 72 hours · you allow their device in My day" reserve>
+            {reachable && (
+              <Row label="Link for a browser on this network" hint="Opens once, for 72 hours · you allow their device on the Tasks page" reserve>
                 <Button variant="ghost" class="small" busy={copying} disabled={!fresh || Boolean(accepted)} onClick={() => void copyLink()}>Copy link</Button>
               </Row>
             )}

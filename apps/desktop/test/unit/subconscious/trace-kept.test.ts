@@ -1,5 +1,5 @@
 // A kept trace: a turn that never reached its engine gives it back and the next turn shows it, once; a note or hit older than a
-// day is dropped (also a row of 0.2.9 without a time), other calls stay.
+// day is dropped, other calls stay.
 // Owns: these assertions only. Never: real models or engines.
 
 import { test } from 'node:test';
@@ -8,11 +8,11 @@ import { ledgerSetup } from '../context/ledger-fixture.ts';
 import { TurnExecutor } from '../../../src/runtime/agents/turn.ts';
 import { SubconsciousImpl } from '../../../src/runtime/subconscious/service.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
-import type { SubconsciousTrace } from '../../../src/shared/model/subconscious.ts';
+import { NOTE_CALL, type SubconsciousTrace } from '../../../src/shared/model/subconscious.ts';
 import { setup } from '../agents/fixture.ts';
 
 const DAY = 24 * 60 * 60_000;
-const NOTE: SubconsciousTrace = { calls: [{ tool: 'agent.tell', args: {}, output: 'Der Kunde wartet auf das Angebot.' }] };
+const NOTE: SubconsciousTrace = { calls: [{ tool: NOTE_CALL, args: {}, output: 'Der Kunde wartet auf das Angebot.' }] };
 
 function world() {
   const t = ledgerSetup();
@@ -48,20 +48,6 @@ test('a note or hit older than a day is dropped, also when a turn keeps failing;
     impl.putBack(t.tom.id, 'main', kept!);
     t.clock.advance(2000);
     assert.deepEqual((await before())?.calls.map((call) => call.tool), ['context.restore'], 'putting it back does not make it young again');
-  } finally { t.cleanup(); }
-});
-
-test('a kept row of 0.2.9 has no time per call: its row\'s time counts', async () => {
-  const { t, before } = world();
-  try {
-    const write = (at: number) => t.services.db.run(
-      `INSERT INTO kv (ns, key, value, updated_at) VALUES ('subconscious_trace', ?, ?, ?) ON CONFLICT(ns, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-      [`${t.tom.id}:main`, JSON.stringify(NOTE), at]);
-    write(t.clock.now() - 1000);
-    assert.equal((await before())?.calls.length, 1);
-    t.services.db.run(`DELETE FROM kv WHERE ns = 'subconscious_trace'`);
-    write(t.clock.now() - DAY - 1000);
-    assert.equal(await before(), undefined);
   } finally { t.cleanup(); }
 });
 

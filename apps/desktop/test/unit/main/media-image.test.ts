@@ -129,7 +129,7 @@ test('routes of an image job: its spec, one result checked against the edge, don
   try {
     const first = await hung('image/gif');
     const spec = await (await first.at('spec')).json() as Record<string, unknown>;
-    assert.deepEqual(spec, { task: 'image', maxPx: 800, region: { x: 0, y: 0, w: 0.5, h: 1 }, svg: false, svgPx: 1024, lossless: true, opaque: false, quality: 0.85, maxBytes: IMAGE_LIMITS.maxBytes, inputBytes: 100 * 1024 * 1024 },
+    assert.deepEqual(spec, { task: 'image', maxPx: 800, region: { x: 0, y: 0, w: 0.5, h: 1 }, cover: [], svg: false, svgPx: 1024, lossless: true, opaque: false, quality: 0.85, maxBytes: IMAGE_LIMITS.maxBytes, inputBytes: 100 * 1024 * 1024 },
       'nothing sniffed from these bytes: the given type (GIF, line art) counts');
     assert.equal((await first.at('pcm?at=0', post(png(1, 1)))).status, 404);
     assert.equal((await first.at('image', post(png(800, 400)))).status, 204);
@@ -146,5 +146,33 @@ test('routes of an image job: its spec, one result checked against the edge, don
     const large = await hung('image/png');
     await large.at('fail', { method: 'POST', body: JSON.stringify({ reason: 'too-large' }) });
     await rejectsWith(large.job, 'bad_request', /too large to prepare/);
+  } finally { s.temp.cleanup(); }
+});
+
+// 21.11.2026: an agent's feedback – covering rectangles (fractions of the whole image) painted solid black after the
+// image is drawn, rounded outwards, also on a region and a scaled copy (one past the edge is refused); a byte limit below
+// IMAGE_LIMITS.maxBytes.
+test('cover and maxBytes: checked in the request; the page paints the rectangles black over the drawn image', async () => {
+  const id = 'ab'.repeat(32);
+  assert.deepEqual(imageRequest({ fileId: id, cover: [{ x: 0.5, y: 0.5, w: 0.5, h: 0.25 }], maxBytes: 100_000 }), { fileId: id, maxPx: IMAGE_LIMITS.maxPx, cover: [{ x: 0.5, y: 0.5, w: 0.5, h: 0.25 }], maxBytes: 100_000 });
+  assert.throws(() => imageRequest({ fileId: id, cover: [{ x: 0.5, y: 0.5, w: 0.75, h: 0.25 }] }), /inside it/, 'a rectangle past the edge is refused, not cut');
+  assert.equal(imageRequest({ fileId: id, cover: [] }).cover, undefined);
+  assert.throws(() => imageRequest({ fileId: id, cover: [{ x: 1, y: 0, w: 0.1, h: 0.1 }] }), /cover rectangle must be fractions/);
+  assert.throws(() => imageRequest({ fileId: id, cover: Array.from({ length: 51 }, () => ({ x: 0, y: 0, w: 1, h: 1 })) }), /at most 50 rectangles/);
+  assert.throws(() => imageRequest({ fileId: id, maxBytes: 10 }), /maxBytes must be a whole number/);
+
+  const s = analyzerSetup();
+  try {
+    const photo = s.put(pictureFile(picture({})));
+    await s.analyzer.image({ fileId: photo, mime: 'image/jpeg', cover: [{ x: 0.1, y: 0.2, w: 0.3, h: 0.4 }] });
+    const canvas = s.windows[0].pages[0].canvases[0];
+    // 4000×3000 drawn at 1568×1176: 156.8 … 627.2 wide, 235.2 … 705.6 high → outwards 156 … 628, 235 … 706
+    assert.deepEqual(canvas.fills, [{ style: '#000000', rect: [156, 235, 472, 471] }]);
+    assert.ok(canvas.draws.length === 1 && canvas.encoded.length === 1, 'drawn first, painted, then encoded');
+
+    await s.analyzer.image({ fileId: photo, mime: 'image/jpeg', region: { x: 0.5, y: 0.5, w: 0.5, h: 0.5 }, cover: [{ x: 0, y: 0, w: 0.75, h: 0.75 }, { x: 0, y: 0, w: 0.1, h: 0.1 }] });
+    const cut = s.windows[0].pages.at(-1)!.canvases[0];
+    // the region 2000…4000 × 1500…3000 at 1568×1176; the first block reaches 3000 × 2250 → 784 × 588; the second lies outside
+    assert.deepEqual(cut.fills, [{ style: '#000000', rect: [0, 0, 784, 588] }]);
   } finally { s.temp.cleanup(); }
 });

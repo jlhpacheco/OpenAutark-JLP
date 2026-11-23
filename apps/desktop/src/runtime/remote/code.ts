@@ -1,27 +1,37 @@
-// The person code (B-084, decision 13): one Remote ID for all of my own PCs. It is the Remote ID of my root PC's key (the
-// first PC keeps the ID it shows today). Every other own PC proves it belongs with a chain of signatures from the root to
-// its key: at most MAX_LINKS links, each the previous key's Ed25519 signature over "wf-code-v1|<member fingerprint hex>"
-// (wire format: .local/b084/notes/W4-format.md; Android relay/CodeChain.java, the iPhone's hosted/crypto.ts and the
-// meeting server's protocol.ts check the same bytes). I keep the whole tree – every member with the fingerprint of the
-// key that signed it – in kv 'remote.code' and it travels in my roster (devices/sync/roster.ts, 'ceo' links only, so an
-// employer or employee never brings me a code): a PC I accept as my own gets my signature, a tree that outranks mine
-// (one with members before a lone one, then the smaller root fingerprint) brings me its code, a PC whose tree I outrank
-// gets my signature, and my own PCs missing from my tree (their signer was removed) are signed again. A removed PC's
-// entry is dropped. Phones never answer for the code, so they need no chain. The parts that hold my key and database open
-// it (rendezvous/service.ts); the others find it by my fingerprint (codeFor).
-// Owns: the chain format, its check, the tree in kv and its merge rule. Never: signs a device that is not my own PC,
-// or trusts a chain it did not verify.
+// The two IDs of a PC (B-084 person code; Eine-ID 22.11.2026, owner: "eine Firmen-ID … pro Firma … und dann gibt es pro
+// User noch den Code … nur für einen selber"). Each is a tree of PCs under one root key; the ID is the Remote ID of that
+// root's key. A member proves it belongs with a chain of signatures from the root to its key: at most MAX_LINKS links,
+// each the previous key's Ed25519 signature over "wf-code-v1|<member fingerprint hex>" (wire format:
+// .local/b084/notes/W4-format.md; Android relay/CodeChain.java, the iPhone's hosted/crypto.ts and the meeting server's
+// protocol.ts check the same bytes). I keep each tree – every member with the fingerprint of the key that signed it:
+// - the company tree (Company ID, kv 'remote.code', codeFor): its root is the company's first PC (a lone PC is its own
+//   root, so the first PC keeps the ID it shows). On the company's own PCs (no employer link) it travels in the roster
+//   between them; a new member's PC is signed in by a company PC, which hands it its chain in the 'company.facts'
+//   answer – on an employee's PC this tree is only what its company told it (adoptChain), it signs nobody into it;
+// - the me tree (My ID, kv 'remote.me', meFor): its root is a fresh key made once, on first use (never at open – nothing
+//   is fixed before the company exists, owner 22.11.2026), that signs this PC as the first member; its private half is
+//   never stored. It travels in the roster over 'ceo' links (my own devices).
+// Merging (roster.ts, both trees): same root merges; a tree that outranks mine (one with several PCs before one PC alone,
+// then the smaller root fingerprint) brings me its ID once I am in it; a PC whose tree I outrank gets my signature; my
+// own PCs missing from my tree (their signer was removed) are signed again – one PC alone signs only through that rank
+// rule, so a PC that just joined takes the ID of the PC that signed it. A removed PC's entry drops out of both trees.
+// Phones never answer for an ID, so they need no chain. The part that holds my key and database opens both trees (rendezvous/service.ts); the
+// others find them by my fingerprint (codeFor, meFor).
+// Owns: the chain format, its check, both trees in kv and their merge rule. Never: signs a device that is not a member,
+// signs into the company tree of a PC with an employer, stores the me root's private key, or trusts an unverified chain.
 
 import type { Db } from '../db/database.ts';
-import { DevicesRepo } from '../devices/repo.ts';
-import { b64url, fingerprintOf, fromB64url, verifyEd25519 } from '../devices/keys.ts';
+import { DevicesRepo, type DeviceRecord } from '../devices/repo.ts';
+import { b64url, fingerprintOf, fromB64url, generateEd25519, rawPublic, signEd25519, verifyEd25519 } from '../devices/keys.ts';
 import { KvRepo } from '../store/kv.ts';
 import { remoteIdOf } from './id.ts';
 
 export const MAX_LINKS = 8;
 const MAX_TREE = 64;
-const NS = 'remote.code';
 const FP = /^[0-9a-f]{64}$/;
+/** kv namespace of each tree. */
+const NS = { company: 'remote.code', me: 'remote.me' } as const;
+export type TreeKind = keyof typeof NS;
 
 export interface Link { pub: string; sig: string }
 /** root -> member, as it travels with an answer. */
@@ -37,9 +47,10 @@ const raw = (value: unknown, size = 32): Buffer | undefined => {
   return bytes.length === size ? bytes : undefined;
 };
 const fpOf = (pub: string) => fingerprintOf(fromB64url(pub));
-const lone = (tree: Tree) => tree.links.length === 0;
-/** True when `a` outranks `b`: members before a lone root, then the smaller root fingerprint. */
-const outranks = (a: Tree, b: Tree) => (lone(a) !== lone(b) ? !lone(a) : fpOf(a.root) < fpOf(b.root));
+/** One PC alone: a company root with no members, a me tree with only its first member (its root is no PC). */
+const alone = (tree: Tree, kind: TreeKind) => tree.links.length <= (kind === 'me' ? 1 : 0);
+/** True when `a` outranks `b`: several PCs before one alone, then the smaller root fingerprint. */
+const outranks = (a: Tree, b: Tree, kind: TreeKind) => (alone(a, kind) !== alone(b, kind) ? !alone(a, kind) : fpOf(a.root) < fpOf(b.root));
 
 /** The fingerprint a valid chain ends at (for the code `remoteId` when given), else undefined. */
 export function chainEnd(chain: unknown, remoteId?: string): string | undefined {
@@ -60,6 +71,11 @@ export function chainEnd(chain: unknown, remoteId?: string): string | undefined 
 export function belongs(remoteId: string, fp: string, chain?: unknown): boolean {
   if (remoteIdOf(fp) === remoteId) return true;
   return chain !== undefined && chain !== null && chainEnd(chain, remoteId) === fp.toLowerCase();
+}
+
+/** The ID a verified chain ending at `fp` proves (its root's Remote ID), else undefined. */
+export function chainCode(chain: unknown, fp: string): string | undefined {
+  return chain !== undefined && chain !== null && chainEnd(chain) === fp ? remoteIdOf(fpOf((chain as Chain).root)) : undefined;
 }
 
 /** Only the members whose signature verifies from the root, once each, at most MAX_LINKS deep; `drop`: removed PCs. */
@@ -102,13 +118,31 @@ export function chainIn(tree: Tree, fp: string): Chain | undefined {
   return { root: tree.root, links };
 }
 
-const opened = new Map<string, PersonCode>();
+/** The company PC this PC joined as an employee (its employer link), when there is one. */
+export function employerPc(db: Db): DeviceRecord | undefined {
+  return new DevicesRepo(db).list({ kinds: ['pc'] }).find((device) => !device.self && device.joinedAs === 'employee' && device.status !== 'revoked');
+}
+
+const opened = new Map<string, { company: CodeTree; me: CodeTree }>();
 const watchers = new Map<string, Set<() => void>>();
 
-/** My person code, once the part with my key and database opened it (rendezvous/service.ts); undefined before. */
-export function codeFor(fingerprint: string): PersonCode | undefined { return opened.get(fingerprint); }
+/** My company tree (Company ID), once the part with my key and database opened it (rendezvous/service.ts); undefined before. */
+export function codeFor(fingerprint: string): CodeTree | undefined { return opened.get(fingerprint)?.company; }
 
-/** Calls `fn` whenever the person code of `fingerprint` changes; returns the off switch. */
+/** My me tree (My ID), opened with the company tree; its root is made on first use. */
+export function meFor(fingerprint: string): CodeTree | undefined { return opened.get(fingerprint)?.me; }
+
+/**
+ * My chains for the LAN hello and wellKnown: `chain` my company chain when I am not its root (a root answers with its own
+ * ID), `me` my chain in the me tree. Read while findable only – it starts the me tree.
+ */
+export function chainsOf(fingerprint: string): { chain?: Chain; me?: Chain } {
+  const company = codeFor(fingerprint)?.chain();
+  const me = meFor(fingerprint)?.chain();
+  return { ...(company?.links.length ? { chain: company } : {}), ...(me?.links.length ? { me } : {}) };
+}
+
+/** Calls `fn` whenever either tree of `fingerprint` changes; returns the off switch. */
 export function watchCode(fingerprint: string, fn: () => void): () => void {
   const set = watchers.get(fingerprint) ?? new Set();
   set.add(fn);
@@ -116,48 +150,52 @@ export function watchCode(fingerprint: string, fn: () => void): () => void {
   return () => { set.delete(fn); };
 }
 
-export function openCode(db: Db, me: CodeKey, now: () => number): PersonCode {
-  const code = new PersonCode(db, me, now);
-  opened.set(me.fingerprint, code);
-  return code;
+/** Opens both trees of this PC (nothing is made yet). */
+export function openCodes(db: Db, key: CodeKey, now: () => number): { company: CodeTree; me: CodeTree } {
+  const both = { company: new CodeTree(db, key, now, 'company'), me: new CodeTree(db, key, now, 'me') };
+  opened.set(key.fingerprint, both);
+  return both;
 }
 
-export class PersonCode {
+export class CodeTree {
   private readonly db: Db;
-  private readonly me: CodeKey;
+  private readonly key: CodeKey;
   private readonly now: () => number;
+  readonly kind: TreeKind;
   private cached?: Tree;
 
-  constructor(db: Db, me: CodeKey, now: () => number) {
+  constructor(db: Db, key: CodeKey, now: () => number, kind: TreeKind) {
     this.db = db;
-    this.me = me;
+    this.key = key;
     this.now = now;
+    this.kind = kind;
   }
 
-  /** My tree (stored, verified, with me in it), else me alone as the root. */
+  /** My tree (stored, verified, with me in it), else a start: the company tree me alone as the root, the me tree a fresh root. */
   tree(): Tree {
-    return (this.cached ??= this.load());
+    if (!this.cached) this.cached = this.load() ?? this.start();
+    return this.cached;
   }
 
-  /** The code I answer for. */
+  /** The ID I answer for with this tree. */
   code(): string { return remoteIdOf(fpOf(this.tree().root)); }
 
   /** My chain from the root; an empty one when I am the root. */
-  chain(): Chain { return chainIn(this.tree(), this.me.fingerprint) ?? { root: b64url(this.me.publicKey), links: [] }; }
+  chain(): Chain { return chainIn(this.tree(), this.key.fingerprint) ?? { root: b64url(this.key.publicKey), links: [] }; }
 
-  /** Signs one of my own PCs into my tree; false when it is in already or my chain is at MAX_LINKS. */
+  /** Signs a PC into this tree; false when it is in already, my chain is at MAX_LINKS or (company tree) I have an employer. */
   sign(memberPub: string): boolean {
     const key = raw(memberPub);
-    if (!key) return false;
+    if (!key || this.employed()) return false;
     const fp = fingerprintOf(key);
     const tree = this.tree();
     if (fpOf(tree.root) === fp || tree.links.some((link) => fpOf(link.pub) === fp) || this.chain().links.length >= MAX_LINKS) return false;
-    return this.save({ root: tree.root, links: [...tree.links, { pub: memberPub, by: this.me.fingerprint, sig: b64url(this.me.sign(signedBytes(fp))) }] });
+    return this.save({ root: tree.root, links: [...tree.links, { pub: memberPub, by: this.key.fingerprint, sig: b64url(this.key.sign(signedBytes(fp))) }] });
   }
 
-  /** My own PCs missing from my tree get my signature (a lone root signs only through take()). */
+  /** My own PCs missing from my tree get my signature (one PC alone signs only through take()). */
   signMissing(pubs: readonly string[]): boolean {
-    if (lone(this.tree())) return false;
+    if (this.employed() || alone(this.tree(), this.kind)) return false;
     let changed = false;
     for (const pub of pubs) changed = this.sign(pub) || changed;
     return changed;
@@ -166,32 +204,78 @@ export class PersonCode {
   /** The tree one of my own PCs (`senderPub`) sent: same root merges, an outranking one with me in it is adopted, else the sender gets my signature. */
   take(value: unknown, senderPub: string | undefined): boolean {
     const theirs = parseTree(value, this.removed);
-    if (!theirs) return false;
+    if (!theirs || this.employed()) return false;
+    // A me tree not started yet joins theirs without making a root of its own (the ID my other PC shows stays).
+    if (!this.cached && !this.load() && this.kind === 'me' && chainIn(theirs, this.key.fingerprint)) return this.keep(theirs);
     const mine = this.tree();
     if (theirs.root === mine.root) return this.save({ root: mine.root, links: [...mine.links, ...theirs.links] });
-    if (outranks(theirs, mine)) return chainIn(theirs, this.me.fingerprint) ? this.save({ root: theirs.root, links: [...theirs.links, ...mine.links] }) : false;
+    if (outranks(theirs, mine, this.kind)) return chainIn(theirs, this.key.fingerprint) ? this.save({ root: theirs.root, links: [...theirs.links, ...mine.links] }) : false;
     return senderPub ? this.sign(senderPub) : false;
   }
 
-  /** Reads the tree again (a PC was removed). */
-  refresh(): void { this.cached = undefined; }
+  /** Company tree of an employee's PC: the chain its company handed it, kept when it verifies and ends at this PC. */
+  adoptChain(value: unknown): boolean {
+    if (this.kind !== 'company' || chainEnd(value) !== this.key.fingerprint) return false;
+    const chain = value as Chain;
+    let by = fpOf(chain.root);
+    const links = chain.links.map((link) => { const entry = { pub: link.pub, sig: link.sig, by }; by = fpOf(link.pub); return entry; });
+    const tree = resolved({ root: chain.root, links }, this.removed);
+    if (JSON.stringify(tree) === JSON.stringify(this.tree()) || !chainIn(tree, this.key.fingerprint)) return false;
+    return this.keep(tree);
+  }
+
+  /** Forgets the stored tree (the last employer link went: this PC is its own company again). */
+  clear(): boolean {
+    if (!new KvRepo(this.db).delete(NS[this.kind], 'tree')) return false;
+    this.cached = undefined;
+    this.notify();
+    return true;
+  }
+
+  /** Reads the tree again (a PC was removed, or a bridge moved it); tells the watchers when it changed. */
+  refresh(): void {
+    const before = this.cached;
+    this.cached = undefined;
+    if (before && JSON.stringify(this.tree()) !== JSON.stringify(before)) this.notify();
+  }
 
   /** A PC removed here (a revoked row and no live one). */
   private readonly removed = (fp: string): boolean =>
     !new DevicesRepo(this.db).byFingerprint(fp) && Boolean(this.db.get('SELECT 1 FROM devices WHERE fingerprint = ? AND revoked_at IS NOT NULL', [fp]));
 
-  private load(): Tree {
-    const stored = parseTree(new KvRepo(this.db).get(NS, 'tree'), this.removed);
-    return stored && chainIn(stored, this.me.fingerprint) ? stored : { root: b64url(this.me.publicKey), links: [] };
+  /** The company tree of a PC with an employer is only what its company told it. */
+  private employed(): boolean { return this.kind === 'company' && Boolean(employerPc(this.db)); }
+
+  private load(): Tree | undefined {
+    const stored = parseTree(new KvRepo(this.db).get(NS[this.kind], 'tree'), this.removed);
+    return stored && chainIn(stored, this.key.fingerprint) ? stored : undefined;
+  }
+
+  /** The start: company – me alone as the root (not stored); me – a fresh root signs me, stored at once, its private key dropped. */
+  private start(): Tree {
+    const mine = b64url(this.key.publicKey);
+    if (this.kind === 'company') return { root: mine, links: [] };
+    const { privateKey, publicKey } = generateEd25519();
+    const root = rawPublic(publicKey);
+    const tree: Tree = { root: b64url(root), links: [{ pub: mine, by: fingerprintOf(root), sig: b64url(signEd25519(privateKey, signedBytes(this.key.fingerprint))) }] };
+    new KvRepo(this.db).set(NS.me, 'tree', tree, this.now());
+    return tree;
   }
 
   private save(next: Tree): boolean {
     const tree = resolved(next, this.removed);
-    const before = this.tree();
-    if (JSON.stringify(tree) === JSON.stringify(before) || !chainIn(tree, this.me.fingerprint)) return false;
+    if (JSON.stringify(tree) === JSON.stringify(this.tree()) || !chainIn(tree, this.key.fingerprint)) return false;
+    return this.keep(tree);
+  }
+
+  private keep(tree: Tree): boolean {
     this.cached = tree;
-    new KvRepo(this.db).set(NS, 'tree', tree, this.now());
-    for (const fn of [...(watchers.get(this.me.fingerprint) ?? [])]) { try { fn(); } catch { /* a listener's failure stays its own */ } }
+    new KvRepo(this.db).set(NS[this.kind], 'tree', tree, this.now());
+    this.notify();
     return true;
+  }
+
+  private notify(): void {
+    for (const fn of [...(watchers.get(this.key.fingerprint) ?? [])]) { try { fn(); } catch { /* a listener's failure stays its own */ } }
   }
 }

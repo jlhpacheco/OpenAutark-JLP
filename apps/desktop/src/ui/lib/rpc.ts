@@ -13,24 +13,36 @@
 // pageshow, online, a push, the Android app's `resume`, the iPhone shell's new channel – autarkResume),
 // checkAlive connects a socket that is not open at once (replacing an attempt older than 8 s, whose timer a sleeping phone froze)
 // and gives an open one 3 s to answer `session.info`, else replaces it as half-open. refresh()
-// (pull-down) does the same and reloads everything once a live socket answers.
-// Owns: framing, request ids, the event fan-out, connection status, the socket's liveness check.
+// (pull-down) does the same and reloads everything once a live socket answers. A call made while not open waits up to
+// 8 s for the connection (rpc-queue.ts; the desktop window's before its runtime first answered: until it does), then
+// rejects 'unavailable' with NOT_SENT – none of it went out (D6, 19.11.).
+// A PC that does not know this phone's token at all closes with 4404 (runtime/http/ws.ts), kept in `refused` like 4401.
+// Fest round 22.11.2026 – one silence rule for every socket (browser, Android, iPhone): the PC sends a page's socket a
+// frame at least every 15 s (its beat, runtime/http/keepalive.ts – a page cannot see pings), so an open socket that hears
+// nothing for SILENT_MS (shared/api/protocol.ts) lost its way without an end: it is replaced like a probe without an
+// answer, and the new one reloads everything (rpc.open). One timer, started again by every frame. While a call of this
+// page waits for its answer the wait stretches to WAIT_LIMIT silent minutes: a page cannot see a large answer arriving on
+// a slow link (the beats queue behind it), and cutting under it would reload, ask again and cut again – but a page that
+// always has a call out (a file tab's look every 2 s, a pull) on a dead socket still ends it (review 22.11.2026; a long
+// poll answers within its own wait, so it never holds the stretch). The desktop port reports its own end.
+// Owns: framing, request ids, the event fan-out, connection status, the socket's liveness check and silence wait.
 // Never: holds app state (see store.ts) or retries calls itself (callers decide; effects
 // must never be blindly repeated).
 
 import { signal } from '@preact/signals';
 import type { EventMap, EventName } from '../../shared/api/events.ts';
 import type { MethodName, ParamsOf, ResultOf } from '../../shared/api/methods.ts';
-import { PROTOCOL_VERSION, isEvent, isResponse } from '../../shared/api/protocol.ts';
+import { PROTOCOL_VERSION, SILENT_MS, isEvent, isResponse } from '../../shared/api/protocol.ts';
 import type { Hello, RpcRequest, Topic } from '../../shared/api/protocol.ts';
 import { hostedShell } from '../pwa/hosted.ts';
 import { onNative } from '../pwa/native-port.ts';
 import { bridge, platform } from './platform.ts';
 import { RefusalMemory } from './refusal.ts';
+import type { Refusal } from './refusal.ts';
+import { CallQueue } from './rpc-queue.ts';
 import { RpcError } from './rpc-error.ts';
 import { readToken } from './rpc-token.ts';
 import { RuntimeEpochs, requestPort } from './runtime-port.ts';
-import type { PortHost } from './runtime-port.ts';
 
 export { RpcError, errorText } from './rpc-error.ts';
 export type ConnectionStatus = 'connecting' | 'open' | 'closed';
@@ -47,11 +59,11 @@ interface Transport {
 }
 
 const status = signal<ConnectionStatus>('connecting');
-/** Close code of the last socket the runtime refused (4401) or revoked (4403); null once it answers. */
-const refused = signal<4401 | 4403 | null>(null);
+/** Close code of the last socket the runtime refused (4401), revoked (4403) or did not know (4404); null once it answers. */
+const refused = signal<Refusal | null>(null);
 const refusals = new RefusalMemory();
 const pending = new Map<number, Pending>();
-const queue: RpcRequest[] = []; // requests issued while not connected
+const queue = new CallQueue(); // requests issued while not connected
 const listeners = new Map<string, Set<(data: unknown) => void>>();
 const topics = new Set<Topic>();
 let transport: Transport | null = null;
@@ -65,7 +77,14 @@ let attemptAt = 0;
 let giveUp: (() => void) | null = null; // ends the current socket attempt now
 let probing = false; // one liveness probe at a time
 let reloadOnAnswer = false; // refresh(): the probe's answer reloads everything
+let everOpen = false; // the connection was open once in this page life
 const OPEN_LIMIT = 8_000;
+/** Silent minutes a waiting call gets before the socket counts as dead: a large answer on a slow link has five minutes. */
+const WAIT_LIMIT = 5;
+/** A pending call's error when the connection went away under it (the status line says the rest, never as a line of its own). */
+export const LOST_TEXT = 'Connection to the runtime was lost.';
+/** A queued call's error after QUEUE_LIMIT_MS without a connection. */
+export const NOT_SENT = platform === 'desktop' ? 'Autark’s engine is not answering – nothing was sent.' : 'Your PC is not reachable right now – nothing was sent.';
 const epochs = new RuntimeEpochs();
 
 function handleFrame(raw: unknown): void {
@@ -94,8 +113,9 @@ function handleFrame(raw: unknown): void {
 function onOpen(next: Transport): void {
   transport = next;
   status.value = 'open';
+  everOpen = true;
   if (topics.size) next.send({ id: nextId++, method: 'events.subscribe', params: { topics: [...topics] } });
-  for (const request of queue.splice(0)) next.send(request);
+  for (const request of queue.take()) next.send(request);
   emitLocal('rpc.open');
 }
 
@@ -103,7 +123,7 @@ function onClosed(): void {
   if (!transport && status.value === 'closed') return;
   transport = null;
   status.value = 'closed';
-  const error = new RpcError({ code: 'unavailable', message: 'Connection to the runtime was lost.' });
+  const error = new RpcError({ code: 'unavailable', message: LOST_TEXT });
   for (const [id, entry] of pending) { pending.delete(id); entry.reject(error); }
   scheduleReconnect();
 }
@@ -115,7 +135,7 @@ function scheduleReconnect(): void {
 }
 
 async function connectPort(): Promise<void> {
-  const port = await requestPort(() => bridge!.connect(), window as unknown as PortHost, window);
+  const port = await requestPort();
   port.onmessage = (event) => handleFrame(event.data);
   port.start();
   const next: Transport = { send: (frame) => port.postMessage(frame), close: () => port.close() };
@@ -131,7 +151,22 @@ function connectSocket(): Promise<void> {
     // Inside the iPhone web app the socket is a tunnel stream to the PC (pwa/hosted.ts); elsewhere the page's own host.
     const hosted = hostedShell();
     const socket = hosted ? (hosted.socket('/ws') as unknown as WebSocket) : new WebSocket(`${scheme}://${location.host}/ws`);
-    const next: Transport = { send: (frame) => socket.send(JSON.stringify(frame)), close: () => { socket.onmessage = null; socket.close(); } };
+    let silent: ReturnType<typeof setTimeout> | undefined;
+    let waits = 0; // silent minutes in a row a waiting call was given
+    let beatSupported = false; // legacy PCs send no application heartbeat
+    /** SILENT_MS without a frame: replaced – unless a call waits for its answer, which may be arriving slowly: up to WAIT_LIMIT silent minutes. */
+    const quiet = () => {
+      if (transport !== next) return;
+      if (pending.size && ++waits < WAIT_LIMIT) silent = setTimeout(quiet, SILENT_MS);
+      else reconnectNow();
+    };
+    /** Heard from the PC (or just opened): the silence wait starts over. */
+    const heard = () => {
+      waits = 0;
+      clearTimeout(silent);
+      silent = setTimeout(quiet, SILENT_MS);
+    };
+    const next: Transport = { send: (frame) => socket.send(JSON.stringify(frame)), close: () => { clearTimeout(silent); socket.onmessage = null; socket.close(); } };
     let opened = false;
     let token = '';
     const end = () => {
@@ -151,9 +186,14 @@ function connectSocket(): Promise<void> {
       onOpen(next);
       resolve();
     };
-    socket.onmessage = (event) => handleFrame(event.data);
+    socket.onmessage = (event) => {
+      if (event.data === '{}') beatSupported = true;
+      if (beatSupported) heard();
+      handleFrame(event.data);
+    };
     socket.onclose = (event) => {
       clearTimeout(limit);
+      clearTimeout(silent);
       const refusal = refusals.closed(event.code, token);
       if (refusal !== null) refused.value = refusal;
       if (!opened) reject(new Error('socket closed'));
@@ -248,7 +288,8 @@ function call<M extends MethodName>(method: M, params?: ParamsOf<M>): Promise<Re
     if (transport && status.value === 'open') {
       try { transport.send(request); } catch (error) { pending.delete(id); reject(error); }
     } else {
-      queue.push(request);
+      const expired = () => { if (pending.delete(id)) reject(new RpcError({ code: 'unavailable', message: NOT_SENT })); };
+      queue.add(request, platform !== 'desktop' || everOpen ? expired : undefined); // a desktop cold start waits
     }
   });
 }

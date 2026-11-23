@@ -27,6 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { onsetMs, pcm16, takeStart, wav, wer, words } from './fixtures/b058/audio.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -102,7 +103,7 @@ test('B-058 live: dictation through the fake microphone, a voice message, abilit
   results.startupMs = Date.now() - launchedAt;
   await app.evaluate(({ BrowserWindow }) => { const [win] = BrowserWindow.getAllWindows(); win.setSize(1280, 820); });
   const shot = async (name, locator) => { await page.waitForTimeout(300); await (locator ?? page).screenshot({ path: path.join(shots, `${name}.png`) }); results.shots = [...(results.shots ?? []), `${name}.png`]; };
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
 
   const local = await rpc.call('voice.localModels');

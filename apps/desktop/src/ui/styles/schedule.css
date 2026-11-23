@@ -2,7 +2,8 @@
    frame – four rows of fixed height (type, fields, one-tap times or start/end, one line of words), the same in every
    choice, so nothing moves on a click. The composer itself grows from the bottom up (composer.css: taller field).
    Also the chat's quiet "Scheduled · <when>" line (chat/ScheduledLine.tsx) and the rule line of a row in Chat details ›
-   Scheduled (chat/details/Schedules.tsx; the rest of that list: details.css).
+   Scheduled (chat/details/Schedules.tsx; the rest of that list: details.css), and Settings › Scheduled
+   (settings/ScheduledPage.tsx, its dialog settings/ScheduleDialog.tsx – which holds the same block for the rule).
    Owns: these rules. Never: the dialog chrome (base.css, overlays.css), colors outside tokens.css. */
 
 .schedule-bar { display: grid; gap: 8px; margin: 0 0 10px; padding: 0 0 10px; border-bottom: 1px solid var(--line); }
@@ -10,9 +11,9 @@
 .schedule-row > .segmented { flex: 0 1 auto; min-width: 0; }
 .schedule-bar .segmented button { padding: 4px 10px; }
 .schedule-close { flex: none; margin-left: auto; }
-.schedule-label { flex: none; color: var(--secondary); font-size: 13px; }
+.schedule-label { flex: none; color: var(--secondary); font-size: calc(13px * var(--ui-text, 1)); }
 
-.schedule-bar .input { flex: none; width: auto; height: 34px; padding: 0 10px; border-radius: var(--r-md); font-size: 13px; }
+.schedule-bar .input { flex: none; width: auto; height: 34px; padding: 0 10px; border-radius: var(--r-md); font-size: calc(13px * var(--ui-text, 1)); }
 /* the fields have their width in a wide composer and give way (never the row) in a narrow one */
 .schedule-bar :is(.schedule-date, .schedule-time, .schedule-start, .schedule-end) { flex: 1 1 0; min-width: 0; }
 .schedule-bar .schedule-date { max-width: 156px; }
@@ -33,7 +34,7 @@
 .schedule-days { display: flex; flex: 1 1 auto; gap: 4px; min-width: 0; max-width: 234px; }
 .schedule-day {
   display: grid; place-items: center; flex: 1 1 0; min-width: 0; max-width: 30px; aspect-ratio: 1; border: 1px solid var(--field); border-radius: 50%;
-  color: var(--secondary); font-size: 12px;
+  color: var(--secondary); font-size: calc(12px * var(--ui-text, 1));
 }
 .schedule-day:hover { background: var(--hover); color: var(--text); }
 .schedule-day[aria-pressed=true] { border-color: var(--text); background: var(--text); color: var(--surface); }
@@ -45,7 +46,7 @@
 .schedule-clear.idle { visibility: hidden; }
 .schedule-pick:disabled { opacity: var(--disabled-opacity); }
 
-.schedule-line { min-height: 18px; margin: 0; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.schedule-line { min-height: 18px; margin: 0; overflow: hidden; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); text-overflow: ellipsis; white-space: nowrap; }
 .schedule-line.warn { color: var(--warn); }
 .schedule-line.error { color: var(--danger); }
 
@@ -67,4 +68,16 @@
 .scheduled-line .scheduled-link:hover { color: var(--text); text-decoration: underline; }
 
 /* Chat details › Scheduled: a repeating rule in words under the message (details.css has the row) */
-.details-schedule-rule { overflow: hidden; color: var(--secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.details-schedule-rule { overflow: hidden; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); text-overflow: ellipsis; white-space: nowrap; }
+
+/* Settings › Scheduled: the page's head group without rows once the chats' groups are there; a paused or ended row in the
+   quiet colour (colour only); the picked agent's Show; the dialog's fields one under the other, the kept rule's line beside "New rule" */
+#settings-scheduled > .set-rows:empty { display: none; }
+.set-row.scheduled-off .set-row-label { color: var(--secondary); }
+/* the agent whose schedules show below: its Show button as a held choice – a line under the word, no box (a ghost
+   button sits flush with the row's edge; a box would stick out past it) */
+#settings-scheduled-agents .button.ghost[aria-pressed="true"] { color: var(--text); text-decoration: underline; text-underline-offset: 4px; }
+.scheduled-edit > .field-label:not(:first-child) { margin-top: 14px; }
+.scheduled-edit .scheduled-text { display: block; width: 100%; resize: vertical; }
+.scheduled-edit .schedule-bar { margin: 0; }
+.scheduled-kept { flex: 1 1 auto; min-width: 0; }

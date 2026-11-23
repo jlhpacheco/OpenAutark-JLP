@@ -19,7 +19,7 @@ function setup() {
 }
 
 const base = (id: string, extra: Partial<Task> = {}): Task => ({
-  id, title: `Task ${id}`, notes: '', status: 'open', assigneeKind: 'agent', assigneeId: 'ag_ava', createdBy: 'ag_ava', priority: 0,
+  id, kind: 'todo', title: `Task ${id}`, notes: '', status: 'open', assigneeKind: 'agent', assigneeId: 'ag_ava', createdBy: 'ag_ava', priority: 0,
   ledger: {}, sort: 0, rev: 0, createdAt: T, updatedAt: T, ...extra,
 });
 

@@ -1,11 +1,10 @@
 // HUMAN.md (owner 15.11.2026: "ein Feld … wenn man auf den Agent klickt, dann kann man das als Mensch editieren …
 // unten angehängt … wird doch nicht überschrieben … als separate Datei"): the person's lines to one agent, in its
-// folder beside SYSTEM.md, near the end of its system prompt under "## From <name>" (context/prompt-stable.ts; only
-// the person's lines to every agent, settings profile.forEveryAgent, come after it). The person writes it on the agent
-// page (agents.setHuman) or as a file, and the agent may change it too (owner 16.11.2026); no standard or update ever
-// rewrites it. A hire starts without one: the "I'm not a robot" line stands for every agent in profile.forEveryAgent
-// (owner 16.11.2026: "global für alle Agents einstellen"), and bridge/kontext-1311.ts empties a HUMAN.md that holds
-// only that line.
+// folder beside SYSTEM.md, last in its system prompt under "## From <name>" (context/prompt-stable.ts). The person
+// writes it on the agent page (agents.setHuman) or as a file, and the agent may change it too (owner 16.11.2026); no
+// standard or update ever rewrites it. A hire starts without one: what concerns the whole team about a topic is that
+// topic's security text (owner 19.11.2026, <data>/security/<mode>/<topic>.md – the "I'm not a robot" line is
+// captcha.md).
 // Owns: the file's path, read and write. Never: writes a file nobody asked for, or polls.
 
 import path from 'node:path';

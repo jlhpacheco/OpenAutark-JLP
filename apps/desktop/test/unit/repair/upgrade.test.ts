@@ -22,7 +22,7 @@ function tempData(t: { after(fn: () => void): void }): string {
 }
 
 /** A database an older app left behind: schema `until`, one agent row. */
-function oldDb(dir: string, until = 9): string {
+function oldDb(dir: string, until = 103): string {
   const file = path.join(dir, 'workforce.db');
   const db = new Db(file);
   migrate(db, { until });
@@ -49,17 +49,17 @@ test('a new database migrates without a copy; the current schema takes none eith
 
 test('older data: one consistent copy of the untouched data, then the migration; a second start keeps it', (t) => {
   const dir = tempData(t);
-  const file = oldDb(dir, 9);
+  const file = oldDb(dir, 103);
   let now = 1000;
   const db = openDatabase({ file, dataDir: dir, version: '0.3.0', now: () => now });
   assert.equal(storedSchema(db), SCHEMA_VERSION);
   assert.equal(db.get<{ name: string }>(`SELECT name FROM agents WHERE id = 'ag_old'`)?.name, 'Old Manager', 'the live data migrated');
   db.close();
   const [copy] = listUpgradeBackups(dir);
-  assert.deepEqual({ id: copy.id, appVersion: copy.appVersion, schema: copy.schema, createdAt: copy.createdAt }, { id: '0.3.0-s9', appVersion: '0.3.0', schema: 9, createdAt: 1000 });
+  assert.deepEqual({ id: copy.id, appVersion: copy.appVersion, schema: copy.schema, createdAt: copy.createdAt }, { id: '0.3.0-s103', appVersion: '0.3.0', schema: 103, createdAt: 1000 });
   assert.ok(copy.bytes > 0);
   const copyFile = upgradeBackupFile(dir, copy.id)!;
-  assert.equal(schemaOf(copyFile), 9, 'the copy holds the data as it was before the update');
+  assert.equal(schemaOf(copyFile), 103, 'the copy holds the data as it was before the update');
   const old = new DatabaseSync(copyFile, { readOnly: true });
   assert.equal((old.prepare(`SELECT name FROM agents WHERE id = 'ag_old'`).get() as { name: string }).name, 'Old Manager');
   old.close();
@@ -72,60 +72,60 @@ test('older data: one consistent copy of the untouched data, then the migration;
 
 test('a failed migration closes the database, keeps the copy and says where it stopped; the retry does not overwrite the copy', (t) => {
   const dir = tempData(t);
-  const file = oldDb(dir, 20);
+  const file = oldDb(dir, 104);
   const failing = (db: Db) => {
-    migrate(db, { until: 24 }); // a few migrations pass …
+    migrate(db, { until: 106 }); // a few migrations pass …
     db.exec('CREATE TABLE broken (x'); // … then one fails
   };
   assert.throws(() => openDatabase({ file, dataDir: dir, version: '0.4.0', now: () => 5, migrateFn: failing }), (error: unknown) => {
     assert.ok(isUpgradeError(error));
     assert.equal(error.stage, 'migration_failed');
-    assert.equal(error.dataSchema, 24, 'the schema the data reached');
+    assert.equal(error.dataSchema, 106, 'the schema the data reached');
     assert.equal(error.appSchema, SCHEMA_VERSION);
-    assert.match(error.message, /from schema 24 failed/);
+    assert.match(error.message, /from schema 106 failed/);
     return true;
   });
   // Closed: the file can be moved (Windows refuses to rename an open database).
   renameSync(file, `${file}.moved`);
   renameSync(`${file}.moved`, file);
-  assert.equal(schemaOf(upgradeBackupFile(dir, '0.4.0-s20')!), 20, 'the copy is of the untouched data');
+  assert.equal(schemaOf(upgradeBackupFile(dir, '0.4.0-s104')!), 104, 'the copy is of the untouched data');
   assert.throws(() => openDatabase({ file, dataDir: dir, version: '0.4.0', now: () => 9, migrateFn: failing }), UpgradeError);
   const copies = listUpgradeBackups(dir);
-  assert.deepEqual(copies.map((info) => [info.id, info.createdAt, info.migratedAt]), [['0.4.0-s20', 5, undefined]], 'one copy per app version: the retry takes none, the migration never finished');
+  assert.deepEqual(copies.map((info) => [info.id, info.createdAt, info.migratedAt]), [['0.4.0-s104', 5, undefined]], 'one copy per app version: the retry takes none, the migration never finished');
 });
 
 test('a fixed release after a failed one keeps the copy of the untouched data (the real rollback point)', (t) => {
   const dir = tempData(t);
-  const file = oldDb(dir, 20);
+  const file = oldDb(dir, 104);
   const failingAt = (until: number) => (db: Db) => { migrate(db, { until }); db.exec('CREATE TABLE broken (x'); };
-  assert.throws(() => openDatabase({ file, dataDir: dir, version: '0.4.0', now: () => 5, migrateFn: failingAt(24) }), UpgradeError);
-  assert.throws(() => openDatabase({ file, dataDir: dir, version: '0.4.0', now: () => 6, migrateFn: failingAt(24) }), UpgradeError, 'Try again: the same failure');
-  // 0.4.1 also stops partway (s24 → s28), 0.4.2 finally migrates.
-  assert.throws(() => openDatabase({ file, dataDir: dir, version: '0.4.1', now: () => 7, migrateFn: failingAt(28) }), UpgradeError);
+  assert.throws(() => openDatabase({ file, dataDir: dir, version: '0.4.0', now: () => 5, migrateFn: failingAt(106) }), UpgradeError);
+  assert.throws(() => openDatabase({ file, dataDir: dir, version: '0.4.0', now: () => 6, migrateFn: failingAt(106) }), UpgradeError, 'Try again: the same failure');
+  // 0.4.1 also stops partway (s106 → s108), 0.4.2 finally migrates.
+  assert.throws(() => openDatabase({ file, dataDir: dir, version: '0.4.1', now: () => 7, migrateFn: failingAt(108) }), UpgradeError);
   openDatabase({ file, dataDir: dir, version: '0.4.2', now: () => 8 }).close();
   const copies = listUpgradeBackups(dir);
   assert.deepEqual(copies.map((info) => [info.id, info.partial ?? false, info.migratedAt]), [
-    ['0.4.2-s28', true, 8], // made from what 0.4.1 left behind; its migration finished
-    ['0.4.1-s24', true, undefined],
-    ['0.4.0-s20', false, undefined], // the untouched data: kept beyond KEEP_BACKUPS
+    ['0.4.2-s108', true, 8], // made from what 0.4.1 left behind; its migration finished
+    ['0.4.1-s106', true, undefined],
+    ['0.4.0-s104', false, undefined], // the untouched data: kept beyond KEEP_BACKUPS
   ]);
-  assert.equal(schemaOf(upgradeBackupFile(dir, '0.4.0-s20')!), 20);
+  assert.equal(schemaOf(upgradeBackupFile(dir, '0.4.0-s104')!), 104);
 });
 
 test('the simple case: a failed version, its retry, then the fixed one – the untouched copy stays', (t) => {
   const dir = tempData(t);
-  const file = oldDb(dir, 20);
-  const failing = (db: Db) => { migrate(db, { until: 24 }); db.exec('CREATE TABLE broken (x'); };
+  const file = oldDb(dir, 104);
+  const failing = (db: Db) => { migrate(db, { until: 106 }); db.exec('CREATE TABLE broken (x'); };
   assert.throws(() => openDatabase({ file, dataDir: dir, version: '0.4.0', now: () => 5, migrateFn: failing }), UpgradeError);
   assert.throws(() => openDatabase({ file, dataDir: dir, version: '0.4.0', now: () => 6, migrateFn: failing }), UpgradeError);
   openDatabase({ file, dataDir: dir, version: '0.4.1', now: () => 7 }).close();
-  assert.deepEqual(listUpgradeBackups(dir).map((info) => info.id), ['0.4.1-s24', '0.4.0-s20']);
+  assert.deepEqual(listUpgradeBackups(dir).map((info) => info.id), ['0.4.1-s106', '0.4.0-s104']);
   assert.equal(listUpgradeBackups(dir)[0].partial, true, 'labelled as made after an incomplete update');
 });
 
 test('data of a newer app is refused before anything is touched', (t) => {
   const dir = tempData(t);
-  const file = oldDb(dir, 9);
+  const file = oldDb(dir, 103);
   const db = new Db(file);
   db.run(`UPDATE meta SET value = ? WHERE key = 'schema'`, [String(SCHEMA_VERSION + 7)]);
   db.close();
@@ -136,9 +136,9 @@ test('data of a newer app is refused before anything is touched', (t) => {
 
 test('too little disk space: nothing migrates (backup_failed), the data stays at its schema', (t) => {
   const dir = tempData(t);
-  const file = oldDb(dir, 9);
+  const file = oldDb(dir, 103);
   assert.throws(() => openDatabase({ file, dataDir: dir, version: '0.3.0', freeBytes: () => 1024 }), (error: unknown) => isUpgradeError(error) && error.stage === 'backup_failed' && /free disk space/.test(error.message));
-  assert.equal(schemaOf(file), 9, 'not migrated without the copy');
+  assert.equal(schemaOf(file), 103, 'not migrated without the copy');
   assert.deepEqual(listUpgradeBackups(dir), []);
 });
 
@@ -151,20 +151,20 @@ test('a damaged file is data_unreadable', (t) => {
 
 test('copies are pruned to the newest two (the current one always stays)', (t) => {
   const dir = tempData(t);
-  const schemas = [9, 20, 24];
+  const schemas = [103, 104, 106];
   for (const [index, version] of ['0.3.0', '0.4.0', '0.5.0'].entries()) {
     for (const suffix of ['', '-wal', '-shm']) rmSync(path.join(dir, `workforce.db${suffix}`), { force: true });
     const file = oldDb(dir, schemas[index]);
     openDatabase({ file, dataDir: dir, version, now: () => 100 + index }).close();
   }
-  assert.deepEqual(listUpgradeBackups(dir).map((info) => info.id), ['0.5.0-s24', '0.4.0-s20']);
+  assert.deepEqual(listUpgradeBackups(dir).map((info) => info.id), ['0.5.0-s106', '0.4.0-s104']);
 });
 
 test('upgradePending: only older, readable data (the start then asks main for the long boot wait)', (t) => {
   const dir = tempData(t);
   const file = path.join(dir, 'workforce.db');
   assert.equal(upgradePending(file), false, 'no file');
-  oldDb(dir, 9);
+  oldDb(dir, 103);
   assert.equal(upgradePending(file), true);
   openDatabase({ file, dataDir: dir, version: '0.3.0' }).close();
   assert.equal(upgradePending(file), false, 'current schema');

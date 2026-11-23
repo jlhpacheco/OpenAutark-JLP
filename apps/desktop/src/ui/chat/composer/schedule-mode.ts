@@ -17,6 +17,7 @@ import { draftFor, setReply, updateDraft } from './draft.ts';
 import { defaultForm, editableSchedule, formFromSpec, formKey, scheduleSpec } from './schedule-form.ts';
 import type { ScheduleForm } from './schedule-form.ts';
 import { mentionsIn } from './target.ts';
+import { levelOf } from '../../tasks/schedule-edit.ts';
 
 export interface ScheduleMode {
   form: ScheduleForm;
@@ -55,8 +56,6 @@ export function patchForm(conversationId: string, patch: Partial<ScheduleForm>):
   const mode = entry.peek();
   if (mode) entry.value = { ...mode, form: { ...mode.form, ...patch } };
 }
-
-const levelOf = (schedule: Schedule): MessageLevel => (schedule.payload.silent ? 'silent' : schedule.payload.priority === 'important' ? 'important' : 'normal');
 
 /** Edit: the composer in schedule mode on this scheduled message; false when it cannot be edited here. */
 export function editSchedule(schedule: Schedule, now = Date.now()): boolean {

@@ -3,8 +3,9 @@
 // decision to-do any more) → A's person accepts (remote.decide) → both list each other and connect. Then once more, declined;
 // then with requests turned off on A nothing answers. Discovery stays on loopback
 // (WORKFORCE_DISCOVERY_TARGETS: each runtime listens on its own 127.0.0.x, probes go to both).
-// The request travels over the peer listeners' LAN/tailnet addresses of this machine (skipped
-// without any).
+// The request travels over the peer listeners' advertised addresses – a test profile's listener stays on 127.0.0.1 and
+// advertises that (devices/connect.ts, 19.11.2026), so an Autark of the person on this PC holding the peer port on the
+// LAN never answers in its place.
 // Second test (B-072): the same through a meeting server – `node services/remote-relay/src/main.ts` on
 // ws://127.0.0.1 – with LAN discovery off (each runtime probes only its own loopback address): the Remote ID is found
 // there, the request steps travel sealed through it, Accept links both; requests off on A: "is online" names nobody.
@@ -15,7 +16,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startRuntime } from './lib/runtime-client.mjs';
+import { startRuntime, connectYes } from './lib/runtime-client.mjs';
 
 const A_ENV = { WORKFORCE_DISCOVERY_TARGETS: '127.0.0.2,127.0.0.3' };
 const B_ENV = { WORKFORCE_DISCOVERY_TARGETS: '127.0.0.3,127.0.0.2' };
@@ -65,14 +66,14 @@ test('two runtimes connect by Remote ID; the target\'s person accepts with the s
   if (!peer.addresses.length) { t.skip('this machine has no LAN or tailnet address for the peer listener'); return; }
 
   const aState = await a.client.call('remote.state');
-  assert.match(aState.self.remoteId, /^\d{9}$/);
+  assert.match(aState.self.myId, /^\d{9}$/);
   assert.equal(aState.self.findable, true, 'requests are on by default');
   const aId = aState.self.deviceId;
   const bId = (await b.client.call('remote.state')).self.deviceId;
 
   // 1. By Remote ID (typed with spaces).
   const started = Date.now();
-  const out = await b.client.call('remote.connect', { target: group(aState.self.remoteId) });
+  const out = await connectYes(b.client, group(aState.self.myId));
   assert.equal(out.status, 'waiting', JSON.stringify(out));
   assert.equal(out.deviceId, aId);
   assert.match(out.code, /^\d{4}$/);
@@ -92,7 +93,7 @@ test('two runtimes connect by Remote ID; the target\'s person accepts with the s
   // 2. Again by Remote ID after an unlink (connecting by name went – Umbau Einfachheit), declined this time.
   await a.client.call('devices.revoke', { id: bId });
   await b.client.call('devices.revoke', { id: aId }).catch(() => undefined); // A's unlink may have reached B already
-  const byName = await b.client.call('remote.connect', { target: aState.self.remoteId });
+  const byName = await connectYes(b.client, aState.self.myId);
   assert.equal(byName.deviceId, aId, JSON.stringify(byName));
   const second = await until(() => a.client.call('remote.state').then((state) => state.incoming), (list) => list.length === 1, 'the second request on A');
   await a.client.call('remote.decide', { id: second[0].id, accept: false });
@@ -100,7 +101,7 @@ test('two runtimes connect by Remote ID; the target\'s person accepts with the s
 
   // 3. Requests off on A: nobody answers the Remote ID; no meeting server is set, so the text names it.
   await a.client.call('settings.update', { devices: { findable: false } });
-  await assert.rejects(b.client.call('remote.connect', { target: aState.self.remoteId }), /Meeting server off \(devices\.relay\) – no PC with this Remote ID on this network\. Open Autark on that PC/);
+  await assert.rejects(b.client.call('remote.connect', { target: aState.self.myId }), /Meeting server off \(devices\.relay\) – no PC with this Remote ID on this network\. Open Autark on that PC/);
 });
 
 test('through a local meeting server with LAN discovery off: found by Remote ID, accepted, linked', { timeout: 240_000 }, async (t) => {
@@ -121,7 +122,7 @@ test('through a local meeting server with LAN discovery off: found by Remote ID,
   const aId = aState.self.deviceId;
   const bId = (await b.client.call('remote.state')).self.deviceId;
   const started = Date.now();
-  const out = await b.client.call('remote.connect', { target: group(aState.self.remoteId) });
+  const out = await connectYes(b.client, group(aState.self.myId));
   assert.equal(out.status, 'waiting', JSON.stringify(out));
   assert.equal(out.deviceId, aId);
   const incoming = await until(() => a.client.call('remote.state').then((state) => state.incoming), (list) => list.length === 1, 'the request on A');
@@ -141,7 +142,7 @@ test('through a local meeting server with LAN discovery off: found by Remote ID,
   let text = '';
   for (let attempt = 0; attempt < 3 && !/^No PC with this Remote ID is online\./.test(text); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 1_000));
-    text = await b.client.call('remote.connect', { target: aState.self.remoteId }).then((result) => `a request went out: ${JSON.stringify(result)}`, (cause) => cause.message);
+    text = await b.client.call('remote.connect', { target: aState.self.myId }).then((result) => `a request went out: ${JSON.stringify(result)}`, (cause) => cause.message);
   }
   assert.match(text, /^No PC with this Remote ID is online\. Open Autark on that PC – Settings › Devices shows its Remote ID\.$/);
 });

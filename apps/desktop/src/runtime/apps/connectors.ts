@@ -6,14 +6,13 @@
 //              "user"?, "imap"?: {"host", "port", "tls": "implicit"|"starttls"}, "smtp"?: {…}, "disabled"?: true}}}
 // Any value may hold secret://<id> handles of the secrets catalog (resolved only when it connects; a plain value works
 // too). status.json is written by the runtime: each connector's state, tool count, error and open sign-in page.
-// migrateRecords() turns the records of the old Settings › Apps (kv 'apps', keys 'app:<id>') into these files once.
 // Owns: reading, checking and writing these files, the id a key gets. Never: resolves a handle, logs a value.
 
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { APP_ID_MAX, APP_ID_PATTERN, type ConnectedApp, type MailServer } from '../../shared/model/apps.ts';
-import type { AppKv, Connector } from './types.ts';
+import type { Connector } from './types.ts';
 
 export const CONNECTORS_DIR = 'connectors';
 export const MCP_FILE = 'mcp.json';
@@ -280,64 +279,3 @@ export function writeStatus(dataDir: string, apps: readonly ConnectedApp[], prob
   const body = { note: 'Written by the app – edit mcp.json / mail.json instead.', updatedAt: new Date(now).toISOString(), ...(problems.length ? { problems } : {}), connectors };
   try { writeFile(path.join(connectorsDir(dataDir), STATUS_FILE), `${JSON.stringify(body, null, 2)}\n`); } catch { /* the next change writes it again */ }
 }
-
-// ------------------------------------------------------------------ one-time move of the old Settings › Apps records
-
-interface OldRecord {
-  id?: unknown; name?: unknown; transport?: unknown; url?: unknown; command?: unknown; args?: unknown; cwd?: unknown; enabled?: unknown;
-  env?: Record<string, unknown>; headers?: Record<string, unknown>; token?: { secretId?: unknown; header?: unknown };
-  mail?: { address?: unknown; user?: unknown; imap?: unknown; smtp?: unknown; agentId?: unknown };
-  tools?: unknown;
-}
-
-const handle = (ref: unknown): string | undefined => (isRecord(ref) && typeof ref.secretId === 'string' ? `secret://${ref.secretId}` : undefined);
-
-/**
- * Moves the old records (kv 'app:<id>') into mcp.json / mail.json – only when neither file exists yet – and keeps
- * their tool lists as the cache ('tools:<id>'); REST APIs (no longer a connector kind) are left out. Returns how many moved.
- */
-export function migrateRecords(dataDir: string, kv: AppKv): number {
-  const dir = connectorsDir(dataDir);
-  const keys = kv.keys('app:');
-  if (!keys.length || existsSync(path.join(dir, MCP_FILE)) || existsSync(path.join(dir, MAIL_FILE))) return 0;
-  const servers: Record<string, unknown> = {};
-  const mailboxes: Record<string, unknown> = {};
-  let moved = 0;
-  for (const key of keys) {
-    const record = kv.get<OldRecord>(key);
-    if (!record || typeof record.name !== 'string') continue;
-    const name = record.name;
-    const off = record.enabled === false ? { disabled: true } : {};
-    const token = record.token && typeof record.token.secretId === 'string' ? { header: String(record.token.header ?? 'Authorization'), value: `secret://${record.token.secretId}` } : undefined;
-    let entry: Record<string, unknown> | undefined;
-    if (record.transport === 'http' && typeof record.url === 'string') {
-      const headers: Record<string, string> = {};
-      for (const [header, ref] of Object.entries(record.headers ?? {})) { const value = handle(ref); if (value) headers[header] = value; }
-      if (token) headers[token.header] = token.value;
-      entry = { url: record.url, ...(Object.keys(headers).length ? { headers } : {}), ...off };
-      servers[name] = entry;
-    } else if (record.transport === 'stdio' && typeof record.command === 'string') {
-      const env: Record<string, string> = {};
-      for (const [variable, value] of Object.entries(record.env ?? {})) { const plain = typeof value === 'string' ? value : handle(value); if (plain) env[variable] = plain; }
-      entry = { command: record.command, args: Array.isArray(record.args) ? record.args : [], ...(typeof record.cwd === 'string' ? { cwd: record.cwd } : {}), ...(Object.keys(env).length ? { env } : {}), ...off };
-      servers[name] = entry;
-    } else if (record.transport === 'mail' && record.mail && typeof record.mail.address === 'string' && token) {
-      entry = {
-        address: record.mail.address, password: token.value, ...(typeof record.mail.user === 'string' ? { user: record.mail.user } : {}),
-        ...(isRecord(record.mail.imap) ? { imap: record.mail.imap } : {}), ...(isRecord(record.mail.smtp) ? { smtp: record.mail.smtp } : {}),
-        ...(typeof record.mail.agentId === 'string' ? { agent: record.mail.agentId } : {}), ...off,
-      };
-      mailboxes[name] = entry;
-    }
-    if (!entry) continue;
-    if (typeof record.id === 'string' && Array.isArray(record.tools)) kv.set(`tools:${record.id}`, { fingerprint: fingerprint(entry), tools: record.tools });
-    kv.delete(key);
-    moved += 1;
-  }
-  writeFile(path.join(dir, MCP_FILE), `${JSON.stringify({ mcpServers: servers }, null, 2)}\n`);
-  writeFile(path.join(dir, MAIL_FILE), `${JSON.stringify({ mailboxes }, null, 2)}\n`);
-  return moved;
-}
-
-
-

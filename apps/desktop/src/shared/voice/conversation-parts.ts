@@ -1,6 +1,6 @@
 // The voice conversation's shapes and pure helpers (conversation.ts holds the loop and re-exports these): the views the
 // page shows, the runtime surface and the injected platform, a talking chat's state, the limits, and how a spoken line
-// is marked and an answer made speakable.
+// is marked, an answer made speakable and a take told apart from others' words (echoOf).
 // Owns: these shapes and helpers. Never: state, timers or platform globals.
 
 import type { EventMap } from '../api/events.ts';
@@ -62,9 +62,16 @@ export interface TalkingChat {
   sending: boolean;
   pending: string;
   spoken: Set<string>;
-  /** This device's call in the chat (calls.start), when the page may start calls, and who holds its row then. */
+  /** This device's call in the chat (calls.start), when the page may start calls, and how the call names this device (callHolder form). */
   callId?: string;
   holder?: string;
+  /** Owner 19.11.2026: this device is in the call beside its holder (calls.start's `joined`). */
+  joined?: boolean;
+  /** Owner 19.11.2026: the newest person's line of the call, said on any device of it (its seq), and this device's lines on their way. */
+  heard?: number;
+  out?: number;
+  /** Owner 19.11.2026: the last words said in the call by others (agents, the person on another device), by row – the echo check. */
+  lately?: Map<string, string>;
   /** The agent whose line was read last (its name goes in front when another one speaks). */
   speaker?: string;
   /** KI-Runde 17.11.2026: the call voice's row still being written and what of it was already read aloud. */
@@ -118,6 +125,24 @@ export function sentencesDone(text: string): string {
     if (end - at >= PIECE_MIN) at = end;
   }
   return at > 0 ? text.slice(0, at).trim() : '';
+}
+
+/** A take with this share of its word pairs (single words for one or two) among what others just said is their echo. */
+const ECHO_SHARE = 0.7;
+const wordsOf = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+const pairsOf = (words: readonly string[]) => (words.length < 3 ? [...words] : words.slice(1).map((word, index) => `${words[index]} ${word}`));
+
+/**
+ * Owner 19.11.2026: whether a take is what others just said in the call (`said`) – another device of the call reading a
+ * reply aloud, or the same line heard there too – rather than the person speaking to this device. Compared in word pairs, so
+ * common words alone do not make a new sentence an echo.
+ */
+export function echoOf(take: string, said: Iterable<string>): boolean {
+  const heard = pairsOf(wordsOf(take));
+  if (!heard.length) return false;
+  const known = new Set<string>();
+  for (const text of said) { const words = wordsOf(text); for (const unit of [...words, ...pairsOf(words)]) known.add(unit); }
+  return heard.filter((unit) => known.has(unit)).length / heard.length >= ECHO_SHARE;
 }
 
 /**

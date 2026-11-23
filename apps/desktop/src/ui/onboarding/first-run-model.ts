@@ -3,12 +3,11 @@
 // preview), the step order – B-085: the choice card first on a new install (ChoiceCard.tsx: set up a new company or
 // connect to my other PC; stored step id 'tour' kept, no "Step n of 2"), then two cards: AI (AiCard.tsx, Back to the
 // choice) and About you (AboutCard.tsx) –, whether any model can answer (the AI card's Continue, Home's "No AI" notice),
-// the About card's profile write (name, company, PC access) and when "Connect to my other PC" (ConnectCard.tsx) ends
-// the layer.
+// the About card's profile write (name, company; its security mode is settings/security-model.ts firstRunSecurity) and
+// that "Connect with an ID" (ConnectCard.tsx) ends the layer once the link sets the step 'done' (the runtime does).
 // Owns: these pure checks. Never: reads signals, calls the runtime or renders.
 
 import type { Account, AccountState, ModelInfo } from '../../shared/model/providers.ts';
-import type { RemoteOutgoing } from '../../shared/model/remote.ts';
 import type { OnboardingStep, Settings } from '../../shared/model/system.ts';
 import { isChatModel } from '../lib/model-fit.ts';
 
@@ -19,8 +18,6 @@ export const TOUR_STEP: OnboardingStep = 'tour';
 /** The layer's title: the computer's header row and the phone's top row. */
 export const FIRST_RUN_TITLE = 'Set up';
 
-/** B-085: the About card's PC access choice (settings.profile.pcAccess; absent = whole). */
-export type PcAccess = NonNullable<Settings['profile']['pcAccess']>;
 
 /** The layer shows on this window: settings loaded, step not 'done', the owner's window, not a preview page. */
 export function firstRunShown(settings: Pick<Settings, 'onboarding'> | null, owner: boolean, preview: boolean): boolean {
@@ -60,18 +57,12 @@ export function noUsableModel(models: readonly ModelInfo[], accounts: readonly A
   return !accounts.some((account) => account.enabled && SERVING.has(account.state));
 }
 
-/** This PC's request was accepted as the CEO's own PC: this PC skips the rest of the first run. */
-export function linkedAsCeo(out: Pick<RemoteOutgoing, 'status' | 'role'> | undefined): boolean {
-  return out?.status === 'accepted' && out.role === 'ceo';
-}
-
-/** The About card's profile write: trimmed name and company and (B-085) the PC access, only what changed. */
-export function profilePatch(current: Pick<Settings['profile'], 'name' | 'company' | 'pcAccess'> | undefined, name: string, company: string, access?: PcAccess): Partial<Settings['profile']> | undefined {
+/** The About card's profile write: trimmed name and company, only what changed. */
+export function profilePatch(current: Pick<Settings['profile'], 'name' | 'company'> | undefined, name: string, company: string): Partial<Settings['profile']> | undefined {
   const next = { name: name.trim().slice(0, 120), company: company.trim().slice(0, 200) };
   const patch: Partial<Settings['profile']> = {};
   if (next.name !== (current?.name ?? '')) patch.name = next.name;
   if (next.company !== (current?.company ?? '')) patch.company = next.company;
-  if (access && access !== (current?.pcAccess ?? 'whole')) patch.pcAccess = access;
   return Object.keys(patch).length ? patch : undefined;
 }
 

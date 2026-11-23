@@ -180,11 +180,6 @@ export function snapshotLines(nodes: readonly AXNode[], options: { origin?: stri
   return { lines, refs, cut };
 }
 
-/** The ref of a line ('s123'), if it has one. */
-export function refOf(line: string): string | undefined {
-  return /\[ref=(s\d+)\]/.exec(line)?.[1];
-}
-
 /** Lines matching every word of the query (case-insensitive over role, name and value; refs ignored). */
 export function findLines(lines: readonly string[], query: string, max = 40): { lines: string[]; more: number } {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);

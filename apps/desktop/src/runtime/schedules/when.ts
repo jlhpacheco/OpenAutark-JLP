@@ -1,13 +1,16 @@
-// The agents' one `when` shape (schedules.message/remind/routine/update) → a ScheduleSpec, mirroring the person's
+// The agents' one `when` shape (tasks.remind) → a ScheduleSpec, mirroring the person's
 // dialog: { at: "<ISO or +2h>" } or { repeat: { every | times | cron, days, window, start, until, count, ifMissed } }.
-// A time without a zone ("2026-10-26T09:00") is read in the profile time zone (`tz` overrides), relative forms
-// ("+2h", "PT30M", "2d") from now; an interval is anchored at its start (default: now + one interval), so every list
-// and preview shows the real runs. Also the rule in a few words and zone-offset ISO times for tool results.
-// Owns: that translation and wording. Never: stores or fires schedules (the scheduler does).
+// Every point is read by the agents' one time reader (tools/builtin/util.ts parseWhen) in the profile time zone (`tz`
+// overrides): an ISO time without a zone is a wall time there, relative forms ("+2h", "PT30M", "2d") are from now, words
+// are one phrase of shared/text/when.ts; "until" a day is that whole local day. An interval is anchored at its start
+// (default: now + one interval), so every list and preview shows the real runs. Also the rule in a few words and
+// zone-offset ISO times for tool results.
+// Owns: that translation and wording. Never: stores or fires schedules (the scheduler does), or reads times itself.
 
 import type { ScheduleSpec } from '../../shared/model/tasks.ts';
+import { addDays, findTimes, stripTime, wallOf, wallTime } from '../../shared/text/when.ts';
 import { parseWhen } from '../tools/builtin/util.ts';
-import { MAX_TIMES, isOneOff, localParts, nextDate, nextFire, validateSpec, wallInstant } from './spec.ts';
+import { MAX_TIMES, isOneOff, nextFire, validateSpec } from './spec.ts';
 
 export interface WhenArgs {
   at?: string;
@@ -56,22 +59,15 @@ export const WHEN_SCHEMA = {
 } as const;
 
 const SHAPE = 'Give when: {"at": "<time>"} or {"repeat": {"every" | "times" | "cron": …}}.';
-const ZONELESS = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?$/;
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const EVERY = /^(\d+(?:\.\d+)?)\s*(m|min|mins|minutes?|h|hrs?|hours?|d|days?|w|weeks?)$/i;
 const UNIT_MS: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
 
-/** A point in time: a zone-less ISO date/datetime in `tz`, else parseWhen (offset ISO, duration, "+2h"). */
-export function parsePoint(value: string, now: number, tz?: string): number | undefined {
-  const text = value.trim();
-  const local = ZONELESS.exec(text);
-  if (local) {
-    const [, date, h, m, s] = local;
-    const minute = h === undefined ? 0 : Number(h) * 60 + Number(m);
-    if (Number(h ?? 0) > 23 || Number(m ?? 0) > 59 || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) return undefined;
-    return wallInstant(date, minute, tz) + Number(s ?? 0) * 1000;
-  }
-  return parseWhen(text, now);
+/** "until": a day ("2026-12-24", "Freitag", "24.12.") is its whole local day in `tz`; anything else the point it names. */
+function untilOf(value: unknown, now: number, tz?: string): number | undefined {
+  const text = typeof value === 'string' ? value.trim() : '';
+  const found = findTimes(text, now, tz);
+  if (found.length === 1 && found[0].allDay && !stripTime(text, found[0])) return wallTime(addDays(wallOf(found[0].at, tz).date, 1), 0, tz) - 1;
+  return parseWhen(value, now, tz);
 }
 
 /** "30m", "2 hours", "1d", "2w" → ms (undefined when unreadable). */
@@ -97,7 +93,7 @@ export function specFromWhen(when: WhenArgs | undefined, now: number, profileTz?
     try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { return 'Unknown time zone.'; }
   }
   if (when.at !== undefined) {
-    const at = parsePoint(when.at, now, tz);
+    const at = parseWhen(when.at, now, tz);
     if (at === undefined) return `Cannot read the time "${when.at}".`;
     if (at < now - 60_000) return 'That time is in the past.';
     return { at, tz, catchUp: 'once' };
@@ -106,7 +102,7 @@ export function specFromWhen(when: WhenArgs | undefined, now: number, profileTz?
   const kinds = [repeat.every, repeat.times, repeat.cron].filter((value) => value !== undefined).length;
   if (kinds !== 1) return kinds ? 'Use only one of "every", "times" and "cron".' : 'A repeat needs "every", "times" or "cron".';
   const spec: ScheduleSpec = { tz };
-  const start = repeat.start !== undefined ? parsePoint(repeat.start, now, tz) : undefined;
+  const start = repeat.start !== undefined ? parseWhen(repeat.start, now, tz) : undefined;
   if (repeat.start !== undefined && start === undefined) return `Cannot read the start "${repeat.start}".`;
   if (repeat.every !== undefined) {
     const every = parseEvery(repeat.every);
@@ -129,8 +125,7 @@ export function specFromWhen(when: WhenArgs | undefined, now: number, profileTz?
   }
   if (repeat.window) spec.window = { from: clock(repeat.window.from) ?? repeat.window.from, to: clock(repeat.window.to) ?? repeat.window.to };
   if (repeat.until !== undefined) {
-    const text = repeat.until.trim();
-    const until = DATE_ONLY.test(text) ? wallInstant(nextDate(text), 0, tz) - 1 : parsePoint(text, now, tz); // a date: its whole local day
+    const until = untilOf(repeat.until, now, tz);
     if (until === undefined) return `Cannot read "until": "${repeat.until}".`;
     spec.until = until;
   }
@@ -144,7 +139,7 @@ export function specFromWhen(when: WhenArgs | undefined, now: number, profileTz?
 
 /** ISO time with the zone's offset ("2026-10-26T09:00+01:00"); UTC without a zone. */
 export function isoIn(ms: number, tz?: string): string {
-  const local = localParts(ms, tz);
+  const local = wallOf(ms, tz);
   const [y, mo, d] = local.date.split('-').map(Number);
   const offset = Math.round((Date.UTC(y, mo - 1, d) + local.minutes * 60_000 - Math.floor(ms / 60_000) * 60_000) / 60_000);
   const hh = String(Math.floor(local.minutes / 60)).padStart(2, '0');

@@ -1,5 +1,5 @@
 // Settings audit 23.10.: a phone with the 'settings' tier changes preferences and notifications. The PC's own
-// preferences (window close, login item, automatic update download) change the PC: owner 12.11.2026 – my securely
+// preferences (login item, automatic update download) change the PC: owner 12.11.2026 – my securely
 // paired phone reaches all my settings, so a secure 'settings' device changes them; a plain-LAN device does not.
 // B-084: on a secure transport (my phone app) such a device also writes routing, voice and devices; on plain LAN it does not.
 
@@ -20,21 +20,21 @@ test('a plain-LAN device may not change the PC preferences; the secure phone and
   const lan = new TestClient(f.server, { ...phoneScope, deviceId: 'dev_lan_prefs', secure: false });
   const phone = new TestClient(f.server, phoneScope);
   const before = f.services.settings.get().preferences;
-  for (const key of ['closeToTray', 'openAtLogin', 'autoDownloadUpdates']) {
-    const refused = await lan.request('settings.update', { preferences: { theme: 'dark', [key]: !before[key as 'closeToTray'] } });
+  for (const key of ['openAtLogin', 'autoDownloadUpdates']) {
+    const refused = await lan.request('settings.update', { preferences: { theme: 'dark', [key]: !before[key as 'openAtLogin'] } });
     assert.equal(refused.error?.code, 'forbidden', key);
     assert.equal((refused.error?.details as { key?: string } | undefined)?.key, key);
   }
   assert.deepEqual(f.services.settings.get().preferences, before, 'nothing of a refused patch is stored');
-  const pc = await phone.call<Settings>('settings.update', { preferences: { openAtLogin: !before.openAtLogin, closeToTray: !before.closeToTray, autoDownloadUpdates: !before.autoDownloadUpdates } });
-  assert.deepEqual([pc.preferences.openAtLogin, pc.preferences.closeToTray, pc.preferences.autoDownloadUpdates], [!before.openAtLogin, !before.closeToTray, !before.autoDownloadUpdates], 'my secure phone changes the PC preferences');
+  const pc = await phone.call<Settings>('settings.update', { preferences: { openAtLogin: !before.openAtLogin, autoDownloadUpdates: !before.autoDownloadUpdates } });
+  assert.deepEqual([pc.preferences.openAtLogin, pc.preferences.autoDownloadUpdates], [!before.openAtLogin, !before.autoDownloadUpdates], 'my secure phone changes the PC preferences');
   const changed = await phone.call<Settings>('settings.update', { preferences: { theme: 'dark', enterSends: false }, notifications: { sound: false } });
   assert.equal(changed.preferences.theme, 'dark');
   assert.equal(changed.preferences.enterSends, false);
   assert.equal(changed.notifications.sound, false);
   const owner = new TestClient(f.server, OWNER);
-  const mine = await owner.call<Settings>('settings.update', { preferences: { openAtLogin: true, closeToTray: false, autoDownloadUpdates: true } });
-  assert.deepEqual([mine.preferences.openAtLogin, mine.preferences.closeToTray, mine.preferences.autoDownloadUpdates], [true, false, true]);
+  const mine = await owner.call<Settings>('settings.update', { preferences: { openAtLogin: true, autoDownloadUpdates: true } });
+  assert.deepEqual([mine.preferences.openAtLogin, mine.preferences.autoDownloadUpdates], [true, true]);
 });
 
 test('B-084: a secure settings device (my phone app) may write routing, voice and devices; a LAN device and one without settings may not', async (t) => {
@@ -67,7 +67,7 @@ test('B-084: a secure settings device (my phone app) may write routing, voice an
 test('mobile owner settings: secure settings device edits profile/day, other callers do not acquire owner authority', async (t) => {
   const f = rpcFixture({ table: createHandlerTable() });
   t.after(f.cleanup);
-  const patch = { profile: { name: 'Mobile owner', company: 'Example' }, day: { workStart: '08:00', workEnd: '17:00', planAt: '07:30', autoPlan: true, keepAwake: true } };
+  const patch = { profile: { name: 'Mobile owner', company: 'Example' }, day: { workStart: '08:00', workEnd: '17:00', planAt: '07:30', keepAwake: true } };
   for (const scope of [
     { ...phoneScope, secure: false },
     { ...phoneScope, capabilities: ['todo'] as DeviceCapability[] },
@@ -113,5 +113,8 @@ test('General shows the PC behaviour rows on my secure phone, marked as changing
   assert.ok(source.includes('{(bridge || remote) && ('));
   assert.ok(source.includes('On your PC: '), 'the phone rows say they change the PC');
   assert.ok(source.includes("systemInfo.value?.platform === 'win32'"), 'the label follows the PC, not the phone');
-  assert.ok(source.includes('setPrefs({ autoDownloadUpdates })'), 'the update download toggle is reachable from the phone');
+  // W2UI (20.11.2026): the update download toggle sits in About beside the version, on every device.
+  const about = readFileSync(new URL('../../../src/ui/settings/AboutPage.tsx', import.meta.url), 'utf8');
+  assert.ok(about.includes('updatePreferences({ autoDownloadUpdates })'), 'the update download toggle is reachable from the phone');
+  assert.ok(about.includes("'On your PC: restarts only when you are idle'"), 'on the phone it says it changes the PC');
 });

@@ -2,21 +2,17 @@
 // services and RPC table: messages.schedule with Important (posted as important, the agent is
 // steered) and Post as task (a routine posting a team task with steps and High priority each
 // time; refused without the 'tasks' tier), schedules.preview (next three runs, window, skips,
-// maxRuns with runs made, a late one-off, never, refusals), schedules.update rewording only the
-// person's own message and task posts (agents' schedules keep their words; timing still
-// changes), the schedules.message tool's urgent flag, and task templates kept within
-// tasks.create's limits (task posts refused when scheduled, stored routine templates bounded
-// at every run, the schedules.routine tool's nested task schema).
+// maxRuns with runs made, a late one-off, never, refusals), schedules.update rewording every
+// scheduled message and an agent's reminder note, and moving a message to another chat (owner
+// 21.11.2026, Settings › Scheduled). Quests round 20.11.2026: the agents' schedule tools are tasks.remind now (test/unit/tools/tasks-remind.test.ts).
 // Owns: these assertions only. Never: real timers, network or a real engine.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { agent } from '../chat/harness.ts';
 import { OWNER, PHONE, TestClient, rpcFixture } from '../rpc/s1-helpers.ts';
-import { scheduleTools } from '../../../src/runtime/tools/builtin/schedule.ts';
-import { localParts } from '../../../src/runtime/schedules/spec.ts';
+import { wallOf } from '../../../src/shared/text/when.ts';
 import { validate } from '../../../src/runtime/tools/validate.ts';
-import type { ToolContext } from '../../../src/runtime/tools/types.ts';
 import type { ClientScope } from '../../../src/shared/api/protocol.ts';
 import type { Schedule } from '../../../src/shared/model/tasks.ts';
 
@@ -67,10 +63,10 @@ test('schedules.preview: the next runs as the scheduler takes them', async (t) =
   assert.deepEqual(await preview({ spec: { everyMs: 53 * MIN, at, maxRuns: 2 }, runs: 2 }), []);
   const windowed = await preview({ spec: { everyMs: 53 * MIN, at, tz: 'UTC', window: { from: '10:00', to: '11:00' } }, count: 4 });
   assert.equal(windowed.length, 4);
-  for (const time of windowed) assert.ok(localParts(time, 'UTC').minutes >= 600 && localParts(time, 'UTC').minutes < 660, new Date(time).toISOString());
-  const day = localParts(at, 'UTC').date;
+  for (const time of windowed) assert.ok(wallOf(time, 'UTC').minutes >= 600 && wallOf(time, 'UTC').minutes < 660, new Date(time).toISOString());
+  const day = wallOf(at, 'UTC').date;
   const skipped = await preview({ spec: { cron: '0 10 * * *', tz: 'UTC', except: [day] } });
-  assert.ok(skipped.every((time) => localParts(time, 'UTC').date !== day) && skipped.length === 3);
+  assert.ok(skipped.every((time) => wallOf(time, 'UTC').date !== day) && skipped.length === 3);
   assert.deepEqual(await preview({ spec: { at: f.now - MIN } }), [f.now - MIN], 'a missed one-off still runs once, late');
   assert.deepEqual(await preview({ spec: { at, tz: 'UTC', except: [day] } }), [], 'never runs');
   assert.equal((await f.phone.request('schedules.preview', { spec: { everyMs: 5 } })).error?.code, 'bad_request');
@@ -80,7 +76,7 @@ test('schedules.preview: the next runs as the scheduler takes them', async (t) =
   assert.equal((await new TestClient(f.server, TODO_ONLY).request('schedules.preview', { spec: { at } })).error?.code, 'forbidden');
 });
 
-test("schedules.update rewords the person's own posts; an agent's schedule keeps its words", async (t) => {
+test('schedules.update rewords every scheduled message and a reminder note, and moves a message to another chat', async (t) => {
   const f = setup();
   t.after(f.cleanup);
   const message = await f.owner.call<Schedule>('messages.schedule', { conversationId: f.chat.id, body: 'Recap @Ava', spec: { at: f.now + H }, mentions: ['ag_ava'] });
@@ -92,40 +88,42 @@ test("schedules.update rewords the person's own posts; an agent's schedule keeps
   await f.owner.call<Schedule>('schedules.update', { id: message.id, priority: 'normal' });
   assert.deepEqual(f.scheduler.get(message.id)!.payload, { body: 'Weekly recap' });
 
-  const post = await f.owner.call<Schedule>('messages.schedule', { conversationId: f.chat.id, body: 'Review drafts\n- Intro', spec: { at: f.now + H }, asTask: true });
-  const rewordedPost = await f.owner.call<Schedule>('schedules.update', { id: post.id, body: 'Review the final cut\n- Audio\n- Colour' });
-  assert.equal(rewordedPost.kind, 'routine', 'the kind stays');
-  assert.equal(rewordedPost.title, 'Review the final cut');
-  assert.deepEqual(rewordedPost.payload.taskTemplate, { title: 'Review the final cut', steps: ['Audio', 'Colour'] });
+  assert.equal((await f.owner.request('messages.schedule', { conversationId: f.chat.id, body: 'Review drafts', spec: { at: f.now + H }, asTask: true })).error?.code, 'bad_request', 'a task post is a message now (Quests round)');
 
   const agents = f.scheduler.create({ ownerId: 'ag_ava', conversationId: f.chat.id, kind: 'message', title: 'Daily standup', spec: { cron: '0 9 * * *', tz: 'UTC' }, payload: { body: 'Standup!' } });
-  assert.equal((await f.owner.request('schedules.update', { id: agents.id, body: 'Something else' })).error?.code, 'forbidden');
-  assert.equal((await f.owner.request('schedules.update', { id: agents.id, priority: 'important' })).error?.code, 'forbidden');
   const retimed = await f.owner.call<Schedule>('schedules.update', { id: agents.id, spec: { cron: '30 9 * * 1-5', tz: 'UTC' } });
-  assert.equal(retimed.spec.cron, '30 9 * * 1-5', 'timing of an agent schedule may change');
+  assert.equal(retimed.spec.cron, '30 9 * * 1-5', 'timing of an agent schedule changes');
   assert.deepEqual(retimed.payload, { body: 'Standup!' });
-  const timer = f.scheduler.create({ ownerId: 'human', conversationId: f.chat.id, kind: 'timer', title: 'Tea', spec: { at: f.now + H }, payload: {} });
-  assert.equal((await f.owner.request('schedules.update', { id: timer.id, body: 'Coffee' })).error?.code, 'bad_request');
+  const rewritten = await f.owner.call<Schedule>('schedules.update', { id: agents.id, body: 'Standup at 9:30', priority: 'important' });
+  assert.equal(rewritten.title, 'Standup at 9:30');
+  assert.equal(rewritten.ownerId, 'ag_ava', 'still posted under the agent\'s name');
+  assert.deepEqual(f.scheduler.get(agents.id)!.payload, { body: 'Standup at 9:30', priority: 'important' });
+  const reminder = f.scheduler.create({ ownerId: 'ag_ava', kind: 'reminder', title: 'Look', spec: { at: f.now + H }, payload: { note: 'Look' } });
+  const noted = await f.owner.call<Schedule>('schedules.update', { id: reminder.id, body: 'Look at the drafts' });
+  assert.equal(noted.title, 'Look at the drafts');
+  assert.deepEqual(f.scheduler.get(reminder.id)!.payload, { note: 'Look at the drafts' });
+  assert.equal((await f.owner.request('schedules.update', { id: reminder.id, priority: 'important' })).error?.code, 'bad_request', 'a reminder has only its note');
+
+  const other = f.chats.create({ agentIds: [], createdBy: 'human' });
+  const moved = await f.owner.call<Schedule>('schedules.update', { id: message.id, conversationId: other.id });
+  assert.equal(moved.conversationId, other.id);
+  assert.equal(f.scheduler.list({ conversationId: other.id }).length, 1, 'stored in the new chat');
+  assert.equal((await f.owner.request('schedules.update', { id: agents.id, conversationId: other.id })).error?.code, 'bad_request', 'Ava is not in that chat');
+  assert.equal((await f.owner.request('schedules.update', { id: reminder.id, conversationId: other.id })).error?.code, 'bad_request', 'a reminder does not move');
+  assert.equal((await f.owner.request('schedules.update', { id: message.id, conversationId: 'cv_missing' })).error?.code, 'not_found');
   assert.equal((await f.phone.request('schedules.update', { id: message.id, body: 'x' })).error?.code, 'forbidden', "rewording needs 'manage'");
   assert.equal((await f.owner.request('schedules.update', { id: message.id, colour: 'red' })).error?.code, 'bad_request');
 });
 
-test('schedules.message tool: level important schedules an important post', async (t) => {
+test('schedules.list: the person gets every schedule; an agent\'s own wf the running ones unless it asks with all', async (t) => {
   const f = setup();
   t.after(f.cleanup);
-  const ctx = { agent: f.org.get('ag_ava'), runId: 'run_1', conversationId: f.chat.id, mode: 'general', services: f.services, signal: new AbortController().signal, status() {} } as unknown as ToolContext;
-  const tool = (name: string) => scheduleTools.find((entry) => entry.name === name)!;
-  const urgent = await tool('schedules.message').run({ text: 'Render finished – please check', when: { at: '+1h' }, level: 'important' }, ctx);
-  assert.ok(!urgent.isError, JSON.stringify(urgent.content));
-  const plain = await tool('schedules.message').run({ text: 'Weekly numbers', when: { repeat: { cron: '0 9 * * 1' } } }, ctx);
-  const [important, normal] = [urgent, plain].map((output) => f.scheduler.get((output.structured as { scheduleId: string }).scheduleId)!);
-  assert.equal(important.payload.priority, 'important');
-  assert.equal(normal.payload.priority, undefined);
-  f.scheduler.runNow(important.id);
-  const posted = f.chats.messages(f.chat.id).find((message) => message.kind === 'text' && message.body === 'Render finished – please check');
-  assert.equal(posted?.priority, 'important');
-  assert.equal(posted?.authorId, 'ag_ava');
-  const listed = await tool('schedules.list').run({ mine: true }, ctx);
-  assert.match(String((listed.content[0] as { text: string }).text), /\[message, important\] Render finished/);
+  const running = f.scheduler.create({ ownerId: 'ag_ava', kind: 'reminder', title: 'On', spec: { at: f.now + H }, payload: { note: 'On' } });
+  const paused = f.scheduler.create({ ownerId: 'ag_ava', kind: 'reminder', title: 'Held', spec: { at: f.now + H }, payload: { note: 'Held' } });
+  f.scheduler.update(paused.id, { active: false }, 'human');
+  const ids = (list: Schedule[]) => list.map((entry) => entry.id).sort();
+  assert.deepEqual(ids(await f.owner.call<Schedule[]>('schedules.list', { ownerId: 'ag_ava' })), [running.id, paused.id].sort());
+  const ava = new TestClient(f.server, { kind: 'owner', agentId: 'ag_ava' });
+  assert.deepEqual(ids(await ava.call<Schedule[]>('schedules.list', { ownerId: 'ag_ava' })), [running.id]);
+  assert.deepEqual(ids(await ava.call<Schedule[]>('schedules.list', { ownerId: 'ag_ava', all: true })), [running.id, paused.id].sort());
 });
-

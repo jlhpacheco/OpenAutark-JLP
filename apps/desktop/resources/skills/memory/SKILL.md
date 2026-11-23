@@ -35,6 +35,7 @@ One entry is one Markdown file:
 ```
 ---
 title: Rechnung Müller
+description: Beim Abrechnen mit Müller – zahlt per Lastschrift, keine Rechnung zum Überweisen schicken.
 kind: fact
 tags: [kunde]
 updated: 2026-11-01T09:30:00.000Z
@@ -45,8 +46,9 @@ valid-to: 2026-12-31T00:00:00.000Z
 Zahlt per Lastschrift.
 ```
 
-`kind`: fact, preference, experience, procedure, plan, note. Everything but the text is optional, the description too:
-a short note is found by its whole text, and a long one I can give a `description:` line saying when it helps.
+`kind`: fact, preference, experience, procedure, plan, note. The `description:` is the line my later self gets as a hint
+when a request touches the note: when it matters and what it changes. `memory.write` asks for it; a note without one
+hints with its first words.
 
 ## Tools
 
@@ -58,18 +60,21 @@ a short note is found by its whole text, and a long one I can give a `descriptio
 - `memory.forget {path}` - deletes a file for good.
 - `knowledge.find {query, in: ["memory/company", "memory/agents/<me>"]}` - finds notes by their words: whatever is written or
   edited here is findable at once. The names and words a note itself would carry find it best. I name the folders that
-  fit, or leave `in` out for all of it. Without `in` it searches the whole knowledge catalog too – skills and my home
-  project's instructions. Where a person chose an embedding model, it finds by meaning as well.
+  fit, or leave `in` out for what is mine to read – company, my branch, my own folder, my chats, the references – together
+  with the knowledge catalog: skills and my home project's instructions. Another agent's own folder I name when I want it.
+  Where a person chose an embedding model, it finds by meaning as well.
 
 Memory and skills are one knowledge system, the public library (`library.find`) its shared shelf: Markdown with a little front matter. What is small and
-factual goes to memory; a way of working I read before a kind of work is a skill (skill writing-skills); what helps
+factual goes to memory as a pointer; a way of working I read before a kind of work is a skill (skill writing-skills); what helps
 everyone outside this company can go public (`library.publish`).
 
 I can also edit the files directly with any tool or editor. The app sees the change and makes it findable.
 
 ## What I do
 
-I write memory often and well: after every exchange that taught me something that will still matter in weeks – a fact
-about the person or the company, a preference, a decision with its day, a way that worked or failed – I keep it, short,
-dated, in the words someone would search for. What I do not write down, the next turn does not know. I search before I
-write, so one fact stays in one file. What to keep and how: the skill memory-hygiene.
+A note is a small pointer for a later me: it makes me think of something I would otherwise not think of – such as that
+WhatsApp runs as the desktop app here. It is not an instruction for a kind of work; a way of working that needs more than
+a few lines is a skill. When an exchange taught me such a thing, I keep it: one thing per file, short, dated, its title
+and description in the words a later request would use. Before
+I start a turn my subconscious hands me the hint lines of the notes that fit, and I open one when I need the rest. I
+search before I write, so one fact stays in one file. What to keep and how: the skill memory-hygiene.

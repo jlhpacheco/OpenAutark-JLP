@@ -1,11 +1,12 @@
 // Upgrade of a representative old profile over the real headless runtime (23.10.2026; the built
 // app/runtime-cli.mjs, demo engine, a temp data folder):
-//  1. A schema-9 profile (test/unit/repair/old-profile.ts: org with a manager and a video specialist,
+//  1. A profile at the oldest schema this version updates (test/unit/repair/old-profile.ts OLD_SCHEMA: org with a manager and a video specialist,
 //     a chat with an attachment, a finished task with its step, a human to-do, a described and
-//     tagged image, a disabled CLI account and a local API account, an agent memory, old version
-//     0.1.8) starts on this version: the runtime takes one pre-update copy, migrates, and serves
-//     every one of those over RPC as the app reads them; repair.state says it is not in repair
-//     mode and lists the copy; the start notice says it was updated.
+//     tagged image, a disabled CLI account and a local API account, old version 0.3.6) starts on this version: the
+//     runtime takes one pre-update copy, migrates, and serves every one of those over RPC as the app reads them;
+//     repair.state says it is not in repair mode and lists the copy; the start notice says it was updated. (Quests round
+//     20.11.2026: the fixture's old knowledge row is no longer moved into the memory tree – knowledge/memory-migrate.ts
+//     went with the bridges, W2AI 7 – so this check no longer reads it.)
 //  2. A second start of the same version keeps the data and makes no second copy.
 //  3. Data saved by a newer app is refused: the runtime does not start, says why, and the data
 //     stays untouched (the desktop app shows the repair screen for it – unit-tested in
@@ -32,7 +33,7 @@ function schemaOf(dataDir) {
   try { return Number(db.prepare(`SELECT value FROM meta WHERE key = 'schema'`).get().value); } finally { db.close(); }
 }
 
-test('an old profile upgrades over the real runtime: agents, chat, tasks, to-do, media, accounts and memory survive', { timeout: 180_000 }, async (t) => {
+test('an old profile upgrades over the real runtime: agents, chat, tasks, to-do, media and accounts survive', { timeout: 180_000 }, async (t) => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'workforce-e2e-upgrade-'));
   t.after(() => rm(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
   writeOldProfile(dataDir);
@@ -45,10 +46,7 @@ test('an old profile upgrades over the real runtime: agents, chat, tasks, to-do,
     const vid = agents.find((agent) => agent.id === FIXTURE.videoId);
     assert.equal(mira?.name, 'Mira');
     assert.equal(mira?.mode, 'manager');
-    // Since 14.11.2026 SYSTEM.md is the agent's whole prompt (bridge/kontext-1311.ts, org/standard.ts): a file without a
-    // standard gets today's "# How I work" on top, her own text stays as it was below it, the standard sits in the comment.
-    assert.match(mira?.instructions ?? '', /^# How I work\n/, 'her prompt starts with How I work');
-    assert.match(mira?.instructions ?? '', /\n\nKeep the team small\.\n[^]*<!-- Autark standard: manager/, 'her own text survives above the standard comment');
+    assert.match(mira?.instructions ?? '', /Keep the team small\./, 'her own text survives');
     assert.equal(vid?.managerId, FIXTURE.managerId, 'the org survives');
     assert.equal(vid?.mode, 'video');
 
@@ -80,25 +78,14 @@ test('an old profile upgrades over the real runtime: agents, chat, tasks, to-do,
     const codex = accounts.find((account) => account.id === FIXTURE.codexId);
     assert.deepEqual({ provider: codex?.provider, label: codex?.label, plan: codex?.plan, email: codex?.email, enabled: codex?.enabled },
       { provider: 'codex', label: 'Codex · work', plan: 'pro', email: 'person@example.com', enabled: false });
-    // An API connection moves into settings.json's providers section and gets an id from its service or name there (accounts/provider-file.ts moveOld).
+    // Quests round 20.11.2026: the once-move of API connections into settings.json (provider-file.ts moveOld) went with the
+    // bridges – data this version opens is past it; an account row of the old data stays as it is.
     const local = accounts.find((account) => account.baseUrl === 'http://127.0.0.1:9/v1');
     assert.equal(local?.label, 'Local model', 'the local API account survives');
-    assert.ok(!accounts.some((account) => account.id === FIXTURE.localId), 'under its new id from the file');
-    assert.ok(Object.hasOwn((await client.call('settings.get')).providers ?? {}, local.id), 'and the file names it');
-    const memory = await client.call('knowledge.list', { scope: 'agent', scopeId: FIXTURE.managerId });
-    const migrated = memory.items.find((item) => item.title === 'Flyer style');
-    assert.ok(migrated, 'the agent memory survives in the memory tree');
-    assert.equal(migrated.body, 'Use the brand colours on flyers.');
-    assert.equal(migrated.kind, 'preference');
-    assert.equal(migrated.scope, 'agent');
-    assert.equal(migrated.scopeId, FIXTURE.managerId);
-    const history = await client.call('knowledge.history', { id: FIXTURE.knowledgeId });
-    assert.equal(history.at(-1)?.id, migrated.id, 'the old ID still resolves to the migrated file');
-    assert.equal(history.at(-1)?.body, migrated.body);
-
+    assert.equal(local?.id, FIXTURE.localId, 'under its own id');
     const repair = await client.call('repair.state');
     assert.equal(repair.active, false);
-    assert.deepEqual(repair.backups.map((copy) => copy.schema), [OLD_SCHEMA], 'one pre-update copy of the schema-9 data');
+    assert.deepEqual(repair.backups.map((copy) => copy.schema), [OLD_SCHEMA], 'one pre-update copy of the old data');
     const info = await client.call('system.info');
     assert.match(info.notice?.text ?? '', /^Updated to /);
   } finally {
@@ -110,8 +97,6 @@ test('an old profile upgrades over the real runtime: agents, chat, tasks, to-do,
     const repair = await second.client.call('repair.state');
     assert.equal(repair.backups.length, 1, 'a second start makes no second copy');
     assert.ok((await second.client.call('agents.list')).some((agent) => agent.id === FIXTURE.videoId));
-    const memory = await second.client.call('knowledge.history', { id: FIXTURE.knowledgeId });
-    assert.equal(memory.at(-1)?.body, 'Use the brand colours on flyers.', 'memory and its old ID survive another restart');
   } finally {
     await second.stop();
   }
@@ -129,4 +114,18 @@ test('data saved by a newer app: the runtime refuses to start, says why, and lea
   assert.equal(run.status, 1);
   assert.match(run.stderr, /saved by a newer version of Autark \(schema 9999/);
   assert.equal(schemaOf(dataDir), 9999, 'nothing migrated');
+});
+
+test('data from before the 13.11. rebuild: the runtime refuses to start, names the release that updates it and where it is, and leaves the data as it is', { timeout: 120_000 }, async (t) => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'workforce-e2e-older-'));
+  t.after(() => rm(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
+  writeOldProfile(dataDir);
+  const db = new DatabaseSync(path.join(dataDir, 'workforce.db'));
+  db.prepare(`UPDATE meta SET value = '101' WHERE key = 'schema'`).run();
+  db.close();
+  const run = spawnSync(process.execPath, [path.join(root, 'app', 'runtime-cli.mjs'), '--data', dataDir, '--resources', path.join(root, 'resources'), '--ui', path.join(root, 'app', 'ui'), '--port', '0', '--fake'], { cwd: root, encoding: 'utf8', timeout: 60_000 });
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /older Autark \(schema 101\)\. Install Autark 0\.3\.14 first \(https:\/\/github\.com\/teydra\/OpenAutark\/releases\/tag\/v0\.3\.14\)/);
+  assert.equal(schemaOf(dataDir), 101, 'nothing migrated');
+  assert.equal(readdirSync(dataDir).includes('backups') && readdirSync(path.join(dataDir, 'backups')).includes('pre-upgrade') ? readdirSync(path.join(dataDir, 'backups', 'pre-upgrade')).length : 0, 0, 'no pre-update copy');
 });

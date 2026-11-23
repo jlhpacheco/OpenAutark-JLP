@@ -7,13 +7,15 @@
 // looks like the web UI. Feedback 16.11.2026 F15: Pair again opens the Android app's pairing over this company instead
 // of forgetting it first; when the PC refuses this page's token (a socket that opened closes
 // with 4401), the Android app hears {t:'refused'} and tries the next PC of the company that has not refused in this
-// link session, then sends 'resume'; only after every PC refused does the page stay on "Not paired". The feedback video
+// link session, then sends 'resume' (19.11.2026: also on 4404, a PC that does not know the token; the page says either in its
+// status line, never on a screen of its own – shell/connection-line.ts). The feedback video
 // (F15, "so ein Video …, was einem zeigt, wie man da Feedback macht") plays once on a new phone: the Android app shows it
 // before its pairing screens, the iPhone web app on its first start after pairing (firstVideoHere).
 // Owns: those facts. Never: talks to the Android app other than through the port or an autark-app: address the person
 // taps (no JavaScript bridge object).
 
 import { effect, type ReadonlySignal } from '@preact/signals';
+import type { Refusal } from '../lib/refusal.ts';
 import { hostedShell } from './hosted.ts';
 import { onNative, sendNative } from './native-port.ts';
 
@@ -72,14 +74,18 @@ export function pairAgain(): void {
   if (hostedShell() || !sendNative({ t: 'add' })) forgetThisPhone();
 }
 
+/** A close after which the Android app tries the company's next PC: refused (4401) or unknown there (4404) – not removed. */
+const nextPc = (refused: Refusal | null): boolean => refused === 4401 || refused === 4404;
+
 /** What reportRefusals reads of the connection (lib/rpc.ts's signals). */
 export interface RefusalSource {
   status: ReadonlySignal<'connecting' | 'open' | 'closed'>;
-  refused: ReadonlySignal<4401 | 4403 | null>;
+  refused: ReadonlySignal<Refusal | null>;
 }
 
 /**
- * Inside the Android app: tells it {t:'refused'} each time a socket that opened closes refused (4401) – a refused socket
+ * Inside the Android app: tells it {t:'refused'} each time a socket that opened closes refused (4401) or unknown (4404, a PC
+ * the company's roster has not reached yet: 19.11.2026) – a refused socket
  * always opened, since the token goes in its first frame; a PC out of reach never opens one. Without the port yet, the
  * next port carries it. Elsewhere nothing. Returns the stop.
  */
@@ -90,9 +96,9 @@ export function reportRefusals(source: RefusalSource, android: boolean = isAndro
   const send = () => { owed = !sendNative({ t: 'refused' }); };
   const stopEffect = effect(() => {
     const now = source.status.value;
-    if (was === 'open' && now === 'closed' && source.refused.peek() === 4401) send();
+    if (was === 'open' && now === 'closed' && nextPc(source.refused.peek())) send();
     was = now;
   });
-  const stopPort = onNative('port', () => { if (owed && source.refused.peek() === 4401) send(); });
+  const stopPort = onNative('port', () => { if (owed && nextPc(source.refused.peek())) send(); });
   return () => { stopEffect(); stopPort(); };
 }

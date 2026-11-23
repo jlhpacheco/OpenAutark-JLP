@@ -2,8 +2,8 @@
 // element the page's mouse travels there along shared/model/pointer-motion.ts planMotion – real
 // mouseMoved steps, so hover effects happen on the way and viewers animate the same path. `instant`
 // (when the agent passes it) does not move first (Playwright's own click moves straight there); `glide`
-// (default, browser.batch too since B-081) takes ≤ 300 ms; `human` adds the dwell before the press and the press
-// hold. The point and the thinned path are returned for the named cursor (runtime/pointers/hub.ts, reported by the
+// (when the agent passes it) takes ≤ 300 ms; `human` (the default, browser.batch too) adds the dwell before the press and
+// the press hold. The point and the thinned path are returned for the named cursor (runtime/pointers/hub.ts, reported by the
 // tools).
 // Owns: the move before a pointer action and the last mouse point per tab. Never: clicks itself
 // (page.ts perform does), or anything tuned to pass bot checks.

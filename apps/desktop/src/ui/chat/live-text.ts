@@ -3,13 +3,14 @@
 // a split part carries `split`, so a group folds into one entry), the same in every window and on the phone (a bare tool name reads as what the agent does, format.ts workNote), in
 // three lengths for the sub line's widths (chat.css) – the full line, a narrow window's line and a
 // phone's line. A width picks the length, never a state, so a call starting never changes the text.
-// B-048 E4.5: the line opens the working popover (WorkingPopover.tsx) – one row per member working
-// here (workingRows: who, model · effort, live note, task; ordered by start like the live blocks) –
-// and a live run's model line ("Opus 5.5 · High", modelLine – the short model name) is also the live block's byline.
+// 20.11.2026: the line opens the chat's live bar lines (LiveBar.tsx, the one place with steps, Stop and task); a live run's
+// model line ("Opus 5.5 · High", modelLine – the short model name) is the bar line's title and the live block's byline.
 // B-083: the turn's temperature follows it when it has one ("Opus 5.5 · High · T 0.3", withTemperature) – "T ≈0.3" with a
 // title where the model samples at its own setting and the value is carried as the agent's stance.
-// F20/F21: which run a popover row's or a live bar line's Stop ends (stoppableRun, barStopRun).
-// Owns: the texts and those Stop rules. Never: markup, widths or a name or model the rows do not give.
+// 22.11.2026: a context fold's run says "Folding its context" instead of its step (doingOf; its steps stay in the ▾ list).
+// F20/F21: which run a live bar line's Stop ends (barStopRun). 20.11.2026: the bar keeps its height for a click inside
+// its open lines (keptHeight) – the bar grows upward from the composer, so whatever opened there moved the rows above it.
+// Owns: the texts, those Stop rules and when the bar keeps its height. Never: markup, widths or a name or model the rows do not give.
 
 import type { ConversationSummary } from '../../shared/model/chat.ts';
 import type { Effort } from '../../shared/model/providers.ts';
@@ -21,10 +22,18 @@ export type LiveEntry = { agentId: string; conversationId?: string; note: string
 type Chat = Pick<ConversationSummary, 'id' | 'working'>;
 type NameOf = (id: string) => string | undefined;
 
-/** The chat's live bar as activity entries (the summary's `live`: what it does now – its step, else its note –, model · effort, task, part, start). */
+/** What a context fold's line says instead of its step (22.11.2026: the fold belongs in the bar, with a status that says so). */
+export const FOLD_TEXT = 'Folding its context';
+
+/** What a live run does now: a fold says so, else its step, else its note. */
+export function doingOf(run: { step?: string; note?: string; fold?: true }): string | undefined {
+  return run.fold ? FOLD_TEXT : run.step ?? run.note;
+}
+
+/** The chat's live bar as activity entries (the summary's `live`: what it does now (doingOf), model · effort, task, part, start). */
 export function liveRuns(chat: Pick<ConversationSummary, 'id' | 'live'>): AgentActivity[] {
   return (chat.live ?? []).map((run) => ({
-    agentId: run.agentId, runId: run.runId, conversationId: chat.id, note: run.step ?? run.note ?? '', startedAt: run.startedAt,
+    agentId: run.agentId, runId: run.runId, conversationId: chat.id, note: doingOf(run) ?? '', startedAt: run.startedAt,
     ...(run.model ? { modelName: run.model } : {}), ...(isEffort(run.effort) ? { effort: run.effort } : {}), ...(run.taskId ? { taskId: run.taskId } : {}),
     ...(run.temperature !== undefined ? { temperature: run.temperature, temperatureSent: run.temperatureSent === true } : {}), ...(run.split ? { split: run.split } : {}),
   }));
@@ -94,7 +103,7 @@ export function liveNames(chat: Chat, solo: string | undefined, entries: Readonl
   return ids.length === 1 ? `${nameOf(ids[0]) ?? 'Agent'} is working` : names(ids, nameOf);
 }
 
-// ---------------------------------------------------------------- B-048 E4.5: the working popover and the model line
+// ---------------------------------------------------------------- the model line
 
 /** Effort as the person reads it (the composer's model menu uses the same words). */
 export const EFFORT_LABEL: Record<Effort, string> = { none: 'None', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Very high', max: 'Max' };
@@ -154,65 +163,21 @@ export function noteText(note: string | undefined): string {
   return capital(doing || 'Working');
 }
 
-/** One member working in this chat, as the popover's row shows it. */
-export interface WorkingRow {
-  /** The run's id; `agent:<id>` for an agent the summary marks working without an activity entry. */
-  key: string;
-  agentId: string;
-  runId?: string;
-  name: string;
-  /** modelLine (B-083: with the temperature); '' while routing (the slot stays). B-057: a split group row's goal (its parts run on several models). */
-  model: string;
-  note: string;
-  taskId?: string;
-  /** B-057: the row of a running split group (key `split:<groupId>`): it opens to the group's split rows. */
-  groupId?: string;
-}
-
-/** F20: the run a row's Stop ends – a single agent's own run; a split group or an agent without a known run has none. */
-export function stoppableRun(row: Pick<WorkingRow, 'runId' | 'groupId'>, mayCancel: boolean): string | undefined {
-  return mayCancel && !row.groupId && row.runId ? row.runId : undefined;
-}
-
-/** F21: the run a live bar line's Stop ends (LiveBar.tsx) – that agent's own run; a split part has none. */
+/** F20/F21: the run a live bar line's Stop ends (LiveBar.tsx) – that agent's own run; a split part has none. */
 export function barStopRun(run: { runId: string; split?: { groupId: string } }, mayCancel: boolean): string | undefined {
-  return stoppableRun({ runId: run.runId, groupId: run.split?.groupId }, mayCancel);
+  return mayCancel && !run.split && run.runId ? run.runId : undefined;
 }
 
-/** B-057: a running split group of this chat as the popover lists it (splits/split-model.ts liveGroupsOf). */
-export interface WorkingGroup { id: string; agentId: string; startedAt: number; note: string; goal?: string }
+/** The live bar's height a click inside its open lines took, and which lines were open then (LiveBar.tsx). */
+export type KeptBar = { lines: string; height: number };
 
-/**
- * The popover's rows: every run of this chat in start order (like the live blocks, so nothing
- * reorders), then agents the chat summary marks working without an entry yet. B-057: one row per running split
- * group (`groups`, and groups whose split runs report this chat) – never one per split.
- */
-export function workingRows(chat: Chat, entries: ReadonlyArray<AgentActivity>, nameOf: NameOf, groups: ReadonlyArray<WorkingGroup> = []): WorkingRow[] {
-  const mine = entries.filter((entry) => entry.conversationId === chat.id);
-  const runs = mine.filter((entry) => !entry.split);
-  const listed = new Map(groups.map((group) => [group.id, group]));
-  for (const entry of mine) {
-    if (!entry.split || listed.has(entry.split.groupId)) continue;
-    const parts = mine.filter((other) => other.split?.groupId === entry.split!.groupId);
-    listed.set(entry.split.groupId, { id: entry.split.groupId, agentId: entry.agentId, startedAt: Math.min(...parts.map((part) => part.startedAt)), note: partsWorking(parts.length, entry.split.of) });
-  }
-  const timed: Array<{ at: number; row: WorkingRow }> = [
-    ...runs.map((entry) => {
-      return { at: entry.startedAt, row: {
-        key: entry.runId, agentId: entry.agentId, runId: entry.runId, name: nameOf(entry.agentId) ?? 'Agent',
-        model: withTemperature(modelLine(entry), shownOf(entry)), note: noteText(entry.note), ...(entry.taskId ? { taskId: entry.taskId } : {}),
-      } };
-    }),
-    ...[...listed.values()].map((group) => ({ at: group.startedAt, row: {
-      key: `split:${group.id}`, agentId: group.agentId, groupId: group.id, name: nameOf(group.agentId) ?? 'Agent', model: group.goal ?? '', note: group.note,
-    } })),
-  ];
-  const rows: WorkingRow[] = timed.sort((a, b) => a.at - b.at).map((entry) => entry.row);
-  const shown = new Set(rows.map((row) => row.agentId));
-  for (const id of chat.working) {
-    if (shown.has(id)) continue;
-    shown.add(id);
-    rows.push({ key: `agent:${id}`, agentId: id, name: nameOf(id) ?? 'Agent', model: '', note: 'Working' });
-  }
-  return rows;
+/** Which of the bar's lines are open, as one key: the runs' ids in bar order. */
+export function openLines(runs: ReadonlyArray<{ runId: string }>, open: ReadonlySet<string>): string {
+  return runs.filter((run) => open.has(run.runId)).map((run) => run.runId).join(' ');
+}
+
+/** The bar's fixed height while the same lines stay open: what opens inside them (a part's steps, older steps) grows
+ *  within it and scrolls there, so the rows above the click stay put. A line opening, closing or ending lets go. */
+export function keptHeight(kept: KeptBar | undefined, lines: string): number | undefined {
+  return kept && lines && kept.lines === lines ? kept.height : undefined;
 }

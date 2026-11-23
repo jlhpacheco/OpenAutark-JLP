@@ -1,5 +1,5 @@
 // Owns: host checks of phone use's pure parts – the flattened screen tree (order, parents, invisible nodes left out, no
-// password text, short class names), the element a tap means, and the finger-like swipe (curved, on screen, about the
+// password text, short class names) and the finger-like swipe (curved, on screen, about the
 // asked duration). Never: an Android device test (UseService itself needs a phone).
 package com.teydralab.autark.android.phoneuse;
 
@@ -57,18 +57,6 @@ public final class ScreenTreeTest {
         check(!rows.get(3).containsKey("text"));
         equal(true, rows.get(3).get("password"));
         check(visited.get(2) == send);
-        equal(2, ScreenTree.clickableAt(rows, 150, 230));
-        equal(1, ScreenTree.clickableAt(rows, 500, 300));
-        equal(-1, ScreenTree.clickableAt(rows, 500, 1000));
-        check(!ScreenTree.insideWeb(rows, 2));
-
-        Fake chip = new Fake("android.widget.Button", "file.apk", new int[] {100, 900, 600, 1000}, true, true, false);
-        Fake page = new Fake("android.view.View", null, new int[] {0, 0, 1080, 2400}, true, false, false, chip);
-        Fake web = new Fake("android.webkit.WebView", null, new int[] {0, 0, 1080, 2400}, true, false, false, page);
-        List<Map<String, Object>> webRows = ScreenTree.flatten(new Fake("android.widget.FrameLayout", null, new int[] {0, 0, 1080, 2400}, true, false, false, web));
-        equal(3, ScreenTree.clickableAt(webRows, 300, 950));
-        check(ScreenTree.insideWeb(webRows, 3));
-        check(!ScreenTree.insideWeb(webRows, 0));
 
         Random random = new Random(7);
         for (int run = 0; run < 50; run++) {
@@ -84,7 +72,7 @@ public final class ScreenTreeTest {
         }
         Gestures.Stroke tap = Gestures.tap(0, 0, 1080, 2400, random);
         check(tap.points[0] >= 0 && tap.points[1] >= 0 && tap.durationMs >= 50 && tap.durationMs < 120);
-        System.out.println(assertions + " phone use (tree, tap target, gestures) assertions passed.");
+        System.out.println(assertions + " phone use (tree, gestures) assertions passed.");
     }
 
     private static void check(boolean value) { assertions++; if (!value) throw new AssertionError("check failed"); }

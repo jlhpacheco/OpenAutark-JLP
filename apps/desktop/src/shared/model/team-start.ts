@@ -5,18 +5,6 @@
 
 import type { Agent } from './org.ts';
 
-/** Agent systems the importer reads (runtime/importers/detect.ts). */
-export type ImportFormat = 'claude-agents' | 'codex-agents-md' | 'crewai' | 'workforce-agent' | 'json-roles' | 'markdown-roles';
-
-export const FORMAT_LABELS: Readonly<Record<ImportFormat, string>> = {
-  'claude-agents': 'Claude Code subagent',
-  'codex-agents-md': 'Codex AGENTS.md',
-  crewai: 'CrewAI crew',
-  'workforce-agent': 'Autark agent file',
-  'json-roles': 'JSON role list',
-  'markdown-roles': 'Markdown role list',
-};
-
 /** A task definition an imported system kept with an agent (CrewAI tasks.yaml): stored as a procedure note. */
 export interface ProposedTask { title: string; body: string }
 

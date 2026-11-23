@@ -71,12 +71,12 @@ test('Sol pinned and at its limit: Sonnet stands in, not Opus – also after an 
   assert.match(afterOpus.reason, /^pinned model unavailable/);
 });
 
-test("a person's line on top of the failover: Sonnet at effort high", async () => {
+test("a person's unweighed line on top of the failover: Sonnet at medium, and the reason says nobody weighed it", async () => {
   const h = await standIn({ personLine: true });
   const person = await h.route();
   assert.equal(person.modelId, SONNET, person.reason);
-  assert.equal(person.effort, 'high');
-  assert.match(person.reason, /^pinned model unavailable · .*a person's line/);
+  assert.equal(person.effort, 'medium');
+  assert.match(person.reason, /^pinned model unavailable · .*not weighed · effort medium$/);
 });
 
 test('nothing that cheap connected: the whole pool runs (Opus), the work goes on', async () => {

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { Blobs } from '../../../src/runtime/files/store.ts';
 import { detectMime, imageSize } from '../../../src/runtime/files/mime.ts';
 import { extractPdfText } from '../../../src/runtime/files/pdf.ts';
-import { nullLogger } from '../../../src/runtime/system/log.ts';
+import { nullLogger } from '../fakes.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import { clock, memoryDb, tempDir } from '../store/helpers.ts';
 

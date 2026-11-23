@@ -3,7 +3,8 @@
 // this, its folder, the person's role there (owner, or employee of another firm), whether it runs, its linked PCs (asked
 // from its own runtime) – and runCompanyTool is the receiving side of tools.call with company (tools/placement.ts →
 // registry.ts → this runtime's companies.tool): one tool runs here for an agent of another company on this PC, like a
-// call of this company's own agent (a stand-in named with its company, no linked-PC limits); what goes back has the
+// call of this company's own agent (a stand-in named with its company, no linked-PC limits) after this company's security
+// gate for it (Sicher-Runde 19.11.2026: security/tool-gate.ts gateForwarded); what goes back has the
 // values of this company's secrets masked.
 // The person is an employee in a company that joined another firm's PC as an employee (devices/sync/home.ts 'employer').
 // Owns: that tool, the role rule and that executor. Never: runs a call from another company where the person is an
@@ -21,7 +22,9 @@ import { resolveDevice, safeSelfId } from '../placement.ts';
 import { listCompanies, withOtherFacts } from '../../root/companies.ts';
 import { links } from '../../devices/sync/home.ts';
 import { linkedPcs } from '../../context/setup-facts.ts';
+import { employerFacts, type CompanyFacts } from '../../devices/company-facts.ts';
 import { defineTool, internal } from './util.ts';
+import { gateForwarded } from '../../security/tool-gate.ts'; // Sicher-Runde 19.11.2026
 
 /** How long companies.list waits for another company's own facts. */
 const FACTS_MS = 5_000;
@@ -31,12 +34,20 @@ export function companyRole(services: RuntimeServices): CompanyRole {
   return links(services.db).some(({ link }) => link.kind === 'employer') ? 'employee' : 'owner';
 }
 
+/** How the employer names the person: "Designer · Kim", "CEO · Kim" for a CEO member, else "Employee · Kim"; '' when unknown. */
+function personTitle(facts: CompanyFacts | undefined): string {
+  const person = facts?.person;
+  if (!person) return '';
+  return `${person.ceo ? 'CEO' : person.title || 'Employee'} · ${person.name}`;
+}
+
 /** The list with the current entry's own facts – role and linked PCs – where they can be read. */
 export function withOwnFacts(services: RuntimeServices, entries: CompanyEntry[]): CompanyEntry[] {
   return entries.map((entry) => {
     if (!entry.current) return entry;
     const out: CompanyEntry = { ...entry };
     try { out.role = companyRole(services); } catch { /* not readable: no role named */ }
+    if (out.role === 'employee') { const title = personTitle(employerFacts(services)); if (title) out.title = title; } // owner 21.11.2026
     try { out.linkedPcs = linkedPcs(services); } catch { /* no devices here */ }
     const start = services.host.app.start; // B-078: the "+" menu's --start=; FirstRun opens the Connect card that way
     if (start) out.start = start;
@@ -97,6 +108,7 @@ export async function runCompanyTool(services: RuntimeServices, call: CompanyToo
     status: () => undefined,
   };
   services.log.info('company tool call', { from, tool: tool.name, agentId: call.agentId, runId: call.runId });
+  await gateForwarded(tool, args, ctx); // Sicher-Runde: this company's gate for the calling agent; a refusal travels back
   const output = await tool.run(args, ctx);
   const redact = (value: string): string => { try { return services.secrets.redact(value); } catch { return value; } };
   // `structured` stays here: the text parts carry the same, masked

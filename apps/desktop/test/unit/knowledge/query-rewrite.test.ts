@@ -6,11 +6,12 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { expandQuery, idTokens, stem } from '../../../src/runtime/knowledge/query-rewrite.ts';
+import { expandQuery, idTokens } from '../../../src/runtime/knowledge/query-rewrite.ts';
+import { stem } from '../../../src/shared/text/normalize.ts';
 import { ftsQuery } from '../../../src/runtime/knowledge/normalize.ts';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { KnowledgeStore } from '../../../src/runtime/knowledge/service.ts';
 
 test('stems, ID tokens and the expansion keep every token of the old query', () => {

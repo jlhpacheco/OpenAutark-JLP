@@ -3,14 +3,16 @@
 // as 'voice.pull' events, chooses the model once installed, reports a failure as an event and an error;
 // voice.localModels marks installed models and says when the engine cannot load on this PC (instead of
 // letting the person download 154 MB first); voice.speak returns PCM16 in the chosen voice and refuses
-// clearly without one; the handlers check ids, speaker numbers and who may download.
+// clearly without one; the handlers check ids, speaker numbers and who may download. VOICE 19.11.2026: speak sends
+// 24 kHz and asks sherpa for a copied buffer (Electron refuses external ones); with no voice at all the PC fetches the
+// recommended one by itself once, only with disk room; the turn models come on every PC.
 // Owns: these assertions only. Never: the real addon or the network.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AUDIO_TAGGER, localSpeechModel, SILERO_VAD, SMART_TURN, type LocalSpeechModel, type LocalSpeechPull } from '../../../src/shared/model/local-speech-models.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
-import { LocalSpeech, MAX_SPEAKING } from '../../../src/runtime/voice/local/service.ts';
+import { LocalSpeech, MAX_SPEAKING, SPOKEN_RATE, VOICE_DISK_SPARE } from '../../../src/runtime/voice/local/service.ts';
 import { LocalSpeechEngine } from '../../../src/runtime/voice/local/engine.ts';
 import { HandlerTable, allowedScope, secureScope, type HandlerContext } from '../../../src/runtime/rpc/table.ts';
 import { register as registerApp } from '../../../src/runtime/rpc/handlers/app.ts';
@@ -23,7 +25,7 @@ import { fakeAddon, installFake, quietLog, tempData } from './local-fixture.ts';
 const CANARY = localSpeechModel('canary-180m-flash-int8', 'stt')!;
 const VOICE = localSpeechModel('supertonic-3-int8', 'tts')!;
 
-function setup(options: { voice?: Record<string, unknown>; install?: (model: LocalSpeechModel) => Promise<void>; engineError?: Error } = {}) {
+function setup(options: { voice?: Record<string, unknown>; install?: (model: LocalSpeechModel) => Promise<void>; engineError?: Error; freeDisk?: number | null } = {}) {
   const data = tempData();
   const events: LocalSpeechPull[] = [];
   const updates: unknown[] = [];
@@ -36,6 +38,7 @@ function setup(options: { voice?: Record<string, unknown>; install?: (model: Loc
   const fake = fakeAddon();
   const addon = () => { if (options.engineError) throw options.engineError; return fake.addon; };
   const installed: string[] = [];
+  const measured: string[] = [];
   const install = async (model: LocalSpeechModel, deps: { progress?: (state: 'downloading' | 'unpacking', done: number, total: number) => void }) => {
     installed.push(model.id);
     deps.progress?.('downloading', model.download.bytes / 2, model.download.bytes);
@@ -45,8 +48,8 @@ function setup(options: { voice?: Record<string, unknown>; install?: (model: Loc
     installFake(data.dir, model);
   };
   const engine = new LocalSpeechEngine({ dataDir: () => data.dir, log: quietLog, addon, freeMemoryMb: () => 4_000 });
-  const local = new LocalSpeech({ services: () => services, engine, install, hardware: () => ({ totalRamMb: 8_192, freeRamMb: 2_000, cpuCores: 8 }) });
-  return { local, data, events, updates, installed, settings, fake };
+  const local = new LocalSpeech({ services: () => services, engine, install, hardware: () => ({ totalRamMb: 8_192, freeRamMb: 2_000, cpuCores: 8 }), freeDisk: async (dir) => { measured.push(dir); return options.freeDisk === null ? undefined : options.freeDisk ?? 100_000_000_000; } });
+  return { local, data, events, updates, installed, settings, fake, measured };
 }
 
 test('pull: VAD comes along, progress over both, the model is chosen; a second call joins the running download', async () => {
@@ -90,16 +93,18 @@ test('pull: two recognizers at once fetch Silero VAD only once (review fix: both
   } finally { t.data.done(); }
 });
 
-test('B-082 ensureTurn: Smart Turn comes next to an installed Silero VAD once; without Silero nothing is fetched', async () => {
+test('VOICE ensureTurn: the turn models come on every PC, each once and only when missing; a failure is quiet', async () => {
   const t = setup();
   try {
-    await t.local.ensureTurn();
-    assert.deepEqual(t.installed, [], 'no recognizer, no VAD: nothing');
-    installFake(t.data.dir, SILERO_VAD);
     await Promise.all([t.local.ensureTurn(), t.local.ensureTurn()]);
-    assert.deepEqual(t.installed, [SMART_TURN.id], 'fetched once');
+    assert.deepEqual(t.installed, [SILERO_VAD.id, SMART_TURN.id], 'no recognizer needed; fetched once each');
     await t.local.ensureTurn();
-    assert.deepEqual(t.installed, [SMART_TURN.id], 'already there');
+    assert.deepEqual(t.installed, [SILERO_VAD.id, SMART_TURN.id], 'already there');
+    const half = setup({ install: async (model) => { if (model.id === SILERO_VAD.id) throw new Error('github.com unreachable'); } });
+    try {
+      await half.local.ensureTurn();
+      assert.deepEqual(half.installed, [SILERO_VAD.id, SMART_TURN.id], 'a failed VAD never keeps Smart Turn away');
+    } finally { half.data.done(); }
     assert.deepEqual(t.events, [], 'quiet: no pull events, no setting');
     assert.deepEqual(t.updates, []);
   } finally { t.data.done(); }
@@ -172,18 +177,54 @@ test('speak: a chosen voice missing on this PC is fetched once in the background
   } finally { t.data.done(); }
 });
 
+test('VOICE speak: with no voice chosen or downloaded the PC fetches the recommended one once, then reads with it', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const t = setup({ install: () => gate, freeDisk: VOICE.download.bytes + VOICE.sizeMb * 1_000_000 + VOICE_DISK_SPARE });
+  try {
+    await assert.rejects(t.local.speak({ text: 'Hallo' }), /No local voice is downloaded on this PC/, 'this line: the device reads');
+    await assert.rejects(t.local.speak({ text: 'Noch einmal' }), /No local voice is downloaded on this PC/);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(t.installed, [VOICE.id], 'one download for two lines, the voice for German');
+    assert.deepEqual(t.updates, [], 'no setting changes');
+    assert.ok((await t.local.speak({ text: 'Jetzt' })).sampleRate > 0, 'from then on the PC reads');
+  } finally { t.data.done(); }
+});
+
+test('VOICE speak: no fetch without disk room (3 GB must stay free after it, unknown = none) or when the engine does not load here', async () => {
+  const low = setup({ freeDisk: VOICE.download.bytes + VOICE.sizeMb * 1_000_000 + VOICE_DISK_SPARE - 1 });
+  try {
+    await low.local.fetchVoice();
+    assert.deepEqual(low.installed, [], 'disk low: nothing fetched');
+    assert.deepEqual(low.measured, [low.data.dir], 'measured on the data folder (models/speech may not exist yet)');
+  } finally { low.data.done(); }
+  const unknown = setup({ freeDisk: null });
+  try {
+    await unknown.local.fetchVoice();
+    assert.deepEqual(unknown.installed, [], 'free space unknown: no room assumed');
+  } finally { unknown.data.done(); }
+  const blocked = setup({ engineError: new Error('blocked') });
+  try {
+    await blocked.local.fetchVoice();
+    assert.deepEqual(blocked.installed, [], 'no engine: nothing fetched');
+  } finally { blocked.data.done(); }
+});
+
 test('speak: PCM16 in the chosen voice and language; blank is empty; no voice or too many lines are clear errors', async () => {
   const t = setup({ voice: { localTts: VOICE.id } });
   try {
     await assert.rejects(t.local.speak({ text: 'Hallo' }), /No local voice is downloaded on this PC/, 'chosen but not downloaded');
     installFake(t.data.dir, VOICE);
     const spoken = await t.local.speak({ text: 'Guten  Morgen,\nGerd.', voice: '3' });
-    assert.equal(spoken.sampleRate, 44_100);
-    assert.equal(spoken.durationMs, Math.round((4 / 44_100) * 1000));
+    assert.equal(spoken.sampleRate, SPOKEN_RATE, 'the 44.1 kHz voice goes out at 24 kHz');
     const samples = pcm16Samples(new Uint8Array(Buffer.from(spoken.audio, 'base64')));
-    assert.deepEqual([...samples].map((v) => Math.round(v * 2) / 2), [0, 0.5, -0.5, 1]);
+    assert.equal(samples.length, Math.round((4 * SPOKEN_RATE) / 44_100));
+    assert.equal(spoken.durationMs, Math.round((samples.length / SPOKEN_RATE) * 1000));
     const request = t.fake.state.tts[0].requests[0];
     assert.deepEqual([request.text, request.sid, (request.config.extra as { lang: string }).lang], ['Guten Morgen, Gerd.', 3, 'de']);
+    assert.equal(request.enableExternalBuffer, false, 'a copied buffer: Electron refuses external ones ("TTS settlement failed")');
     assert.deepEqual(await t.local.speak({ text: '   ' }), { audio: '', sampleRate: 0, durationMs: 0 });
     const many = Array.from({ length: MAX_SPEAKING + 1 }, () => t.local.speak({ text: 'Eins.' }).then(() => 'ok', (error: Error) => error.message));
     assert.ok((await Promise.all(many)).includes('The local voice is busy. Try again in a moment.'));

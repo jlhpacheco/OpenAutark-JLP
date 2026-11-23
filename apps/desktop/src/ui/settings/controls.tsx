@@ -1,6 +1,7 @@
 // Settings building blocks: groups, functional rows (label left, control right; `menu` is the row's right-click
 // menu, lib/context-menu.tsx), switch, select, segmented choice, a row action that keeps its box while it runs and
-// a small async-data hook. A hint that arrives later reserves its line (`reserve`), so nothing moves.
+// a small async-data hook (useAsync – loaded again after every reconnect, lib/use-load.ts, so a settings view never stays
+// stale). A hint that arrives later reserves its line (`reserve`), so nothing moves.
 // Owns: the visual grammar of the settings page (also reused by the agent view). Never: talks RPC itself.
 
 import type { ComponentChildren } from 'preact';
@@ -11,6 +12,7 @@ import { errorText } from '../lib/rpc.ts';
 import { Select as ListSelect } from '../lib/select.tsx';
 import { toastError } from '../lib/toasts.ts';
 import { Button } from '../lib/ui.tsx';
+import { useLoad } from '../lib/use-load.ts';
 
 /** Clears an optional settings field: the runtime merge treats `null` as "remove key". */
 export const CLEAR = null as unknown as undefined;
@@ -102,23 +104,27 @@ export function TextField(props: {
   );
 }
 
-/** A number field that commits on blur or Enter; anything that is no number below `min` goes back to the stored value. */
-export function NumberField(props: { value: number; onCommit: (value: number) => void; label: string; min?: number; suffix?: string; disabled?: boolean }) {
+/** 21.11.2026 (owner: "Pixel-Einstellungen … hoch und runter und selber Eingabe, aber mit klaren Grenzen"): a whole number
+ *  in px between `min` and `max` – − and + step by 1, the field takes a typed value on Enter or blur (↑/↓ step there too);
+ *  `onCommit` returns what was taken (clamped), which the field then shows. */
+export function PxField(props: { value: number; min: number; max: number; label: string; onCommit: (value: number) => number }) {
   const [draft, setDraft] = useState(String(props.value));
   useEffect(() => setDraft(String(props.value)), [props.value]);
-  const commit = () => {
-    const next = Number(draft.trim());
-    if (!draft.trim() || !Number.isFinite(next) || (props.min !== undefined && next < props.min)) { setDraft(String(props.value)); return; }
-    if (next !== props.value) props.onCommit(next);
-  };
+  const commit = (raw: unknown) => setDraft(String(props.onCommit(Number(String(raw).replace(',', '.')))));
   return (
-    <span class="set-number">
-      <input class="set-input narrow" inputMode="decimal" aria-label={props.label} value={draft} disabled={props.disabled}
+    <div class="set-px" role="group" aria-label={props.label}>
+      <button type="button" class="set-px-step" aria-label={`${props.label} smaller`} disabled={props.value <= props.min} onClick={() => commit(props.value - 1)}>−</button>
+      <input class="set-input set-px-input tabular" type="number" inputMode="numeric" min={props.min} max={props.max} step={1} aria-label={props.label}
+        title={`${props.min}–${props.max} px`} value={draft}
         onInput={(event) => setDraft((event.currentTarget as HTMLInputElement).value)}
-        onBlur={commit}
-        onKeyDown={(event) => { if (event.key === 'Enter') (event.currentTarget as HTMLInputElement).blur(); }} />
-      {props.suffix && <span class="set-suffix">{props.suffix}</span>}
-    </span>
+        onBlur={() => commit(draft)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') (event.currentTarget as HTMLInputElement).blur();
+          else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); commit(props.value + (event.key === 'ArrowUp' ? 1 : -1)); }
+        }} />
+      <span class="set-px-unit">px</span>
+      <button type="button" class="set-px-step" aria-label={`${props.label} larger`} disabled={props.value >= props.max} onClick={() => commit(props.value + 1)}>+</button>
+    </div>
   );
 }
 
@@ -148,7 +154,7 @@ export interface AsyncState<T> {
   set: (value: T) => void;
 }
 
-/** Loads data once (and on reload). Keeps the old value while reloading. */
+/** Loads data when shown, when `deps` change, after every reconnect (lib/use-load.ts) and on reload. Keeps the old value while reloading. */
 export function useAsync<T>(load: () => Promise<T>, deps: unknown[] = []): AsyncState<T> {
   const [data, setData] = useState<T | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -165,7 +171,7 @@ export function useAsync<T>(load: () => Promise<T>, deps: unknown[] = []): Async
       if (alive.current) setLoading(false);
     }
   }, deps);
-  useEffect(() => {
+  useLoad(() => {
     alive.current = true;
     void reload();
     return () => { alive.current = false; };

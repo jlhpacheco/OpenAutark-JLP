@@ -3,6 +3,7 @@
 // Never: secrets (they live in the secret store and are referenced by id).
 
 import type { ProviderEntry } from './provider-entries.ts';
+import { securityDefaults, type SecuritySettings } from './security-settings.ts';
 
 export interface Profile {
   name: string; // the person (CEO)
@@ -12,18 +13,7 @@ export interface Profile {
   timezone: string; // IANA, default OS zone
   /** B-078 (D17): the AI's own note on how the person wants to be spoken to (≤ 600 characters; the stable prompt's "My environment"). */
   notes?: string;
-  /**
-   * B-085: how far the team goes on its own on this PC, chosen on the first run's About card – 'whole' (absent: anywhere)
-   * or 'careful' (freely in its own folders, checks with the person before changes elsewhere). An agreement line in the
-   * agents' SYSTEM.md, never enforced.
-   */
-  pcAccess?: 'whole' | 'careful';
-  /**
-   * Owner 16.11.2026 (Settings › Security): the person's lines to every agent, last in each agent's system prompt after
-   * its own HUMAN.md (≤ MAX_HUMAN_MD characters; '' = none). Starts as the "I'm not a robot" line in the PC's language
-   * (shared/model/agent-core.ts humanDefault); the person and the agents change it like every setting.
-   */
-  forEveryAgent?: string;
+  // 19.11.2026: pcAccess and forEveryAgent became the section `security` and its topic files (bridge/sicher-1119.ts).
 }
 
 /** B-078 (D13): the public skill library (runtime/knowledge, track T3). */
@@ -39,7 +29,6 @@ export interface Preferences {
   workspaceOpen: boolean; // global right pane
   workspaceWidth: number;
   enterSends: boolean;
-  closeToTray: boolean; // window close keeps agents running (default true)
   openAtLogin: boolean;
   autoDownloadUpdates: boolean;
 }
@@ -119,6 +108,13 @@ export interface Settings {
   library?: LibrarySettings;
   /** The API connections, by id (shared/model/provider-entries.ts); absent while there are none. */
   providers?: Record<string, ProviderEntry>;
+  /** Owner 19.11.2026: the security mode and its switches (shared/model/security-settings.ts); read it with securityOf. */
+  security?: SecuritySettings;
+}
+
+/** The company's security settings: the stored section, or Trust AI mode's defaults when a file has none yet. */
+export function securityOf(settings: Pick<Settings, 'security'> | undefined): SecuritySettings {
+  return settings?.security ?? securityDefaults('trust');
 }
 
 /** Linked PCs: the dedicated peer listener other PCs reach this PC on (runtime/http/peer-server.ts). */
@@ -170,10 +166,13 @@ export interface FeedbackReport {
   kind?: FeedbackKind;
   text: string;
   author: string; // 'human' or agent id (agent reports are untrusted)
-  screenshotFileId?: string;
-  annotationFileId?: string;
-  /** 16.11.2026: the recorded takes of a dictated report (uploaded WebM or MP4 files, at most FEEDBACK_AUDIO_MAX). */
-  audioFileIds?: string[];
+  /**
+   * Owner 21.11.2026: the report's images in order (each as it goes – a person's marks are painted in). A row stored by an
+   * older build has its one image (the annotated screenshot, else the screenshot) here too (store/feedback.ts).
+   */
+  imageFileIds?: string[];
+  /** A person's report whose text was dictated: the text is the transcript (owner 20.11.2026: never a recording). */
+  dictated?: true;
   /**
    * `runId`: agent reports only – the run that filed the report. `version`/`os`: this PC's runtime. 16.11.2026:
    * `client` – where the person wrote it (the writing page's own facts, redacted); `company` – this company's data
@@ -196,7 +195,7 @@ export interface FeedbackReport {
   receiptId?: string;
   /** B-055: every report is sent 'private' (sealed for the team); 'public' only on older GitHub reports. */
   visibility?: FeedbackVisibility;
-  /** The report arrived, but without something it had (SCREENSHOT_DROPPED, AUDIO_DROPPED in feedback-delivery.ts). */
+  /** The report arrived, but without something it had (SCREENSHOT_DROPPED in feedback-delivery.ts; older builds: a recording left behind). */
   deliveryWarning?: string;
   /** Agent reports: how often the same text was reported within 24 h (absent = once). */
   count?: number;

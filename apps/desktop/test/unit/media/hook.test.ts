@@ -8,7 +8,7 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Blobs } from '../../../src/runtime/files/store.ts';
 import { withMediaHook } from '../../../src/runtime/media/hook.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import type { FileRef } from '../../../src/shared/model/system.ts';
 import { clock, memoryDb, tempDir } from '../store/helpers.ts';

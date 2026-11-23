@@ -11,7 +11,7 @@
 //  - a colleague shares a room only with agents they may work with (their spaces, people/access.ts mayUseAgent),
 //    checked for the pairs a change makes new, so a room the person put together stays as it is;
 //  - colleagues join a chat by the agent that started it – so an agent never opens the owner's chats to a colleague.
-//    A 1:1 stays two for everyone (B-078 D7, chat/members-change.ts DIRECT_STAYS_TWO; chat-members.ts checks it first).
+//    A 1:1 stays two for everyone (B-078 D7, chat/members-change.ts DIRECT_STAYS_TWO; chat-update.ts checks it first).
 // Owns: these lookups and rules. Never: changes members itself, or lets a name choose between two members.
 
 import type { ToolContext } from '../types.ts';

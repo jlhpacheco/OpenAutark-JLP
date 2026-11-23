@@ -1,8 +1,8 @@
 // Google Calendar events ↔ My day's rows (B-041 track G): an event of the person's calendar becomes a read-only
 // occurrence (all-day dates in the profile zone, timed ones by their RFC 3339 instant; cancelled ones, ones the
 // person declined and the app's own mirrors are none – they would show twice), and a local row (a to-do block or an
-// event made in the app) becomes the body of its mirror in the "Workforce" calendar: the to-do's title (an
-// "Only me" to-do shows as "Busy" – no private text leaves the PC), "✓ " once done, and
+// event made in the app) becomes the body of its mirror in the "Workforce" calendar: the to-do's title ("Only me" ones
+// too), "✓ " once done, and
 // extendedProperties.private {eventId, taskId, pcId} to know it again. Its Google id is derived from the PC and the
 // row id (base32hex-safe hex), so no mapping table is needed and a retry never makes a second copy.
 // Owns: these pure mappings. Never: I/O, or task text beyond the title of the to-do a block belongs to.
@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import type { CalendarEvent } from '../../../shared/model/calendar.ts';
 import type { SourceOccurrence } from './apply.ts';
 import { ICS_TEXT_LIMITS } from './ics-parse.ts';
-import { addDays, localWall, wallToUtc } from './ics-time.ts';
+import { addDays, wallOf, wallTime } from '../../../shared/text/when.ts';
 
 export interface GoogleTime { date?: string; dateTime?: string; timeZone?: string }
 export interface GoogleEvent {
@@ -60,7 +60,7 @@ export function isMirror(event: GoogleEvent): boolean {
 }
 
 function instant(time: GoogleTime | undefined, zone: string): { at: number; date?: string } | undefined {
-  if (time?.date && /^\d{4}-\d{2}-\d{2}$/.test(time.date)) return { at: wallToUtc(time.date, 0, zone), date: time.date };
+  if (time?.date && /^\d{4}-\d{2}-\d{2}$/.test(time.date)) return { at: wallTime(time.date, 0, zone), date: time.date };
   const at = time?.dateTime ? Date.parse(time.dateTime) : NaN;
   return Number.isFinite(at) ? { at } : undefined;
 }
@@ -73,7 +73,7 @@ export function occurrenceOf(event: GoogleEvent, zone: string): SourceOccurrence
   const end = instant(event.end, zone);
   if (!start) return undefined;
   const allDay = start.date !== undefined;
-  const endAt = end && end.at >= start.at ? end.at : allDay ? wallToUtc(addDays(start.date!, 1), 0, zone) : start.at;
+  const endAt = end && end.at >= start.at ? end.at : allDay ? wallTime(addDays(start.date!, 1), 0, zone) : start.at;
   const notes = [event.location?.trim(), event.description ? plainText(event.description) : ''].filter(Boolean).join('\n\n');
   const title = event.summary?.trim();
   return {
@@ -89,15 +89,15 @@ export function mirrored(row: Pick<CalendarEvent, 'sourceId' | 'readOnly'>): boo
 }
 
 /**
- * The mirror's body: `title` is the to-do's title for a block (undefined: it was removed; `privateTodo`: "Only me"),
- * the row's own title for an event.
+ * The mirror's body: `title` is the to-do's title for a block (undefined: it was removed), the row's own title for an
+ * event.
  */
-export function mirrorBody(row: CalendarEvent, input: { title?: string; privateTodo?: boolean; pcId: string; zone: string }): GoogleEventBody {
-  const base = row.kind === 'todo' ? (input.privateTodo ? 'Busy' : input.title?.trim() || 'To-do') : row.title?.trim() || 'Busy';
+export function mirrorBody(row: CalendarEvent, input: { title?: string; pcId: string; zone: string }): GoogleEventBody {
+  const base = row.kind === 'todo' ? input.title?.trim() || 'To-do' : row.title?.trim() || 'Busy';
   const summary = clip(`${row.state === 'planned' ? '' : DONE_MARK}${base}`, 200);
   const tz = row.tz || input.zone;
-  const start: GoogleTime = row.allDay ? { date: localWall(row.startAt, input.zone).date } : { dateTime: new Date(row.startAt).toISOString(), timeZone: tz };
-  const endDate = row.allDay ? localWall(row.endAt, input.zone).date : undefined;
+  const start: GoogleTime = row.allDay ? { date: wallOf(row.startAt, input.zone).date } : { dateTime: new Date(row.startAt).toISOString(), timeZone: tz };
+  const endDate = row.allDay ? wallOf(row.endAt, input.zone).date : undefined;
   const end: GoogleTime = row.allDay ? { date: endDate! > start.date! ? endDate! : addDays(start.date!, 1) } : { dateTime: new Date(Math.max(row.endAt, row.startAt)).toISOString(), timeZone: tz };
   const props: Record<string, string> = { eventId: row.id, pcId: input.pcId };
   if (row.taskId) props.taskId = row.taskId;

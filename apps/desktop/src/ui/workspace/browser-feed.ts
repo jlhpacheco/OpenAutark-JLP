@@ -3,7 +3,7 @@
 // frames arrive as events (browser.view / browser.frame on topic browser:<agentId>, MP8) and reach only the
 // views of that agent. A reconnect subscribes again (the runtime forgets a closed connection's watches). A
 // new view gets the last state and frame at once.
-// X02 pull mode (phones – `pulls()`; frames are never pushed to a device): one
+// X02 pull mode (phones – `pulls()`; frames are never pushed to a device; 21.11.2026 also an agent on another PC): one
 // loop per browser with one browser.pull in flight; a reply in parts is joined from
 // browser.pullPart (a part gone: the frame is dropped and pulled again); the next pull asks past
 // the last state and frame. The loop ends when the last view goes (no unsubscribe call – the
@@ -39,8 +39,9 @@ export interface BrowserFeedDeps<S extends Stamped = BrowserViewState, F extends
   /** After every (re)connect. */
   onOpen(listener: () => void): () => void;
   errorText(error: unknown): string;
-  /** X02: pull frames instead of subscribing (asked when a browser gets its first view). */
-  pulls?(): boolean;
+  /** X02: pull frames instead of subscribing (asked per browser when it gets its first view – 21.11.2026: an agent that
+   *  runs on another PC is pulled through this one). */
+  pulls?(agentId: string): boolean;
   pull?(agentId: string, after: { state?: number; frame?: number }): Promise<{ state: S; frame?: F; parts?: number }>;
   pullPart?(agentId: string, at: number, index: number): Promise<{ data: string }>;
   /** B-076: after a failed pull, try again this much later while a view stays (else: at the next reconnect). */
@@ -68,6 +69,8 @@ interface Entry<S, F> {
   /** Pull mode: the running loop's epoch (a reconnect starts the next) and whether one runs. */
   epoch: number;
   pulling: boolean;
+  /** This entry pulls (decided when its first view came). */
+  pulls?: boolean;
   /** Pull mode: past which state and frame the loop asks; a refresh's pull is unanswered. */
   after?: { state?: number; frame?: number };
   refreshing?: boolean;
@@ -81,7 +84,7 @@ export function createBrowserFeed<S extends Stamped = BrowserViewState, F extend
   type View = FeedView<S, F>;
   const entries = new Map<string, Entry<S, F>>();
   let wired = false;
-  const pulling = () => Boolean(deps.pulls?.() && deps.pull && deps.pullPart);
+  const pulling = (agentId: string) => Boolean(deps.pulls?.(agentId) && deps.pull && deps.pullPart);
 
   const publish = (entry: Entry<S, F>, next: Partial<View>) => {
     const view = { ...entry.view, ...next };
@@ -152,7 +155,7 @@ export function createBrowserFeed<S extends Stamped = BrowserViewState, F extend
   };
 
   const join = (entry: Entry<S, F>, fresh = false, start?: { state?: number; frame?: number }) => {
-    if (pulling()) {
+    if (entry.pulls) {
       if (fresh) entry.epoch++;
       if (fresh || !entry.pulling) void loop(entry, entry.epoch, start);
       return;
@@ -189,7 +192,7 @@ export function createBrowserFeed<S extends Stamped = BrowserViewState, F extend
       const first = own.listeners.size === 0;
       own.listeners.add(listener);
       if (own.view.state || own.view.frame || own.view.error) listener(own.view);
-      if (first) join(own);
+      if (first) { own.pulls = pulling(agentId); join(own); }
       let subscribed = true;
       return () => {
         if (!subscribed) return;
@@ -199,7 +202,7 @@ export function createBrowserFeed<S extends Stamped = BrowserViewState, F extend
         // Last view gone: the runtime stops the screencast; the last frame stays for a quick re-open.
         // Pull mode: the loop ends after its pull and the runtime's watch after its grace – nothing to call; the entry
         // goes once no loop serves it (a view coming back meanwhile reuses the running pull).
-        if (!pulling()) void deps.unsubscribe(own.agentId).catch(() => undefined);
+        if (!own.pulls) void deps.unsubscribe(own.agentId).catch(() => undefined);
         else forget(own);
       };
     },
@@ -208,7 +211,7 @@ export function createBrowserFeed<S extends Stamped = BrowserViewState, F extend
     },
     refresh(agentId) {
       const entry = entries.get(agentId);
-      if (!entry?.listeners.size || !pulling() || entry.refreshing) return;
+      if (!entry?.listeners.size || !entry.pulls || entry.refreshing) return;
       entry.refreshing = true; // until this pull answers; it asks past what the view has, so its answer is the next change
       join(entry, true, entry.after);
     },
@@ -220,12 +223,6 @@ export function createBrowserFeed<S extends Stamped = BrowserViewState, F extend
       return entries.get(agentId)?.view ?? null;
     },
   };
-}
-
-/** The open browsers of these agents. */
-export function agentBrowsers(sessions: readonly BrowserSessionInfo[], agentIds: readonly string[]): BrowserSessionInfo[] {
-  const wanted = new Set(agentIds);
-  return sessions.filter((entry) => wanted.has(entry.agentId));
 }
 
 /**

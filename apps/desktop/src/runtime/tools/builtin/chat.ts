@@ -6,9 +6,9 @@
 // nur wenn sie praktisch genau nach Datum sucht": without a place it shows the lines of the last CHAT_DAYS before the newest,
 // at most READ_CHARS; older ones by date (`from`), by seq or page), chat.search (B-050 K5: the lines of the agent's context – chat-lines.ts over context/render.ts),
 // chat.list (archived chats included and marked: archive only hides a chat from the person's list, C2; the title the
-// agent sees, B-050 K2) and chat.leave; making chats (chat.create, chat.direct) is in chat-rooms.ts, the membership tools
-// (add/remove members, rename, lead) in chat-members.ts (whom a call names and who may join by an agent: chat-joins.ts),
-// the agent's own messages and its settings of a chat (edit, delete, archive, reply mode) in chat-messages.ts.
+// agent sees, B-050 K2); making chats (chat.create, chat.direct) is in chat-rooms.ts, changing one (members, name, lead,
+// place, reply mode, archive, leaving) is chat.update in chat-update.ts (whom a call names and who may join by an agent:
+// chat-joins.ts), the agent's own messages (edit, delete) in chat-messages.ts.
 // Never: reads chats the agent is not a member of.
 
 import type { ToolContext, ToolDef } from '../types.ts';
@@ -16,8 +16,8 @@ import { CHAT_ID_PROPERTY, json, text } from '../types.ts';
 import { noteTurnRead, readThrough } from '../../chat/turn-reads.ts';
 import { HUMAN_ID } from '../../../shared/ids.ts';
 import { directPair, type Message } from '../../../shared/model/chat.ts';
-import { authorName, clip, defineTool, internal, isMember, resolveChat, viewTitle } from './util.ts';
-import { chatMemberTools } from './chat-members.ts';
+import { authorName, clip, defineTool, internal, resolveChat, viewTitle } from './util.ts';
+import { chatUpdateTools } from './chat-update.ts';
 import { chatRoomTools } from './chat-rooms.ts';
 import { chatMessageTools } from './chat-messages.ts';
 import { hitLines, readLines } from './chat-lines.ts';
@@ -121,7 +121,7 @@ const listChats = defineTool<{ search?: string }>({
     const chats = ctx.services.chats.list({ forMember: ctx.agent.id, search: args.search, includeHidden: true });
     return json(chats.slice(0, 100).map((chat) => ({
       id: chat.id, title: viewTitle(ctx, chat, chat.members), lastSeq: chat.lastSeq, openTasks: chat.openTasks,
-      // B-078: the chat tree I build with chat.set_parent and chat.thread.
+      // B-078: the chat tree I build with chat.update parentId and chat.thread.
       ...(chat.settings.parentId ? { parentId: chat.settings.parentId } : {}), ...(chat.settings.anchorId ? { thread: true } : {}),
       // K1: "direct" only for the agent's own default 1:1 – one others' default it joined is not.
       ...(chat.archivedAt !== undefined ? { archived: true } : {}), ...(directPair(chat.settings, chat.members.filter((member) => !member.leftAt))?.includes(ctx.agent.id) ? { direct: true } : {}),
@@ -144,17 +144,4 @@ const searchChats = defineTool<{ query: string; chatId?: string; limit?: number 
   },
 });
 
-const leaveChat = defineTool<{ chatId: string }>({
-  name: 'chat.leave',
-  description: 'Leaves a chat; its messages no longer reach me.',
-  inputSchema: { type: 'object', properties: { chatId: { type: 'string' } }, required: ['chatId'], additionalProperties: false },
-  category: 'think',
-  describe: (args) => internal('Leave chat', args.chatId),
-  async run(args, ctx) {
-    if (!isMember(ctx, args.chatId)) return text('I am not a member of that chat.');
-    ctx.services.chats.setMembers(args.chatId, { remove: [ctx.agent.id] }, ctx.agent.id);
-    return json({ ok: true });
-  },
-});
-
-export const chatTools: ToolDef[] = [readChat, listChats, searchChats, ...chatRoomTools, ...chatMemberTools, ...chatMessageTools, leaveChat];
+export const chatTools: ToolDef[] = [readChat, listChats, searchChats, ...chatRoomTools, ...chatUpdateTools, ...chatMessageTools];

@@ -5,7 +5,8 @@
 // in the open chat shows on its call card (chat/call/CallCard.tsx) instead, a voice line stays only while it needs Talk –,
 // an agent using the computer (Watch – computer-notice.ts) and the toasts (lib/toasts.ts, newest first; most expire by
 // themselves – an important message after 20 s –, those for to-dos and blockers stay until Open, Dismiss or until their
-// chat or My day is open); other areas may register more
+// chat or the Tasks page is open; Open on a to-do's toast opens that to-do, on a toast of several due to-dos the page);
+// other areas may register more
 // (shell/notices.ts). At most three lines at once; the rest follow as earlier ones go.
 // Owns: the line markup and the shell's own providers. Never: a notice's order (notices.ts).
 
@@ -13,12 +14,13 @@ import { useState } from 'preact/hooks';
 import { rpc } from '../lib/rpc.ts';
 import { activeConversationId, conversationMap, loadError, loaded } from '../lib/store.ts';
 import { chatTitle } from '../lib/chat-face.tsx';
-import { navigate } from '../lib/router.ts';
+import { go, navigate } from '../lib/router.ts';
 import { can } from '../lib/session.ts';
 import { voicePhase, voiceSessions } from '../lib/shell-state.ts';
 import { dismissToast, toasts } from '../lib/toasts.ts';
 import { IconButton, Spinner } from '../lib/ui.tsx';
 import { focusVoice, stopVoice } from '../chat/composer/voice.ts';
+import { openTaskDetail } from '../tasks/jump.ts';
 import { realtimeChat, stopRealtime } from '../chat/call/realtime-call.ts';
 import { answerCall, talking } from '../chat/call/CallHeader.tsx';
 import { registerCallNotices } from '../chat/call/call-notices.ts';
@@ -71,7 +73,9 @@ function toastNotices(): Notice[] {
   return [...toasts.value].reverse().map((toast): Notice => {
     const text = toast.body ? `${toast.title} · ${toast.body}` : toast.title;
     const chat = toast.conversationId;
-    const open = chat ? () => navigate({ view: 'chat', id: chat }) : toast.taskId ? () => navigate({ view: 'day' }) : undefined;
+    const task = toast.taskId;
+    const open = chat ? () => navigate({ view: 'chat', id: chat })
+      : task ? () => ((toast.due?.length ?? 1) > 1 ? go.tasks() : openTaskDetail(task)) : undefined;
     const own = toast.action; // B-082: the toast's own button (a kept recording's "Transcribe again")
     const actions = [...(own ? [{ label: own.label, run: () => { own.run(); dismissToast(toast.id); } }] : []),
       ...(open ? [{ label: 'Open', run: () => { open(); dismissToast(toast.id); } }] : [])];

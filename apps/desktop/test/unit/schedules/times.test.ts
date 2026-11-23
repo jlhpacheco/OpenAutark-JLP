@@ -12,7 +12,8 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { firesBetween, isOneOff, localParts, nextFire, validateSpec, wallInstant } from '../../../src/runtime/schedules/spec.ts';
+import { firesBetween, isOneOff, nextFire, validateSpec } from '../../../src/runtime/schedules/spec.ts';
+import { wallOf, wallTime } from '../../../src/shared/text/when.ts';
 import { previewTimes } from '../../../src/runtime/schedules/preview.ts';
 import { NextDueFile } from '../../../src/runtime/schedules/next-due.ts';
 import { SchedulerImpl } from '../../../src/runtime/schedules/scheduler.ts';
@@ -24,7 +25,7 @@ const MIN = 60_000;
 const H = 60 * MIN;
 const D = 24 * H;
 const TZ = 'Europe/Berlin';
-const local = (ms: number) => { const p = localParts(ms, TZ); return `${p.date} ${String(Math.floor(p.minutes / 60)).padStart(2, '0')}:${String(p.minutes % 60).padStart(2, '0')}`; };
+const local = (ms: number) => { const p = wallOf(ms, TZ); return `${p.date} ${String(Math.floor(p.minutes / 60)).padStart(2, '0')}:${String(p.minutes % 60).padStart(2, '0')}`; };
 const MON = Date.UTC(2026, 9, 19, 8, 0); // Mon 19 Oct 2026, 10:00 in Berlin (CEST)
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'wf-times-'));
 after(() => rmSync(tmp, { recursive: true, force: true }));
@@ -42,12 +43,12 @@ test('validateSpec: times are 1–24 different HH:MM and exclude cron and everyM
 test('several times a day: the earliest next time over all times, in the zone, day after day', () => {
   const spec = { times: ['18:00', '09:00', '13:30'], tz: TZ };
   assert.deepEqual(firesBetween(spec, MON, MON + D, 10).map(local), ['2026-10-19 13:30', '2026-10-19 18:00', '2026-10-20 09:00']);
-  assert.equal(local(nextFire(spec, wallInstant('2026-10-19', 18 * 60, TZ))!), '2026-10-20 09:00', 'strictly after');
+  assert.equal(local(nextFire(spec, wallTime('2026-10-19', 18 * 60, TZ))!), '2026-10-20 09:00', 'strictly after');
   const weekdays = { ...spec, days: [1, 2, 3, 4, 5] };
-  assert.deepEqual(firesBetween(weekdays, wallInstant('2026-10-23', 19 * 60, TZ), wallInstant('2026-10-26', 10 * 60, TZ)).map(local), ['2026-10-26 09:00'], 'the weekend is skipped');
-  const skipped = { ...spec, except: ['2026-10-20'], until: wallInstant('2026-10-21', 12 * 60, TZ) };
+  assert.deepEqual(firesBetween(weekdays, wallTime('2026-10-23', 19 * 60, TZ), wallTime('2026-10-26', 10 * 60, TZ)).map(local), ['2026-10-26 09:00'], 'the weekend is skipped');
+  const skipped = { ...spec, except: ['2026-10-20'], until: wallTime('2026-10-21', 12 * 60, TZ) };
   assert.deepEqual(firesBetween(skipped, MON, MON + 5 * D).map(local), ['2026-10-19 13:30', '2026-10-19 18:00', '2026-10-21 09:00']);
-  const later = { ...spec, at: wallInstant('2026-10-21', 10 * 60, TZ) };
+  const later = { ...spec, at: wallTime('2026-10-21', 10 * 60, TZ) };
   assert.equal(local(nextFire(later, MON)!), '2026-10-21 13:30', '`at` is "not before"');
   assert.deepEqual(previewTimes(spec, MON).map(local), ['2026-10-19 13:30', '2026-10-19 18:00', '2026-10-20 09:00']);
   const windowed = { times: ['08:00', '12:00', '20:00'], tz: TZ, window: { from: '09:00', to: '18:00' } };
@@ -56,10 +57,10 @@ test('several times a day: the earliest next time over all times, in the zone, d
 
 test('the DST days in Berlin: the wall times stay, the 25-hour and 23-hour days included', () => {
   const spec = { times: ['01:30', '02:30', '09:00'], tz: TZ };
-  const autumn = firesBetween(spec, wallInstant('2026-10-24', 12 * 60, TZ), wallInstant('2026-10-26', 12 * 60, TZ));
+  const autumn = firesBetween(spec, wallTime('2026-10-24', 12 * 60, TZ), wallTime('2026-10-26', 12 * 60, TZ));
   assert.deepEqual(autumn.map(local), ['2026-10-25 01:30', '2026-10-25 02:30', '2026-10-25 09:00', '2026-10-26 01:30', '2026-10-26 02:30', '2026-10-26 09:00']);
   assert.equal(new Date(autumn[2]).toISOString(), '2026-10-25T08:00:00.000Z', '09:00 CET after the change');
-  const spring = firesBetween(spec, wallInstant('2027-03-27', 12 * 60, TZ), wallInstant('2027-03-28', 12 * 60, TZ));
+  const spring = firesBetween(spec, wallTime('2027-03-27', 12 * 60, TZ), wallTime('2027-03-28', 12 * 60, TZ));
   assert.equal(spring.length, 3, 'one run per time, also for 02:30 which the night skips');
   assert.equal(new Date(spring[2]).toISOString(), '2027-03-28T07:00:00.000Z', '09:00 CEST');
   assert.ok(spring.every((at, i) => i === 0 || at > spring[i - 1]), 'in order');
@@ -68,7 +69,7 @@ test('the DST days in Berlin: the wall times stay, the 25-hour and 23-hour days 
 test("stored specs without times keep their runs; the agents' lane shows times and anchors an older interval at its next run", () => {
   assert.deepEqual(firesBetween({ cron: '0 9 * * *', tz: 'UTC' }, Date.UTC(2026, 9, 19), Date.UTC(2026, 9, 21)), [Date.UTC(2026, 9, 19, 9), Date.UTC(2026, 9, 20, 9)]);
   const schedule = (id: string, spec: Schedule['spec'], nextAt?: number): Schedule => ({
-    id, ownerId: 'ag_tom', conversationId: undefined, kind: 'routine', title: id, spec, payload: {}, runs: 0, active: true, createdAt: 0, ...(nextAt ? { nextAt } : {}),
+    id, ownerId: 'ag_tom', conversationId: undefined, kind: 'reminder', title: id, spec, payload: {}, runs: 0, active: true, createdAt: 0, ...(nextAt ? { nextAt } : {}),
   });
   const list = [schedule('times', { times: ['09:00', '17:00'], tz: TZ }), schedule('every', { everyMs: 6 * H, tz: TZ }, MON + 2 * H)];
   const runs = agentRuns({ scheduler: { list: () => list } as never }, MON, MON + D);

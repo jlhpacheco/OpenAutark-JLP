@@ -1,7 +1,7 @@
 // Owns: executable checks that the Play install rule and the phone-use disclosure keep their promises, without a device:
 // Play installs never self-update; the disclosure names what is read, where it goes, the password limit and the way out
-// in both languages, and the touch-pause that goes on by itself after 5 seconds (UseState.TOUCH_QUIET_MS) with the
-// AI's ✓/✕ question. Never: claims the screen shows (that needs a phone).
+// in both languages, that the person keeps using the phone while the AI works (owner 20.11.2026: no touch-pause), and
+// the AI's ✓/✕ question. Never: claims the screen shows (that needs a phone).
 package com.teydralab.autark.android.phoneuse;
 
 public final class DisclosureTest {
@@ -14,16 +14,15 @@ public final class DisclosureTest {
         for (boolean german : new boolean[] {false, true}) {
             String body = DisclosureText.body(german);
             for (String needed : german
-                    ? new String[] {"AccessibilityService", "Bildschirmfotos", "Passwortfeldern", "eigenen PC", "Teydra Lab", "Hintergrund", "Benachrichtigungsleiste", "Bankmeldungen", "KI-Modell", "auch private", "Pause", "Weiter", "✕", "Bedienungshilfen", "5 Sekunden", "von selbst", "✓"}
-                    : new String[] {"Accessibility Service", "screenshots", "password fields", "your own PC", "Teydra Lab", "background", "notification shade", "bank alerts", "AI model", "private content", "Pause", "Continue", "✕", "Accessibility", "5 seconds", "by itself", "✓"}) {
+                    ? new String[] {"AccessibilityService", "Bildschirmfotos", "Passwortfeldern", "eigenen PC", "Teydra Lab", "Hintergrund", "Benachrichtigungsleiste", "Bankmeldungen", "KI-Modell", "auch private", "Pause", "Weiter", "✕", "Bedienungshilfen", "weiter selbst benutzen", "nächsten Blick", "✓"}
+                    : new String[] {"Accessibility Service", "screenshots", "password fields", "your own PC", "Teydra Lab", "background", "notification shade", "bank alerts", "AI model", "private content", "Pause", "Continue", "✕", "Accessibility", "keep using the phone", "next look", "✓"}) {
                 check(body.contains(needed));
             }
             // Only what is checked: no claim about the microphone, the camera or a locked screen (owner 11.11.2026).
-            for (String unchecked : new String[] {"Mikrofon", "Kamera", "gesperrt", "microphone", "camera", "locked", "30 Sekunden", "30 seconds"}) check(!body.contains(unchecked));
+            for (String unchecked : new String[] {"Mikrofon", "Kamera", "gesperrt", "microphone", "camera", "locked", "30 Sekunden", "30 seconds", "5 Sekunden", "5 seconds", "pausiert die KI sofort", "pauses at once"}) check(!body.contains(unchecked));
             check(!DisclosureText.title(german).isEmpty() && !DisclosureText.agree(german).isEmpty() && !DisclosureText.decline(german).isEmpty());
         }
         check(DisclosureText.isGerman("de") && DisclosureText.isGerman("DE") && !DisclosureText.isGerman("en") && !DisclosureText.isGerman(null));
-        check(UseState.TOUCH_QUIET_MS == 5_000); // the "5 seconds" the disclosure promises is the wait the code keeps
         System.out.println(assertions + " Play install-rule and disclosure assertions passed.");
     }
 

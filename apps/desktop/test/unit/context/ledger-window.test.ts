@@ -71,12 +71,12 @@ test('the measured case: the history that was estimated at 787,902 and passed as
   assert.deepEqual(hidden, ['t1', 't2', 't3', 't4'], 'four of the twelve go: 4 × 98,488 covers the 381,856 above the fit');
 });
 
-test('a fold hides my own work before the hand-over – never a chat line, a tasks.finish call, what I brought back or what is hidden already', () => {
+test('a fold hides my own work before the hand-over – never a chat line, a finishing tasks.update call, what I brought back or what is hidden already', () => {
   const row = (itemId: string, kind: LedgerItem['kind'], order: number, extra: Partial<LedgerItem> = {}) =>
     ({ itemId, kind, order, createdAt: 0, tokens: 10, state: 'keep', title: itemId, origin: {}, ...extra }) as LedgerItem;
   const rows = [
     row('m1', 'message', 1), row('t2', 'tool', 2), row('s3', 'skill', 3), row('f4', 'file', 4), row('r5', 'reasoning', 5), row('a6', 'assistant', 6),
-    row('t7', 'tool', 7), // a tasks.finish call
+    row('t7', 'tool', 7), // a tasks.update call that finished a task
     row('t8', 'tool', 8, { nested: true }), row('t9', 'tool', 9, { pinnedUntil: 99 }), row('t10', 'tool', 10, { state: 'hidden' }),
     row('t11', 'tool', 11, { state: 'condensed', condensed: 'short' }), row('c12', 'checkpoint', 12, { pinnedUntil: Number.MAX_SAFE_INTEGER }),
     row('m13', 'message', 13), row('c14', 'checkpoint', 14), row('a15', 'assistant', 15),

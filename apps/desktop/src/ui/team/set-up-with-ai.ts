@@ -17,7 +17,7 @@ export const importTeamRequest = (): string => 'Import an agent team from: ';
 export const folderAgentRequest = (): string => 'Make an agent from this folder on my PC: ';
 export const duplicateRequest = (agent: Pick<Agent, 'name'>): string => `Duplicate ${agent.name}`;
 export const reportsToRequest = (agent: Pick<Agent, 'name'>): string => `Change who ${agent.name} reports to. New manager: `;
-export const connectCalendarRequest = (): string => 'Connect a calendar to My day (Google Calendar or a calendar link): ';
+export const connectCalendarRequest = (): string => 'Connect a calendar to my Tasks page (Google Calendar or a calendar link): ';
 
 /** The request under whatever the person had already typed there (a draft is never overwritten). */
 export function withRequest(existing: string, request: string): string {

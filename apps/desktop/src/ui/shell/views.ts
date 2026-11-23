@@ -1,17 +1,17 @@
 // The one route table (a fixed frame draws the surfaces and header rows, the views hand over content and cell
 // data): for every route what the desktop frame's side and main zones show and what the phone stack shows.
 // Shell.tsx, Sidebar.tsx and MobileShell.tsx draw the zones from it; nothing else switches on the route.
-//   side  – the sidebar's content and its header as data (the navs: Chats, Team, Work, My day, Settings)
+//   side  – the sidebar's content and its header as data (the navs: Chats, Team, the Tasks page's quests, Settings)
 //   main  – the main zone's content; `header` when the route hands its header row over as data (the empty
 //           #/chats). Without it the view draws its own top row with lib/header.tsx.
 //   phone – the stack: tab root or pushed (back, no tab bar), the top row's title, the body, the nav's header
 //           data when the body is a nav or a settings page (its search replaces the palette search), and `ownHeader` when the
 //           body draws its own top row with Back as its lead (a chat, an agent, a person, Add person) – one top row.
-// A chat route on a connection that may not read chats (To-do-only phone) shows My day (shell/gates.ts).
-// The default route 'home' is a pure alias of 'day': the same My day (DayView, with today's briefing on top) in the same
-// zones with the same key, so going between them changes nothing on screen; while the first run is open its place on
-// 'home' and on 'day' shows the first-run layer (onboarding/FirstRun.tsx; B-085: the rail's and the phone tab's My day
-// navigate to 'day' and no longer hide the setup).
+// A chat route on a connection that may not read chats (To-do-only phone) shows the Tasks page (shell/gates.ts).
+// Quests round 20.11.2026: one Tasks page (tasks/TasksPage.tsx) instead of My day and Work – the default route 'home'
+// and 'tasks' show it in the same zones with the same key, so going between them changes nothing on screen; while the
+// first run is open its place shows the first-run layer (onboarding/FirstRun.tsx).
+// On a phone a to-do's or quest's detail (#/tasks/<id>) is a pushed screen whose own top row has its close.
 // Owns: route → view mapping, the phone's title and push rule. Never: layout chrome, header markup or view content.
 
 import { h } from 'preact';
@@ -26,9 +26,9 @@ import { ChatList, chatListHeader } from '../chat/ChatList.tsx';
 import { FirstRun } from '../onboarding/FirstRun.tsx';
 import { firstRunActive } from '../onboarding/first-run.ts';
 import { FIRST_RUN_TITLE } from '../onboarding/first-run-model.ts';
-import { DayView } from '../day/DayView.tsx';
-import { DayNav, dayNavHeader } from '../day/DayNav.tsx';
-import { TasksView, workSearchHeader } from '../tasks/TasksView.tsx';
+import { TasksPage } from '../tasks/TasksPage.tsx';
+import { QuestNav, questNavHeader } from '../tasks/QuestNav.tsx';
+import { searchState } from '../tasks/task-search.ts';
 import { TeamView } from '../team/TeamView.tsx';
 import { TeamNav, teamNavHeader } from '../team/TeamNav.tsx';
 import { AgentView } from '../team/AgentView.tsx';
@@ -38,7 +38,6 @@ import { SplitView } from '../splits/SplitView.tsx'; // B-057: #/team/<agentId>/
 import { AgentWork } from '../team/AgentWork.tsx'; // F11: #/team/<agentId>/work
 import { Settings, settingsSectionTitle } from '../settings/Settings.tsx';
 import { SettingsNav, settingsNavHeader } from '../settings/SettingsNav.tsx';
-import { TaskFiltersNav, taskFiltersHeader } from './TaskFiltersNav.tsx';
 import { chatRouteAllowed } from './gates.ts';
 
 /** A zone's header row as data (lib/header.tsx props; the frame sets the zone). */
@@ -66,7 +65,7 @@ export interface PhoneView {
   title: string;
   /** The frame's row has Back to Home (the settings list) or to all settings (a page); pushed screens draw their own row with Back. */
   back: 'home' | 'settings' | null;
-  /** The body's header data – a nav's (Chats) or Work's: its search takes the place of the palette search. */
+  /** The body's header data – a nav's (Chats) or the Tasks page's: its search takes the place of the palette search. */
   header?: HeaderSource;
   /** The body draws its own top row (every pushed screen – ownsTopRow): the frame draws none. */
   ownHeader: boolean;
@@ -77,18 +76,17 @@ export function ZoneHeader(props: { read: HeaderSource; zone: HeaderZone }) {
   return h(Header, { ...props.read(), zone: props.zone });
 }
 
-/** The chat route's view: the chat, or My day where this connection may not read chats. */
+/** The chat route's view: the chat, or the Tasks page where this connection may not read chats. */
 function chatBody(id: string): { key: string; body: ComponentChildren } {
-  return chatRouteAllowed() ? { key: `chat:${id}`, body: h(ChatView, { key: id, conversationId: id }) } : { key: 'day', body: h(DayView, null) };
+  return chatRouteAllowed() ? { key: `chat:${id}`, body: h(ChatView, { key: id, conversationId: id }) } : { key: 'tasks', body: h(TasksPage, null) };
 }
 
 function sideView(current: Route): DesktopViews['side'] {
   switch (current.view) {
     case 'team': return { key: 'team', body: h(TeamNav, null), header: teamNavHeader };
     case 'settings': return { key: 'settings', body: h(SettingsNav, null), header: settingsNavHeader };
-    case 'tasks': return { key: 'tasks', body: h(TaskFiltersNav, null), header: taskFiltersHeader };
-    case 'home': // the same My day as 'day': one side column
-    case 'day': return { key: 'day', body: h(DayNav, null), header: dayNavHeader }; // B-041: mini month, connected calendars
+    case 'home': // the Tasks page everywhere: one side column, the quests
+    case 'tasks': return { key: 'tasks', body: h(QuestNav, null), header: questNavHeader };
     default: return { key: 'chats', body: h(ChatList, null), header: chatListHeader };
   }
 }
@@ -108,18 +106,16 @@ const EMPTY_CHATS: HeaderSource = () => ({ title: '' });
 function mainView(current: Route): ZoneView {
   switch (current.view) {
     case 'chat': return chatBody(current.id);
-    case 'day': return homeBody(); // B-085: the rail's My day keeps the first run in place, as Home does
     case 'chats': return { key: 'chats', body: h('div', { class: 'main-empty' }), header: EMPTY_CHATS };
-    case 'tasks': return { key: 'tasks', body: h(TasksView, null) };
     case 'team': return teamBody(current);
     case 'settings': return { key: 'settings', body: h(Settings, null) };
     default: return homeBody();
   }
 }
 
-/** Home and My day: the first-run layer while it is open, else My day. */
+/** Home and the Tasks page: the first-run layer while it is open, else the page. */
 function homeBody(): ZoneView {
-  return firstRunActive() ? { key: 'first-run', body: h(FirstRun, null) } : { key: 'day', body: h(DayView, null) };
+  return firstRunActive() ? { key: 'first-run', body: h(FirstRun, null) } : { key: 'tasks', body: h(TasksPage, null) };
 }
 
 /** The desktop frame's side and main zones for a route. */
@@ -130,14 +126,15 @@ export function desktopViews(current: Route): DesktopViews {
 /** The top row's title of a tab: the destination's name, Settings for the settings list. */
 export function tabTitle(current: Route): string {
   if (current.view === 'settings') return 'Settings';
-  if ((current.view === 'home' || current.view === 'day') && firstRunActive()) return FIRST_RUN_TITLE; // the computer's header says the same
+  if ((current.view === 'home' || current.view === 'tasks') && firstRunActive()) return FIRST_RUN_TITLE; // the computer's header says the same
   const key: NavKey = current.view === 'chat' ? 'chats' : current.view;
   return DESTINATIONS[key];
 }
 
-/** Pushed screens: a chat, an agent, a person and Add person. */
+/** Pushed screens: a chat, an agent, a person, Add person and a to-do's or quest's detail. */
 export function isPushed(current: Route): boolean {
   if (current.view === 'chat') return chatRouteAllowed();
+  if (current.view === 'tasks') return !!current.task;
   return current.view === 'team' && !!(current.agentId || current.personId || current.addPerson);
 }
 
@@ -153,10 +150,10 @@ export function phoneView(current: Route): PhoneView {
   switch (current.view) {
     case 'chat': {
       const chat = chatBody(current.id);
-      return { ...chat, pushed, title: pushed ? '' : tabTitle({ view: 'day' }), back: null, ownHeader: ownsTopRow(current) };
+      return { ...chat, pushed, title: pushed ? '' : tabTitle({ view: 'tasks' }), back: null, ownHeader: ownsTopRow(current) };
     }
     case 'chats': return { key: 'chats', body: h(ChatList, null), pushed, title: tabTitle(current), back: null, header: chatListHeader, ownHeader: false };
-    case 'tasks': return { key: 'tasks', body: h(TasksView, null), pushed, title: tabTitle(current), back: null, header: workSearchHeader, ownHeader: false }; // Work's own search in the top row
+    case 'tasks': return { key: 'tasks', body: h(TasksPage, null), pushed, title: tabTitle(current), back: null, header: () => ({ title: '', search: searchState() }), ownHeader: ownsTopRow(current) }; // its search in the top row
     case 'settings': return current.section
       ? { key: 'settings', body: h(Settings, null), pushed, title: settingsSectionTitle(current.section), back: 'settings', header: settingsNavHeader, ownHeader: false } // F20: the settings search, not the palette
       : { key: 'settings-list', body: h(SettingsNav, null), pushed, title: tabTitle(current), back: 'home', header: settingsNavHeader, ownHeader: false };

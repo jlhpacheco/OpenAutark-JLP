@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { agent } from '../chat/harness.ts';
 import type { Engine } from '../../../src/runtime/engines/types.ts';
-import { compareGroups, groupWakes, nextUtcMonthStart } from '../../../src/runtime/agents/dispatch-groups.ts';
+import { compareGroups, groupWakes } from '../../../src/runtime/agents/dispatch-groups.ts';
 import { flush, openWakes, setup } from './fakes.ts';
 
 function withAgents() {
@@ -25,7 +25,8 @@ test('immediate wakes reach the dispatcher without polling; one turn per agent a
   assert.equal(h.executor.calls.length, 1);
   assert.equal(h.executor.last().request.conversationId, a.id);
   assert.equal(h.executor.last().request.reason, 'message');
-  // The other chat's wake was released, not lost.
+  // The other chat's wake was released, not lost (Runde „Halb“ round 2: a person's chat never rides along).
+  assert.equal(h.executor.last().request.riders, undefined);
   assert.deepEqual(openWakes(h.db).map((row) => [row.conversation_id, row.claimed_at !== null]), [[a.id, true], [b.id, false]]);
   h.executor.last().finish();
   await flush();
@@ -36,6 +37,29 @@ test('immediate wakes reach the dispatcher without polling; one turn per agent a
   await flush();
   assert.equal(h.executor.calls.length, 2);
   assert.equal(openWakes(h.db).length, 0);
+});
+
+test('Runde „Halb“: a turn that does not end done leaves every riding wake due again, unspent – the next pump runs it', async () => {
+  for (const status of ['failed', 'skipped'] as const) {
+    const h = withAgents();
+    const a = h.chats.create({ agentIds: ['ag_tom'], createdBy: 'human' });
+    const b = h.chats.create({ agentIds: ['ag_tom', 'ag_lea'], humans: false, createdBy: 'ag_lea' });
+    h.chats.send({ conversationId: a.id, body: 'first', authorId: 'human' });
+    h.clock.advance(1000);
+    h.chats.send({ conversationId: b.id, body: '@Tom second', authorId: 'ag_lea', authorKind: 'agent', mentions: ['ag_tom'] });
+    h.dispatcher.start();
+    await flush();
+    assert.deepEqual(h.executor.last().request.riders?.map((rider) => rider.conversationId), [b.id]);
+    h.executor.last().finish({ status });
+    await flush();
+    assert.equal(h.executor.calls.length, 2, `${status}: the riding chat gets a turn again`);
+    const next = h.executor.last().request;
+    assert.ok([next.conversationId, ...(next.riders ?? []).map((rider) => rider.conversationId)].includes(b.id));
+    assert.equal(h.db.get<{ attempts: number }>('SELECT attempts FROM wakes WHERE conversation_id = ?', [b.id])?.attempts, 1, 'the claim it rode on did not count');
+    h.executor.last().finish();
+    await flush();
+    await h.dispatcher.stop();
+  }
 });
 
 test('07.11.2026, one capacity rule: every agent\'s own turn starts at once (B-080: no lane has a global limit)', async () => {
@@ -72,6 +96,7 @@ test('groups by chat/task: the most important group runs first, the others are r
   assert.equal(first.conversationId, 'ch_other');
   assert.deepEqual(first.notes, [{ text: '[ui-answer] yes', at: h.clock.now() - 1000, reason: 'answer' }]);
   assert.equal(first.control.lastSeq, 0);
+  assert.equal(first.riders, undefined, "Runde „Halb“ round 2: chat A holds a person's line – it keeps its own turn");
   const open = openWakes(h.db).filter((row) => row.claimed_at === null);
   assert.equal(open.length, 2, 'message and schedule groups wait unclaimed');
   h.executor.last().finish();
@@ -244,14 +269,14 @@ test('pure rules: grouping, ordering, capacity default', () => {
     { ...base, id: 'w1', reason: 'retry', conversationId: 'c1', taskId: 't1' },
     { ...base, id: 'w2', reason: 'task', conversationId: 'c1', taskId: 't1', dueAt: 5 },
     { ...base, id: 'w3', reason: 'message', conversationId: 'c2' },
-    { ...base, id: 'w4', reason: 'handoff', conversationId: 'c3' },
+    { ...base, id: 'w4', reason: 'child', conversationId: 'c3' },
   ]);
   assert.equal(groups.length, 3);
   const task = groups.find((group) => group.taskId === 't1')!;
   assert.equal(task.reason, 'task');
   assert.equal(task.dueAt, 5);
   const sorted = [...groups].sort((x, y) => compareGroups(x, y));
-  assert.deepEqual(sorted.map((group) => group.conversationId), ['c2', 'c3', 'c1'], '07.11.2026: a message before a hand-over');
+  assert.deepEqual(sorted.map((group) => group.conversationId), ['c2', 'c3', 'c1'], '07.11.2026: a message before a colleague’s result');
   const urgentFirst = [...groups].sort((x, y) => compareGroups(x, y, 'c1'));
   assert.equal(urgentFirst[0].conversationId, 'c1');
 });

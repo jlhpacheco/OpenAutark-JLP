@@ -1,6 +1,6 @@
 // F25 P3 (18.11.2026): the iPhone web app's direct way (src/ui/hosted/rtc.ts, rtc-signal.ts) without a browser – the
 // address filter (never stricter than the PC needs for the phone's own candidates, as strict as Android for the PC's),
-// the STUN list (only the offer's, an empty list stays empty), the offer limits (SDP ≤ 16 KiB, ≤ 32 candidates), the data channel's
+// the STUN list (only the built-in endpoint if offered, an empty list stays empty), the offer limits (SDP ≤ 16 KiB, ≤ 32 candidates), the data channel's
 // framing against the PC's own RtcSocket (pieces of exactly 16 KiB, the pinned handshake over it, broken pieces, a full
 // send buffer), the plan (30 s → 2 min → 10 min, at once after a resume, never after refused), the try's answers on A
 // (no answer = older PC, no, end before an offer, an offer past the limit), and one whole run with werift standing in
@@ -52,14 +52,22 @@ test('the address filter: the PC\'s candidates only as IP literals; the phone\'s
   for (const sample of samples) assert.equal(Boolean(ownCandidate(sample)), Boolean(allowedCandidate(sample)), sample);
 });
 
-test('iceServers come only from the offer: stun: URLs, at most 4; an empty list stays empty', () => {
+const allowedStun = 'stun:stun.cloudflare.com:3478';
+const rejectedStun = [
+  'stun:127.0.0.1:22', 'stun:169.254.169.254:80', 'stun:stun.cloudflare.com:80',
+  'stun:other.example:3478', 'stun:[2001:db8::1]:3478', 'stun:stun.cloudflare.com',
+  'stun:stun.cloudflare.com:3478?transport=tcp', 'stun:stun.cloudflare.com.example:3478',
+  'turn:stun.cloudflare.com:3478',
+];
+
+test('iceServers: only the exact bundle STUN endpoint, only if offered, and at most once', () => {
+  for (const url of rejectedStun) assert.deepEqual(stunOf([{ urls: url }]), [], url);
   assert.deepEqual(stunOf([]), []);
   assert.deepEqual(stunOf(undefined), []);
-  assert.deepEqual(rtcConfig([]).iceServers, [], 'no list, no server – never one of the browser\'s own');
-  assert.deepEqual(stunOf([{ urls: ['stun:stun.cloudflare.com:3478', 'turn:evil.example', 'stun:u@x.example', 'stun:a.example?transport=tcp'] }, { urls: 'stun:[2001:db8::1]:3478' }]),
-    ['stun:stun.cloudflare.com:3478', 'stun:[2001:db8::1]:3478']);
-  assert.equal(stunOf([{ urls: ['stun:a', 'stun:b', 'stun:c', 'stun:d', 'stun:e'] }]).length, 4);
-  assert.deepEqual(rtcConfig(['stun:a.example']).iceServers, [{ urls: ['stun:a.example'] }]);
+  assert.deepEqual(stunOf([{ urls: rejectedStun }, { urls: allowedStun }, { urls: [allowedStun] }]), [allowedStun]);
+  assert.deepEqual(rtcConfig([]).iceServers, []);
+  assert.deepEqual(rtcConfig(rejectedStun).iceServers, [], 'RTC config enforces the same policy');
+  assert.deepEqual(rtcConfig([allowedStun, ...rejectedStun, allowedStun]).iceServers, [{ urls: [allowedStun] }]);
 });
 
 test('an offer: SDP ≤ 16 KiB, an id, the version; its candidates through the filter, at most 32', () => {
@@ -226,17 +234,18 @@ test('a try on A: hello with the net kind; no answer in 5 s is an older PC; no a
   assert.equal(off.sent.length + ended.sent.length, 2, 'nothing but the two hellos');
 });
 
-test('an offer past 16 KiB ends the try with end on A; a good one: the browser gets exactly its STUN list, the PC our filtered candidates', async () => {
+test('an offer past 16 KiB ends the try with end on A; a good one: the browser gets only allowed STUN, the PC our filtered candidates', async () => {
   const big = await way();
   big.w.signal({ t: 'rtc', v: 1, op: 'offer', id: 'abc', sdp: 'v=0\r\n' + 'a=x:' + 'y'.repeat(MAX_SDP), ice: [] });
   await until(() => big.ends.length, (n) => n === 1, 'ended');
   assert.deepEqual([big.ends[0].outcome, big.sent.at(-1)], ['failed', { t: 'rtc', v: 1, op: 'end', id: 'abc', why: 'failed' }]);
   assert.equal(big.configs.length, 0, 'no peer connection for it');
-  for (const ice of [[], [{ urls: ['stun:stun.example:3478'] }]]) {
+  for (const [urls, expected] of [[rejectedStun, []], [[...rejectedStun, allowedStun], [{ urls: [allowedStun] }]]] as const) {
+    const ice = [{ urls }];
     const good = await way();
     good.w.signal({ t: 'rtc', v: 1, op: 'offer', id: 'abc', sdp: 'v=0\r\na=mid:0\r\n', ice });
     await until(() => good.sent.some((m) => m.op === 'answer'), Boolean, 'the answer');
-    assert.deepEqual(good.configs[0].iceServers, ice, 'iceServers = the offer\'s list, empty stays empty');
+    assert.deepEqual(good.configs[0].iceServers, expected, 'only the explicit allowed STUN endpoint reaches the peer factory');
     assert.deepEqual(good.sent.filter((m) => m.op === 'cand').map((m) => m.c.candidate), ['candidate:1 1 udp 1 192.168.1.9 50000 typ host'], 'UDP only');
     assert.ok(!good.sent.find((m) => m.op === 'answer')!.sdp.includes('candidate'));
     await until(() => good.ends.length, (n) => n === 1, 'the try times out');

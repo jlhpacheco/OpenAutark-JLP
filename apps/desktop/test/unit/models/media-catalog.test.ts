@@ -8,7 +8,7 @@ import { account, agent, mode, setup } from './harness.ts';
 import { buildModel, sanitizeListing, specialties } from '../../../src/runtime/models/catalog-merge.ts';
 import { Catalog } from '../../../src/runtime/models/catalog.ts';
 import { Priors } from '../../../src/runtime/models/priors.ts';
-import { functionModel } from '../../../src/runtime/models/functions.ts';
+import { functionStatus } from '../../../src/runtime/models/functions.ts';
 import { STATIC_MEDIA_MODELS } from '../../../src/runtime/media/providers/models.ts';
 import { adapterFor } from '../../../src/runtime/media/providers/index.ts';
 import { kindOfFunction } from '../../../src/runtime/media/providers/models.ts';
@@ -55,11 +55,11 @@ test('ElevenLabs and fal.ai accounts: curated models in the catalog, found by th
     assert.equal(model.engine, 'compatible', `${model.id}: the placeholder engine`);
     assert.deepEqual(model.accounts, [model.provider === 'fal' ? 'acc_fal' : 'acc_eleven']);
   }
-  assert.equal(functionModel(h.services, 'tts')?.modelId, 'elevenlabs:eleven_v4');
-  assert.equal(functionModel(h.services, 'video')?.modelId, 'fal:minimax/h3-max-turbo/text-to-video');
-  assert.equal(functionModel(h.services, 'image')?.accountId, 'acc_fal');
-  assert.equal(functionModel(h.services, 'sound')?.modelId, 'fal:fal-ai/elevenlabs/sound-effects/v2', 'the cheaper route of the same sound model');
-  assert.equal(functionModel(h.services, 'stt'), undefined);
+  assert.equal(functionStatus(h.services, 'tts').choice?.modelId, 'elevenlabs:eleven_v4');
+  assert.equal(functionStatus(h.services, 'video').choice?.modelId, 'fal:minimax/h3-max-turbo/text-to-video');
+  assert.equal(functionStatus(h.services, 'image').choice?.accountId, 'acc_fal');
+  assert.equal(functionStatus(h.services, 'sound').choice?.modelId, 'fal:fal-ai/elevenlabs/sound-effects/v2', 'the cheaper route of the same sound model');
+  assert.equal(functionStatus(h.services, 'stt').choice, undefined);
   await assert.rejects(h.router.route({ agent: agent('ag_1'), mode: mode('chat') }), (error: unknown) => error instanceof WorkforceError);
 
   // A restart reads the rows back: the functions stay (the table, not the name 'v2'), no engine was ever asked.
@@ -90,7 +90,7 @@ test('Groq on the compatible engine: whisper serves speech to text, its chat mod
   await h.catalog.refresh({ force: true });
   assert.deepEqual(h.catalog.get('groq:whisper-large-v3-turbo')?.functions, ['stt']);
   assert.equal(h.catalog.get('groq:llama-3.3-70b-versatile')?.functions, undefined);
-  assert.deepEqual(functionModel(h.services, 'stt'), { modelId: 'groq:whisper-large-v3-turbo', accountId: 'acc_groq', provider: 'groq', model: 'whisper-large-v3-turbo', source: 'auto' });
+  assert.deepEqual(functionStatus(h.services, 'stt').choice, { modelId: 'groq:whisper-large-v3-turbo', accountId: 'acc_groq', provider: 'groq', model: 'whisper-large-v3-turbo', source: 'auto' });
   assert.equal((await h.router.route({ agent: agent('ag_1'), mode: mode('chat') })).modelId, 'groq:llama-3.3-70b-versatile');
 });
 
@@ -103,8 +103,8 @@ test('review: a Groq key adds no Orpheus voice and no safety classifier – medi
   ]);
   await h.catalog.refresh({ force: true });
   assert.deepEqual(h.catalog.list().map((model) => model.id).sort(), ['groq:openai/gpt-oss-120b', 'groq:whisper-large-v3-turbo']);
-  assert.equal(functionModel(h.services, 'tts'), undefined, 'no speech model: media.speak uses the local voice');
-  assert.equal(functionModel(h.services, 'stt')?.modelId, 'groq:whisper-large-v3-turbo');
+  assert.equal(functionStatus(h.services, 'tts').choice, undefined, 'no speech model: media.speak uses the local voice');
+  assert.equal(functionStatus(h.services, 'stt').choice?.modelId, 'groq:whisper-large-v3-turbo');
   assert.equal((await h.router.route({ agent: agent('ag_1'), mode: mode('chat') })).modelId, 'groq:openai/gpt-oss-120b');
   assert.deepEqual(sanitizeListing([listed('meta-llama/llama-guard-4-12b'), listed('orpheus_tts'), listed('llama-3.3-70b')], 10).map((model) => model.model), ['llama-3.3-70b']);
 });
@@ -121,15 +121,15 @@ test('T6 review: a Gemini key makes full songs (Lyria 3.5, never the 30-second c
     'models/gemini-nano-banana-2.1', 'models/lyria-3-clip-preview', 'models/lyria-3-pro-preview', 'models/lyria-3.5', 'models/lyria-realtime-exp']);
   assert.deepEqual(h.catalog.list().map((model) => model.model).sort(), ['models/gemini-3.1-flash-lite-image', 'models/gemini-3.8-flash', 'models/gemini-nano-banana-2.1',
     'models/lyria-3-clip-preview', 'models/lyria-3-pro-preview', 'models/lyria-3.5']);
-  assert.equal(functionModel(h.services, 'music')?.model, 'models/lyria-3.5');
-  assert.equal(functionModel(h.services, 'image')?.model, 'models/gemini-nano-banana-2.1');
-  assert.equal(functionModel(h.services, 'stt'), undefined, 'no unreachable stt choice: dictation keeps the local model and the listening fallback');
+  assert.equal(functionStatus(h.services, 'music').choice?.model, 'models/lyria-3.5');
+  assert.equal(functionStatus(h.services, 'image').choice?.model, 'models/gemini-nano-banana-2.1');
+  assert.equal(functionStatus(h.services, 'stt').choice, undefined, 'no unreachable stt choice: dictation keeps the local model and the listening fallback');
   assert.deepEqual(h.catalog.get('google:models/lyria-3-clip-preview')?.functions, ['music']);
   assert.equal(h.catalog.get('google:models/lyria-3.5')?.strengths.chat, -1);
   const reread = new Catalog({ services: () => h.services, priors: Priors.empty() });
   assert.equal(reread.get('google:models/lyria-3.5')?.relCost, 0.15, 'a stored row keeps the curated price');
   const noSong = await gemini(['models/lyria-3-clip-preview', 'models/lyria-3-pro-preview']);
-  assert.equal(functionModel(noSong.services, 'music')?.model, 'models/lyria-3-pro-preview', 'a full-song model still before the clip');
+  assert.equal(functionStatus(noSong.services, 'music').choice?.model, 'models/lyria-3-pro-preview', 'a full-song model still before the clip');
 });
 
 test('listings keep audioIn: a Codex model that hears audio gets caps.audioIn', async () => {

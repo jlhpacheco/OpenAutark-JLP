@@ -3,7 +3,7 @@
 // fields and the description, never a value or hint; written at start and on every vault change; an entry that changes
 // its route leaves its old file; a disk edit of a name, description or tags reaches the vault, an edit of kind or source
 // is ignored with a quiet notice and a rejected copy; an entry without a vault entry is "value missing" until the
-// person stores a value (or deletes it); the legacy per-entry files <id>.md migrate into their route files at start;
+// person stores a value (or deletes it).
 // Owns: these assertions only. Never: a real keychain or network.
 
 import { test } from 'node:test';
@@ -12,8 +12,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { ManualClock } from '../fakes.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { SecretVault } from '../../../src/runtime/secrets/service.ts';
 import { SecretFiles } from '../../../src/runtime/secrets/files.ts';
 import { RootWatcher } from '../../../src/runtime/root/watcher.ts';
@@ -120,22 +120,6 @@ test('a hand-written entry without a vault entry is "value missing" until the pe
   f.vault.remove('wifi-office');
   await f.files.flush();
   assert.ok(!f.read('notes').includes('wifi-office'), 'deleted with the entry');
-});
-
-test('legacy per-entry files <id>.md migrate into their route files at start: an edited name is taken over, a file without a value becomes "value missing"', async (t) => {
-  const f = await setup(t);
-  const key = await f.vault.save({ label: 'Old name', kind: 'api_key', value: VALUE, description: 'Old purpose.' });
-  mkdirSync(path.join(f.dir, ROOT_SECRETS), { recursive: true });
-  writeFileSync(f.file(key.id), `---\n# note\nid: ${key.id}\nname: "Renamed while closed"\nkind: api_key\ndomains: ["api.example.com"]\nfields: []\naccess: ["all agents"]\n---\nNew purpose.`);
-  writeFileSync(f.file('sec_0123456789abcdef01234567'), '---\nid: sec_0123456789abcdef01234567\nname: "Server root"\nkind: password\ndomains: []\nfields: []\naccess: ["all agents"]\n---\nSSH login of the build server.');
-  const counts = await f.files.start();
-  assert.ok(counts.taken >= 2, JSON.stringify(counts));
-  assert.equal(existsSync(f.file(key.id)), false, 'the legacy file is gone');
-  assert.equal(existsSync(f.file('sec_0123456789abcdef01234567')), false);
-  assert.deepEqual([f.vault.list()[0].label, f.vault.list()[0].description], ['Renamed while closed', 'New purpose.']);
-  assert.match(f.read('keys'), /## Renamed while closed/);
-  assert.deepEqual(f.files.missing().map((entry) => [entry.id, entry.name, entry.route]), [['sec_0123456789abcdef01234567', 'Server root', 'servers']]);
-  assert.match(f.read('servers'), /## Server root\n- id: sec_0123456789abcdef01234567\n- kind: password/);
 });
 
 test('parse: names with quotes and headings in a description round-trip', async (t) => {

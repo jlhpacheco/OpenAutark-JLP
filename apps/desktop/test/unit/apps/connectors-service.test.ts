@@ -1,12 +1,12 @@
 // Connectors as files: the service applies <data>/connectors/mcp.json and mail.json – connect, list and register the
 // tools, write status.json –, follows changes of the files (added, changed, disabled, removed), fills secret://<id>
 // handles from the vault, starts the browser sign-in only for an entry that was just added or changed (or on
-// apps.reconnect), registers cached tools at start without a connection, and moves the old kv records into the files.
+// apps.reconnect) and registers cached tools at start without a connection.
 // Owns: these assertions. Never: a real server or network (connect, OAuth and the vault are fakes).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readConnectors, migrateRecords, mutateConnectors, slug } from '../../../src/runtime/apps/connectors.ts';
+import { readConnectors, mutateConnectors, slug } from '../../../src/runtime/apps/connectors.ts';
 import { McpAuthRequired } from '../../../src/runtime/apps/types.ts';
 import { appsFixture, dataFolder, FakeKv } from './service-fakes.ts';
 
@@ -149,23 +149,6 @@ test('the tool host: a call runs on the server; a 401 on a call turns the connec
   assert.deepEqual(server.calls, [{ tool: 'list_issues', args: { q: 1 } }]);
   assert.equal(f.apps.list()[0].status, 'ok');
   await f.apps.stop();
-});
-
-test('migration: the old Settings › Apps records move into the files once (tokens as handles, tool lists as cache)', () => {
-  const data = dataFolder();
-  const kv = new FakeKv();
-  kv.set('app:linear', { id: 'linear', name: 'Linear', transport: 'http', url: 'https://mcp.linear.app/mcp', token: { secretId: 'tok', header: 'Authorization' }, enabled: true, tools: [{ name: 'x', inputSchema: {} }] });
-  kv.set('app:fs', { id: 'fs', name: 'fs', transport: 'stdio', command: 'npx', args: ['-y', 'server'], env: { KEY: { secretId: 'k' }, PLAIN: 'v' }, enabled: false, tools: [] });
-  kv.set('app:box', { id: 'box', name: 'box', transport: 'mail', mail: { address: 'me@example.com', user: 'me', imap: { host: 'i', port: 993, tls: 'implicit' }, smtp: { host: 's', port: 465, tls: 'implicit' }, agentId: 'ag_1' }, token: { secretId: 'pw', header: 'password' }, enabled: true, tools: [] });
-  assert.equal(migrateRecords(data.dir, kv), 3);
-  assert.deepEqual(data.read('mcp.json'), { mcpServers: {
-    Linear: { url: 'https://mcp.linear.app/mcp', headers: { Authorization: 'secret://tok' } },
-    fs: { command: 'npx', args: ['-y', 'server'], env: { KEY: 'secret://k', PLAIN: 'v' }, disabled: true },
-  } });
-  assert.equal((data.read('mail.json') as { mailboxes: Record<string, { password: string; agent: string }> }).mailboxes.box.password, 'secret://pw');
-  assert.deepEqual(kv.keys('app:'), []);
-  assert.ok(kv.get('tools:linear'));
-  assert.equal(migrateRecords(data.dir, kv), 0);
 });
 
 test('new mail wakes the mailbox\'s agent (by name or id, else the assistant) with durable due times instead of a process-local debounce timer', async () => {

@@ -20,17 +20,15 @@
 // secret-redacted there).
 
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { Run, RunItem } from '../../shared/model/runs.ts';
+import type { RunItem } from '../../shared/model/runs.ts';
 import type { Topic } from '../../shared/api/protocol.ts';
-import { EmptyState, Icon, Spinner } from '../lib/ui.tsx';
+import { EmptyState, Icon } from '../lib/ui.tsx';
 import { RpcError, rpc, errorText } from '../lib/rpc.ts';
 import { holds } from '../lib/session.ts';
 import { activity } from '../lib/store.ts';
 import { runEntries } from './model.ts';
 import { liveWindow, mergeItem, shownEntry } from './step-view.ts';
 import { StepEntry, entryKey } from './run-steps.tsx';
-
-export { ToolEntry } from './run-steps.tsx';
 
 // ---------------------------------------------------------------- rendering (one line per item: run-steps.tsx)
 
@@ -78,16 +76,6 @@ export function RunItemList(props: { items: RunItem[]; live?: boolean; window?: 
       {shown.map((entry) => <StepEntry key={entryKey(entry)} entry={entry} live={live} />)}
     </ul>
   );
-}
-
-/** A run's items for the agent view: loads when shown, live while the run runs. */
-export function RunItems(props: { run: Run }) {
-  const { run } = props;
-  const live = run.status === 'running' || run.status === 'queued';
-  const { items, error } = useRunItems(run.id, run.agentId, { enabled: true, live });
-  if (error) return <p class="run-error">{error}</p>;
-  if (!items) return <div class="run-loading"><Spinner size={14} /></div>;
-  return <RunItemList items={items} live={live} />;
 }
 
 // ---------------------------------------------------------------- loading

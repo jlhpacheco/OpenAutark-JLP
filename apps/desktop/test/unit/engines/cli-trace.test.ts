@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { lastRecord } from '../../../src/runtime/engines/claude/rebuild.ts';
+import { lastRecord, nodeFiles } from '../../../src/runtime/engines/claude/rebuild.ts';
 import { ClaudeRebuilder, TRACE_END } from '../../../src/runtime/engines/claude/rebuilder.ts';
 import { injectTrace } from '../../../src/runtime/engines/codex/rebuild.ts';
 import { traceInput, traceItems } from '../../../src/runtime/engines/trace-text.ts';
@@ -22,7 +22,7 @@ function rebuilder(dir: string, files: Record<string, unknown> = {}) {
   let n = 0;
   return new ClaudeRebuilder({
     supervisor: undefined as never, finder: { find: async () => null } as never, tempDir: dir, transcriptsDir: path.join(dir, 'transcripts'),
-    files: { writeFile: async (file, data) => writeFileSync(file, data), rm: async (file) => rmSync(file, { force: true }), mkdir: async (folder) => { mkdirSync(folder, { recursive: true }); }, ...files },
+    files: { ...nodeFiles, writeFile: async (file, data) => writeFileSync(file, data), rm: async (file) => rmSync(file, { force: true }), mkdir: async (folder) => { mkdirSync(folder, { recursive: true }); }, ...files },
     envFor: () => ({}), uuid: () => `00000000-0000-4000-8000-00000000000${++n}`, now: () => 1000,
   });
 }

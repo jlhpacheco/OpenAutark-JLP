@@ -21,19 +21,24 @@ import { createNetwork, type Network } from './compose/network.ts';
 import { restoreAtStart, runStopSteps, stopSteps } from './compose/lifecycle.ts';
 import { keepOwnerDirects } from './chat/direct.ts';
 import { recordStart } from './tasks/recover-notes.ts';
+import { sendUpdateNote } from './system/update-note.ts';
 import { AgentRepo } from './store/agents.ts'; // B-059 #21
 import { recoveryRuns } from './splits/reconcile.ts'; // B-057
 import { reviewPromptOverrides } from './context/prompt-updates.ts';
 import { startStandards } from './org/standard.ts';
-import { runKontext1311 } from './bridge/kontext-1311.ts';
 import { runCost1117 } from './bridge/cost-1117.ts';
+import { runSicher1119, runSicher1119Files } from './bridge/sicher-1119.ts';
+import { runQuestsWake } from './bridge/quests-wake.ts';
+import { runGeneral1121 } from './bridge/general-1121.ts';
+import { runEineId1122 } from './bridge/eine-id-1122.ts';
 import { loginsFolder } from './root/companies.ts';
-import { runB078Repairs } from './system/b078-repairs.ts';
 import { startSync } from './devices/sync/service.ts';
 import { wakeWhenBack } from './devices/back-wake.ts';
+import { startMoves } from './agents/move.ts'; // Umzug 21.11.2026
 import { endCallsLeftOpen } from './calls/wiring.ts';
 import { ensurePwsh } from './accounts/install.ts'; // B-080 wave 3
-import { keepClaudeCodeCurrent } from './engines/claude/cli-update.ts'; // a provider's new Claude model comes with a new Claude Code
+import { keepClisCurrent } from './engines/cli-update.ts'; // a provider's new model comes with a new Claude Code or Codex
+import { planFrom } from './devices/sync/employee.ts'; // 22.11.2026: a plan that came from the company this PC works for
 
 export interface RuntimeOptions {
   host: Host;
@@ -42,6 +47,8 @@ export interface RuntimeOptions {
   staticDir: string; // built UI (app/ui) served to the PWA/phone
   workspaceDir?: string;
   launchToken: string;
+  /** FX1 19.11.2026: owner scope marked `person` (http/types.ts) – memory only, never in runtime.json. */
+  personToken?: string;
   version: string;
   fakeEngine?: boolean;
   port?: number;
@@ -69,11 +76,14 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
   // A restore staged by system.restore replaces the data now – before createCore opens the
   // database; a v2 backup's skills go back into the workspace (MM8).
   await restoreAtStart(paths, log, options.host);
+  // 19.11.2026: profile.pcAccess/forEveryAgent → section security and its topic files, before the settings store reads the file (deleted with the bridge)
+  runSicher1119Files(paths.data, paths.resources, log);
 
   let port = 0;
   const core = await createCore({ host: options.host, paths, log, version: options.version, fakeEngine: options.fakeEngine, baseUrl: () => `http://127.0.0.1:${port}` });
   const s = core.services;
-  const network = createNetwork({ core, staticDir: options.staticDir, launchToken: options.launchToken, startedAt, port: options.port, peer: options.peer });
+  runEineId1122(s); // 22.11.2026: a seat's own code becomes its My ID, before the network opens the IDs (deleted with the bridge)
+  const network = createNetwork({ core, staticDir: options.staticDir, launchToken: options.launchToken, personToken: options.personToken, startedAt, port: options.port, peer: options.peer });
 
   // Linked PCs share chats, tasks, agents, settings, files and secrets (devices/sync) – idle while no PC is linked. Its
   // listeners come first, so what the reconciliation changes (a run's row stopped or removed) travels like any change;
@@ -81,6 +91,7 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
   const watcher = s.rootWatcher;
   const sync = startSync({ s, mesh: core.mesh, tap: watcher ? (listener) => watcher.tap(listener) : undefined });
   const offBackWake = wakeWhenBack(s); // B-080: an agent that could not reach a linked PC is woken once when it is back
+  const offMoves = startMoves(s, { mesh: core.mesh }); // Umzug 21.11.2026: an agent's PC changed – what it runs and its record follow (agents/move.ts)
 
   // ---- reconciliation after a crash, update or power loss (before anything runs)
   const stopped = s.chats.reconcileStreaming();
@@ -93,20 +104,17 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
   log.info('reconciled', { streaming: stopped, calls, interruptedRuns: runs.interrupted, unknownEffects: runs.unknownEffects, wakes, idled });
   // C3: human/external messages a crash left without a wake (e.g. during the responder decision) are delivered once more.
   try { log.info('redelivered unanswered messages', { messages: s.delivery.recover?.() ?? 0 }); } catch (error) { log.warn('message redelivery failed', { error: String(error) }); }
-  try {
-    const legacy = await network.extras.importLegacy();
-    if (legacy.chats || legacy.agents) log.info('imported legacy data', legacy);
-  } catch (error) { log.warn('legacy import failed', { error: String(error) }); }
   // First run: the Manager. B-050 K1 (Nachtrag Runde 4): the owner's default 1:1 with every active agent – the Manager's
   // is the first chat (untitled: named after the agent), so the person can start talking right away – is made now for
   // those without one (one transaction; empty, unread nothing, wakes nobody), and for a hire as the org announces it.
-  // F14: a company started as my other device ('mine') gets its agents with the link – no Manager of its own (a later
-  // start without the flag still seeds an empty company).
-  if (options.host.app.start !== 'mine') s.org.ensureSeed();
+  // F14 / Eine-ID 22.11.2026: a company started to connect with an ID ('join') gets its agents with the link – no Manager
+  // of its own (a later start without the flag still seeds an empty company).
+  if (options.host.app.start !== 'join') s.org.ensureSeed();
   const offDirects = keepOwnerDirects(s);
-  runB078Repairs(s); // data from before B-078 brought to its rules once (system/b078-repairs.ts)
-  runKontext1311(s); // the one-time conversions of the 13.11.2026 context rebuild (deleted in the version after the bridge)
+  runSicher1119(s); // 19.11.2026: the old whole/careful PC line in each SYSTEM.md becomes today's (deleted with the bridge)
   runCost1117(s); // runs priced before 17.11.2026 get their notional cost from their own tokens, once (deleted with the bridge)
+  runQuestsWake(s); // 20.11.2026: each agent with open work sorts it into quests once (deleted with the bridge)
+  runGeneral1121(s); // 21.11.2026: the 19.11. general text the sicher bridge copied into general.md goes; the person's lines stay (deleted with the bridge)
   reviewPromptOverrides(s); // an own prompt file follows the release while untouched; an edited one gets one review
   s.prompts?.invalidate();
   const offStandards = startStandards(s); // every SYSTEM.md keeps the team's standard as its last comment (owner 14.11.2026)
@@ -116,6 +124,7 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
   }
   // B-057: a split's cut run is its part's (put back by splits/reconcile.ts) – no recovery note wakes its main self.
   const continued = s.ownership.recover({ interruptedRuns: recoveryRuns(s.runs, runs.runIds) });
+  sendUpdateNote(s, options.version); // before recordStart advances the version marker
   // RC1: one notice after an update or a crash ("Updated to X · N tasks continued"), read by system.info.
   try { recordStart(s, { version: options.version, interrupted: runs.interrupted, continued }); } catch (error) { log.warn('start notice not stored', { error: String(error) }); }
 
@@ -139,9 +148,12 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
   // Adopted logins are checked by the monitor; after detection the monitor reads any plan that is due.
   void core.refreshDetection().then(() => { core.accountMonitor.activity(); return core.catalog.refresh(); }).catch((error) => log.warn('initial catalog refresh failed', { error: String(error) }));
 
-  // Claude Code learns new models with new versions: it updates itself shortly after start and every 6 h, then the catalog lists again.
-  const offClaudeUpdate = keepClaudeCodeCurrent({
-    supervisor: core.supervisor, finder: core.finder, log, demo: options.fakeEngine, cwd: paths.temp, accounts: () => s.accounts.list(),
+  // Claude Code and Codex learn new models with new versions: each updates shortly after start and every 6 h, then the catalog lists again.
+  const offCliUpdate = keepClisCurrent({
+    supervisor: core.supervisor, finder: core.finder, log, demo: options.fakeEngine, cwd: paths.temp,
+    // A plan row that came from the company this PC's person works for (employee PC) is no use of the person's own CLI here: that
+    // install is theirs and their terminals share it. Only the person's own plans, or this company's own, keep it current.
+    accounts: () => s.accounts.list().filter((account) => planFrom(s.db, account.id) === undefined),
     onUpdated: () => void core.catalog.refresh({ force: true }).catch(() => undefined),
   });
 
@@ -159,12 +171,13 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
     shutdown: (reason) => (closing ??= (async () => {
       log.info('runtime stopping', { reason });
       powerOff();
-      offClaudeUpdate();
+      offCliUpdate();
       offDirects();
       offStandards();
       offPeerOpened();
       sync.stop();
       offBackWake();
+      offMoves();
       await runStopSteps(stopSteps(core, network), log);
       log.info('runtime stopped', { reason });
     })()),

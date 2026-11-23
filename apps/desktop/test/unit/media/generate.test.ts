@@ -114,7 +114,7 @@ test('mediaTarget: off, a chosen model gone or nothing set up → a clear error 
   assert.throws(() => mediaTarget(none, 'sound'), /Sound effect generation is not set up: add an ElevenLabs key or a fal\.ai key/);
   assert.throws(() => mediaTarget(none, 'video'), /Video generation is not set up: add a Gemini API key or a fal\.ai key/);
   assert.throws(() => mediaTarget(services([account('acc_local', 'local', 'http://127.0.0.1:9100/v1')], { image: 'off' }), 'image'), /Image generation is turned off/);
-  assert.throws(() => mediaTarget({ ...none, settings: { get: () => ({ routing: { functions: { tts: 'gone:model' } } }) } } as unknown as GenerateServices, 'tts'), /chosen speech generation model is not available/);
+  assert.throws(() => mediaTarget({ ...none, settings: { get: () => ({ routing: { tts: 'gone:model' } }) } } as unknown as GenerateServices, 'tts'), /chosen speech generation model is not available/);
   assert.throws(() => mediaTarget(services([account('acc_cli', 'cli', 'https://x.example', 'codex')], {}, 'gpt-image-1', [
     { id: 'codex:gpt-image-x', provider: 'codex', model: 'gpt-image-x', engine: 'codex', available: true, accounts: ['acc_cli'], functions: ['image'], tier: 'local', efforts: [], caps: {}, strengths: {}, name: 'x' } as never,
   ]), 'image'), /offers no image generation endpoint/);

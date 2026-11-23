@@ -1,32 +1,19 @@
-// The stored vectors (migration vector-chunks): one row per embedded file (path, mtime and size when it was read, the
-// embedding model, how many of its chunks are done) and one per chunk (line range, a short snippet, the vector as int8).
-// Int8: 384 bytes per chunk with the local model, and a scan over 100k chunks stays a plain loop. Search reads rows in
-// pages so the event loop gets a turn between them.
-// Owns: the SQL of vector_files and vector_chunks and the int8 form. Never: reads files, embeds or decides what is embedded.
+// The stored texts of the one search and their meaning (migration vector-chunks, Quests 20.11.2026): one row per text – a piece of
+// a file vector.embed added ("<file key>#<n>", with its lines), or a memory note or catalog entry whose meaning was asked for (its
+// own key) – holding the text (redacted), a version that changes with it, and its vector of one embedding model as int8 (empty
+// until a model embedded it; another model's vector does not count). Writing a text drops its vector. A mirror of keys,
+// versions and vectors stays in memory, so a ranking reads no SQL; texts are read from SQL when needed.
+// Owns: the SQL of vector_files and vector_chunks, that mirror and the int8 form. Never: reads files, embeds or decides what is stored.
 
 import type { Db } from '../db/database.ts';
-import type { VectorHit } from '../../shared/model/vectors.ts';
+import type { StoredText } from '../contracts/vectors.ts';
 
-export interface VectorFileRow {
+export interface Held {
   id: number;
-  key: string;
-  path: string;
-  mtime: number;
-  size: number;
+  version: number;
   model: string;
-  chunks: number;
-  done: number;
+  vector?: Int8Array;
 }
-
-export interface ChunkRow {
-  chunk: number;
-  from?: number;
-  to?: number;
-  snippet: string;
-  vector: Int8Array;
-}
-
-const PAGE = 2000;
 
 /** A unit vector as int8 (a score is the dot product over 127). */
 export function toInt8(vector: Float32Array): Int8Array {
@@ -35,123 +22,99 @@ export function toInt8(vector: Float32Array): Int8Array {
   return out;
 }
 
-/** The first key after every key below `key/` ('0' follows '/'). */
-const rangeEnd = (key: string) => `${key}0`;
+/** The cosine of a unit query and a stored int8 vector (0 when their lengths differ: another model). */
+export function cosine(query: Float32Array, stored: Int8Array): number {
+  if (query.length !== stored.length) return 0;
+  let dot = 0;
+  for (let i = 0; i < query.length; i++) dot += query[i] * stored[i];
+  return dot / 127;
+}
+
+/** `place` itself, what lies below it as a folder, and its pieces ("<place>#<n>"). */
+export const isUnder = (key: string, place: string): boolean =>
+  key === place || key.startsWith(`${place}/`) || (key.startsWith(`${place}#`) && /^\d+$/.test(key.slice(place.length + 1)));
+
+const EMPTY = new Uint8Array(0);
 
 export class VectorStore {
   private readonly db: Db;
   private readonly now: () => number;
+  private mirror?: Map<string, Held>;
 
   constructor(db: Db, now: () => number = Date.now) {
     this.db = db;
     this.now = now;
   }
 
-  file(key: string): VectorFileRow | undefined {
-    return this.db.get<VectorFileRow>('SELECT id, key, path, mtime, size, model, chunks, done FROM vector_files WHERE key = ?', [key]);
+  get(key: string): Held | undefined {
+    return this.held().get(key);
   }
 
-  /** The files at or below a place's key (any model). */
-  filesUnder(key: string): VectorFileRow[] {
-    return this.db.all<VectorFileRow>(
-      `SELECT id, key, path, mtime, size, model, chunks, done FROM vector_files WHERE key = ? OR (key >= ? AND key < ?)`,
-      [key, `${key}/`, rangeEnd(key)],
-    );
+  keys(): string[] {
+    return [...this.held().keys()];
   }
 
-  /** Files embedded with another model (what a model change re-embeds), oldest first. */
-  staleFiles(model: string, limit: number): VectorFileRow[] {
-    return this.db.all<VectorFileRow>('SELECT id, key, path, mtime, size, model, chunks, done FROM vector_files WHERE model <> ? ORDER BY embedded_at LIMIT ?', [model, limit]);
+  /** The keys at or below `place` (a folder, a file and its pieces). */
+  keysUnder(place: string): string[] {
+    return [...this.held().keys()].filter((key) => isUnder(key, place));
   }
 
-  /** Starts a file over: its old chunks go, `chunks` new ones are expected. */
-  begin(key: string, stored: string, mtime: number, size: number, model: string, chunks: number): number {
-    return this.db.tx(() => {
-      const known = this.file(key);
-      if (known) this.db.run('DELETE FROM vector_chunks WHERE file_id = ?', [known.id]);
-      this.db.run(
-        `INSERT INTO vector_files (key, path, mtime, size, model, chunks, done, embedded_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-         ON CONFLICT(key) DO UPDATE SET path = excluded.path, mtime = excluded.mtime, size = excluded.size, model = excluded.model, chunks = excluded.chunks, done = 0, embedded_at = excluded.embedded_at`,
-        [key, stored, mtime, size, model, chunks, this.now()],
-      );
-      return (this.file(key) as VectorFileRow).id;
-    });
-  }
-
-  /** Stores finished chunks; `done` is the file's count afterwards. False: the file left the store meanwhile. */
-  put(fileId: number, rows: ChunkRow[], done: number): boolean {
-    return this.db.tx(() => {
-      if (!this.db.get('SELECT 1 AS hit FROM vector_files WHERE id = ?', [fileId])) return false;
+  /** Writes texts; a text that was there gets the new one and loses its vector. */
+  put(rows: readonly StoredText[]): void {
+    const held = this.held();
+    this.db.tx(() => {
       for (const row of rows) {
-        this.db.run('INSERT OR REPLACE INTO vector_chunks (file_id, chunk, line_from, line_to, vector, snippet) VALUES (?, ?, ?, ?, ?, ?)',
-          [fileId, row.chunk, row.from ?? null, row.to ?? null, new Uint8Array(row.vector.buffer, row.vector.byteOffset, row.vector.byteLength), row.snippet]);
+        this.db.run(
+          `INSERT INTO vector_files (key, path, mtime, size, model, chunks, done, embedded_at) VALUES (?, ?, ?, ?, '', 1, 0, ?)
+           ON CONFLICT(key) DO UPDATE SET path = excluded.path, mtime = excluded.mtime, size = excluded.size, model = '', done = 0, embedded_at = excluded.embedded_at`,
+          [row.key, row.path, row.version, row.text.length, this.now()],
+        );
+        const id = (this.db.get<{ id: number }>('SELECT id FROM vector_files WHERE key = ?', [row.key]) as { id: number }).id;
+        this.db.run('DELETE FROM vector_chunks WHERE file_id = ?', [id]);
+        this.db.run('INSERT INTO vector_chunks (file_id, chunk, line_from, line_to, vector, snippet) VALUES (?, 0, ?, ?, ?, ?)',
+          [id, row.lines?.[0] ?? null, row.lines?.[1] ?? null, EMPTY, row.text]);
+        held.set(row.key, { id, version: row.version, model: '' });
       }
-      this.db.run('UPDATE vector_files SET done = ? WHERE id = ?', [done, fileId]);
-      return true;
     });
   }
 
-  remove(key: string): void {
-    this.db.run('DELETE FROM vector_files WHERE key = ?', [key]);
-  }
-
-  /** The files at or below `key` go. */
-  removeUnder(key: string): void {
-    this.db.run('DELETE FROM vector_files WHERE key = ? OR (key >= ? AND key < ?)', [key, `${key}/`, rangeEnd(key)]);
-  }
-
-  /** The best `k` chunks of `fileIds` by dot product with the unit `query`; the event loop gets a turn between pages. */
-  async top(query: Float32Array, fileIds: ReadonlySet<number>, k: number): Promise<Array<{ fileId: number; chunk: number; score: number }>> {
-    return (await this.topMany([query], fileIds, k))[0] ?? [];
-  }
-
-  /** The best `k` chunks for each query in one scan of the chunks (a hop of vectors/hops.ts scores its whole beam at once). */
-  async topMany(queries: readonly Float32Array[], fileIds: ReadonlySet<number>, k: number): Promise<Array<Array<{ fileId: number; chunk: number; score: number }>>> {
-    const lists = queries.map(() => [] as Array<{ fileId: number; chunk: number; score: number }>);
-    if (!queries.length) return lists;
-    let after = 0;
-    for (;;) {
-      const page = this.db.all<{ rowid: number; file_id: number; chunk: number; vector: Uint8Array }>(
-        'SELECT rowid, file_id, chunk, vector FROM vector_chunks WHERE rowid > ? ORDER BY rowid LIMIT ?', [after, PAGE],
-      );
-      for (const row of page) {
-        if (!fileIds.has(row.file_id)) continue;
-        const bytes = row.vector;
-        for (const [index, query] of queries.entries()) {
-          const dims = query.length;
-          if (bytes.length !== dims) continue;
-          const best = lists[index];
-          let dot = 0;
-          for (let i = 0; i < dims; i++) dot += query[i] * ((bytes[i] << 24) >> 24); // a byte read as int8
-          if (best.length === k && dot <= best[k - 1].score) continue;
-          let at = best.length === k ? k - 1 : best.length;
-          while (at > 0 && best[at - 1].score < dot) { best[at] = best[at - 1]; at--; }
-          best[at] = { fileId: row.file_id, chunk: row.chunk, score: dot };
-        }
-      }
-      if (page.length < PAGE) break;
-      after = page[page.length - 1].rowid;
-      await new Promise((resolve) => setImmediate(resolve));
-    }
-    return lists.map((best) => best.map((hit) => ({ ...hit, score: hit.score / 127 })));
-  }
-
-  /** A stored chunk's vector as a unit float vector (the next query of a hop, vectors/hops.ts); undefined when it is gone. */
-  vectorOf(fileId: number, chunk: number): Float32Array | undefined {
-    const row = this.db.get<{ vector: Uint8Array }>('SELECT vector FROM vector_chunks WHERE file_id = ? AND chunk = ?', [fileId, chunk]);
+  /** The stored text of `key`. */
+  text(key: string): StoredText | undefined {
+    const row = this.db.get<{ key: string; path: string; mtime: number; line_from: number | null; line_to: number | null; snippet: string }>(
+      'SELECT f.key, f.path, f.mtime, c.line_from, c.line_to, c.snippet FROM vector_files f JOIN vector_chunks c ON c.file_id = f.id AND c.chunk = 0 WHERE f.key = ?', [key]);
     if (!row) return undefined;
-    const out = new Float32Array(row.vector.length);
-    let length = 0;
-    for (let i = 0; i < out.length; i++) { out[i] = (row.vector[i] << 24) >> 24; length += out[i] * out[i]; }
-    length = Math.sqrt(length) || 1;
-    for (let i = 0; i < out.length; i++) out[i] /= length;
-    return out;
+    return { key: row.key, path: row.path, version: row.mtime, text: row.snippet, ...(row.line_from !== null && row.line_to !== null ? { lines: [row.line_from, row.line_to] as [number, number] } : {}) };
   }
 
-  /** The stored line range and snippet of a found chunk. */
-  chunk(fileId: number, chunk: number): Pick<VectorHit, 'lines' | 'snippet'> | undefined {
-    const row = this.db.get<{ line_from: number | null; line_to: number | null; snippet: string }>('SELECT line_from, line_to, snippet FROM vector_chunks WHERE file_id = ? AND chunk = ?', [fileId, chunk]);
-    if (!row) return undefined;
-    return { snippet: row.snippet, ...(row.line_from !== null && row.line_to !== null ? { lines: [row.line_from, row.line_to] as [number, number] } : {}) };
+  /** The vector of `model` for the text of `key` – only while the row still holds `version`. */
+  setVector(key: string, version: number, model: string, vector: Int8Array): boolean {
+    const held = this.held().get(key);
+    if (!held || held.version !== version) return false;
+    this.db.tx(() => {
+      this.db.run('UPDATE vector_chunks SET vector = ? WHERE file_id = ? AND chunk = 0', [new Uint8Array(vector.buffer, vector.byteOffset, vector.byteLength), held.id]);
+      this.db.run('UPDATE vector_files SET model = ?, done = 1, embedded_at = ? WHERE id = ?', [model, this.now(), held.id]);
+    });
+    held.model = model;
+    held.vector = vector;
+    return true;
+  }
+
+  /** `place`, everything below it and its pieces go. */
+  removeUnder(place: string): void {
+    const keys = this.keysUnder(place);
+    if (!keys.length) return;
+    this.db.tx(() => { for (const key of keys) this.db.run('DELETE FROM vector_files WHERE key = ?', [key]); });
+    for (const key of keys) this.mirror?.delete(key);
+  }
+
+  private held(): Map<string, Held> {
+    if (this.mirror) return this.mirror;
+    const rows = this.db.all<{ id: number; key: string; mtime: number; model: string; vector: Uint8Array | null }>(
+      'SELECT f.id, f.key, f.mtime, f.model, c.vector FROM vector_files f LEFT JOIN vector_chunks c ON c.file_id = f.id AND c.chunk = 0');
+    this.mirror = new Map(rows.map((row) => [row.key, {
+      id: row.id, version: row.mtime, model: row.model,
+      ...(row.vector?.length ? { vector: new Int8Array(row.vector.buffer, row.vector.byteOffset, row.vector.byteLength).slice() } : {}),
+    }]));
+    return this.mirror;
   }
 }

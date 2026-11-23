@@ -7,8 +7,8 @@
 // runtime.json, owner token), and an update's relaunch of the company that pressed Update (F25: any company updates
 // itself) wakes the other ones the install ended. B-075: an
 // agent's call into another company goes runtime to runtime (runtime/root/companies.ts callCompany), not through here.
-// B-078: a new company from the company menu's "+" starts with `--start=mine|employee` (startFlag), so its first run
-// opens at connecting to another PC that way (AppInfo.start).
+// B-078: a new company from the company menu's "+" starts with `--start=join` (startFlag; Eine-ID 22.11.2026: one way,
+// the ID typed decides), so its first run opens at connecting by an ID (AppInfo.start).
 // 16.11.2026: a company with the removal mark (shared/model/companies.ts REMOVED_FILE, company-remove.ts) is neither
 // opened, woken nor started; a plain start whose first company was removed opens the next one (startingCompany).
 // Owns: the folder rule, the flags, making a company folder, starting a company, the stop and the wake of the others.
@@ -39,7 +39,7 @@ export function companyFlag(argv: readonly string[]): string | null {
   return id;
 }
 
-/** How this start was asked for (`--start=mine|employee|new`, the last valid one); undefined for a plain start. */
+/** How this start was asked for (`--start=join|new`, the last valid one); undefined for a plain start. */
 export function startFlag(argv: readonly string[]): CompanyStart | undefined {
   let start: CompanyStart | undefined;
   for (const arg of argv) {
@@ -122,7 +122,7 @@ function isDir(dir: string): boolean {
 export function openCompany(args: HostOps['company.open']['args'], deps: CompanyOpenDeps): HostOps['company.open']['result'] {
   const raw = args as { id?: unknown; create?: unknown; start?: unknown };
   if (raw.create !== undefined && typeof raw.create !== 'boolean') throw new WorkforceError('bad_request', 'Invalid create.');
-  if (raw.start !== undefined && !isCompanyStart(raw.start)) throw new WorkforceError('bad_request', 'Invalid start: new, mine or employee.');
+  if (raw.start !== undefined && !isCompanyStart(raw.start)) throw new WorkforceError('bad_request', 'Invalid start: new or join.');
   const start = raw.create === true && raw.start !== 'new' ? raw.start as CompanyStart | undefined : undefined;
   if (raw.id !== undefined && raw.id !== null && !isCompanyId(raw.id)) throw new WorkforceError('bad_request', 'Invalid company id.');
   let id = (raw.id ?? null) as string | null;

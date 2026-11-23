@@ -1,9 +1,7 @@
-// Desktop runtime port. Normal path: the UI boot claims the preload's one-shot connector
-// (claimConnector, before any overlay code runs); requestPort then gets every port from it, and
-// the public bridge.connect() rejects for everyone else. Fallback (no main-world wrapper): the
-// plain preload contract (shared/api/desktop.ts) – install a window "message" listener for
-// PORT_MESSAGE, call bridge.connect(), take the MessagePort from the event. Plus the rule for
-// when a runtime status means "reconnect".
+// Desktop runtime port: the UI boot claims the preload's one-shot connector (claimConnector, before any overlay code
+// runs); requestPort gets every port from it, and the public bridge.connect() rejects for everyone else (20.11.2026: the
+// one path – the plain PORT_MESSAGE contract without the main-world wrapper is gone). Plus the rule for when a runtime
+// status means "reconnect".
 // The RPC client never touches the MessagePort itself: requestPort hands out a RuntimePort whose
 // methods call MessagePort/MessageEvent built-ins captured when this module loaded (before
 // overlay code), and resolves with it through a Promise that later Promise patches cannot read
@@ -14,19 +12,7 @@
 // Owns: the port hand-over, the port wrapper and the restart bookkeeping. Never: frames, ids or
 // pending calls (rpc.ts), and never keeps a listener after the request settled.
 
-import { PORT_MESSAGE } from '../../shared/api/desktop.ts';
 import type { RuntimeStatus } from '../../shared/api/desktop.ts';
-
-/** How long to wait for the posted port after connect() resolved. */
-export const PORT_ARRIVAL_MS = 5_000;
-
-export interface PortMessageEvent { source: unknown; data: unknown; ports: ReadonlyArray<MessagePort> }
-
-/** The window surface requestPort needs (a fake in tests). */
-export interface PortHost {
-  addEventListener(type: 'message', listener: (event: PortMessageEvent) => void): void;
-  removeEventListener(type: 'message', listener: (event: PortMessageEvent) => void): void;
-}
 
 /** The claimed connector (preload/main-world.ts): hands one port, or none and why, to `done`. */
 export type PortConnector = (done: (port: MessagePort | undefined, error?: unknown) => void) => void;
@@ -61,7 +47,7 @@ let claimed: PortConnector | undefined;
 
 /**
  * Claims the preload's runtime connector (desktop boot, before overlay code loads). True when
- * claimed – from then on requestPort uses it; false when the bridge has none (plain contract).
+ * claimed – from then on requestPort uses it; false when the bridge has none.
  * Throws when the connector was claimed before: some other code ran first, so the app must not
  * connect through the public path either.
  */
@@ -72,10 +58,6 @@ export function claimConnector(bridge: unknown): boolean {
   if (typeof connector !== 'function') throw new Error('The runtime connector is not available.');
   claimed = connector as PortConnector;
   return true;
-}
-
-function isPort(value: unknown): value is MessagePort {
-  return typeof value === 'object' && value !== null && typeof (value as MessagePort).postMessage === 'function' && typeof (value as MessagePort).start === 'function';
 }
 
 /** Wraps a real MessagePort (brand-checked) in a null-prototype RuntimePort over captured built-ins. */
@@ -110,45 +92,14 @@ function sealed<T>(promise: Promise<T>): Promise<T> {
   return promise;
 }
 
-/**
- * Asks main for a fresh runtime port. With a claimed connector that is all (`connect` and the
- * window are not used). Otherwise `self` is what event.source must be (the page window: the
- * preload posts from the same window); a port that connect() resolves with is taken as well.
- * Rejects when connect() fails or no port arrives.
- */
-export function requestPort(connect: () => Promise<unknown>, host: PortHost, self: unknown, arrivalMs = PORT_ARRIVAL_MS): Promise<RuntimePort> {
+/** Asks main for a fresh runtime port through the claimed connector; rejects without one or when no port arrives. */
+export function requestPort(): Promise<RuntimePort> {
   const connector = claimed;
   return sealed(new PromiseCtor<RuntimePort>((resolve, reject) => {
-    const deliver = (port: unknown) => {
-      try { resolve(guardPort(port)); } catch (error) { reject(error); }
-    };
-    if (connector) {
-      connector((port, error) => { if (port) deliver(port); else reject(error ?? new Error('The runtime port did not arrive.')); });
-      return;
-    }
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const finish = () => {
-      settled = true;
-      host.removeEventListener('message', onMessage);
-      if (timer !== undefined) clearTimeout(timer);
-    };
-    const onMessage = (event: PortMessageEvent) => {
-      if (event.source !== self || event.data !== PORT_MESSAGE || !event.ports?.[0]) return;
-      finish();
-      deliver(event.ports[0]);
-    };
-    host.addEventListener('message', onMessage);
-    let request: Promise<unknown>;
-    try { request = Promise.resolve(connect()); } catch (error) { request = Promise.reject(error); }
-    request.then((value) => {
-      if (settled) return;
-      if (isPort(value)) { finish(); deliver(value); return; }
-      timer = setTimeout(() => { finish(); reject(new Error('The runtime port did not arrive.')); }, arrivalMs);
-    }, (error: unknown) => {
-      if (settled) return;
-      finish();
-      reject(error);
+    if (!connector) { reject(new Error('The runtime connector is not available.')); return; }
+    connector((port, error) => {
+      if (!port) { reject(error ?? new Error('The runtime port did not arrive.')); return; }
+      try { resolve(guardPort(port)); } catch (cause) { reject(cause); }
     });
   }));
 }

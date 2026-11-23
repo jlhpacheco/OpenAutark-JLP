@@ -27,7 +27,7 @@ export function installFake(dataDir: string, model: LocalSpeechModel, sha256 = m
 
 export interface FakeAddonState {
   recognizers: Array<{ config: Record<string, unknown>; setConfigs: number; decodes: number }>;
-  tts: Array<{ config: unknown; requests: Array<{ text: string; sid: number; config: Record<string, unknown> }> }>;
+  tts: Array<{ config: unknown; requests: Array<{ text: string; sid: number; config: Record<string, unknown>; enableExternalBuffer?: boolean }> }>;
   vads: number;
   active: number;
   maxActive: number;
@@ -83,12 +83,12 @@ export function fakeAddon(options: { result?: FakeResult; loadMs?: number; speak
     OfflineTts: {
       async createAsync(config: unknown) {
         await tick();
-        const entry = { config, requests: [] as Array<{ text: string; sid: number; config: Record<string, unknown> }> };
+        const entry = { config, requests: [] as Array<{ text: string; sid: number; config: Record<string, unknown>; enableExternalBuffer?: boolean }> };
         state.tts.push(entry);
         return {
           sampleRate: 44_100, numSpeakers: options.speakers ?? 10,
-          async generateAsync(request: { text: string; sid: number; generationConfig?: unknown }) {
-            entry.requests.push({ text: request.text, sid: request.sid, config: { ...(request.generationConfig as Record<string, unknown>) } });
+          async generateAsync(request: { text: string; sid: number; generationConfig?: unknown; enableExternalBuffer?: boolean }) {
+            entry.requests.push({ text: request.text, sid: request.sid, config: { ...(request.generationConfig as Record<string, unknown>) }, enableExternalBuffer: request.enableExternalBuffer });
             await tick();
             return { samples: new Float32Array([0, 0.5, -0.5, 1]), sampleRate: 44_100 };
           },

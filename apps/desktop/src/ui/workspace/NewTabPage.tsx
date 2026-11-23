@@ -1,7 +1,7 @@
 // What a blank tab shows under the address field: the panels it can become – Notes, Media, Files, Agents, on a wide
-// window also My day and Work beside a chat – and the views anyone added in <data>/pages. B-078 cut Activity (Team ›
-// Activity and Work's report hold it) and Screen (a view of the PC one sits at; the AI sees screens with its own tools);
-// on the phone My day and Work are its bottom tabs already, so its sheet offers only the rest. Existing Activity and
+// window also Tasks beside a chat – and the views anyone added in <data>/pages. B-078 cut Activity (Team › Activity
+// holds it) and Screen (a view of the PC one sits at; the AI sees screens with its own tools);
+// on the phone Tasks is its bottom tab already, so its sheet offers only the rest. Existing Activity and
 // Screen tabs still open. A panel takes the blank tab's place in the strip of its own
 // surface (pages.ts openPanel, the space from space.ts). Notes opens the open chat's notes, or lists the chats to choose
 // from; Media is the library with its search (MediaLibrary.tsx); Files opens the data folder; Agents lists the agents –
@@ -22,6 +22,7 @@ import { DESTINATIONS } from '../lib/vocab.ts';
 import { AgentAvatar, EmptyState, Icon, type IconName } from '../lib/ui.tsx';
 import { canOpenChat } from '../tasks/jump.ts';
 import { byActivity } from '../chat/list-order.ts';
+import { isThread } from '../chat/threads.ts';
 import type { AppTab } from './browser-model.ts';
 import { browserSessions, watchBrowserSessions } from './BrowserTab.tsx';
 import { openFileTab, openFolderTab, pathMenu } from './file-tabs.ts';
@@ -62,7 +63,7 @@ function PcCells(props: { id: string; space: string }) {
 }
 
 function ChatList(props: { id: string; space: string }) {
-  const chats = conversations.value.filter((chat) => canOpenChat(chat.id)).sort(byActivity).slice(0, 40);
+  const chats = conversations.value.filter((chat) => canOpenChat(chat.id) && !isThread(chat)).sort(byActivity).slice(0, 40);
   if (!chats.length) return <EmptyState>No chats yet.</EmptyState>;
   return <ul class="new-tab-list">{chats.map((chat) => <Row key={chat.id} icon="file-text" label={chatTitle(chat)} onClick={() => openPanel({ kind: 'notes', conversationId: chat.id }, props.id, props.space)} />)}</ul>;
 }
@@ -112,8 +113,7 @@ export function NewTabPage(props: { id: string }) {
   return (
     <div class="new-tab">
       <ul class="new-tab-list" aria-label="Open in this tab">
-        {!isMobile.value && <Row icon="sun" label={DESTINATIONS.day} onClick={() => open({ kind: 'day' })} />}
-        {!isMobile.value && <Row icon="list-checks" label={DESTINATIONS.tasks} onClick={() => open({ kind: 'work' })} />}
+        {!isMobile.value && <Row icon="list-checks" label={DESTINATIONS.tasks} onClick={() => open({ kind: 'tasks' })} />}
         <Row icon="file-text" label="Notes" onClick={notes} />
         {can('media.list') && <Row icon="image" label="Media" onClick={() => open({ kind: 'media' })} />}
         {can('files.listPath') && <Row icon="folder" label="Files" onClick={files} side={rootPcs().length ? <PcCells id={id} space={space} /> : undefined} />}

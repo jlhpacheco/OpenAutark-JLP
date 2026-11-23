@@ -23,11 +23,12 @@ import { WorkforceError } from '../../shared/errors.ts';
 import { HUMAN_ID, newId } from '../../shared/ids.ts';
 import type { Avatar } from '../../shared/model/org.ts';
 import type { Message } from '../../shared/model/chat.ts';
-import { CEO_SCOPES, hasJoined, isPersonId, type Person, type PersonAudit, type PersonInvite, type PersonRole, type PersonScopes } from '../../shared/model/people.ts';
+import { CEO_SCOPES, hasJoined, isPersonId, OWNER_ALIAS, type Person, type PersonAudit, type PersonInvite, type PersonRole, type PersonScopes } from '../../shared/model/people.ts';
 import type { Bus } from '../bus.ts';
 import type { Clock, Logger, RuntimeServices, SettingsService } from '../contracts.ts';
 import type { Db } from '../db/database.ts';
 import { defaultAvatar } from '../org/avatar.ts';
+import { employerPeople } from '../devices/company-facts.ts';
 import { cleanAvatar, cleanName, cleanText } from '../org/validate.ts';
 import { JoinRequests, type Timers } from './join.ts';
 import { checkPersonManager } from './manager.ts';
@@ -88,7 +89,14 @@ export class PeopleService {
   /** Everyone, the owner first, with devices and open invites (the owner's view). */
   list(): Person[] {
     if (!this.repo.get(HUMAN_ID)) this.ensureOwner();
-    return this.repo.list().map((person) => this.full(person));
+    const own = this.repo.list().map((person) => this.full(person));
+    const known = new Set(own.map((person) => person.id));
+    return [...own, ...this.colleagues().filter((person) => !known.has(person.id))]; // an employee's PC: the company's people too
+  }
+
+  /** On an employee's PC the colleagues its company named (devices/company-facts.ts); elsewhere none. */
+  private colleagues(): Person[] {
+    try { return employerPeople(this.deps); } catch { return []; }
   }
 
   get(id: string): Person | undefined {
@@ -103,8 +111,8 @@ export class PeopleService {
   /** A person's display name (the owner: the profile name, else "CEO"); undefined for unknown ids. */
   nameOf(id: string): string | undefined {
     if (id === HUMAN_ID) return this.ownerName();
-    if (!isPersonId(id)) return undefined;
-    return this.repo.get(id)?.name;
+    if (!isPersonId(id) && id !== OWNER_ALIAS) return undefined;
+    return this.repo.get(id)?.name ?? this.colleagues().find((person) => person.id === id)?.name;
   }
 
   audit(id: string, limit?: number): PersonAudit[] { this.require(id); return this.repo.auditOf(id, limit); }

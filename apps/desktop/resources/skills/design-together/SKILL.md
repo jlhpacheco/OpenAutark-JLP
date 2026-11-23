@@ -15,7 +15,7 @@ everything below serves it. When a result comes down to taste and they have not 
 one line; their yes starts it.
 
 ## One page we both see
-I open the page in this chat's area with `browser.show` and the dev server's address. Everyone in the chat finds it
+I open the page in this chat's area with `browser.show` (`where: 'chat'`) and the dev server's address. Everyone in the chat finds it
 there, the tab is live on each of the person's PCs and their phone, and what they click or type in it from any device
 is their own input. The dev server's hot reload puts each saved change on the page (skill web-dev-workflow starts the
 server). This app's own look is `theme.css` (skill app-look); a project's look is its source.
@@ -45,7 +45,7 @@ so going back is one step.
 
 ## Variants when they are unsure
 Variants differ in one thing only, so the choice is about that thing: each its own tab in this chat's area
-(`browser.show` with `newTab: true`, each variant at its own address), each named in one line. Their word or a `choice` block
+(`browser.show` with `where: 'chat'` and `newTab: true`, each variant at its own address), each named in one line. Their word or a `choice` block
 (skill rich-answers) picks one; I keep it in the code and close the other tabs (`browser.tabs` with `close`).
 
 ## Talking when it is faster

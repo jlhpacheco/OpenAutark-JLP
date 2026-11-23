@@ -41,8 +41,6 @@ export interface EventMap {
   'calendar.upserted': CalendarEvent;
   /** B-041: a calendar row went (ids only; topic 'tasks', 'todo' devices). */
   'calendar.removed': { id: string; ownerId: string; taskId?: string };
-  /** B-041: a member's morning briefing of `date` was written – read it with day.briefing (topic 'tasks', 'todo' devices). */
-  'day.briefing': { ownerId: string; date: string };
   /** B-041: a member's connected calendars changed – read them with calendar.sources (topic 'system', owner only). */
   'calendar.sources': { ownerId: string };
   /** A connector was added, changed (status, tools) or removed – read them with apps.list
@@ -61,7 +59,8 @@ export interface EventMap {
   'run.item': RunItem;
   // providers
   'account.upserted': Account;
-  'account.removed': { id: string };
+  /** `twinOf`: the row was the same login as that one and went on this PC only (accounts/twins.ts). */
+  'account.removed': { id: string; twinOf?: string };
   'usage.updated': UsageSummary[];
   'models.updated': ModelInfo[];
   // system
@@ -131,9 +130,8 @@ export function topicOf(event: EventName, data: unknown): Topic {
     case 'task.removed':
     case 'schedule.upserted':
     case 'schedule.removed':
-    case 'calendar.upserted': // B-041 My day: calendar rows and the briefing (calendar.list / day.briefing are 'todo')
+    case 'calendar.upserted': // B-041: calendar rows (calendar.list is 'todo')
     case 'calendar.removed':
-    case 'day.briefing':
       return 'tasks';
     case 'agent.upserted':
     case 'agent.removed':

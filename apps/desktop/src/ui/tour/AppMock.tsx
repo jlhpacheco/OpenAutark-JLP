@@ -4,7 +4,9 @@
 // with the feedback cell where the real one sits (right of the workspace cell, before the caption controls) and one
 // example chat. The phone (feedback 16.11.2026, F15): the same chat full screen under its top row, whose last cell is
 // the feedback cell. The chat's contact card shows private details (an e-mail and a phone number) and its calendar
-// card the problem the person reports (the calendar stays empty). The same drawing is the frozen screen (the snapshot
+// card the problem the person reports (the calendar stays empty). The Android tour's bubble chapter (owner 19.11.2026)
+// shows the phone's list row instead: the to-do bubble's round icon left of the title "Chats" (AutarkDot, the bubble's
+// own look: the dark round dot with the white Autark mark). The same drawing is the frozen screen (the snapshot
 // at 1:1, Scene.tsx). Everything is placed in scene units (scene-layout.ts); the player scales the whole scene.
 // Example content by design (B-055 §4: the tour scene is explicitly example content).
 // Owns: this drawing and its cells. Never: state, timing or anything of the live app.
@@ -28,7 +30,7 @@ const CHATS: ReadonlyArray<{ title: string; time: string; av: number }> = [
   { title: 'Supplier quotes', time: 'Thu', av: 0 },
 ];
 const RAIL: ReadonlyArray<{ icon: TourIconName; y: number; on?: boolean }> = [
-  { icon: 'house', y: 60 }, { icon: 'chat', y: 100, on: true }, { icon: 'tasks', y: 140 }, { icon: 'users', y: 180 },
+  { icon: 'tasks', y: 60 }, { icon: 'chat', y: 100, on: true }, { icon: 'users', y: 140 }, // the real rail: Tasks · Chats · Team
 ];
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
@@ -67,14 +69,36 @@ function DesktopFrame(props: { layout: Layout; cell: CellLook }) {
   );
 }
 
-/** The phone chat's top row: back, the chat, then its cells – the workspace and, last, feedback. */
-function PhoneFrame(props: { layout: Layout; cell: CellLook }) {
+/** The to-do bubble's look – the round icon in the top row and the bubble itself: a dark round dot, the white mark. */
+export function AutarkDot(props: { rect: Rect; faint?: boolean }) {
+  return (
+    <span style={{ ...place(props.rect), position: 'absolute', borderRadius: '50%', background: 'rgba(32, 36, 34, 0.68)', display: 'grid', placeItems: 'center', opacity: props.faint ? 0.35 : 1 }}>
+      <svg width={props.rect.w / 2} height={props.rect.w / 2} viewBox="0 0 512 512" aria-hidden="true">
+        <path fill="#fff" d="M216,43 L296,43 L480,468 L396,468 L256,138 L116,468 L32,468 Z" />
+        <path fill="#fff" d="M208,351 a48,48 0 1,0 96,0 a48,48 0 1,0 -96,0 Z" />
+      </svg>
+    </span>
+  );
+}
+
+/** The phone chat's top row: back, the chat, then its cells – the workspace and, last, feedback; with `handle` the list
+ *  row instead: the bubble's round icon (faint while the bubble is out) and "Chats". */
+function PhoneFrame(props: { layout: Layout; cell: CellLook; handle?: 'idle' | 'out' }) {
   const { layout } = props;
   return (
     <>
-      <Cell rect={{ x: 4, y: 8, w: 40, h: 40 }} icon="caret-left" />
-      <span class="tour-av av-1 tour-head-av" style={{ left: '48px', top: '17px' }}>M</span>
-      <span class="tour-head-title" style={{ left: '78px', top: '18px' }}>Sales calls</span>
+      {props.handle && layout.handle ? (
+        <>
+          <AutarkDot rect={layout.handle} faint={props.handle === 'out'} />
+          <span class="tour-head-title" style={{ left: '52px', top: '18px' }}>Chats</span>
+        </>
+      ) : (
+        <>
+          <Cell rect={{ x: 4, y: 8, w: 40, h: 40 }} icon="caret-left" />
+          <span class="tour-av av-1 tour-head-av" style={{ left: '48px', top: '17px' }}>M</span>
+          <span class="tour-head-title" style={{ left: '78px', top: '18px' }}>Sales calls</span>
+        </>
+      )}
       <Cell rect={layout.workspace} icon="browsers" />
       <Cell rect={layout.cell} icon="megaphone" look={props.cell} class="tour-feedback-cell" />
     </>
@@ -148,13 +172,13 @@ function PhoneChat(props: { layout: Layout }) {
 }
 
 /** The example app in its variant, `cell` the feedback cell's look (the frozen screen draws it idle). */
-export const AppMock = memo(function AppMock(props: { layout: Layout; cell: CellLook }) {
+export const AppMock = memo(function AppMock(props: { layout: Layout; cell: CellLook; handle?: 'idle' | 'out' }) {
   const { layout } = props;
   return (
     <div class={`tour-app ${layout.variant}`}>
       {layout.variant === 'phone' ? (
         <>
-          <PhoneFrame layout={layout} cell={props.cell} />
+          <PhoneFrame layout={layout} cell={props.cell} handle={props.handle} />
           <PhoneChat layout={layout} />
         </>
       ) : (

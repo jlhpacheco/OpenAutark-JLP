@@ -1,11 +1,7 @@
-// B-048 E4.5: the chat header's working popover as data and the live run's model line
-// (chat/live-text.ts workingRows, modelLine, noteText; chat/run-line.ts liveWords): one row per
-// member working in this chat in start order – name, "model · effort", live note, task –, agents
-// the summary marks working without an entry get a plain row; the model comes from the run's live values
-// (B-075: the summary's live runs – its row's meta.live), before that from the message's meta, never invented;
-// the newest words are its row's newest paragraph. Plus the wiring the window relies on:
-// the live line is a button for everyone, the popover is anchored to the reserved sub line and
-// keeps "Stop all agent work" as its last entry for whoever may stop.
+// The chat's live texts as data (chat/live-text.ts modelLine, noteText, liveRuns): a live run's "model · effort" comes from
+// the run's live values (B-075: the summary's live runs), before that from the message's meta, never invented; its note
+// reads as what the agent does, a context fold's as "Folding its context". Plus the wiring the window relies on (20.11.2026): the header's live line is a button
+// for everyone that opens the lines of the live bar above the composer – the one place with steps, Stop and task.
 // Owns: these assertions only. Never: renders or reads the store.
 
 import { test } from 'node:test';
@@ -13,13 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AgentActivity } from '../../../src/shared/model/runs.ts';
-import { EFFORT_LABEL, liveRuns, modelLine, noteText, workingRows } from '../../../src/ui/chat/live-text.ts';
-
-const names: Record<string, string> = { m: 'Manager', a: 'Ava', i: 'Mira' };
-const nameOf = (id: string) => names[id];
-const entry = (agentId: string, runId: string, startedAt: number, patch: Partial<AgentActivity> = {}): AgentActivity =>
-  ({ agentId, runId, conversationId: 'c1', note: '', startedAt, ...patch });
+import { EFFORT_LABEL, FOLD_TEXT, doingOf, liveRuns, modelLine, noteText } from '../../../src/ui/chat/live-text.ts';
 
 test('modelLine: the activity\'s display name and effort; a bare id without a name; the message meta before the activity knows', () => {
   assert.equal(modelLine({ model: 'claude:claude-opus-5-5', modelName: 'Claude Opus 5.5', effort: 'xhigh' }), 'Opus 5.5 · Very high');
@@ -42,54 +32,40 @@ test('noteText: what the agent does in words, upper case first, else "Working"',
   assert.equal(noteText(undefined), 'Working');
 });
 
-test('workingRows: this chat\'s runs in start order, then summary-only agents; other chats stay out', () => {
-  const chat = { id: 'c1', working: ['i', 'a', 'm'] };
-  const entries = [
-    entry('a', 'run_a', 30, { note: 'bash', taskId: 'tk_1', model: 'claude:claude-opus-5-5', modelName: 'Claude Opus 5.5', effort: 'high' }),
-    entry('m', 'run_m', 10, { note: 'cutting intro' }),
-    entry('i', 'run_x', 5, { conversationId: 'other', note: 'bash' }),
-  ];
-  const rows = workingRows(chat, [entries[0]!, { ...entries[1]!, modelName: 'GPT-6.1 Sol', effort: 'medium' }, entries[2]!], nameOf);
-  assert.deepEqual(rows, [
-    { key: 'run_m', agentId: 'm', runId: 'run_m', name: 'Manager', model: 'GPT-6.1 Sol · Medium', note: 'Cutting intro' },
-    { key: 'run_a', agentId: 'a', runId: 'run_a', name: 'Ava', model: 'Opus 5.5 · High', note: 'Running a command', taskId: 'tk_1' },
-    { key: 'agent:i', agentId: 'i', name: 'Mira', model: '', note: 'Working' },
-  ]);
-  assert.deepEqual(workingRows({ id: 'c1', working: [] }, [], nameOf), [], 'nobody works');
-  assert.equal(workingRows({ id: 'c1', working: ['x'] }, [], nameOf)[0]!.name, 'Agent', 'an unknown agent is "Agent"');
-});
-
-test('liveRuns: the chat\'s live bar as the rows the popover and the lines read – its step before its note', () => {
+test('liveRuns: the chat\'s live bar as the entries the header line reads – its step before its note, model, task', () => {
   const chat = { id: 'c1', working: ['a', 'm', 'r'], live: [
     { runId: 'run_a', agentId: 'a', note: 'bash', model: 'Claude Opus 5.5', effort: 'high', taskId: 'tk_1', startedAt: 30 },
     { runId: 'run_m', agentId: 'm', effort: 'turbo', startedAt: 10 },
     { runId: 'run_r', agentId: 'r', note: 'bash', step: 'Reading a.pdf', startedAt: 40 },
   ] };
   const entries = liveRuns(chat);
+  assert.deepEqual(entries[0], { agentId: 'a', runId: 'run_a', conversationId: 'c1', note: 'bash', startedAt: 30, modelName: 'Claude Opus 5.5', effort: 'high', taskId: 'tk_1' });
   assert.deepEqual(entries[1], { agentId: 'm', runId: 'run_m', conversationId: 'c1', note: '', startedAt: 10 }, 'an unknown effort word is left out');
-  assert.deepEqual(workingRows(chat, entries, nameOf).map((row) => [row.key, row.model, row.note, row.taskId]), [
-    ['run_m', '', 'Working', undefined], ['run_a', 'Opus 5.5 · High', 'Running a command', 'tk_1'], ['run_r', '', 'Reading a.pdf', undefined],
-  ]);
+  assert.equal(entries[2]!.note, 'Reading a.pdf', 'its step before its note');
   assert.deepEqual(liveRuns({ id: 'c1' }), [], 'nobody works');
 });
 
 const source = (file: string) => readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../src/ui/chat', file), 'utf8');
 
-test('wiring: the live line is a button for everyone; the popover hangs on the reserved sub line and ends with the stop', () => {
-  const line = source('LiveLine.tsx');
-  assert.ok(!/<span[^>]*class="chat-live[\s"]/.test(line), 'never plain text (its inner .chat-live-text span aside)');
-  assert.match(line, /<button type="button" class="chat-live tabular"[^>]*aria-haspopup="dialog" aria-expanded=\{props\.open\}/);
-  const header = source('ChatHeader.tsx');
-  assert.match(header, /<div class="chat-sub" ref=\{working\.anchor\}/, 'anchored to the always reserved sub line');
-  assert.match(header, /<WorkingPopover chat=\{chat\} anchor=\{working\.anchor\.current\} open=\{working\.open\} onClose=\{working\.close\} \/>/);
-  const popover = source('WorkingPopover.tsx');
-  assert.match(popover, /const stop = workAction\(workStop\.value\) === 'stop';/);
-  assert.ok(popover.lastIndexOf('<span>Stop all agent work</span>') > popover.indexOf('<ul class="working-rows">'), 'the stop is the last entry');
-  assert.match(popover, /<Popover [^>]*class="working-popover" label="Agent work">/, 'over the content (a portalled popover)');
+test('22.11.2026: a context fold says "Folding its context" instead of its step – in the bar\'s line and the header\'s line', () => {
+  assert.equal(doingOf({ step: 'Reading a.pdf', note: 'bash', fold: true }), FOLD_TEXT);
+  assert.equal(doingOf({ step: 'Reading a.pdf', note: 'bash' }), 'Reading a.pdf');
+  assert.equal(doingOf({ note: 'bash' }), 'bash');
+  const [entry] = liveRuns({ id: 'c1', live: [{ runId: 'run_f', agentId: 'a', step: 'Reading a.pdf', startedAt: 1, fold: true }] });
+  assert.equal(entry!.note, 'Folding its context');
+  assert.equal(noteText(FOLD_TEXT), 'Folding its context');
+  assert.match(source('LiveBar.tsx'), /const doing = noteText\(doingOf\(run\)\);/, 'the bar\'s line reads it too');
 });
 
-test('review fixes: Escape gives focus back to the live line', () => {
-  const popover = source('WorkingPopover.tsx');
-  // lib/popover.tsx focuses the anchor on Escape – the sub line div is no focus target, so close() must hand focus to the button.
-  assert.match(popover, /close: \(\) => \{\s*\/\/[^\n]*\n\s*if \(document\.activeElement\?\.closest\('\.working-popover'\)\) anchor\.current\?\.querySelector<HTMLElement>\('\.chat-live'\)\?\.focus\(/);
+test('wiring: the live line is a button for everyone that opens the chat\'s live bar lines; no popover draws them twice', () => {
+  const line = source('LiveLine.tsx');
+  assert.ok(!/<span[^>]*class="chat-live[\s"]/.test(line), 'never plain text (its inner .chat-live-text span aside)');
+  assert.match(line, /<button type="button" class="chat-live tabular"[^>]*aria-expanded=\{props\.open\}/);
+  const header = source('ChatHeader.tsx');
+  assert.match(header, /open=\{linesOpen\(runIds\)\} onToggle=\{\(\) => toggleLines\(runIds\)\}/, 'the line opens the bar\'s lines');
+  assert.doesNotMatch(header, /Popover/);
+  assert.match(source('LiveBar.tsx'), /export function toggleLines\(runIds: readonly string\[\]\): void/);
+  const more = source('LiveBarMore.tsx');
+  assert.match(more, /run\.taskId && can\('tasks\.get'\)/, 'the task link for whoever may read tasks');
+  assert.match(more, /onClick=\{\(\) => openTaskDetail\(task\)\}/);
 });

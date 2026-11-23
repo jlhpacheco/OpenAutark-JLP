@@ -37,6 +37,8 @@ export interface Agent {
   skills: string[]; // extra skill names beyond the mode's skills
   modelPolicy: ModelPolicy;
   deviceId?: string; // device whose engines/tools this agent uses by default (undefined = home)
+  /** Umzug 21.11.2026: the PCs (device ids) the agent is also at home on besides `deviceId`; only among them does it go on by itself while its PC cannot be reached (migration 113). Absent/empty: it waits for its PC. */
+  homes?: string[];
   status: AgentStatus;
   statusNote?: string; // one short live line, e.g. "rendering intro (2/5)"
   template?: string; // template key it was hired from

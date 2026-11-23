@@ -12,6 +12,7 @@ import { pcOf } from '../../../src/runtime/settings/read.ts';
 import { SECTIONS, defaultOf, commentOf, schemaText, type KeyDef } from '../../../src/runtime/settings/schema.ts';
 import { checkPatchShape } from '../../../src/runtime/settings/validate.ts';
 import { clock, recordingBus } from '../store/helpers.ts';
+import { MAX_SCOPE_ITEMS, securityDefaults } from '../../../src/shared/model/security-settings.ts';
 
 const env = { locale: 'de-DE', timezone: 'Europe/Berlin' };
 const defaults = defaultSettings(env);
@@ -84,13 +85,20 @@ test('B-078: profile.notes (up to 600 characters, line breaks fine) and library.
   assert.throws(() => s.update({ library: { publish: 'yes' as never } }), /library\.publish/);
 });
 
-test('owner 16./18.11.2026: profile.forEveryAgent starts as the English robot line on every PC; "" is none; up to 4,000 characters', () => {
-  assert.equal(defaults.profile.forEveryAgent, 'I don\'t solve "I\'m not a robot" checks (CAPTCHAs).', 'owner 18.11.2026: English on a German PC too');
-  assert.equal(defaultSettings({ locale: 'en-US', timezone: 'UTC' }).profile.forEveryAgent, 'I don\'t solve "I\'m not a robot" checks (CAPTCHAs).');
+test('owner 19.11.2026: the section security starts as Trust AI mode; lists take absolute folders and app names, each once', () => {
+  assert.deepEqual(defaults.security, securityDefaults('trust'));
+  assert.ok(!('pcAccess' in defaults.profile) && !('forEveryAgent' in defaults.profile), 'the two old keys are gone');
+  assert.throws(() => checkPatchShape({ profile: { pcAccess: 'careful' } }), /profile\.pcAccess/);
   const s = store();
-  assert.equal(s.update({ profile: { forEveryAgent: 'I answer in German.\n\tAnd I sign with my name.' } }).profile.forEveryAgent, 'I answer in German.\n\tAnd I sign with my name.');
-  assert.equal(s.update({ profile: { forEveryAgent: '' } }).profile.forEveryAgent, '', 'emptied stays empty, not the default');
-  assert.equal(s.update({ profile: { forEveryAgent: 'x'.repeat(4000) } }).profile.forEveryAgent?.length, 4000);
-  assert.throws(() => s.update({ profile: { forEveryAgent: 'x'.repeat(4001) } }), /profile\.forEveryAgent/);
-  assert.throws(() => s.update({ profile: { forEveryAgent: 'bell \u0007' } }), /profile\.forEveryAgent/);
+  const secure = s.update({ security: { ...securityDefaults('secure'), readFolders: [' C:\\Users\\Ada\\Docs\\ ', 'C:\\Users\\Ada\\Docs', '/home/ada/notes/', 'D:\\'], computerApps: ['Excel.EXE', 'excel', ' Chrome '] } }).security!;
+  assert.equal(secure.mode, 'secure');
+  assert.deepEqual(secure.readFolders, ['C:\\Users\\Ada\\Docs', '/home/ada/notes', 'D:\\'], 'trimmed, no trailing separator but a root, once');
+  assert.deepEqual(secure.computerApps, ['excel', 'chrome'], 'lower case, without .exe, once');
+  assert.throws(() => s.update({ security: { writeFolders: ['Documents'] } }), /security\.writeFolders/, 'a relative folder');
+  assert.throws(() => s.update({ security: { readFolders: Array.from({ length: MAX_SCOPE_ITEMS + 1 }, (_, i) => `C:\\f${i}`) } }), /security\.readFolders/);
+  assert.throws(() => s.update({ security: { computer: 'all' as never } }), /security\.computer/);
+  assert.throws(() => s.update({ security: { mode: 'paranoid' as never } }), /security\.mode/);
+  assert.throws(() => s.update({ security: { computerApps: ['ex\u0007cel'] } }), /security\.computerApps/);
+  assert.equal(s.update({ security: { money: 'ask' } }).security?.readFolders.length, 3, 'a patch of one switch keeps the lists');
+  assert.equal(s.update({ security: { mode: null as never } }).security?.mode, 'trust', 'null: the default');
 });

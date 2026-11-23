@@ -1,6 +1,6 @@
-// Left rail: global destinations in the order of the phone tabs (My day – the person's own day, also
-// the 'home' route, with the For-you badge – · Work – the task center – · Chats · Team) and, from the
-// bottom up, Profile → weekly quotas → Update (only when relevant).
+// Left rail: global destinations in the order of the phone tabs (Tasks – the one task page, also the 'home' route,
+// with the For-you badge – · Chats · Team) and, from the bottom up, Profile → weekly quotas → Update (only when
+// relevant).
 // Owns: rail layout and destination highlighting. Never: sidebar content.
 
 import { IconButton } from '../lib/ui.tsx';
@@ -24,8 +24,7 @@ interface Destination {
 }
 
 const destinations: Destination[] = [
-  { key: 'day', icon: 'sun', views: ['home', 'day'], open: () => navigate({ view: 'day' }) },
-  { key: 'tasks', icon: 'list-checks', views: ['tasks'], open: () => navigate({ view: 'tasks' }) },
+  { key: 'tasks', icon: 'list-checks', views: ['home', 'tasks'], open: () => navigate({ view: 'tasks' }) },
   { key: 'chats', icon: 'chat-circle', views: ['chats', 'chat'], open: openChats },
   { key: 'team', icon: 'users-three', views: ['team'], open: () => navigate({ view: 'team' }) },
 ];
@@ -46,7 +45,7 @@ export function Rail() {
               aria-current={destination.views.includes(view) ? 'page' : undefined}
               onClick={destination.open}
             />
-            {destination.key === 'day' && badge > 0 && <span class="rail-badge tabular" aria-label={`${badge} in ${DESTINATIONS.day}`}>{badge > 99 ? '99+' : badge}</span>}
+            {destination.key === 'tasks' && badge > 0 && <span class="rail-badge tabular" aria-label={`${badge} in ${DESTINATIONS.tasks}`}>{badge > 99 ? '99+' : badge}</span>}
           </div>
         ))}
       </div>

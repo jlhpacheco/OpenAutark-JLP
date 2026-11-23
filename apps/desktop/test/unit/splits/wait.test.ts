@@ -303,7 +303,7 @@ test('the tool: wait is a boolean of its own, the parts start inside the call an
 
   const w = world();
   const call = caller(w, new AbortController().signal);
-  const out = call(splitTool, { goal: 'Find the real material', parts: [{ title: 'Look on D:', brief: 'Look on drive D:.' }], wait: true });
+  const out = call(splitTool, { goal: 'Find the real material', parts: [{ title: 'Look on D:', brief: 'Look on drive D:.', needs: 'check' }], wait: true });
   assert.equal(w.lanes.started.length, 1, 'the part started inside the call');
   w.lanes.end(w.lanes.started[0], 'done', { answer: 'Four drone files lie on D:.' });
   const answer = await out;
@@ -319,7 +319,7 @@ test('a part\'s own split with wait does not hold its lane: its new parts start 
   const { splitIds } = waiting(w, ['Look on D:']);
   const call = caller(w, new AbortController().signal);
   const turn = w.lanes.turns.find((entry) => entry.turn.splitId === splitIds[0])!.turn;
-  const answer = await call(splitTool, { goal: 'More looks', parts: [{ title: 'Look on E:', brief: 'Look on drive E:.' }], wait: true }, turn);
+  const answer = await call(splitTool, { goal: 'More looks', parts: [{ title: 'Look on E:', brief: 'Look on drive E:.', needs: 'check' }], wait: true }, turn);
   assert.equal(answer.failed, false, answer.text);
   assert.equal(answer.data?.ok, true, 'the call answers at once with the joined parts');
   assert.match(String(answer.data?.next), /to my origin/);
@@ -332,7 +332,7 @@ test('a part one of mine added while I wait still works: the answer says it come
   const result = w.splits.waitFor({ agentId: 'ag_ava', runId: PARENT, splitIds, signal: new AbortController().signal });
   const call = caller(w, new AbortController().signal);
   const turn = w.lanes.turns.find((entry) => entry.turn.splitId === splitIds[0])!.turn;
-  await call(splitTool, { goal: 'More looks', parts: [{ title: 'Look on E:', brief: 'Look on drive E:.' }] }, turn);
+  await call(splitTool, { goal: 'More looks', parts: [{ title: 'Look on E:', brief: 'Look on drive E:.', needs: 'check' }] }, turn);
   w.lanes.end(w.lanes.started[0], 'done', { answer: 'Four drone files lie on D:.' });
   const waited = await result;
   assert.equal(waited.ended, 'parts');

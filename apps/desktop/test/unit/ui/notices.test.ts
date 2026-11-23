@@ -31,10 +31,10 @@ test('providers follow the signals they read and can be removed', () => {
   assert.deepEqual(ids(visibleNotices.value), []);
 });
 
-test('the connection line: nothing while connected or still starting; Reconnecting…, Offline or the load error', () => {
+test('the connection line (texts: connection-line.test.ts): nothing while connected or within the grace; the load error when open', () => {
   assert.equal(connectionNotice({ status: 'open', loaded: true, loadError: null }), null);
-  assert.equal(connectionNotice({ status: 'connecting', loaded: false, loadError: null }), null);
-  assert.equal(connectionNotice({ status: 'connecting', loaded: true, loadError: null })?.text, 'Reconnecting…');
-  assert.equal(connectionNotice({ status: 'closed', loaded: false, loadError: null })?.text, 'Offline');
+  assert.equal(connectionNotice({ status: 'connecting', loaded: false, loadError: null }), null, 'no line before the connection was down DOWN_GRACE_MS');
+  assert.equal(connectionNotice({ status: 'closed', loaded: true, loadError: null }), null, 'a retry flip alone shows nothing');
+  assert.equal(connectionNotice({ status: 'open', loaded: true, loadError: 'Connection to the runtime was lost.' }), null, 'never a line of its own');
   assert.equal(connectionNotice({ status: 'open', loaded: true, loadError: 'Load failed' })?.tone, 'error');
 });

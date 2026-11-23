@@ -84,7 +84,6 @@ function updatesHarness(overrides: Partial<DesktopUpdatesDeps> = {}) {
     updater: inactiveUpdater(),
     packaged: true, enabled: true, platform: 'win32', arch: 'x64', version: '0.2.0',
     autoDownload: () => true,
-    setAutoDownload: async enabled => { order.push(`auto:${enabled}`); },
     renderer: { rendererReady: true, prepareRestart: async () => { order.push('drafts'); return true; } },
     idleSeconds: () => 600,
     runtime: {
@@ -178,10 +177,3 @@ test('a refused draft flush aborts before anything stops; a cancelled automatic 
   auto.dispose();
 });
 
-test('auto-download preference goes through the runtime settings', async () => {
-  const h = updatesHarness({ packaged: false });
-  const updates = new DesktopUpdates(h.deps);
-  assert.equal((await updates.setAutoDownload(true)).status, 'development');
-  assert.deepEqual(h.order, ['auto:true']);
-  updates.dispose();
-});

@@ -1,5 +1,5 @@
 // Settings › Calendar › Calendars: every connected calendar with what it is, its sync state (syncing, last sync, the
-// runtime's error sentence, an expired Google sign-in with "Connect again"), Show in My day and Remove; Sync now; "Add
+// runtime's error sentence, an expired Google sign-in with "Connect again"), Show on the Tasks page and Remove; Sync now; "Add
 // calendar by link (ICS)"; "Connect Google Calendar" – disabled with one honest line while no client ID is set – and "Use
 // your own Google app" (a row whose Set up opens a dialog: the client ID into settings.calendar, the client secret into the
 // vault; settings keep its id only). Reloaded by 'calendar.sources' and settings events and on reconnect (no polling).
@@ -38,9 +38,9 @@ function SourceRow(props: { source: CalendarSource; onChanged: () => void; onCon
   const { source } = props;
   const [busy, run] = useBusy();
   const line = syncLine(source);
-  const room = source.ownerId.startsWith('room:'); // B-078: a room's calendar – booked by the head of staff, never in My day
+  const room = source.ownerId.startsWith('room:'); // B-078: a room's calendar – booked by the head of staff, never on the Tasks page
   const remove = async () => {
-    const body = source.kind === 'google' ? 'Its events leave My day. Nothing is deleted in Google.' : 'Its events leave My day. The calendar itself stays as it is.';
+    const body = source.kind === 'google' ? 'Its events leave the Tasks page. Nothing is deleted in Google.' : 'Its events leave the Tasks page. The calendar itself stays as it is.';
     if (!(await confirm({ title: `Remove ${source.label}?`, body, confirmLabel: 'Remove', danger: true }))) return;
     await act(async () => { await rpc.call('calendar.removeSource', { id: source.id }); props.onChanged(); }, 'Could not remove');
   };
@@ -49,7 +49,7 @@ function SourceRow(props: { source: CalendarSource; onChanged: () => void; onCon
       <div class="set-inline">
         {source.status === 'reconnect' && can('calendar.connectGoogle') && <button type="button" class="button small" onClick={props.onConnect}>Connect again</button>}
         {can('calendar.updateSource') && !room && (
-          <Toggle label={`Show ${source.label} in My day`} checked={source.visible} disabled={busy}
+          <Toggle label={`Show ${source.label} on the Tasks page`} checked={source.visible} disabled={busy}
             onChange={(visible) => void run(async () => { await rpc.call('calendar.updateSource', { id: source.id, visible }); props.onChanged(); })} />
         )}
         {can('calendar.removeSource') && <button type="button" class="button ghost small danger" disabled={busy} onClick={() => void remove()}>Remove</button>}
@@ -156,7 +156,7 @@ export function CalendarsGroup() {
   const [busy, run] = useBusy();
   useEffect(() => {
     const reload = () => { void list.reload(); void google.reload(); };
-    const offs = [rpc.on('calendar.sources', reload), rpc.on('settings.updated', () => void google.reload()), rpc.onOpen(reload)];
+    const offs = [rpc.on('calendar.sources', reload), rpc.on('settings.updated', () => void google.reload())]; // a reconnect: useAsync
     return () => offs.forEach((off) => off());
   }, [list.reload, google.reload]);
   const sources = list.data ?? [];

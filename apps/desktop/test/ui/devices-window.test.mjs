@@ -1,13 +1,13 @@
 // Electron window check of Settings › Devices – the one connect surface (Umbau Einfachheit, B5) – with the demo engine
 // in an isolated profile and a second headless runtime ("Tower") on this machine:
-//   * #/settings/devices (and the old #/settings/remote link) scrolls to the Devices group: the Remote ID row (groups of
-//     three, Copy), "Connect a phone" with its fixed QR box, "Connect my other device" (Remote ID or address – B-078: no
-//     role choice) and one row per device;
-//   * the Remote ID hint says "only this network (meeting server off)" – no meeting server is set in a test profile;
+//   * #/settings/devices (and the old #/settings/remote link) scrolls to the Devices group: Eine-ID 22.11.2026 – the
+//     "Company ID" and "My ID" rows (groups of three, Copy), "Connect a phone" with its fixed QR box, "Connect with an ID"
+//     (a company's ID, my ID or an address – no role choice) and one row per device;
+//   * the Company ID hint says "only this network (meeting server off)" – no meeting server is set in a test profile;
 //   * Tower, which is findable, is listed among the PCs on this network with Connect;
 //   * a mistyped Remote ID, and a valid one nobody has, say why in the connect row's fixed line (the second names the
 //     meeting server that is off and what to do on the other PC) – the row does not move;
-//   * Tower asks by Remote ID → "<Tower> wants to connect" with the same 4-digit code, Accept / Decline; Accept makes
+//   * Tower asks by My ID → "<Tower> wants to be one of your devices" with the same 4-digit code, Accept / Decline; Accept makes
 //     Tower a device row (no longer offered as nearby);
 //   * a device row's right-click menu: Rename (inline) saves devices.rename;
 //   * the phone: "Turn on" lets phones in over the local network → the QR code in the same box;
@@ -26,6 +26,7 @@ import { _electron as electron } from 'playwright-core';
 import { connect, startRuntime } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
 import { remoteIdOf } from '../../src/runtime/remote/id.ts';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -56,7 +57,7 @@ test('Settings › Devices: Remote ID, nearby PCs, a request with the same code,
   const size = (width, height) => app.evaluate(({ BrowserWindow }, [w, h]) => { const [win] = BrowserWindow.getAllWindows(); win.setMinimumSize(320, 480); win.setSize(w, h); }, [width, height]);
   await size(1280, 820);
   const shot = async (name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('settings.update', { onboarding: { step: 'done' } });
   const towerName = (await tower.client.call('remote.state')).self.name;
@@ -64,19 +65,23 @@ test('Settings › Devices: Remote ID, nearby PCs, a request with the same code,
 
   await page.evaluate(() => { location.hash = '#/settings/remote'; }); // the old link opens Devices
   const devices = page.locator('#settings-add-device');
+  const linked = page.locator('#settings-devices'); // the device rows: this PC first, then the others (DevicesGroup.tsx)
   await devices.waitFor({ timeout: 15_000 });
-  const id = devices.locator('.remote-id');
+  const id = devices.locator('.remote-id').first(); // Company ID first
   await id.filter({ hasText: /\d/ }).waitFor({ timeout: 15_000 });
-  const remoteId = (await rpc.call('remote.state')).self.remoteId;
+  const { companyId, myId } = (await rpc.call('remote.state')).self; // Eine-ID: both exist once the first run is done
+  const remoteId = companyId;
   assert.equal((await id.textContent()).trim(), grouped(remoteId));
-  assert.equal(await row('Remote ID').getByRole('button', { name: 'Copy' }).count(), 1);
-  await row('Remote ID').locator('.set-row-hint', { hasText: 'only this network (meeting server off)' }).waitFor({ timeout: 10_000 });
+  assert.equal(await row('Company ID').getByRole('button', { name: 'Copy' }).count(), 1);
+  assert.equal(await row('My ID').getByRole('button', { name: 'Copy' }).count(), 1);
+  assert.equal((await row('My ID').locator('.remote-id').textContent()).trim(), grouped(myId));
+  await row('Company ID').locator('.set-row-hint', { hasText: 'only this network (meeting server off)' }).waitFor({ timeout: 10_000 });
   assert.equal(await devices.locator('.remote-phone-row .remote-qr').count(), 1, 'the phone QR box');
   const connectRow = devices.locator('.remote-connect-row');
-  assert.equal(await connectRow.getByRole('textbox', { name: 'Remote ID or address of the other PC' }).count(), 1);
-  // B-078: my own device carries no role – no "Join as" choice here (employee joining lives in the company menu's "+").
+  assert.equal(await connectRow.getByRole('textbox', { name: 'ID or address of the other PC' }).count(), 1);
+  // Eine-ID: no role to pick anywhere – the ID typed decides.
   assert.equal(await connectRow.getByRole('combobox', { name: 'Join as' }).count(), 0);
-  assert.equal((await connectRow.locator('.set-row-label').textContent())?.trim(), 'Connect my other device');
+  assert.equal((await connectRow.locator('.set-row-label').textContent())?.trim(), 'Connect with an ID');
   await shot('devices-01-light');
 
   // Tower is findable, so it answers this PC's hello probe: a nearby row with Connect (the list is read when the group
@@ -86,7 +91,7 @@ test('Settings › Devices: Remote ID, nearby PCs, a request with the same code,
     await page.waitForTimeout(2_000);
     const any = devices.locator('.set-row', { hasText: 'On this network' }).first();
     if (await any.count()) { await any.click({ button: 'right' }); }
-    else { await row('Remote ID').click({ button: 'right' }).catch(() => undefined); }
+    else { await row('Company ID').click({ button: 'right' }).catch(() => undefined); }
     const refresh = page.locator('.menu[aria-label="Context menu"]').getByRole('menuitem', { name: 'Refresh list' });
     if (await refresh.count()) await refresh.click(); else await page.keyboard.press('Escape');
     if (!(await nearby.count())) { await page.evaluate(() => { location.hash = '#/day'; }); await page.waitForTimeout(300); await page.evaluate(() => { location.hash = '#/settings/devices'; }); await devices.waitFor(); }
@@ -95,7 +100,7 @@ test('Settings › Devices: Remote ID, nearby PCs, a request with the same code,
 
   // A Remote ID nobody has: the reason in the connect row's fixed line; the row does not move.
   const typo = remoteId.slice(0, 8) + String((Number(remoteId[8]) + 1) % 10);
-  await connectRow.getByRole('textbox', { name: 'Remote ID or address of the other PC' }).fill(typo);
+  await connectRow.getByRole('textbox', { name: 'ID or address of the other PC' }).fill(typo);
   const before = (await connectRow.locator('.remote-slot-title').textContent())?.trim();
   await expectStable(page, ['#settings-add-device .remote-connect-row', '#settings-add-device .remote-phone-row'], async () => {
     await connectRow.getByRole('button', { name: 'Connect' }).click();
@@ -106,7 +111,7 @@ test('Settings › Devices: Remote ID, nearby PCs, a request with the same code,
   });
   await shot('devices-02-unknown-id');
   // A valid Remote ID nobody has: what was searched, the meeting server that is off, and what to do.
-  await connectRow.getByRole('textbox', { name: 'Remote ID or address of the other PC' }).fill(remoteIdOf('9'.repeat(64)));
+  await connectRow.getByRole('textbox', { name: 'ID or address of the other PC' }).fill(remoteIdOf('9'.repeat(64)));
   await expectStable(page, ['#settings-add-device .remote-connect-row', '#settings-add-device .remote-phone-row'], async () => {
     await connectRow.getByRole('button', { name: 'Connect' }).click();
     await page.waitForFunction(() => {
@@ -117,11 +122,11 @@ test('Settings › Devices: Remote ID, nearby PCs, a request with the same code,
   assert.match(await connectRow.locator('.remote-slot-title').getAttribute('title'), /Open Autark on that PC – Settings › Devices shows its Remote ID\.$/);
   await shot('devices-02b-nobody-online');
 
-  // Tower asks by Remote ID: the request row with the same code; Accept makes Tower a device row.
+  // Tower asks by My ID (Eine-ID: one of my devices): the request row with the same code; Accept makes Tower a device row.
   const peer = (await rpc.call('system.info')).peer;
   if (peer?.addresses?.length) {
-    const out = await tower.client.call('remote.connect', { target: remoteId });
-    const request = row(`${towerName} wants to connect`);
+    const out = await tower.client.call('remote.connect', { target: myId });
+    const request = row(`${towerName} wants to be one of your devices`);
     await request.waitFor({ timeout: 15_000 });
     assert.equal((await request.locator('.remote-slot-code').textContent()).trim(), out.code, 'the same code on both PCs');
     assert.equal(await request.getByRole('button', { name: 'Decline' }).count(), 1);
@@ -131,14 +136,14 @@ test('Settings › Devices: Remote ID, nearby PCs, a request with the same code,
     await page.emulateMedia({ colorScheme: 'light' });
     await request.getByRole('button', { name: 'Accept' }).click();
     await request.waitFor({ state: 'detached', timeout: 15_000 });
-    await devices.locator('.device-row .set-row-label', { hasText: towerName }).first().waitFor({ timeout: 30_000 });
+    await linked.locator('.device-row .set-row-label', { hasText: towerName }).first().waitFor({ timeout: 30_000 });
     await nearby.waitFor({ state: 'detached', timeout: 15_000 }).catch(() => undefined); // a linked PC is not offered again
   } else {
     t.diagnostic('this machine has no LAN or tailnet address – the request part is not run');
   }
 
   // A device row's right-click menu: Rename inline.
-  const deviceRow = devices.locator('.device-row').first();
+  const deviceRow = linked.locator('.device-row').first();
   if (await deviceRow.count()) {
     const id0 = (await rpc.call('devices.list')).filter((device) => device.status !== 'revoked' && device.status !== 'pairing')
       .sort((a, b) => Number(b.self) - Number(a.self) || Number(b.kind === 'pc') - Number(a.kind === 'pc') || a.name.localeCompare(b.name))[0];

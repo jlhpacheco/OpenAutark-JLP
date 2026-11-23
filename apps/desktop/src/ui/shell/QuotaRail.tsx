@@ -1,10 +1,11 @@
 // Quota badges in the rail (B-078, D17 – owner 06.11.2026: a circle, the 5-hour limit as the ring, the weekly share as the
 // number, minutes to the 5-hour reset, the plan's name, the provider by colour only, smaller so four fit). One compact badge
 // per plan, every part in a fixed slot so a reading that comes or goes moves nothing:
-//   a ring – only when the plan reports a 5-hour window (lib/limits.ts fiveHourOf; some plans have none) – whose arc is the
-//   5-hour share left in the provider's colour (the track alone once that reset passed), with the weekly % left in its
-//   middle in the same colour; without a 5-hour window the number stands alone in the same spot;
-//   one line with the minutes to the 5-hour reset ("42m", "2h 5m"; reserved and empty without one);
+//   a ring whose arc is the 5-hour share left in the provider's colour (the track alone once that reset passed), with the
+//   weekly % left in its middle in the same colour; 21.11.2026 (owner: "wenn es nicht mitgesendet wird, dann ist keins
+//   vorhanden und dann ist der Kreis außenrum das wöchentliche Limit"): a plan whose reading sends no 5-hour window
+//   (lib/limits.ts fiveHourOf) has the weekly share as its ring;
+//   one line with the time to the ring's reset ("42m", "2h 5m"; the weekly one "3d 4h");
 //   one line with the plan's name (the runtime's UsageSummary.name – a label of the person's own, else the e-mail's local
 //   part, shared/model/plan-names.ts – else the label).
 // The plan in use first, then by weekly share; max 4 + "+n". A stale reading dims the badge.
@@ -95,7 +96,7 @@ function Details(props: { entry: UsageSummary; next?: UsageSummary }) {
   );
 }
 
-/** The 5-hour ring (track + the share left) – drawn only for a plan with a 5-hour window. */
+/** The ring (track + the share left): the 5-hour window's, or the weekly one's on a plan without a 5-hour limit. */
 function Ring(props: { left?: number }) {
   const arc = props.left === undefined ? 0 : (props.left / 100) * RING_C;
   return (
@@ -115,11 +116,13 @@ function Badge(props: { entry: UsageSummary; next?: UsageSummary }) {
   const now = Date.now();
   const weekly = weeklyOf(entry, now);
   const five = fiveHourOf(entry.limits, now);
-  const wait = five?.resetsAt !== undefined ? shortWait(five.resetsAt, now) : undefined;
+  const ringResets = five ? five.resetsAt : weekly === undefined ? undefined : entry.weeklyResetsAt;
+  const wait = ringResets !== undefined ? shortWait(ringResets, now) : undefined;
   const name = planName(entry);
   const label = [
     `${name}: ${weekly === undefined ? 'weekly share unknown' : `${weekly}% weekly left`}`,
-    five ? (five.left === undefined ? '5-hour limit reset' : `${five.left}% of the 5-hour limit left${five.resetsAt ? `, resets ${countdown(five.resetsAt, now)}` : ''}`) : '',
+    five ? (five.left === undefined ? '5-hour limit reset' : `${five.left}% of the 5-hour limit left${five.resetsAt ? `, resets ${countdown(five.resetsAt, now)}` : ''}`)
+      : weekly !== undefined && entry.weeklyResetsAt ? `no 5-hour limit, weekly resets ${countdown(entry.weeklyResetsAt, now)}` : '',
     entry.limits?.stale ? 'stale reading' : '',
   ].filter(Boolean).join(', ');
   const show = () => { clearTimeout(closeTimer.current); if (!open) refreshUsage(); setOpen(true); };
@@ -139,7 +142,7 @@ function Badge(props: { entry: UsageSummary; next?: UsageSummary }) {
         onClick={() => { refreshUsage(); setPinned(!pinned); setOpen(true); }}
       >
         <span class="usage-dial">
-          {five && <Ring left={five.left} />}
+          <Ring left={five ? five.left : weekly} />
           <span class="usage-value tabular">{weekly === undefined ? '–' : `${weekly}%`}</span>
         </span>
         <span class="usage-wait tabular">{wait ?? ''}</span>

@@ -1,5 +1,6 @@
 // What a person's device may call, part 4: their files –
-//  * files: upload into one of their chats (files.uploadChunk with `conversationId`, people/uploads.ts) and
+//  * files: upload into one of their chats (files.uploadChunk with `conversationId`, people/uploads.ts) or, without one,
+//    for their own to-do (the Tasks line's Files…), and
 //    read the files they may read (files.get / files.read: people/access.ts mayReadFile – attachments of their
 //    chats from their visible time on, avatars, their own uploads); a short recorded utterance goes through
 //    files.upload (people/rpc-voice.ts);
@@ -9,7 +10,7 @@
 import { WorkforceError } from '../../shared/errors.ts';
 import type { Person } from '../../shared/model/people.ts';
 import type { FileRef } from '../../shared/model/system.ts';
-import { bad, fileId, id, input, num, onlyKeys, optBool, optNum, text } from '../rpc/params.ts';
+import { fileId, id, input, num, onlyKeys, optBool, optNum, text } from '../rpc/params.ts';
 import type { HandlerContext, HandlerTable } from '../rpc/table.ts';
 import { base64Length } from '../rpc/uploads.ts';
 import { mayReadFile, personFileView } from './access.ts';
@@ -37,11 +38,10 @@ export function registerPersonWork(table: HandlerTable): void {
     const person = caller(ctx);
     const o = input(params);
     onlyKeys(o, ['uploadId', 'index', 'dataBase64', 'final', 'name', 'mime', 'conversationId']);
-    if (o.conversationId === undefined) bad('conversationId', 'the chat this file is for');
     return personUpload(ctx.services, person, deviceOf(ctx), {
       uploadId: text(o, 'uploadId', { max: 64 }), index: num(o, 'index', { min: 0, max: 100_000 }),
       dataBase64: text(o, 'dataBase64', { max: base64Length(4 * 1024 * 1024) + 4, allowEmpty: true }),
-      final: optBool(o, 'final') ?? false, name: text(o, 'name', { max: 200 }), conversationId: id(o, 'conversationId'),
+      final: optBool(o, 'final') ?? false, name: text(o, 'name', { max: 200 }), conversationId: o.conversationId === undefined ? '' : id(o, 'conversationId'),
     });
   });
   table.addPerson('files.get', (params, ctx) => readableFile(ctx, caller(ctx), params));

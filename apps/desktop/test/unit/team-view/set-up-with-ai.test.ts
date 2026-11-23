@@ -10,7 +10,7 @@ test('the requests name the thing and end where the person adds the missing deta
   assert.equal(importTeamRequest(), 'Import an agent team from: ');
   assert.equal(duplicateRequest({ name: 'Pia' }), 'Duplicate Pia');
   assert.equal(reportsToRequest({ name: 'Pia' }), 'Change who Pia reports to. New manager: ');
-  assert.match(connectCalendarRequest(), /^Connect a calendar to My day .*: $/);
+  assert.match(connectCalendarRequest(), /^Connect a calendar to my Tasks page .*: $/);
 });
 
 test('a request goes under what was already typed, never over it', () => {

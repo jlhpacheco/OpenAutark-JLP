@@ -1,9 +1,9 @@
-// The agents' lane of My day's calendar (B-041 track A1, settings.day.agentLane – "jede KI selber so einen Bereich"):
-// the planned runs of the agents' active schedules (routines, scheduled posts, reminders) inside a window, computed
+// The AI lane of the calendar (B-041 track A1 – "jede KI selber so einen Bereich"):
+// the planned runs of the agents' active schedules (scheduled posts, reminders) inside a window, computed
 // from each spec with schedules/spec.ts firesBetween (clock `times` too, B-044) – never stored. A schedule of a chat the owner does not see (a
 // people's own chat, F-52) stays out; the person's own timers are to-dos, not agent runs. Capped per schedule and
-// per window, so an hourly routine over a month stays a short list; asked for one agent (the agent page), the window
-// cap counts only its runs, so other agents' busy routines never push its later runs out.
+// per window, so an hourly reminder over a month stays a short list; asked for one agent (the agent page), the window
+// cap counts only its runs, so other agents' busy reminders never push its later runs out.
 // Owns: that projection. Never: changes a schedule, or shows one of a chat hidden from the owner.
 
 import { HUMAN_ID, SYSTEM_ID } from '../../shared/ids.ts';
@@ -15,7 +15,7 @@ import { firesBetween } from '../schedules/spec.ts';
 /** At most this many runs of one schedule, and of the whole window. */
 export const AGENT_RUN_LIMITS = Object.freeze({ perSchedule: 50, perWindow: 200 });
 
-const AGENT_KINDS = new Set(['routine', 'message', 'reminder']);
+const AGENT_KINDS = new Set(['message', 'reminder']);
 
 /** The runs of the agents' schedules in [from, to), by time (see the header). */
 export function agentRuns(s: Partial<Pick<RuntimeServices, 'scheduler' | 'chats' | 'org'>>, from: number, to: number, onlyAgent?: string): AgentRun[] {

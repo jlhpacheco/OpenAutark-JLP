@@ -53,7 +53,8 @@ const tarUnpack = (archive: string, into: string) => new Promise<void>((resolve,
   execFile(systemTar(), ['-xjf', archive, '-C', into], { windowsHide: true, timeout: UNPACK_TIMEOUT_MS, maxBuffer: 1 << 20 }, (error) => (error ? reject(error) : resolve()));
 });
 
-async function diskFree(dir: string): Promise<number | undefined> {
+/** Free bytes on the disk of `dir` (statfs), undefined when unknown. */
+export async function diskFree(dir: string): Promise<number | undefined> {
   try { const info = await statfs(dir); return Number(info.bavail) * Number(info.bsize); } catch { return undefined; }
 }
 

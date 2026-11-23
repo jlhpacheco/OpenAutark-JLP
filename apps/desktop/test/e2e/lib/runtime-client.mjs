@@ -12,12 +12,13 @@ import WebSocket from 'ws';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
-/** Options: dataDir, keepData, fake (default true), env, startTimeoutMs, port (default 0 = ephemeral; a restart on the same port keeps a browser's origin). */
+/** Options: dataDir, keepData, fake (default true), env, startTimeoutMs, firstRun (keep the first run open), port (default 0 = ephemeral; a restart on the same port keeps a browser's origin). */
 export async function startRuntime(options = {}) {
+  const appRoot = options.appRoot ? path.resolve(options.appRoot) : root;
   const dataDir = options.dataDir ?? await mkdtemp(path.join(os.tmpdir(), 'workforce-e2e-'));
-  const args = [path.join(root, 'app', 'runtime-cli.mjs'), '--data', dataDir, '--resources', path.join(root, 'resources'), '--ui', path.join(root, 'app', 'ui'), '--port', String(options.port ?? 0)];
+  const args = [path.join(appRoot, 'app', 'runtime-cli.mjs'), '--data', dataDir, '--resources', path.join(appRoot, 'resources'), '--ui', path.join(appRoot, 'app', 'ui'), '--port', String(options.port ?? 0)];
   if (options.fake !== false) args.push('--fake');
-  const child = spawn(process.execPath, args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: testNetworkEnv(dataDir, options.env, { discovery: options.env?.WORKFORCE_DISCOVERY_TARGETS }) }); // an isolated test profile: no automatic speech-model download (voice/local/auto.ts)
+  const child = spawn(process.execPath, args, { cwd: appRoot, stdio: ['ignore', 'pipe', 'pipe'], env: testNetworkEnv(dataDir, options.env, { discovery: options.env?.WORKFORCE_DISCOVERY_TARGETS }) }); // an isolated test profile: no automatic speech-model download (voice/local/auto.ts)
   let stderr = '';
   child.stderr.on('data', (chunk) => { stderr += chunk; if (stderr.length > 200_000) stderr = stderr.slice(-100_000); });
   const info = await new Promise((resolve, reject) => {
@@ -31,6 +32,9 @@ export async function startRuntime(options = {}) {
     child.once('exit', (code) => { clearTimeout(timer); reject(new Error(`runtime exited (${code})\n${stderr}`)); });
   });
   const client = await connect(info.port, info.token);
+  // Eine-ID 22.11.2026: a folder is a company (findable, with its IDs) once its first run is done – a started test runtime
+  // is a set-up company unless the test keeps the first run open (`firstRun: true`).
+  if (!options.firstRun) await client.call('settings.update', { onboarding: { completed: true, step: 'done' } });
   return {
     dataDir, port: info.port, token: info.token, child, client,
     stderr: () => stderr,
@@ -47,6 +51,15 @@ export async function startRuntime(options = {}) {
  * A message as it stands now: an agent's answer is posted as a new message (chat/publish-message.ts, final, failed or
  * stopped) and may be updated later (an edit, chat/message-edits.ts) – a wait for "the final reply" takes either.
  */
+/**
+ * Eine-ID review 22.11.2026 (H1): connect by an ID; where the PC asked answers that this PC would become one of its
+ * person's devices (status 'confirm'), this side says yes – as the person does with "Yes, add". Returns the request.
+ */
+export async function connectYes(client, target) {
+  const out = await client.call('remote.connect', { target });
+  return out.status === 'confirm' ? client.call('remote.confirm') : out;
+}
+
 export const MESSAGE_EVENTS = ['message.created', 'message.updated'];
 
 export async function connect(port, token, client = 'cli') {

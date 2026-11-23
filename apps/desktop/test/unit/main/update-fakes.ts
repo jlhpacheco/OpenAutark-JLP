@@ -16,7 +16,6 @@ export function desktopDeps(overrides: Partial<DesktopUpdatesDeps> = {}) {
     updater: inactiveUpdater(),
     packaged: true, enabled: true, platform: 'win32', arch: 'x64', version: '0.2.0',
     autoDownload: () => true,
-    setAutoDownload: async () => {},
     renderer: { rendererReady: true, prepareRestart: async () => { order.push('drafts'); return true; } },
     idleSeconds: () => 600,
     runtime: {

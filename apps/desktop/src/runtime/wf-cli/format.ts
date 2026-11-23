@@ -10,7 +10,7 @@ import type { ConversationSummary, Message } from '../../shared/model/chat.ts';
 import type { Agent } from '../../shared/model/org.ts';
 import type { TaskView } from '../../shared/model/tasks.ts';
 import { isAgentNotice } from '../../shared/model/message-changes.ts';
-import { isLater, isSnoozed, snoozedUntil, timerAt } from '../../shared/model/todo-later.ts';
+import { isLater, timerAt } from '../../shared/model/todo-later.ts';
 import { HUMAN_ID, SYSTEM_ID } from '../../shared/ids.ts';
 import { chatName, excerpt, previewText } from '../../shared/text/chat-names.ts';
 import { chatSection } from '../../shared/text/chat-sections.ts';
@@ -125,7 +125,7 @@ function assignee(task: TaskView, name: NameOf): string {
 }
 
 /**
- * The person's to-dos (My day): what is due now – title, widget, chat, due time, id – then the
+ * The person's to-dos: what is due now – title, widget, chat, its time, id – then the
  * "Later" ones (F04, shared/model/todo-later.ts) under "Later (n):" with when they ring.
  */
 export function formatTodos(todos: readonly TaskView[], now: number): string[] {
@@ -141,19 +141,16 @@ function todoLine(todo: TaskView, when: string | undefined, now: number): string
   if (todo.widget?.type) parts.push(todo.widget.type);
   if (todo.conversationTitle) parts.push(`in ${todo.conversationTitle}`);
   if (when) parts.push(when);
-  else if (todo.dueAt) parts.push(`due ${clock(todo.dueAt, now)}`);
+  else if (todo.at) parts.push(`at ${clock(todo.at, now)}`);
   parts.push(todo.id);
   return parts.join(' · ');
 }
 
-/** When a "Later" to-do rings: "snoozed until 14:12" ("snoozed" without a recorded end), "rings 2026-10-23 09:00". */
+/** When a "Later" to-do comes: "rings 2026-10-23 09:00" (a timer), "at 2026-10-23 09:00". */
 function laterWhen(todo: TaskView, now: number): string | undefined {
-  if (isSnoozed(todo)) {
-    const until = snoozedUntil(todo);
-    return until === undefined ? 'snoozed' : `snoozed until ${clock(until, now)}`;
-  }
-  const at = timerAt(todo);
-  return at === undefined ? undefined : `rings ${clock(at, now)}`;
+  const ring = timerAt(todo);
+  if (ring !== undefined) return `rings ${clock(ring, now)}`;
+  return todo.at === undefined ? undefined : `at ${clock(todo.at, now)}`;
 }
 
 export function formatTasks(tasks: readonly TaskView[], name: NameOf, now: number): string[] {
@@ -162,9 +159,9 @@ export function formatTasks(tasks: readonly TaskView[], name: NameOf, now: numbe
   return tasks.map((task) => {
     const parts = [`${task.status.padEnd(width)}  ${task.title}`, assignee(task, name)];
     if (task.conversationTitle) parts.push(task.conversationTitle);
-    if (task.progress.total) parts.push(`${task.progress.done}/${task.progress.total} steps`);
+    if (task.progress.total) parts.push(`${task.progress.done}/${task.progress.total} to-dos`);
     if (task.running) parts.push('running');
-    if (task.dueAt) parts.push(`due ${clock(task.dueAt, now)}`);
+    if (task.at) parts.push(`at ${clock(task.at, now)}`);
     parts.push(task.id);
     return parts.join(' · ');
   });

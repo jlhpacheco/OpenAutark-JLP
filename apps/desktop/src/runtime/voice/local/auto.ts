@@ -10,18 +10,18 @@
 // START_DELAY_MS after the runtime and on settings changes – one timer, nothing polls. An isolated test profile
 // (WORKFORCE_TEST_DATA) never downloads by itself.
 // ensureTagger(): the audio tagger (AUDIO_TAGGER, download only) once, on demand.
-// B-082: at the same start delay, Smart Turn next to an installed Silero VAD (LocalSpeech.ensureTurn), quietly.
+// B-082: at the same start delay, the conversation page's turn models (Silero VAD, Smart Turn – VOICE 19.11.2026: on
+// every PC, not only one with a recognizer) when missing (LocalSpeech.ensureTurn), quietly.
 // Owns: when the automatic download runs, its kv record, ensureTagger. Never: downloads more than the one
 // recommended model (and the VAD with Smart Turn), or changes a setting other than through the pull.
 
-import { statfs } from 'node:fs/promises';
 import type { RuntimeServices } from '../../contracts.ts';
 import { AUDIO_TAGGER, SILERO_VAD, SMART_TURN, localSpeechModel, type LocalSpeechModel } from '../../../shared/model/local-speech-models.ts';
 import type { Settings } from '../../../shared/model/system.ts';
-import { USE_AUTO, useValue } from '../../../shared/model/models-uses.ts';
+import { USE_AUTO, USE_LOCAL, useValue } from '../../../shared/model/models-uses.ts';
 import { WorkforceError } from '../../../shared/errors.ts';
 import { KvRepo } from '../../store/kv.ts';
-import { installModel, type DownloadFetch } from './download.ts';
+import { diskFree, installModel, type DownloadFetch } from './download.ts';
 import type { LocalSpeech } from './service.ts';
 import { isInstalled, speechRoot } from './store.ts';
 
@@ -52,12 +52,9 @@ export interface LocalSpeechAutoDeps {
 export function settingsBlock(settings: Settings | undefined): string | undefined {
   if (!settings) return 'no settings';
   if (settings.voice?.localStt) return 'chosen';
-  if (useValue(settings.routing, 'stt') !== USE_AUTO) return 'service chosen'; // a service chosen, or speech to text off
+  const stt = useValue(settings.routing, 'stt');
+  if (stt !== USE_AUTO && stt !== USE_LOCAL) return 'service chosen'; // a service or the plan chosen, or speech to text off
   return undefined;
-}
-
-async function diskFree(dir: string): Promise<number | undefined> {
-  try { const info = await statfs(dir); return Number(info.bavail) * Number(info.bsize); } catch { return undefined; }
 }
 
 export class LocalSpeechAuto {

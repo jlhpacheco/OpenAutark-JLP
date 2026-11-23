@@ -6,7 +6,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { adoptPort, resetNativePort } from '../../../src/ui/pwa/native-port.ts';
-import { CHUNK_BYTES, PHONE_DOWNLOAD_MAX, safeName, saveToPhone, toBase64 } from '../../../src/ui/pwa/phone-download.ts';
+import { CHUNK_BYTES, PHONE_DOWNLOAD_MAX, safeName, saveToPhone } from '../../../src/ui/pwa/phone-download.ts';
+import { toBase64 } from '../../../src/ui/lib/files.ts';
 import { parseShare, shareWhat, withShared } from '../../../src/ui/pwa/share.ts';
 
 interface Chunk { t: string; name: string; mime: string; data: string; seq: number; last: boolean }

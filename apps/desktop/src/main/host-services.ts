@@ -3,9 +3,8 @@
 // Owns: argument checks per op, safeStorage refusal rules, the notification lifecycle (click → show window +
 // navigate) and its sound (one per burst, a beep while the window has focus), the link allowlist, power-save
 // blockers held for the runtime, badge, and handing media jobs to the hidden media analyzer (media-analyzer.ts) and
-// a company switch to companies.ts (B-072), a watched side tab's ops to main/side-driver/caster.ts (B-076), and a
-// dictation for the Codex plan's voice to the hidden voice window (voice-rtc.ts, owner 07.11.2026), and (B-080) the install
-// of a build from a file to updates-wiring.ts installFile – answered first, run on the next tick.
+// a company switch to companies.ts (B-072), a watched side tab's ops to main/side-driver/caster.ts (B-076), and (B-080) the
+// install of a build from a file to updates-wiring.ts installFile – answered first, run on the next tick.
 // Never: restarts the runtime (runtime.restart/booting are RuntimeHost's), imports electron
 // (objects are injected so tests use fakes), logs secrets or cipher bytes, opens anything but
 // http(s)/mailto links, keeps a blocker after the runtime is gone.
@@ -23,11 +22,12 @@ import { previewRequest, type PreviewRequest } from '../shared/model/video-previ
 import { externalUrl } from './security.ts';
 import type { SideBrowserCall, SideBrowserResult } from '../shared/model/side-browser.ts'; // B-055
 
+/** Electron's asynchronous safeStorage (the synchronous calls are gone in Electron 46); reads secrets the synchronous calls wrote. */
 export interface SafeStorageLike {
-  isEncryptionAvailable(): boolean;
+  isAsyncEncryptionAvailable(): Promise<boolean>;
   getSelectedStorageBackend?(): string;
-  encryptString(plain: string): Uint8Array;
-  decryptString(cipher: Buffer): string;
+  encryptStringAsync(plain: string): Promise<Uint8Array>;
+  decryptStringAsync(cipher: Buffer): Promise<{ result: string }>;
 }
 
 export interface NotificationLike {
@@ -60,12 +60,6 @@ export interface HostServicesDeps {
   sideBrowser?: (call: SideBrowserCall) => Promise<SideBrowserResult>;
   /** B-076: a side tab watched from another PC or a phone (main/side-driver/caster.ts checks every field); missing = 'unavailable'. */
   sideView?: { cast(args: unknown): Promise<Result<'sideCast'>>; input(args: unknown): Promise<Result<'sideInput'>>; nav(args: unknown): Promise<Result<'sideNav'>> };
-  /** Owner 07.11.2026: a dictation sent to the Codex plan's voice over WebRTC (voice-rtc.ts checks every field); missing = 'unavailable'. */
-  voiceRtc?: {
-    offer(args: { fileId?: unknown; mime?: unknown }): Promise<Result<'voice.rtcOffer'>>;
-    answer(args: { jobId?: unknown; sdp?: unknown }): Promise<Result<'voice.rtcAnswer'>>;
-    close(args: { jobId?: unknown }): Result<'voice.rtcClose'>;
-  };
   window: {
     /** True while the user looks at the app (the UI shows the item itself and a beep sounds, no OS toast). */
     focused(): boolean;
@@ -79,8 +73,8 @@ export interface HostServicesDeps {
   removeCompany?(args: HostOps['company.remove']['args']): Promise<HostOps['company.remove']['result']>;
   /** B-080: installs a build from a file the way an update does (updates-wiring.ts installFile); called after the answer went out. */
   install?(installer: string): Promise<void>;
-  /** 19.11.2026: this PC's Update button pressed from another of the owner's PCs (updates-wiring.ts updateNow); after the answer. */
-  update?(): Promise<void>;
+  /** 19.11.2026: this PC's Update button pressed from another of the owner's PCs (updates-wiring.ts updateNow): its updater's verdict (E4). */
+  update?(): Promise<HostOps['app.update']['result']>;
   setTimer?(fn: () => void, ms: number): unknown;
   clearTimer?(handle: unknown): void;
 }
@@ -130,7 +124,7 @@ export class HostServices {
   async handle(request: HostRequest): Promise<unknown> {
     const args = request.args as Record<string, unknown>;
     switch (request.op) {
-      case 'storage.ready': return { available: !this.storageProblem() };
+      case 'storage.ready': return { available: !(await this.storageProblem()) };
       case 'encrypt': return this.encrypt(args as Args<'encrypt'>);
       case 'decrypt': return this.decrypt(args as Args<'decrypt'>);
       case 'notify': return this.notify(args as Args<'notify'>);
@@ -155,11 +149,6 @@ export class HostServices {
         if (!view) throw new WorkforceError('unavailable', 'The side browser is not available in this window.');
         return request.op === 'sideCast' ? view.cast(args) : request.op === 'sideInput' ? view.input(args) : view.nav(args);
       }
-      case 'voice.rtcOffer': case 'voice.rtcAnswer': case 'voice.rtcClose': { // owner 07.11.2026
-        const rtc = this.deps.voiceRtc;
-        if (!rtc) throw new WorkforceError('unavailable', 'The plan\'s voice is not available in this build of the app.');
-        return request.op === 'voice.rtcOffer' ? rtc.offer(args) : request.op === 'voice.rtcAnswer' ? rtc.answer(args) : rtc.close(args);
-      }
       case 'company.open': // B-072
         if (!this.deps.openCompany) throw new WorkforceError('unavailable', 'Other companies open only in the desktop app.');
         return this.deps.openCompany(args as Args<'company.open'>);
@@ -167,12 +156,9 @@ export class HostServices {
         if (!this.deps.removeCompany) throw new WorkforceError('unavailable', 'Companies are removed only in the desktop app.');
         return this.deps.removeCompany(args as Args<'company.remove'>);
       case 'app.install': return this.install(args as Args<'app.install'>); // B-080
-      case 'app.update': { // 19.11.2026: answered first, the update (a drain and a quit when one is there) on the next tick
-        const update = this.deps.update;
-        if (!update) throw new WorkforceError('unavailable', 'This app cannot update itself here.');
-        this.setTimer(() => { void update().catch(() => undefined); }, 0); // desktop.ts logs a failure
-        return { ok: true };
-      }
+      case 'app.update': // 19.11.2026 (E4/E5): the updater's verdict after its check; the download and install follow after the answer (updates-wiring.ts)
+        if (!this.deps.update) throw new WorkforceError('unavailable', 'This app cannot update itself here.');
+        return this.deps.update();
       // MM7: the runtime's own lifecycle is RuntimeHost's – it answers these before `handle` is asked.
       case 'runtime.restart':
       case 'runtime.booting': throw new WorkforceError('unavailable', 'The runtime host answers this request.');
@@ -188,9 +174,9 @@ export class HostServices {
     this.blockers.clear();
   }
 
-  private storageProblem(): string | undefined {
+  private async storageProblem(): Promise<string | undefined> {
     try {
-      if (!this.deps.safeStorage.isEncryptionAvailable()) return 'Secure storage is not available on this system.';
+      if (!(await this.deps.safeStorage.isAsyncEncryptionAvailable())) return 'Secure storage is not available on this system.';
     } catch { return 'Secure storage is not available on this system.'; }
     let backend: string | undefined;
     try { backend = this.deps.safeStorage.getSelectedStorageBackend?.(); } catch { backend = undefined; }
@@ -201,24 +187,25 @@ export class HostServices {
     return undefined;
   }
 
-  private secureStorage(): void {
-    const problem = this.storageProblem();
+  private async secureStorage(): Promise<void> {
+    const problem = await this.storageProblem();
     if (problem) throw new WorkforceError('unavailable', problem);
   }
 
-  private encrypt(args: Args<'encrypt'>): Result<'encrypt'> {
+  private async encrypt(args: Args<'encrypt'>): Promise<Result<'encrypt'>> {
     if (typeof args.plain !== 'string' || args.plain.length > MAX_SECRET) bad('Invalid secret.');
-    this.secureStorage();
-    const cipher = this.deps.safeStorage.encryptString(args.plain);
+    await this.secureStorage();
+    const cipher = await this.deps.safeStorage.encryptStringAsync(args.plain);
     return { cipher: ownBytes(cipher) };
   }
 
-  private decrypt(args: Args<'decrypt'>): Result<'decrypt'> {
+  private async decrypt(args: Args<'decrypt'>): Promise<Result<'decrypt'>> {
     const cipher = args.cipher as unknown;
     if (!(cipher instanceof Uint8Array) || cipher.byteLength === 0 || cipher.byteLength > MAX_SECRET * 2) bad('Invalid secret.');
-    this.secureStorage();
+    await this.secureStorage();
     try {
-      return { plain: this.deps.safeStorage.decryptString(Buffer.from(cipher.buffer, cipher.byteOffset, cipher.byteLength)) };
+      const { result } = await this.deps.safeStorage.decryptStringAsync(Buffer.from(cipher.buffer, cipher.byteOffset, cipher.byteLength));
+      return { plain: result };
     } catch {
       throw new WorkforceError('unavailable', 'A stored secret could not be decrypted on this system.');
     }

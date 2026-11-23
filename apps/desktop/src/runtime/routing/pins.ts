@@ -46,7 +46,7 @@ const plain = (value: string) => value.toLowerCase().replace(/[\s_-]+/g, '');
  * that now names itself, settings.json providers), an id in plain form, then (never for a provider-qualified id – a
  * "codex:" plan pin never becomes an "openai:" key) the provider's model id, then the display name, both in plain form;
  * within each, available first, the catalog order breaks ties. B-083 D5: the one model lookup – pins, Settings uses,
- * model.set, tasks.create / tasks.give, a split's part and my subconscious's turn (agents/next-route.ts catalogModel) name alike.
+ * model.set, tasks.add / tasks.update for a colleague, a split's part and my subconscious's turn (agents/next-route.ts catalogModel) name alike.
  */
 export function modelMatches(models: readonly ModelInfo[], named: string): ModelInfo[] {
   const wanted = plain(named);

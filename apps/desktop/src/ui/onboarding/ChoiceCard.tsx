@@ -1,5 +1,5 @@
 // B-085: the first run's first card (step 'tour', FirstRun.tsx), in place of the feedback video: "Set up a new company"
-// (→ the AI card) or, where this window can connect, "Connect to my other PC" (→ the Connect card as my other device).
+// (→ the AI card) or, where this window can connect, "Connect with an ID" (→ the Connect card; Eine-ID 22.11.2026: the ID typed decides – a company's ID joins it as a new member, a person's ID adds this PC to their devices).
 // A quiet "Watch how it works" opens the feedback video in its dialog (ui/tour/open.ts – the shell mounts it); B-090
 // (owner 13.11.2026): "Set up a new company" plays it at once over the AI card, so everyone sees it. No
 // "Step n of 2" here; the card has the cards' one frame (parts.tsx), so nothing jumps between the steps.
@@ -35,7 +35,7 @@ export function ChoiceCard(props: { onConnect?: () => void }) {
     }>
       <div class="first-run-choices">
         <Choice primary title="Set up a new company" text="Connect an AI, say who you are – your Manager takes it from there." disabled={busy} onClick={setUp} />
-        {props.onConnect && <Choice title="Connect to my other PC" text="This PC joins the company you already run on another one." disabled={busy} onClick={props.onConnect} />}
+        {props.onConnect && <Choice title="Connect with an ID" text="Join a company with its ID, or add this PC to your devices with your own ID." disabled={busy} onClick={props.onConnect} />}
       </div>
     </Card>
   );

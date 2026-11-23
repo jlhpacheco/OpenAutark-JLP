@@ -1,5 +1,5 @@
 // B-083 plan credits: an API key whose organisation holds a plan's monthly API credits (Account.credits) is charged
-// like a plan by both charge rules (shared/model/charge.ts accountCharge = runtime/models/pricing.ts chargeOf), routing
+// like a plan by the one charge rule (shared/model/charge.ts accountCharge – booking, routing and the UI), routing
 // uses it like a plan whose headroom is unknown (score.ts costFactor, pool.ts: no spill-over; candidates.ts lists it before
 // paying keys), the providers' "credit
 // used up" answers cool the account for a day (engines/http/common.ts), and the flag is stored and set through
@@ -8,7 +8,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { accountCharge, creditsPossible } from '../../../src/shared/model/charge.ts';
-import { chargeOf } from '../../../src/runtime/models/pricing.ts';
 import { costFactor, isPaid, scoreModel, UNKNOWN_HEADROOM } from '../../../src/runtime/routing/score.ts';
 import { buildPool } from '../../../src/runtime/routing/pool.ts';
 import { selectCandidates } from '../../../src/runtime/accounts/candidates.ts';
@@ -51,10 +50,8 @@ test('charge: both rules agree; plan credits turn a paid key or a Console login 
     [account('a', 'openrouter'), 'paid'],
   ];
   for (const [item, want] of cases) {
-    assert.equal(chargeOf(item), want, `${item.provider} ${item.auth} ${item.plan ?? ''} credits=${item.credits}`);
-    assert.equal(accountCharge(item), chargeOf(item), 'the UI rule and the booking rule stay one rule');
+    assert.equal(accountCharge(item), want, `${item.provider} ${item.auth} ${item.plan ?? ''} credits=${item.credits}`);
   }
-  assert.equal(accountCharge(undefined), chargeOf(undefined));
 });
 
 test('charge: only pay-per-use accounts of providers whose plans include API credits can hold them – also while switched on', () => {
@@ -169,10 +166,10 @@ test('store: accounts.update\'s service path sets and clears the flag; the row k
   assert.equal(h.service.update('acc_key', { credits: true }).credits, true);
   assert.equal(h.repo.get('acc_key')?.credits, true, 'stored in the table');
   assert.equal(h.service.update('acc_key', { label: 'Console' }).credits, true, 'another change keeps it');
-  assert.equal(chargeOf(h.service.get('acc_key')), 'plan');
+  assert.equal(accountCharge(h.service.get('acc_key')), 'plan');
   h.service.update('acc_key', { credits: false });
   assert.equal('credits' in h.repo.get('acc_key')!, false);
-  assert.equal(chargeOf(h.service.get('acc_key')), 'paid');
+  assert.equal(accountCharge(h.service.get('acc_key')), 'paid');
 });
 
 test('store: a mark on an account without plan credits is refused, so real pay-per-use spend is never booked as plan', () => {
@@ -185,5 +182,5 @@ test('store: a mark on an account without plan credits is refused, so real pay-p
     assert.equal('credits' in h.repo.get(id)!, false);
     assert.equal(h.service.update(id, { credits: false }).enabled, true, 'switching off always passes');
   }
-  assert.equal(chargeOf(h.service.get('acc_router')), 'paid');
+  assert.equal(accountCharge(h.service.get('acc_router')), 'paid');
 });

@@ -1,12 +1,15 @@
 // The in-window toasts (src/ui/lib/toasts.ts): a toast expires after its time (6 s by default), one pushed with 0
 // stays until it is dismissed, at most three at once (the oldest goes first); a runtime notification for a to-do or a
-// blocker stays until Open or Dismiss (or until store-events drops it: its chat or My day open, its to-do finished),
+// blocker stays until Open or Dismiss (or until store-events drops it: its chat or the Tasks page open, its to-do finished),
 // an important message goes after 20 s, a reply or a result expires.
 // Owns: these assertions only. Never: the status line's markup (shell/StatusLine.tsx) or a real window.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { NOTICE_ONLY_MS, dismissToast, dismissToastsWhere, pushToast, toastNotification, toastStartNotice, toasts } from '../../../src/ui/lib/toasts.ts';
+import { atToastTarget } from '../../../src/ui/lib/store-events.ts';
+import { parseRoute } from '../../../src/ui/lib/router.ts';
+import type { Route } from '../../../src/ui/lib/router.ts';
 
 const titles = () => toasts.value.map((toast) => toast.title);
 
@@ -81,4 +84,15 @@ test('feedback F09/F10: important notices go by themselves after a while, with o
   assert.deepEqual(titles(), ['office-pc is now linked', 'Max posted on X', 'Confirm the login'], 'longer than a reply');
   t.mock.timers.tick(NOTICE_ONLY_MS - 6000);
   assert.deepEqual(titles(), ['Confirm the login'], 'both important notices went, the to-do stays');
+});
+
+test('store-events: a toast is seen already where its Open leads – its chat, or the Tasks page (#/tasks, Home, an older #/day link) for a to-do outside a chat or on the For-you list', () => {
+  const todo = { taskId: 'task_1' };
+  assert.equal(atToastTarget({ conversationId: 'ch_a' }, { view: 'chat', id: 'ch_a' }, []), true);
+  assert.equal(atToastTarget({ conversationId: 'ch_a' }, { view: 'chat', id: 'ch_b' }, []), false);
+  for (const at of [{ view: 'home' }, { view: 'tasks' }, parseRoute('#/day')] as Route[]) assert.equal(atToastTarget(todo, at, []), true, at.view);
+  assert.equal(atToastTarget(todo, { view: 'team' }, []), false);
+  assert.equal(atToastTarget({ taskId: 'task_1', conversationId: 'ch_a' }, { view: 'tasks' }, []), false, 'a chat\'s to-do not on the list is seen in its chat');
+  assert.equal(atToastTarget({ taskId: 'task_1', conversationId: 'ch_a' }, { view: 'tasks' }, [{ id: 'task_1' }]), true, 'its row on For you');
+  assert.equal(atToastTarget({ conversationId: 'ch_a' }, { view: 'tasks' }, []), false, 'a chat message is seen in its chat');
 });

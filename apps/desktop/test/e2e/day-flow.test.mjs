@@ -1,15 +1,14 @@
-// End-to-end (B-041 My day; Umbau Einfachheit: no task router, no rule split – one plain to-do per line, the AI
-// splits the rest): Robin's evening list through both inputs, the calendar, the day plan, check-off and "Send to
-// team" – over the real headless runtime (built app/runtime-cli.mjs) with the deterministic demo engine and real
-// WebSocket RPC.
-//   * Work (tasks.quickCreate) makes ONE plain task of what was typed – team work: "team" picks one owner at once
-//     (the responsible manager here: one agent, no decider), not the person's list.
-//   * My day (day.add) makes one to-do per line and keeps every one the person's.
-//   * calendar.add (kind 'event') at 10:00 tomorrow; day.plan for tomorrow places blocks inside working hours,
-//     clear of the event and its buffer.
-//   * Ticking off 'Küche aufräumen' before its block removes the block.
-//   * "Send to team" (tasks.give to "team", ui/day/day-actions.ts) takes a to-do off the person's list; Autark picks its
-//     one owner at once (the responsible manager) and it is listed as handed off.
+// End-to-end (Quests round 20.11.2026: the Tasks page's input line, calendar and right-click): Robin's evening list
+// through the line, a time the line gave, a quest, a calendar slot, check-off, "Later" and "Send to team" – over the
+// real headless runtime (built app/runtime-cli.mjs) with the deterministic demo engine and real WebSocket RPC.
+//   * The line (tasks.quickCreate, the one intake) makes the person's to-do at once – the first line its title, the rest
+//     its notes; with a time (the phrase the page used, cut from the title) it stands on the calendar as their row.
+//   * A quest the person starts (tasks.create kind 'quest'); a line typed while it is open goes into it.
+//   * A click into a free slot with text in the line (quickCreate at/minutes) and an event from a connected calendar's
+//     kind (calendar.add 'event') stand side by side; moving the to-do's row (calendar.move) moves its `at`.
+//   * Ticking off a timed to-do keeps it on the calendar at the time it was done (the logbook).
+//   * "Later" (todos.snooze) moves the to-do's time; "Undo last change" (tasks.undo) takes it back.
+//   * "Send to team" (tasks.give to "team") takes a to-do off the person's list; Autark picks its one owner at once.
 // Owns: this flow check. Never: touches the person's data (temp profile).
 // Run: npm run build && node --test test/e2e/day-flow.test.mjs
 
@@ -17,7 +16,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startRuntime } from './lib/runtime-client.mjs';
 
-const LINES = ['Wäsche waschen', 'Küche aufräumen', 'Steuern erledigen', 'Webseite verbessern', 'am Buch arbeiten'];
+const MIN = 60_000;
+
+/** The input line's one intake: the person's to-do. */
+const add = async (client, input) => (await client.call('tasks.quickCreate', input)).task;
 
 /** YYYY-MM-DD of `at` in `tz`. */
 function localDate(at, tz) {
@@ -38,9 +40,7 @@ function wallTime(date, hh, mm, tz) {
   return guess - offset(first);
 }
 
-const titled = (tasks, pattern) => tasks.filter((task) => pattern.test(task.title));
-
-test('My day flow: Work task, day.add, event, plan, check-off, Send to team', { timeout: 300_000 }, async (t) => {
+test('Tasks page flow: the line, a time, a quest, a slot, check-off, Later and Undo, Send to team', { timeout: 300_000 }, async (t) => {
   const runtime = await startRuntime();
   t.after(() => runtime.stop());
   const { client } = runtime;
@@ -48,96 +48,77 @@ test('My day flow: Work task, day.add, event, plan, check-off, Send to team', { 
   const agents = await client.call('agents.list');
   const manager = agents.find((agent) => agent.template === 'manager') ?? agents[0];
   assert.ok(manager, 'the first run seeds a manager');
-  const settings = await client.call('settings.get');
-  const day = settings.day;
-  assert.ok(day?.workStart && day?.workEnd, 'day settings are filled with defaults');
-  const { tz } = await client.call('calendar.list', { from: Date.now(), to: Date.now() + 60_000 });
-  const tomorrow = localDate(Date.now() + 24 * 60 * 60_000, tz);
-  const ids = { day: [] };
+  const { tz } = await client.call('calendar.list', { from: Date.now(), to: Date.now() + MIN });
+  const tomorrow = localDate(Date.now() + 24 * 60 * MIN, tz);
+  const day = { from: wallTime(tomorrow, 0, 0, tz), to: wallTime(tomorrow, 23, 59, tz) };
+  let taxes;
 
-  await t.test('Work: one plain task of what was typed – team work, not the person\'s list', async () => {
-    const posted = await client.call('tasks.quickCreate', { text: 'Prepare the tax papers for the accountant', clientId: 'e2e-day-flow-work' });
-    assert.equal(posted.task.title, 'Prepare the tax papers for the accountant');
-    assert.deepEqual([posted.task.assigneeKind, posted.task.assigneeId], ['agent', manager.id], 'no target: team work, one owner picked now');
-    const again = await client.call('tasks.quickCreate', { text: 'Prepare the tax papers for the accountant', clientId: 'e2e-day-flow-work' });
-    assert.equal(again.task.id, posted.task.id, 'a retried post returns the first task');
-    const todos = await client.call('todos.list', { limit: 200 });
-    assert.ok(!todos.some((task) => task.id === posted.task.id), 'not on the person\'s list');
+  await t.test('the line: the person\'s to-do at once – the first line its title, the rest its notes', async () => {
+    taxes = await add(client, { text: 'Steuern erledigen\nBelege vom Oktober zuerst', clientId: 'e2e-tasks-line' });
+    assert.deepEqual([taxes.assigneeKind, taxes.kind, taxes.title], ['human', 'todo', 'Steuern erledigen']);
+    assert.match(taxes.notes, /Belege vom Oktober zuerst/);
+    const again = await add(client, { text: 'Steuern erledigen\nBelege vom Oktober zuerst', clientId: 'e2e-tasks-line' });
+    assert.equal(again.id, taxes.id, 'a retried line returns the first to-do');
+    assert.ok((await client.call('todos.list', { limit: 200 })).some((todo) => todo.id === taxes.id), 'on the person\'s list');
   });
 
-  await t.test('My day: one to-do per line, every one the person\'s', async () => {
-    const { tasks } = await client.call('day.add', { text: LINES.join('\n'), clientId: 'e2e-day-flow-day' });
-    assert.equal(tasks.length, LINES.length, `one to-do per line (got ${tasks.length})`);
-    for (const task of tasks) assert.equal(task.assigneeKind, 'human', `${task.title}: the person's`);
-    ids.day = tasks.map((task) => task.id);
-    const todos = await client.call('todos.list', { limit: 200 });
-    for (const task of tasks) assert.ok(todos.some((todo) => todo.id === task.id), `${task.title} is on the To-do list`);
-    assert.equal(titled(tasks, /steuern/i).length, 1, 'taxes stay the person\'s here');
-    t.diagnostic(`day parts: ${tasks.map((task) => task.title).join(' · ')}`);
+  let timed;
+  await t.test('a time the line gave: one to-do at that time, the person\'s row on the calendar', async () => {
+    const at = wallTime(tomorrow, 10, 0, tz);
+    timed = await add(client, { text: 'Steuerberater anrufen', at, clientId: 'e2e-tasks-timed' });
+    assert.equal(timed.at, at);
+    const list = await client.call('calendar.list', day);
+    assert.ok(list.events.some((row) => row.kind === 'todo' && row.id === timed.id && row.ownerId === 'human' && row.startAt === at), 'its row');
+    assert.ok(list.tasks.some((task) => task.id === timed.id), 'the calendar names the task it shows');
   });
 
-  let event;
-  await t.test('calendar.add: a 10:00 event tomorrow', async () => {
-    const startAt = wallTime(tomorrow, 10, 0, tz);
-    const added = await client.call('calendar.add', { text: 'Zahnarzt', startAt, endAt: startAt + 60 * 60_000, kind: 'event' });
-    event = added.event;
+  await t.test('a quest the person starts; a line typed into it goes in', async () => {
+    const quest = await client.call('tasks.create', { kind: 'quest', title: 'Steuer 2026 abgeben' });
+    assert.equal(quest.kind, 'quest');
+    const receipts = await add(client, { text: 'Belege sammeln', quest: quest.id, clientId: 'e2e-tasks-quest' });
+    assert.equal(receipts.parentId, quest.id);
+    const view = await client.call('tasks.get', { id: quest.id });
+    assert.ok(view.steps.some((step) => step.id === receipts.id), 'the quest holds it');
+  });
+
+  let slot;
+  await t.test('a slot with text in the line and an event stand side by side; moving the row moves the to-do', async () => {
+    const at = wallTime(tomorrow, 15, 0, tz);
+    slot = await add(client, { text: 'Anna anrufen', at, minutes: 30, clientId: 'e2e-tasks-slot' });
+    assert.deepEqual([slot.at, slot.minutes], [at, 30]);
+    const event = (await client.call('calendar.add', { text: 'Zahnarzt', startAt: wallTime(tomorrow, 11, 0, tz), endAt: wallTime(tomorrow, 12, 0, tz), kind: 'event' })).event;
     assert.equal(event.kind, 'event');
-    assert.equal(event.startAt, startAt);
-    assert.equal(added.task, undefined, 'an event makes no to-do');
+    const row = (await client.call('calendar.list', day)).events.find((entry) => entry.id === slot.id);
+    const moved = await client.call('calendar.move', { id: slot.id, startAt: at + 60 * MIN, endAt: at + 90 * MIN, rev: row.rev });
+    assert.equal(moved.startAt, at + 60 * MIN);
+    assert.equal((await client.call('tasks.get', { id: slot.id })).at, at + 60 * MIN, 'the to-do\'s `at` moved');
   });
 
-  let blocks;
-  await t.test('day.plan: blocks inside working hours, clear of the event and its buffer', async () => {
-    const result = await client.call('day.plan', { date: tomorrow, mode: 'plan' });
-    assert.equal(result.date, tomorrow);
-    assert.ok(result.placed.length >= 4, `placed ${result.placed.length}, unplanned ${JSON.stringify(result.unplanned)}`);
-    const [sh, sm] = day.workStart.split(':').map(Number);
-    const [eh, em] = day.workEnd.split(':').map(Number);
-    const open = wallTime(tomorrow, sh, sm, tz);
-    const close = wallTime(tomorrow, eh, em, tz);
-    const list = await client.call('calendar.list', { from: wallTime(tomorrow, 0, 0, tz), to: wallTime(tomorrow, 23, 59, tz) });
-    blocks = list.events.filter((row) => row.kind === 'todo');
-    assert.ok(list.events.some((row) => row.id === event.id), 'the event is listed');
-    const buffer = (day.bufferMin ?? 0) * 60_000;
-    for (const block of blocks) {
-      assert.equal(block.setBy, 'planner');
-      assert.ok(block.startAt >= open && block.endAt <= close, `block ${new Date(block.startAt).toISOString()} inside working hours`);
-      assert.ok(block.endAt + buffer <= event.startAt || block.startAt >= event.endAt + buffer, `block ${new Date(block.startAt).toISOString()}–${new Date(block.endAt).toISOString()} clear of the event`);
-    }
-    const sorted = [...blocks].sort((a, b) => a.startAt - b.startAt);
-    for (let i = 1; i < sorted.length; i++) assert.ok(sorted[i].startAt >= sorted[i - 1].endAt, 'blocks do not overlap');
-    for (const id of ids.day) {
-      const todo = (await client.call('todos.list', { limit: 200 })).find((task) => task.id === id);
-      if (todo) assert.ok(blocks.some((block) => block.taskId === id) || result.unplanned.some((entry) => entry.taskId === id), `${todo.title} placed or reported`);
-    }
+  await t.test('ticking off a timed to-do keeps it at the time it was done (the logbook)', async () => {
+    const done = await client.call('tasks.finish', { id: timed.id, clientId: 'e2e-tasks-done' });
+    assert.equal(done.status, 'done');
+    const today = localDate(done.completedAt, tz);
+    const list = await client.call('calendar.list', { from: wallTime(today, 0, 0, tz), to: wallTime(today, 23, 59, tz) });
+    const row = list.events.find((entry) => entry.id === timed.id);
+    assert.ok(row, 'still on the calendar');
+    assert.deepEqual([row.state, row.startAt], ['done', done.completedAt]);
   });
 
-  await t.test('ticking off Küche aufräumen before its block removes the block', async () => {
-    const todos = await client.call('todos.list', { limit: 200 });
-    const kitchen = todos.find((task) => ids.day.includes(task.id) && /küche/i.test(task.title));
-    assert.ok(kitchen, 'Küche aufräumen is on the list');
-    const block = blocks.find((row) => row.taskId === kitchen.id);
-    assert.ok(block, 'it has a block tomorrow');
-    const removed = client.waitFor('calendar.removed', (data) => data.id === block.id, 30_000);
-    await client.call('tasks.finish', { id: kitchen.id, clientId: 'e2e-day-flow-done' });
-    await removed;
-    const list = await client.call('calendar.list', { from: wallTime(tomorrow, 0, 0, tz), to: wallTime(tomorrow, 23, 59, tz) });
-    assert.ok(!list.events.some((row) => row.id === block.id), 'the block is gone');
-    assert.ok(list.events.some((row) => row.id === event.id), 'the event stays');
+  await t.test('"Later" moves the time; "Undo last change" takes it back', async () => {
+    const before = await client.call('tasks.get', { id: slot.id });
+    const until = before.at + 24 * 60 * MIN;
+    const later = await client.call('todos.snooze', { id: slot.id, until });
+    assert.equal(later.at, until);
+    const back = await client.call('tasks.undo', { id: slot.id });
+    assert.equal(back.at, before.at);
   });
 
   await t.test('Send to team: the to-do leaves the person\'s list and gets one owner of the team', async () => {
-    const todos = await client.call('todos.list', { limit: 200 });
-    const taxes = todos.find((task) => ids.day.includes(task.id) && /steuern/i.test(task.title));
-    assert.ok(taxes, 'the My day to-do Steuern erledigen');
     const sent = await client.call('tasks.give', { id: taxes.id, to: 'team' });
     assert.deepEqual([sent.assigneeKind, sent.assigneeId], ['agent', manager.id], 'handed to the team: its one owner picked now');
     await new Promise((resolve) => setTimeout(resolve, 1500)); // the owner's turn may run meanwhile
     const after = await client.call('todos.list', { limit: 200 });
     assert.ok(!after.some((task) => task.id === taxes.id), 'off the person\'s list');
-    const current = await client.call('tasks.get', { id: taxes.id });
-    assert.equal(current.assigneeId, manager.id, 'still with that owner');
-    const handed = await client.call('day.handedOff', {});
-    assert.ok(handed.some((task) => task.id === taxes.id), 'listed under Handed off');
+    assert.equal((await client.call('tasks.get', { id: taxes.id })).assigneeId, manager.id, 'still with that owner');
   });
 });

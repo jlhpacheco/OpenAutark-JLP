@@ -10,7 +10,7 @@
 //  - optional (accounts, usage): asked for only when `optional` allows it – can(): accounts.list
 //    is owner-only, usage.list needs 'chat' – and settled, never awaited as a whole: a refusal is
 //    empty, another failure keeps what is shown.
-// So a paired phone boots with its My day list whatever its access tier. The to-dos come with the
+// So a paired phone boots with its For-you list whatever its access tier. The to-dos come with the
 // largest page todos.list gives (TODO_LIMIT; the default of 50 silently cut longer lists).
 // Chats are loaded with includeHidden (archived ones never come): one list holds the main chats,
 // the agent-only "Team activity" rooms and the app-owned system chats, which the views sort with
@@ -43,7 +43,7 @@ export type ScopedSnapshot = typeof SCOPED_SNAPSHOTS[number];
 /** The chat snapshot: every section (main, team, system) in one list. */
 export const CHAT_LIST = { includeHidden: true } as const;
 
-/** The to-dos asked for: todos.list's largest page (My day's week and the badge need them all). */
+/** The to-dos asked for: todos.list's largest page (the Tasks page's calendar and the badge need them all). */
 export const TODO_LIMIT = 200;
 
 /** Task statuses the shell keeps live (open work). */

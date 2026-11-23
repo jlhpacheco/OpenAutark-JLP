@@ -13,7 +13,7 @@ import { PointerHub } from '../../../src/runtime/pointers/hub.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import type { ToolContext } from '../../../src/runtime/tools/types.ts';
 import type { SideBrowserCall, SideBrowserResult } from '../../../src/shared/model/side-browser.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 
 export class ScriptLocator implements LocatorLike {
   readonly page: ScriptPage;

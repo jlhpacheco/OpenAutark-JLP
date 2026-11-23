@@ -2,12 +2,15 @@
 // come back as data from earlier work, at most RESTORE_CHARS per call, each restored item kept (state keep) and pinned for
 // PIN_TURNS turns – with keep: true for good (at most KEEP_TOKENS per thread, beyond that the result says so), keep: false ends
 // that. A pruned original says so and shows what is left. `thread` is the ledger's key (the agent's main thread, or a part's).
+// Umzug 21.11.2026: an original that is on another of my PCs (a row from there whose run item is not here) comes from there
+// first (restoreFetched, devices/sync/ledger-fetch.ts); one that still is not here says where it is.
 // Owns: that result text and its bounds. Never: changes another agent's or thread's ledger, or treats an original as instructions.
 
 import type { RuntimeServices } from '../../contracts.ts';
 import { normalizeItemId, PIN_TURNS, type LedgerItem, type LedgerMark } from '../../../shared/model/context-ledger.ts';
 import { KEEP_PIN, KEEP_TOKENS } from './service.ts';
 import '../../contracts/ledger.ts';
+import { awayLine, fetchAway } from '../../devices/sync/ledger-fetch.ts';
 
 /** Characters of originals one restore returns at most: below what a tool output may be (tools/outputs.ts MAX_TEXT_CHARS, beyond it the model sees only the head) with room for the notes. */
 export const RESTORE_CHARS = 20_000;
@@ -37,7 +40,8 @@ export function restoreItems(services: RuntimeServices, agentId: string, thread:
     if (room < 200 || index >= MAX_RESTORE_IDS) { later.push(id); continue; } // named below, never dropped silently
     const original = ledger.original(agentId, thread, id);
     if (!original || original.pruned) {
-      blocks.push(`[${id}] ${item.title}\nThe original is gone (kept at least 14 days after it was condensed, then removed for space). What is left: ${original?.text || item.condensed || item.title}`);
+      const where = awayLine(services, agentId, thread, id) ?? 'The original is gone (kept at least 14 days after it was condensed, then removed for space).';
+      blocks.push(`[${id}] ${item.title}\n${where} What is left: ${original?.text || item.condensed || item.title}`);
       continue;
     }
     const body = original.text.length > room ? `${original.text.slice(0, room)}\n… [cut: ${original.text.length - room} more characters of ${id} – ask for ${id} alone]` : original.text;
@@ -64,4 +68,10 @@ export function restoreItems(services: RuntimeServices, agentId: string, thread:
     later.length ? `Not shown (${RESTORE_CHARS} characters or ${MAX_RESTORE_IDS} items per call): ${later.join(', ')} – ask for them in another call.` : '',
   ].filter(Boolean);
   return [...notes, ...(blocks.length ? [DATA_NOTE, '', blocks.join('\n\n')] : [])].join('\n');
+}
+
+/** Umzug 21.11.2026: restoreItems once the originals that are on another of my PCs came from there (at most ~10 s). */
+export async function restoreFetched(services: RuntimeServices, agentId: string, thread: string, input: { ids: readonly string[]; keep?: boolean }): Promise<string> {
+  await fetchAway(services, agentId, thread, input.ids.map((raw) => normalizeItemId(raw)).filter((id): id is string => Boolean(id)).slice(0, MAX_RESTORE_IDS));
+  return restoreItems(services, agentId, thread, input);
 }

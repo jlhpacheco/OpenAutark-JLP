@@ -27,6 +27,7 @@ import type { ReloginService } from '../contracts/relogin.ts';
 import { isHealthy } from './candidates.ts';
 import { attachRelogin } from './failure.ts';
 import { cleanLabel } from '../context/setup-facts.ts';
+import { KvRepo } from '../store/kv.ts';
 
 export const RELOGIN_NS = 'relogin';
 /** Sign-in tasks for one account within DAY_MS before the person gets the to-do instead. */
@@ -51,7 +52,7 @@ export function agentNotes(account: Account): string {
   return [
     `${labelOf(account)} (${providerName(account)}) was signed out, so agents cannot use it until it is signed in again.`,
     `accounts.sign_in with accountId "${account.id}" starts the official ${providerName(account)} sign-in on this PC; it opens the sign-in page in this PC's default browser. I finish what I can there myself (screen tools, or a colleague in browser or computer mode).`,
-    'I type no password myself; a password, a 2FA code or another check only the person can pass becomes a short, prepared task for them (tasks.create to the person) – they can also finish it from their phone in Settings › Models.',
+    'I type no password myself; a password, a 2FA code or another check only the person can pass becomes a short, prepared task for them (tasks.add for the person) – they can also finish it from their phone in Settings › Models.',
     'This task closes itself as soon as the account works again.',
   ].join('\n');
 }
@@ -159,17 +160,11 @@ export class Relogin implements ReloginService {
   }
 
   private entry(s: RuntimeServices, accountId: string): Entry | undefined {
-    const row = s.db.get<{ value: string }>('SELECT value FROM kv WHERE ns = ? AND key = ?', [RELOGIN_NS, accountId]);
-    if (!row) return undefined;
-    try { return JSON.parse(row.value) as Entry; } catch { return undefined; }
+    return new KvRepo(s.db).get<Entry>(RELOGIN_NS, accountId);
   }
 
   private save(s: RuntimeServices, accountId: string, entry: Entry): void {
-    s.db.run(
-      `INSERT INTO kv (ns, key, value, updated_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(ns, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-      [RELOGIN_NS, accountId, JSON.stringify(entry), s.clock.now()],
-    );
+    new KvRepo(s.db).set(RELOGIN_NS, accountId, entry, s.clock.now());
   }
 }
 

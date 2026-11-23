@@ -15,9 +15,8 @@ import type { RuntimeServices } from '../../contracts.ts';
 import type { Notifications, Pushed } from '../../notify/service.ts';
 import { ownerSubscriptions, pushTarget } from '../../pwa/push.ts';
 import { KvRepo } from '../../store/kv.ts';
-import { DevicesRepo } from '../repo.ts';
 import { heldSubs, ownerHeld, pushTo } from './held-push.ts';
-import { linkOf, links } from './home.ts';
+import { isCeoPc, links } from './home.ts';
 
 export const RELAY_METHOD = 'notify.relay';
 /** kv ns of the PCs that sent a roster (roster.ts marks them): they need no hand-over. */
@@ -62,7 +61,7 @@ export function relayNotification(s: Services, pushed: Pushed): void {
 
 /** 'notify.relay' from a CEO PC on 0.3.x: this PC's phones get it. */
 export async function receiveNotification(s: Pick<RuntimeServices, 'db'>, notifications: Pick<Notifications, 'relayed'>, params: unknown, from: string): Promise<{ ok: true }> {
-  if (linkOf(new DevicesRepo(s.db).get(from))?.kind !== 'ceo') throw new WorkforceError('forbidden', 'Notifications come only from the CEO\'s own PCs.');
+  if (!isCeoPc(s.db, from)) throw new WorkforceError('forbidden', 'Notifications come only from the CEO\'s own PCs.');
   notifications.relayed(params);
   return { ok: true };
 }

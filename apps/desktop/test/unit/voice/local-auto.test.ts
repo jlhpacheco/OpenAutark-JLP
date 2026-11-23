@@ -1,7 +1,8 @@
 // B-058 G1 automatic download of the recommended local speech model (src/runtime/voice/local/auto.ts): once,
 // from the first start on (also during the first run), only while nothing else was chosen, events marked auto, the setting at the end, never
 // again after it ran or after the person removed a model, not on a low disk or a blocked engine, a failure
-// retried at the next start; ensureTagger fetches the sound model once with its events.
+// retried at the next start; ensureTagger fetches the sound model once with its events. VOICE 19.11.2026: the page's turn
+// models (Silero VAD, Smart Turn) come at the same start whatever blocks the recognizer (not in a test profile).
 // Owns: these assertions only. Never: the network or the real addon.
 
 import { test } from 'node:test';
@@ -15,6 +16,8 @@ import { LocalSpeechEngine } from '../../../src/runtime/voice/local/engine.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import { fakeAddon, installFake, quietLog, tempData } from './local-fixture.ts';
 
+const TURN = [SILERO_VAD.id, SMART_TURN.id];
+
 interface Options { onboarded?: boolean; voice?: Record<string, unknown>; stt?: string; record?: AutoRecord; disk?: number; blocked?: boolean; fail?: boolean; profile?: string; enabled?: boolean }
 
 function setup(options: Options = {}) {
@@ -24,7 +27,7 @@ function setup(options: Options = {}) {
     onboarding: { step: options.onboarded === false ? 'ai' : 'done', completed: options.onboarded !== false },
     profile: { language: options.profile ?? 'de' },
     voice: { localStt: '', localTts: '', vocabulary: [], ...options.voice },
-    routing: { functions: options.stt ? { stt: options.stt } : {} },
+    routing: options.stt ? { stt: options.stt } : {},
   };
   const services = {
     paths: { data: data.dir }, log: quietLog, bus, clock: { now: () => 1_000 },
@@ -100,7 +103,9 @@ test('nothing is downloaded when the person chose something, removed a model on 
       t.auto.start();
       await settle();
       await t.auto.running();
-      assert.deepEqual(t.installed, [], why);
+      await settle();
+      assert.deepEqual(t.installed.filter((id) => !TURN.includes(id)), [], why);
+      assert.deepEqual(t.installed.filter((id) => TURN.includes(id)), options.enabled === false ? [] : TURN, `${why}: the turn models still come`);
     } finally { t.auto.stop(); t.data.done(); }
   }
 });
@@ -113,7 +118,7 @@ test('removing the local model is remembered; a failed download is tried again a
     t.bus.emit('settings.updated', t.settings as never);
     await settle();
     assert.equal(t.record()?.state, 'declined');
-    assert.deepEqual(t.installed, []);
+    assert.deepEqual(t.installed.filter((id) => !TURN.includes(id)), []);
   } finally { t.auto.stop(); t.data.done(); }
   const failing = setup({ fail: true });
   try {
@@ -124,7 +129,7 @@ test('removing the local model is remembered; a failed download is tried again a
     assert.equal(failing.events.at(-1)?.state, 'failed');
     assert.equal(failing.settings.voice.localStt, '');
     await failing.auto.check();
-    assert.equal(failing.installed.length, 1, 'once per start');
+    assert.equal(failing.record()?.tries, 1, 'once per start');
   } finally { failing.auto.stop(); failing.data.done(); }
 });
 

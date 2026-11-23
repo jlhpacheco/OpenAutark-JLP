@@ -46,13 +46,13 @@ public final class UpdateReleaseTest {
         check(UpdateRelease.source("com.android.vending", false) == UpdateRelease.Source.PLAY);
         check(UpdateRelease.Route.values().length == 2);                                  // no "in Google Play" route left
 
-        // When the feed is read again: every 30 minutes at most (owner 10.11.2026: a fix reaches the phone the next time it
-        // opens Autark), and at once when the clock went back.
+        // When the feed is read again: at every opening, once a minute at most (owner 10.11.2026: a fix reaches the phone the
+        // next time it opens Autark; 19.11.2026: not half an hour later), and at once when the clock went back.
         long hour = 60 * 60_000L, t = 1_762_600_000_000L;
-        check(UpdateRelease.INTERVAL_MS == hour / 2);
+        check(UpdateRelease.INTERVAL_MS == 60_000L); // every opening, once a minute at most
         check(UpdateRelease.due(0, t));
-        check(!UpdateRelease.due(t, t) && !UpdateRelease.due(t, t + hour / 2 - 1));
-        check(UpdateRelease.due(t, t + hour / 2));
+        check(!UpdateRelease.due(t, t) && !UpdateRelease.due(t, t + 59_999));
+        check(UpdateRelease.due(t, t + 60_000) && UpdateRelease.due(t, t + hour));
         check(UpdateRelease.due(t, t - 1));
 
         String sha = "34452b5a09639e0be244bfd5581d600aab01fe63e61cf8f8c0e5666d40e3463f";

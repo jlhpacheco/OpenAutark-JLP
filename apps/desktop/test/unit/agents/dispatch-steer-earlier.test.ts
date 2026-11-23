@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture } from '../context/fixture.ts';
-import { NEW_LINES, steerInput, steerOtherResult, type RunningWork } from '../../../src/runtime/agents/dispatch-steer.ts';
+import { NEW_LINES, steerInput, steerOther, type RunningWork } from '../../../src/runtime/agents/dispatch-steer.ts';
 import type { Engine } from '../../../src/runtime/engines/types.ts';
 
 const EARLIER = 'Earlier in that chat, already answered – the context of what is new:';
@@ -35,7 +35,7 @@ test('a short line from another chat comes with the lines just before it, marked
   const line = f.chats.send({ conversationId: owner.id, body: 'Speicher dir das nicht als komische Regel', authorId: 'human' });
   const { run, texts } = running(work.id);
 
-  assert.equal(await steerOtherResult(f.services, run, owner.id, () => true), 'all');
+  assert.equal(await steerOther(f.services, run, owner.id, () => true), 'all');
   const shown = texts[0].split('\n');
   assert.equal(shown[0], NEW_LINES, 'the frame stays: the lines name their chat themselves');
   assert.equal(shown[1], EARLIER);
@@ -52,7 +52,7 @@ test('a short line from another chat comes with the lines just before it, marked
 
   f.chats.send({ conversationId: owner.id, body: 'Ich nehme sie raus.', authorId: f.vid.id, authorKind: 'agent', runId: 'run_work' }); // this turn's chat.send there
   f.chats.send({ conversationId: owner.id, body: 'Und sag es Nora.', authorId: 'human' });
-  assert.equal(await steerOtherResult(f.services, run, owner.id, () => true), 'all');
+  assert.equal(await steerOther(f.services, run, owner.id, () => true), 'all');
   assert.equal(texts[1].split('\n').length, 2, 'this turn has the earlier lines already: only the new one');
   assert.match(texts[1], /\] Alex: Und sag es Nora\.$/);
   assert.doesNotMatch(texts[1], /Earlier in that chat|Speicher dir das/);
@@ -71,7 +71,7 @@ test('my own answer that a done turn posted before it moved the cursor comes alo
   f.chats.send({ conversationId: owner.id, body: 'Speicher dir das nicht als komische Regel', authorId: 'human' });
   const { run, texts } = running(work.id);
 
-  assert.equal(await steerOtherResult(f.services, run, owner.id, () => true), 'all');
+  assert.equal(await steerOther(f.services, run, owner.id, () => true), 'all');
   assert.deepEqual(texts[0].split('\n').slice(1).map(unstamped), [
     EARLIER,
     'Alex: Wie war das mit der Doris-Mail?',
@@ -84,7 +84,7 @@ test('my own answer that a done turn posted before it moved the cursor comes alo
   f.chats.send({ conversationId: owner.id, body: 'Ich nehme sie raus.', authorId: f.vid.id, authorKind: 'agent', runId: 'run_work' }); // this turn wrote it
   f.chats.send({ conversationId: owner.id, body: 'Nora weiß es schon.', authorId: f.vid.id, authorKind: 'agent', runId: 'run_side' }); // another lane of mine
   f.chats.send({ conversationId: owner.id, body: 'Und sag es Nora.', authorId: 'human' });
-  assert.equal(await steerOtherResult(f.services, run, owner.id, () => true), 'all');
+  assert.equal(await steerOther(f.services, run, owner.id, () => true), 'all');
   assert.deepEqual(texts[1].split('\n').slice(1).map(unstamped), [EARLIER, 'Vic (me): Nora weiß es schon.', 'New:', 'Alex: Und sag es Nora.']);
 });
 
@@ -101,7 +101,7 @@ test('earlier lines read as the delta: a mini-app by its title, a failed row wit
   f.chats.send({ conversationId: owner.id, body: 'Und jetzt?', authorId: 'human' });
   const { run, texts } = running(work.id);
 
-  assert.equal(await steerOtherResult(f.services, run, owner.id, () => true), 'all');
+  assert.equal(await steerOther(f.services, run, owner.id, () => true), 'all');
   const shown = texts[0].split('\n');
   assert.deepEqual(shown.slice(shown.indexOf(EARLIER) + 1, shown.indexOf('New:')).map(unstamped), [
     'Alex: Als Mini-App bitte.',
@@ -117,7 +117,7 @@ test('nothing earlier when the chat has no earlier lines; the group frame carrie
   const fresh = f.chats.create({ agentIds: [f.vid.id], createdBy: 'human' });
   f.chats.send({ conversationId: fresh.id, body: 'Hallo Vic', authorId: 'human' });
   const { run, texts } = running(work.id);
-  assert.equal(await steerOtherResult(f.services, run, fresh.id, () => true), 'all');
+  assert.equal(await steerOther(f.services, run, fresh.id, () => true), 'all');
   assert.equal(texts[0].split('\n').length, 2, 'the frame and the line, as before');
   assert.doesNotMatch(texts[0], /Earlier in that chat|\nNew:/);
   assert.equal(steerInput(f.services, f.vid.id, fresh.id, 0, 'Heading:', { after: 0 })!.text.split('\n').length, 2);
@@ -127,7 +127,7 @@ test('nothing earlier when the chat has no earlier lines; the group frame carrie
   const seen = f.chats.send({ conversationId: group.id, body: 'Gut so.', authorId: 'human' });
   f.chats.markRead(group.id, f.vid.id, seen.seq);
   f.chats.send({ conversationId: group.id, body: 'Ihr sollt das jetzt autonom versenden', authorId: 'human' });
-  assert.equal(await steerOtherResult(f.services, run, group.id, () => true), 'all');
+  assert.equal(await steerOther(f.services, run, group.id, () => true), 'all');
   const shown = texts[1].split('\n');
   assert.equal(shown[0], NEW_LINES);
   assert.equal(shown[1], EARLIER);
@@ -147,7 +147,7 @@ test('the earlier lines are bounded in characters: each body is cut, older ones 
   const long = `Und das hier ${'x'.repeat(2500)}`;
   f.chats.send({ conversationId: owner.id, body: long, authorId: 'human' });
   const { run, texts } = running(work.id);
-  assert.equal(await steerOtherResult(f.services, run, owner.id, () => true), 'all');
+  assert.equal(await steerOther(f.services, run, owner.id, () => true), 'all');
   const shown = texts[0].split('\n');
   const head = shown.indexOf(EARLIER);
   const tail = shown.indexOf('New:');

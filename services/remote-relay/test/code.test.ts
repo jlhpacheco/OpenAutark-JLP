@@ -1,12 +1,13 @@
 // B-084 person code at the meeting server (protocol.ts chainCode, relay.ts index/find): a device whose chain proves the
 // code is found under it as well as under its own Remote ID (hello or a later update), the found entry carries the
 // chain, a chain signed by a stranger or ending at another key is ignored (its own ID still works), an update without
-// the chain takes it out of the code again. The format is the one of .local/b084/notes/W4-format.md.
+// the chain takes it out of the code again. Eine-ID 22.11.2026: two chains (company ID, my ID) beside the old single one.
+// The format is the one of .local/b084/notes/W4-format.md.
 // Owns: these assertions only.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chainCode } from '../src/protocol.ts';
+import { chainCode, chainCodes } from '../src/protocol.ts';
 import { createRelay, remoteIdOf } from '../src/relay.ts';
 import { connect, device } from './clients.ts';
 
@@ -69,4 +70,97 @@ test('a member is found under the code with its chain; a forged chain is ignored
   cm.ws.close();
   cr.ws.close();
   asker.ws.close();
+});
+
+test('Eine-ID: two chains (company ID and my ID) – found under each with the chain that proves it; the old `chain` still works', async (t) => {
+  const relay = await createRelay({ port: 0, host: '127.0.0.1' });
+  t.after(() => relay.close());
+  const company = device();
+  const meRoot = device();
+  const member = device();
+  const old = device();
+  const companyChain = { root: company.pub, links: [link(company, member)] };
+  const meChain = { root: meRoot.pub, links: [link(meRoot, member)] };
+
+  const cm = await connect(relay.port, { me: member, findable: true });
+  await cm.next('ready');
+  const co = await connect(relay.port, { me: old, findable: true });
+  await co.next('ready');
+  const asker = await connect(relay.port);
+  await asker.next('ready');
+
+  cm.send({ t: 'update', peers: [], findable: true, chains: [companyChain, meChain, { root: company.pub, links: [] }], chain: companyChain });
+  co.send({ t: 'update', peers: [], findable: true, chain: { root: company.pub, links: [link(company, old)] } });
+  await new Promise((resolve) => setTimeout(resolve, 60));
+
+  asker.send({ t: 'find', ref: 1, id: remoteIdOf(company.fp) });
+  const byCompany = await asker.next('found');
+  assert.deepEqual(pubs(byCompany), [member.pub, old.pub].sort(), 'a client before 22.11. (one `chain`) is found as before');
+  assert.deepEqual(byCompany.entries.find((entry: { pub: string }) => entry.pub === member.pub).chain, companyChain, 'the company chain proves the company ID');
+  asker.send({ t: 'find', ref: 2, id: remoteIdOf(meRoot.fp) });
+  const byMe = await asker.next('found');
+  assert.deepEqual(pubs(byMe), [member.pub], 'found under my ID');
+  assert.deepEqual(byMe.entries[0].chain, meChain, 'with the chain that proves my ID');
+  asker.send({ t: 'find', ref: 3, id: remoteIdOf(member.fp) });
+  const own = await asker.next('found');
+  assert.deepEqual(pubs(own), [member.pub], 'and under its own Remote ID');
+  assert.equal(own.entries[0].chain, undefined, 'there it needs no chain');
+
+  cm.send({ t: 'update', peers: [], findable: true, chains: [meChain] });
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  asker.send({ t: 'find', ref: 4, id: remoteIdOf(company.fp) });
+  assert.deepEqual(pubs(await asker.next('found')), [old.pub], '`chains` without the company chain takes it out of the company ID');
+  cm.ws.close();
+  co.ws.close();
+  asker.ws.close();
+});
+
+test('chainCodes: at most two chains, invalid ones skipped, one entry per code, `chain` only without `chains`', () => {
+  const root = device();
+  const other = device();
+  const member = device();
+  const a = { root: root.pub, links: [link(root, member)] };
+  const b = { root: other.pub, links: [link(other, member)] };
+  assert.deepEqual(chainCodes({ chains: [a, a, b] }, member.fp).map((entry) => entry.code), [remoteIdOf(root.fp)], 'two slots: the duplicate fills the second');
+  assert.deepEqual(chainCodes({ chains: [a, b] }, member.fp).map((entry) => entry.code), [remoteIdOf(root.fp), remoteIdOf(other.fp)]);
+  assert.deepEqual(chainCodes({ chains: [{ root: root.pub, links: [link(other, member)] }, b] }, member.fp).map((entry) => entry.code), [remoteIdOf(other.fp)], 'a forged one is skipped');
+  assert.deepEqual(chainCodes({ chains: [b], chain: a }, member.fp).map((entry) => entry.code), [remoteIdOf(other.fp)], '`chains` wins over `chain`');
+  assert.deepEqual(chainCodes({ chain: a }, member.fp).map((entry) => entry.code), [remoteIdOf(root.fp)]);
+  assert.deepEqual(chainCodes({}, member.fp), []);
+});
+
+test('Eine-ID: found entries come shortest chain first (the company\'s own PCs before members\' PCs), still at most 4', async (t) => {
+  const relay = await createRelay({ port: 0, host: '127.0.0.1' });
+  t.after(() => relay.close());
+  const root = device();
+  const members = [device(), device(), device(), device()];
+  const deep = device();
+  const code = remoteIdOf(root.fp);
+  const clients = [];
+  // The deepest PC and the members register first, the root last – the order of registration does not decide.
+  const cd = await connect(relay.port, { me: deep, findable: true });
+  await cd.next('ready');
+  cd.send({ t: 'update', peers: [], findable: true, chains: [{ root: root.pub, links: [link(root, members[0]), link(members[0], deep)] }] });
+  clients.push(cd);
+  for (const member of members) {
+    const cm = await connect(relay.port, { me: member, findable: true });
+    await cm.next('ready');
+    cm.send({ t: 'update', peers: [], findable: true, chains: [{ root: root.pub, links: [link(root, member)] }] });
+    clients.push(cm);
+  }
+  const cr = await connect(relay.port, { me: root, findable: true });
+  await cr.next('ready');
+  clients.push(cr);
+  const asker = await connect(relay.port);
+  await asker.next('ready');
+  clients.push(asker);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  asker.send({ t: 'find', ref: 1, id: code });
+  const found = await asker.next('found');
+  const entries = found.entries as Array<{ pub: string; chain?: { links: unknown[] } }>;
+  assert.equal(entries.length, 4, 'at most 4');
+  assert.equal(entries[0].pub, root.pub, 'the root first');
+  assert.deepEqual(entries.map((entry) => entry.chain?.links.length ?? 0), [0, 1, 1, 1], 'then the shortest chains');
+  assert.ok(!entries.some((entry) => entry.pub === deep.pub), 'the deepest one is left out');
+  for (const client of clients) client.ws.close();
 });

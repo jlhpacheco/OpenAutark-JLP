@@ -3,11 +3,10 @@
 // turn on a rebuilt session, the engine's rebuild, probe and delete calls (rebuild.ts, transcript.ts), and the subconscious's
 // calls as real tool_use + tool_result records before a resume (injectTrace: appended to the session's own transcript, so the
 // prefix keeps its prompt cache; without a session a fresh transcript holding only them).
-// Owns: that state and the file operations it needs (the disk unless the engine's FileOps give them).
+// Owns: that state.
 // Never: spawns a turn, reads any file of an account home but the transcript of a session the app created, or writes anything
 // else into a home that is not the app's own.
 
-import { promises as fsp } from 'node:fs';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 import type { Account } from '../../../shared/model/providers.ts';
@@ -18,19 +17,7 @@ import type { ExecutableFinder } from '../../accounts/executables.ts';
 import { runCli } from '../../accounts/cli.ts';
 import { claudeTranscript } from './transcript.ts';
 import { cliModel } from './models.ts';
-import { PROJECT_DIR_NAME, PROJECT_REF, deleteTranscripts, inside, lastRecord, probeClaudeRebuild, resumeTarget, sessionIdOf, writeTranscript, type RebuildFiles } from './rebuild.ts';
-
-/** The engine's file operations this module uses (engine.ts FileOps). */
-export interface BaseFiles {
-  writeFile(file: string, data: string): Promise<void>;
-  rm(file: string): Promise<void>;
-  mkdir(dir: string): Promise<void>;
-  rmDir?(dir: string): Promise<void>;
-  size?(file: string): Promise<number | undefined>;
-  folders?(dir: string): Promise<string[]>;
-  tail?(file: string, maxBytes: number): Promise<string | undefined>;
-  append?(file: string, data: string): Promise<void>;
-}
+import { PROJECT_DIR_NAME, PROJECT_REF, deleteTranscripts, inside, lastRecord, probeClaudeRebuild, resumeTarget, sessionIdOf, writeTranscript, type FileOps } from './rebuild.ts';
 
 /** How much of a transcript's end is read for its last record (a record can hold a long tool output). */
 const TAIL_BYTES = 2 * 1024 * 1024;
@@ -38,26 +25,6 @@ const TAIL_BYTES = 2 * 1024 * 1024;
 export const TRACE_END = '[End of these tool results]';
 /** The hub offers tools.call in every agent turn, the tools a trace shows only once learned: its calls stand as tools.call, as in a rebuilt transcript (a model that reads one under its own name tries that name and fails, live 02.11.2026). */
 const THROUGH_TOOLS_CALL: ReadonlySet<string> = new Set(['tools.call']);
-
-async function readTail(file: string, maxBytes: number): Promise<string | undefined> {
-  let handle: Awaited<ReturnType<typeof fsp.open>> | undefined;
-  try {
-    handle = await fsp.open(file, 'r');
-    const { size } = await handle.stat();
-    const length = Math.min(size, maxBytes);
-    const buffer = Buffer.alloc(length);
-    await handle.read(buffer, 0, length, size - length);
-    return buffer.toString('utf8');
-  } catch { return undefined; } finally { await handle?.close().catch(() => undefined); }
-}
-
-const disk = {
-  rmDir: (dir: string) => fsp.rm(dir, { recursive: true, force: true }),
-  size: (file: string) => fsp.stat(file).then((stat) => (stat.isFile() ? stat.size : undefined), () => undefined),
-  folders: (dir: string) => fsp.readdir(dir, { withFileTypes: true }).then((entries) => entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name), () => [] as string[]),
-  tail: readTail,
-  append: (file: string, data: string) => fsp.appendFile(file, data),
-};
 
 /** 2.1.303 is the first version known to take `--thinking-display` (read from its CLI). */
 export function takesThinkingDisplay(version: string | undefined): boolean {
@@ -71,7 +38,7 @@ export interface ClaudeRebuilderDeps {
   supervisor: Supervisor;
   finder: ExecutableFinder;
   tempDir: string;
-  files: BaseFiles;
+  files: FileOps;
   env?: NodeJS.ProcessEnv;
   envFor: (account: Account) => NodeJS.ProcessEnv;
   uuid: () => string;
@@ -82,7 +49,7 @@ export interface ClaudeRebuilderDeps {
 }
 
 export class ClaudeRebuilder {
-  readonly files: RebuildFiles;
+  readonly files: FileOps;
   readonly transcriptsDir: string;
   /** Rebuilt session refs before their first turn. */
   readonly fresh = new Set<string>();
@@ -92,12 +59,7 @@ export class ClaudeRebuilder {
 
   constructor(deps: ClaudeRebuilderDeps) {
     this.deps = deps;
-    const files = deps.files;
-    this.files = {
-      writeFile: (file, data) => files.writeFile(file, data), mkdir: (dir) => files.mkdir(dir), rm: (file) => files.rm(file),
-      rmDir: (dir) => (files.rmDir ?? disk.rmDir)(dir), size: (file) => (files.size ?? disk.size)(file), folders: (dir) => (files.folders ?? disk.folders)(dir),
-      tail: (file, maxBytes) => (files.tail ?? disk.tail)(file, maxBytes), append: (file, data) => (files.append ?? disk.append)(file, data),
-    };
+    this.files = deps.files;
     this.transcriptsDir = deps.transcriptsDir ?? path.join(deps.tempDir, 'engine-transcripts', 'claude');
   }
 

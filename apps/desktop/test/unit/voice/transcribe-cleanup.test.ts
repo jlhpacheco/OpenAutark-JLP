@@ -15,7 +15,7 @@ import type { CleanupTimers } from '../../../src/runtime/files/cleanup.ts';
 import { Blobs } from '../../../src/runtime/files/store.ts';
 import { withMediaHook } from '../../../src/runtime/media/hook.ts';
 import { MediaService } from '../../../src/runtime/media/service.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { FRESH_TAKE_MS, HEARD_TAKE_HOLD_MS, Transcriber } from '../../../src/runtime/voice/transcribe.ts';
 import type { Attachment } from '../../../src/shared/model/chat.ts';
 import type { Account, ModelInfo } from '../../../src/shared/model/providers.ts';

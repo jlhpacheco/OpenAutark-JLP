@@ -1,6 +1,7 @@
 // Settings › Models › "Speech models on this PC" (B-078: was on the Voice page; still the page's last group): every local speech model that is here or on its way, one row each – its job,
-// languages and size in one reserved line, Use / In use in a fixed cell and Remove (voice.removeLocal, after a confirm) in
-// another. Getting a model is one place: the use rows of Settings › Models offer each with its download (ModelUses.tsx).
+// languages and size in one reserved line, "In use" or its download's progress as text in a fixed cell and Remove
+// (voice.removeLocal, after a confirm) in another. Getting and choosing a model is one place: the use rows of Settings ›
+// Models (ModelUses.tsx; 20.11.2026: this group's own Use button was a second way).
 // The group is the page's last, so a removed model moves nothing below it.
 // Owns: these rows. Never: downloads a model or decides what it says (speech-models-text.ts).
 
@@ -13,11 +14,10 @@ import { settings } from '../lib/store.ts';
 import { Button } from '../lib/ui.tsx';
 import { Group, Note, Row, useBusy } from './controls.tsx';
 import { running, speechRowView } from './speech-models-text.ts';
-import { localModels, readLocalModels, speechChanges, speechPulls, useModel, watchSpeechPulls } from './speech-models.ts';
+import { localModels, readLocalModels, speechChanges, speechPulls, watchSpeechPulls } from './speech-models.ts';
 
 function SpeechModelRow(props: { model: LocalSpeechModel }) {
   const { model } = props;
-  const [using, runUse] = useBusy();
   const [removing, runRemove] = useBusy();
   const voice = settings.value?.voice;
   const offered = localModels.value;
@@ -36,9 +36,7 @@ function SpeechModelRow(props: { model: LocalSpeechModel }) {
   };
   return (
     <Row class="speech-model-row" label={model.label} hint={`${view.recommended ? 'Recommended · ' : ''}${view.hint}`} reserve>
-      <span class="account-slot">
-        <Button variant="secondary" class="small" busy={using} disabled={view.primary.disabled} onClick={() => { if (view.primary.kind === 'use') void runUse(() => useModel(model.id)); }}>{view.primary.label}</Button>
-      </span>
+      <span class="account-slot speech-model-state">{view.primary.kind === 'in-use' || view.primary.kind === 'progress' ? view.primary.label : ''}</span>
       {can('voice.removeLocal') && <Button variant="ghost" class="small" busy={removing} disabled={running(pull)} onClick={() => void remove()}>Remove</Button>}
     </Row>
   );

@@ -89,7 +89,7 @@ test('agents.create: a name given stands as given, a missing name becomes a firs
   assert.match(mara.system.text, /\n## What I have here\n- This PC is my workplace/);
   assert.doesNotMatch(mara.system.text, /# How I work|<<|Still open|<!--/, 'no standard text and no slots in the result');
   assert.match(mara.system.next, /^Mara starts from the team's standard SYSTEM\.md with the "who you are" I gave under "## My role" \(above: that part\) and makes the file their own in their first turn \(skill system-prompt\)\. I start Mara now with the brief for it: a first line in our 1:1 \(chat\.direct\)/);
-  assert.match(mara.system.next, /tasks\.create with to = Mara and chatId = our 1:1\)\. Then I read what they wrote/, 'the field tasks.create takes');
+  assert.match(mara.system.next, /\(tasks\.add for Mara\)\. Then I read what they wrote/, 'the field tasks.add takes');
   assert.match(org.get(mara.agentId)!.instructions, /^# How I work\n[\s\S]*\n\n## My role\nResearcher\./, 'the hire itself starts from the whole standard');
   const designer = org.get(team.results[2].agentId)!;
   assert.ok(FIRST_NAMES.includes(designer.name), `a free first name: ${designer.name}`);

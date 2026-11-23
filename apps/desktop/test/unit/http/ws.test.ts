@@ -44,7 +44,7 @@ test('device token → device scope; unknown token → 4401; missing Hello → c
     const stranger = await openSocket(`ws://127.0.0.1:${port}/ws`);
     const strangerClosed = closeCode(stranger);
     stranger.send(hello('not-a-valid-token-at-all-000000'));
-    assert.equal(await strangerClosed, 4401);
+    assert.equal(await strangerClosed, 4404); // 19.11.2026 D5: a token this PC never issued = "unknown here"
 
     // A removed phone (revoked token) hears 4403 – also on a later Hello, so it shows 'This phone was removed'.
     const removed = await openSocket(`ws://127.0.0.1:${port}/ws`);
@@ -148,7 +148,7 @@ test('one Hello per socket: frames queued behind a refused Hello are never authe
     const closed = closeCode(ws);
     ws.send(hello('wrong-token-0123456789abcdef'));
     ws.send(hello(DEVICE_TOKEN)); // a second guess on the same connection
-    assert.equal(await closed, 4401);
+    assert.equal(await closed, 4404);
     assert.deepEqual(f.authCalls, ['wrong-token-0123456789abcdef']);
     assert.equal(f.rpc.attached.length, 0);
   } finally {

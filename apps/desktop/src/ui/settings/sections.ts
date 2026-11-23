@@ -41,16 +41,23 @@ export const SECTIONS: readonly SectionInfo[] = [
     'reading voice', 'read aloud', 'learned words', 'word list', 'vocabulary', 'speech models', 'remove model',
   ] },
   { id: 'calendar', title: 'Calendar', icon: 'calendar-blank', file: SETTINGS_FILE, requires: ['calendar.sources'], keywords: [
-    'calendar', 'calendars', 'connect a calendar', 'google', 'google calendar', 'ics', 'ical', 'subscribe', 'sync', 'reconnect', 'my day', 'working hours',
-    'work start', 'work end', 'plan my day', 'morning plan', 'plan at', 'agent runs', 'schedules', 'client id', 'client secret', 'own google app',
+    'calendar', 'calendars', 'connect a calendar', 'google', 'google calendar', 'ics', 'ical', 'subscribe', 'sync', 'reconnect', 'tasks', 'working hours',
+    'work start', 'work end', 'client id', 'client secret', 'own google app',
+  ] },
+  // Owner 21.11.2026: every scheduled message and reminder in every chat – change, rewrite, delete, add (ScheduledPage.tsx).
+  { id: 'scheduled', title: 'Scheduled', icon: 'clock', file: SETTINGS_FILE, requires: ['schedules.list'], keywords: [
+    'scheduled', 'schedule', 'schedules', 'scheduled messages', 'send later', 'later', 'repeat', 'repeating', 'recurring', 'once', 'automatic',
+    'automatic messages', 'reminder', 'reminders', 'cron', 'every day', 'weekly', 'pause', 'resume', 'new message', 'timer',
+    'set up by agents', 'agent schedules', 'agent reminders',
   ] },
   { id: 'secrets', title: 'Secrets', icon: 'key', file: { path: 'secrets', label: 'Open the secrets folder' }, requires: ['secrets.list'], keywords: [
     'secrets', 'password', 'passwords', 'api keys', 'tokens', 'cards', 'payment card', 'vault', 'catalog', 'logins', '2fa', 'import passwords', 'handle', '.env', 'env file', 'import keys',
   ] },
-  // Owner 16.11.2026: the team's access to this PC and the person's lines to every agent (SecurityPage.tsx).
+  // Owner 19.11.2026: the company's security mode – Trust AI or Secure – its switches and agreements (SecurityPage.tsx).
   { id: 'security', title: 'Security', icon: 'shield', file: SETTINGS_FILE, requires: ['settings.update'], keywords: [
-    'security', 'access', 'full access', 'whole pc', 'careful', 'pc access', 'every agent', 'all agents', 'robot', 'captcha',
-    'not a robot', 'human.md', 'from you', 'instructions', 'prompt',
+    'security', 'trust ai', 'trust', 'secure', 'secure mode', 'mode', 'access', 'full access', 'careful', 'permissions', 'sandbox',
+    'folders', 'files', 'commands', 'computer use', 'apps', 'phone', 'money', 'spending', 'publish', 'messages', 'accounts',
+    'agreements', 'requests', 'approve', 'robot', 'captcha', 'not a robot', 'every agent', 'all agents', 'library',
   ] },
   { id: 'apps', title: 'Apps', icon: 'squares-four', file: { path: 'connectors/mcp.json', label: 'Open mcp.json' }, requires: ['apps.list'], keywords: [
     'apps', 'connected apps', 'connections', 'integrations', 'mcp', 'mcp servers', 'notion', 'linear', 'github', 'zapier', 'mail', 'mailbox', 'email', 'reconnect', 'sign in', 'tools', 'add by address', 'token', 'test',

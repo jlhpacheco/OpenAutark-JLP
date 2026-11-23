@@ -2,14 +2,15 @@
 // once – over the real headless runtime (built app/runtime-cli.mjs) with the deterministic fake
 // engine and real WebSocket RPC.
 // Covers: with the only (demo) account disabled, the task turn cannot start; the task stays open,
-// its chat gets one quiet "Paused: … – continues by itself" line and its next look is at least about
-// a minute later (tasks/next.ts lookAfterTurn: an outage waits the stall pause, at most 30 min);
-// enabling the account again (account.upserted / models.updated) brings that look forward
+// its chat gets one quiet "Paused: … – continues by itself" line and its owner's one retry wake waits (Quests round
+// 20.11.2026: no planned look on the task – tasks/watch.ts retryLater, OUTAGE_RETRY_MS or the route's retry-after), so no
+// turn follows at once; enabling the account again (account.upserted / models.updated) brings that retry forward
 // (tasks/watch.ts outagesEnded), and its next turn runs on the fake engine.
 // Run: npm run build && node --test test/e2e/runtime-outage.test.mjs
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { startRuntime } from './lib/runtime-client.mjs';
 
 test('an outage pauses a task without blocking it; the end of the outage resumes it', { timeout: 240_000 }, async (t) => {
@@ -31,9 +32,10 @@ test('an outage pauses a task without blocking it; the end of the outage resumes
   const failedRun = await client.waitFor('run.upserted', (run) => run.taskId === task.id && run.status === 'failed', 90_000);
   const line = await client.waitFor('message.created', (message) => message.conversationId === chat.id && message.meta?.status?.details?.outage === true, 90_000);
   assert.match(line.body, /^Paused: .+ – continues by itself$/, 'one quiet line, no failed bubble');
-  const failed = await client.waitFor('task.upserted', (item) => item.id === task.id && (item.nextAt ?? 0) > (failedRun.endedAt ?? 0), 90_000);
-  assert.equal(failed.status, 'open', 'not paused or ended by the outage');
-  assert.ok(failed.nextAt - Date.now() > 30_000, 'the next try waits about a minute or longer');
+  assert.equal((await client.call('tasks.get', { id: task.id })).status, 'open', 'not paused or ended by the outage');
+  await sleep(5_000);
+  const turnsSince = client.events.filter((frame) => frame.event === 'run.upserted' && frame.data.taskId === task.id && (frame.data.startedAt ?? 0) > (failedRun.endedAt ?? 0));
+  assert.deepEqual(turnsSince, [], 'the next try waits: no turn right after the outage');
 
   const enabledAt = Date.now();
   await client.call('accounts.update', { id: demo.id, enabled: true });

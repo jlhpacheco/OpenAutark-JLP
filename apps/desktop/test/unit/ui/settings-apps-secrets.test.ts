@@ -11,7 +11,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { readConnectors } from '../../../src/runtime/apps/connectors.ts';
 import { APP_CATALOG, catalogConnected, searchCatalog } from '../../../src/ui/settings/apps-catalog.ts';
-import { appAction, appLine, freeKey, mailEntry, nameFromAddress, patchedEntry, splitCommand, switchPatch, tokenHeaders, withEntry, withoutEntry, withToken } from '../../../src/ui/settings/apps-files.ts';
+import { appAction, appLine, freeKey, mailEntry, nameFromAddress, patchedEntry, splitCommand, tokenHeaders, withEntry, withToken } from '../../../src/ui/settings/apps-files.ts';
 import { lastRestoreText, reportLine, sendable } from '../../../src/ui/settings/feedback-text.ts';
 import {
   BAND_HINT, deleteGroupText, draftFields, EXPORT_SOURCES, exportMenu, fieldsOf, groupBlocked, groupPayload, importLine, normalizeFieldName, pastedRows, readyRows, withEmptyRow,
@@ -43,14 +43,11 @@ test('connector files: an added server is what the runtime reads, the others sta
   assert.equal(freeKey('a', { a: 1, 'a 2': 1 }), 'a 3');
 });
 
-test('connector files: off, on and remove', () => {
-  const text = withEntry('mcp.json', '', 'x', { url: 'https://x.example/mcp', enabled: false });
-  const off = patchedEntry('mcp.json', text, 'x', switchPatch(false));
-  assert.equal(read(off).connectors[0].enabled, false);
-  const on = patchedEntry('mcp.json', off, 'x', switchPatch(true));
-  assert.equal(read(on).connectors[0].enabled, true, 'neither "disabled" nor another tool\'s "enabled": false stays');
-  assert.deepEqual(read(withoutEntry('mcp.json', on, 'x')).connectors, []);
-  assert.throws(() => patchedEntry('mcp.json', on, 'gone', {}), /no longer/);
+test('connector files: a patched entry keeps the rest; a gone one says so', () => {
+  const text = withEntry('mcp.json', '', 'x', { url: 'https://x.example/mcp' });
+  const patched = patchedEntry('mcp.json', text, 'x', { headers: { A: 'b' } });
+  assert.equal(read(patched).connectors[0].headers?.A, 'b');
+  assert.throws(() => patchedEntry('mcp.json', patched, 'gone', {}), /no longer/);
 });
 
 test('connector files: a token replaces Authorization in any spelling, the other headers stay', () => {

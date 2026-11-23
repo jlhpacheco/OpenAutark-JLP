@@ -13,7 +13,7 @@ import { frameOnly, TREE_DEPTH } from '../../../src/runtime/computer/tree.ts';
 import type { HelperClient } from '../../../src/runtime/computer/helper.ts';
 import type { HelperOp } from '../../../src/runtime/computer/protocol.ts';
 import type { Host } from '../../../src/runtime/host.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import type { BrowserService } from '../../../src/runtime/browser/service.ts';
 import type { AdbPhone } from '../../../src/runtime/phone/adb.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';

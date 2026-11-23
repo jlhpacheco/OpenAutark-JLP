@@ -16,8 +16,10 @@ import { HttpEngine, splitInput, type LoopStep } from './base.ts';
 import { HttpEngineError, postJson, readSse } from './common.ts';
 
 const LIMIT_CODES = /usage_limit|rate_limit|insufficient_quota|subscription_sharing_usage/;
-/** The reasoning families: they take reasoning.effort, and a temperature only at effort `none`. */
-const REASONING = /^(gpt-5|gpt-6|o\d)/;
+/** The reasoning families – every gpt generation from 5 up (gpt-5 … gpt-9, gpt-10 and later) and the o-series: they take
+ *  reasoning.effort, and a temperature only at effort `none`. Fest 22.11.2026: no list of generation numbers, so the next
+ *  one is a reasoning model from its first day; gpt-4o, gpt-4.1, gpt-image-…, gpt-realtime and gpt-oss stay outside it. */
+const REASONING = /^(gpt-([5-9]|[1-9]\d)|o\d)/;
 
 /** B-083: reasoning models that refuse effort `none` (OpenAI docs 08.11.2026: GPT-6 Astra, GPT-6.1 Sol; the first gpt-5
  *  generation and the o-series end at minimal/low). GPT-6 Sol, GPT-6 Luna, GPT-6.1 Terra and gpt-5.1+ take it. */

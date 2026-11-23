@@ -1,5 +1,5 @@
 // Chat details › message hits for the panel's search text (chats.search, this chat only,
-// debounced). Clicking a hit scrolls the chat to that message and flashes it.
+// debounced; asked again after a reconnect – lib/use-load.ts). Clicking a hit scrolls the chat to that message and flashes it.
 // Owns: the hit list. Never: searches other chats or loads whole histories.
 
 import { useEffect, useState } from 'preact/hooks';
@@ -9,6 +9,7 @@ import { errorText, rpc } from '../../lib/rpc.ts';
 import { focusMessage } from '../../lib/shell-state.ts';
 import { agentName } from '../../lib/store.ts';
 import { Spinner } from '../../lib/ui.tsx';
+import { useLoad } from '../../lib/use-load.ts';
 
 type Hit = { message: Message; snippet: string };
 
@@ -16,14 +17,13 @@ export function MessageSearch(props: { conversationId: string; query: string }) 
   const text = props.query.trim();
   const [hits, setHits] = useState<Hit[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    setHits(null);
-    setError(null);
+  useEffect(() => { setHits(null); setError(null); }, [text, props.conversationId]); // a new search: never the last one's hits
+  useLoad(() => {
     if (text.length < 2) return;
     let alive = true;
     const timer = setTimeout(() => {
       rpc.call('chats.search', { text, conversationId: props.conversationId, limit: 20 })
-        .then((list) => { if (alive) setHits(list.map(({ message, snippet }) => ({ message, snippet }))); })
+        .then((list) => { if (alive) { setHits(list.map(({ message, snippet }) => ({ message, snippet }))); setError(null); } })
         .catch((err) => { if (alive) setError(errorText(err)); });
     }, 250);
     return () => { alive = false; clearTimeout(timer); };

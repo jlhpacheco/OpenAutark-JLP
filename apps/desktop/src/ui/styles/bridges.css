@@ -7,18 +7,18 @@
 .bridge-row { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 0; }
 .bridge-row > .icon { flex: none; color: var(--secondary); opacity: .8; }
 .bridge-text { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
-.bridge-title { overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.bridge-status { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.bridge-title { overflow: hidden; color: var(--text); font-size: calc(13px * var(--ui-text, 1)); text-overflow: ellipsis; white-space: nowrap; }
+.bridge-status { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); overflow-wrap: anywhere; }
 .bridge-row.is-error .bridge-status { color: var(--danger); }
 .bridge-row.is-stopped .bridge-title { color: var(--secondary); }
-.bridge-disconnect.button { flex: none; min-height: 30px; padding: 4px 10px; font-size: 12px; }
+.bridge-disconnect.button { flex: none; min-height: 30px; padding: 4px 10px; font-size: calc(12px * var(--ui-text, 1)); }
 
 /* connect form: label, field, one muted hint line each */
 .bridge-form { display: grid; gap: 14px; padding: 6px 0 2px; }
 .bridge-field { display: grid; gap: 6px; }
-.bridge-field > span { color: var(--secondary); font-size: 13px; }
-.bridge-field .input { padding: 7px 10px; font-size: 13px; }
-.bridge-field small { color: var(--muted); font-size: 12px; line-height: 1.45; }
-.bridge-problem { color: var(--danger); font-size: 13px; overflow-wrap: anywhere; }
+.bridge-field > span { color: var(--secondary); font-size: calc(13px * var(--ui-text, 1)); }
+.bridge-field .input { padding: 7px 10px; font-size: calc(13px * var(--ui-text, 1)); }
+.bridge-field small { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: 1.45; }
+.bridge-problem { color: var(--danger); font-size: calc(13px * var(--ui-text, 1)); overflow-wrap: anywhere; }
 .bridge-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .bridge-actions .button { min-height: 32px; padding: 5px 12px; }

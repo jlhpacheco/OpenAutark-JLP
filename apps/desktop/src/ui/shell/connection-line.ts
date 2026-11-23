@@ -1,0 +1,115 @@
+// The status line's one connection line (Sicher-Runde 19.11.2026, D3–D5): calm and the same while the PC is away –
+// "Office-PC not reachable · reconnecting by itself · as of 14:02" – instead of "Reconnecting…"/"Offline" flipping with
+// every retry; it comes only after the connection was down DOWN_GRACE_MS (a resume's quick new socket shows nothing).
+// Its actions never forget anything: Try now (rpc.refresh), on Android Choose PC (the app's PC picker). A PC that does not
+// know this phone's token (4404 – one the company's roster has not reached yet) or no longer accepts it (4401) is a line
+// too, with Choose PC and Pair again in the phone apps (Pair again pairs over this company, pwa/native.ts); the pairing
+// screen comes only for a removed phone (4403, App.tsx). On the desktop the line names Autark's engine. "Connection to the
+// runtime was lost." (rpc LOST_TEXT) is never a line of its own.
+// Owns: the line's text, tone and actions (connectionLine, pure), the facts it reads (connectionFacts) and the down
+// timer (watchConnection). Never: renders (StatusLine.tsx via notices.ts connectionNotice), reconnects or pairs itself.
+
+import { effect, signal } from '@preact/signals';
+import { LOST_TEXT, refresh, rpc } from '../lib/rpc.ts';
+import type { ConnectionStatus } from '../lib/rpc.ts';
+import type { Refusal } from '../lib/refusal.ts';
+import { logTime } from '../lib/format.ts';
+import { platform } from '../lib/platform.ts';
+import { cachedAt, systemInfo } from '../lib/store.ts';
+import { isAndroidApp, isPhoneApp, pairAgain } from '../pwa/native.ts';
+import { phoneCompanies, phoneStatus, showPcs } from '../pwa/phone-companies.ts';
+import type { Notice, NoticeAction } from './notices.ts';
+
+/** How long the connection is down before the line shows. */
+export const DOWN_GRACE_MS = 2_500;
+/** The line's place in the status line: above everything else (NOTICE_PRIORITY.connection). */
+export const CONNECTION_PRIORITY = 100;
+
+export interface ConnectionFacts {
+  status: ConnectionStatus;
+  loaded: boolean;
+  loadError: string | null;
+  refused: Refusal | null;
+  /** Not open for longer than DOWN_GRACE_MS (watchConnection). */
+  down: boolean;
+  /** When the connection went away (null while open). */
+  downSince: number | null;
+  /** When the shown data was saved, while it is this device's copy. */
+  cachedAt: number | null;
+  /** The PC's name as the phone knows it ('' when it knows none). */
+  pc: string;
+  desktop: boolean;
+  /** Inside the Android app (Choose PC, its Pair again over the company). */
+  android: boolean;
+  /** Inside either phone app (Pair again). */
+  phoneApp: boolean;
+  /** Text of a lost connection (rpc LOST_TEXT): never a line of its own. */
+  lostText: string;
+  now: number;
+}
+
+export interface ConnectionActions { tryNow(): unknown; choosePc(): unknown; pairAgain(): unknown }
+
+/** The line, or null while all is well (or before the first load on the desktop, within the grace). */
+export function connectionLine(facts: ConnectionFacts, act: ConnectionActions): Notice | null {
+  const tryNow: NoticeAction = { label: 'Try now', run: act.tryNow };
+  const choosePc: NoticeAction = { label: 'Choose PC', run: act.choosePc };
+  const pairAgain: NoticeAction = { label: 'Pair again', run: act.pairAgain };
+  const pc = facts.pc || 'Your PC';
+  const line = (tone: Notice['tone'], text: string, actions: NoticeAction[]): Notice => ({ id: 'connection', tone, text, detail: text, actions, priority: CONNECTION_PRIORITY });
+  if (!facts.desktop && (facts.refused === 4401 || facts.refused === 4404)) {
+    const text = facts.refused === 4404 ? `${pc} doesn't know this phone yet` : `${pc} no longer accepts this phone`;
+    return line('warn', text, facts.android ? [choosePc, pairAgain] : facts.phoneApp ? [tryNow, pairAgain] : [tryNow]);
+  }
+  if (facts.status === 'open') {
+    return facts.loadError && facts.loadError !== facts.lostText ? line('error', facts.loadError, [tryNow]) : null;
+  }
+  if (!facts.down) return null;
+  if (facts.desktop) {
+    return facts.loaded ? line('warn', 'Autark’s engine is not answering · reconnecting by itself', [tryNow]) : line('info', 'Autark’s engine is starting…', []);
+  }
+  const asOf = facts.cachedAt ?? (facts.loaded ? facts.downSince : null);
+  const text = `${pc} not reachable · reconnecting by itself${asOf ? ` · as of ${logTime(asOf, facts.now)}` : ''}`;
+  return line('warn', text, facts.android ? [tryNow, choosePc] : [tryNow]);
+}
+
+/** When the connection went away (null while open) and whether that is longer than DOWN_GRACE_MS. */
+export const downSince = signal<number | null>(null);
+export const down = signal(false);
+
+/** The PC's name as this page knows it: the Android app's link, its current company's PC, the PC's own system info. */
+function pcName(): string {
+  const name = phoneStatus.value?.pc ?? phoneCompanies.value.find((company) => company.current)?.pc ?? systemInfo.value?.deviceName ?? '';
+  return name.trim().slice(0, 40);
+}
+
+/** What the line needs beyond the status line's own state, read from the signals (reactive inside a provider). */
+export function connectionFacts(state: Pick<ConnectionFacts, 'status' | 'loaded' | 'loadError'>): ConnectionFacts {
+  const desktop = platform === 'desktop';
+  return {
+    ...state, refused: desktop ? null : rpc.refused.value, down: down.value, downSince: downSince.value, cachedAt: cachedAt.value,
+    pc: desktop ? '' : pcName(), desktop, android: isAndroidApp(), phoneApp: isPhoneApp(), lostText: LOST_TEXT, now: Date.now(),
+  };
+}
+
+export const CONNECTION_ACTIONS: ConnectionActions = { tryNow: refresh, choosePc: showPcs, pairAgain };
+
+/**
+ * Follows the connection's status: the first moment it is not open (the retries' connecting/closed flips keep it), and
+ * one timeout to DOWN_GRACE_MS after it – never polling. Returns the stop.
+ */
+export function watchConnection(status: { value: ConnectionStatus }, now: () => number = Date.now): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const stop = effect(() => {
+    if (status.value === 'open') {
+      if (timer) { clearTimeout(timer); timer = null; }
+      downSince.value = null;
+      down.value = false;
+      return;
+    }
+    if (downSince.peek() !== null) return;
+    downSince.value = now();
+    timer = setTimeout(() => { timer = null; down.value = true; }, DOWN_GRACE_MS);
+  });
+  return () => { stop(); if (timer) clearTimeout(timer); timer = null; };
+}

@@ -4,7 +4,8 @@
 // address shows the address alone and the page's title lives on the tab, with the page's favicon; the tabs share the
 // room like Chrome's (one width, narrower with more tabs, whole tabs only, "+" right after the last), a click (also on a
 // narrow tab: no tab box, icon or × cell moves) and a close under the pointer move nothing; "+" opens a blank tab whose page lists
-// the panels, and a panel takes that tab's place; My day, Work, Notes, Media and an agent's browser open as tabs;
+// the panels, and a panel takes that tab's place; Tasks (the Tasks page, narrow), Notes, Media and an agent's browser
+// open as tabs;
 // the agent's right-click menu has "Open in side panel"; full view covers the main zone, its strip stays where it was,
 // and comes back; the feedback cell
 // sits right before the caption controls and clear of them; a menu over a page hides its native view while it is open; a
@@ -26,6 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const ICON = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==', 'base64');
@@ -60,7 +62,7 @@ test('the side pane: tab strip, address row, panels as tabs, full view', { timeo
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.waitForSelector('.shell, .mobile-shell', { timeout: 60_000 });
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile); // the window can show before the runtime wrote its address (lib/runtime-info.mjs)
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('settings.update', { onboarding: { step: 'done' } });
 
@@ -87,7 +89,7 @@ test('the side pane: tab strip, address row, panels as tabs, full view', { timeo
   const first = (await rpc.call('chats.list'))[0];
   const agents = await rpc.call('agents.list');
   assert.ok(agents.length > 0, 'the demo profile has an agent');
-  await rpc.call('todos.add', { text: 'Call the supplier about the delivery' }).catch(() => {});
+  await rpc.call('tasks.quickCreate', { text: 'Call the supplier about the delivery' }).catch(() => {});
   await rpc.call('tasks.create', { title: 'Compare three offers for the new office' }).catch(() => {});
   await page.evaluate((id) => { location.hash = `#/chat/${id}`; }, first.id);
   await page.locator('textarea.composer-input').waitFor();
@@ -123,7 +125,7 @@ test('the side pane: tab strip, address row, panels as tabs, full view', { timeo
   await strip.getByRole('button', { name: 'New tab', exact: true }).click();
   await bar.getByRole('textbox', { name: 'Website address' }).waitFor();
   const rows = () => page.locator('.new-tab-row .new-tab-label').allTextContents();
-  assert.deepEqual(await rows(), ['My day', 'Work', 'Notes', 'Media', 'Files', 'Agents']);
+  assert.deepEqual(await rows(), ['Tasks', 'Notes', 'Media', 'Files', 'Agents']);
   for (const name of ['Back', 'Forward', 'Reload']) assert.equal(await bar.getByRole('button', { name, exact: true }).isDisabled(), true, `${name} is in its place, faint`);
   await scheme('light'); await shot('01-new-tab-light');
   await scheme('dark'); await shot('02-new-tab-dark');
@@ -144,9 +146,20 @@ test('the side pane: tab strip, address row, panels as tabs, full view', { timeo
   assert.equal(await bar.getByText('Site number 1').count(), 0, 'no title beside it');
   await page.waitForTimeout(500);
   assert.equal(await nativeVisible(), 1, 'the page is shown');
-  const slotBox = await page.locator('.browser-native-slot').boundingBox();
+  // the slot, less a column-resize grip on its left or right edge (B-080: the grip keeps its pointer – the page begins
+  // where the grip ends, workspace/native-surface.ts)
+  const slotBox = await page.evaluate(() => {
+    const slot = document.querySelector('.browser-native-slot').getBoundingClientRect();
+    let [left, right] = [slot.left, slot.right];
+    for (const grip of [...document.querySelectorAll('.column-resize')].map((el) => el.getBoundingClientRect())) {
+      if (!grip.width || grip.bottom <= slot.top || grip.top >= slot.bottom) continue;
+      if (grip.left <= left && grip.right > left) left = grip.right;
+      if (grip.right >= right && grip.left < right) right = grip.left;
+    }
+    return { x: left, y: slot.top, width: right - left, height: slot.height };
+  });
   const viewBox = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.find((view) => view.constructor.name === 'WebContentsView' && view.getVisible()).getBounds());
-  for (const side of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(slotBox[side] - viewBox[side]) <= 1, `the native page lies on its slot under the two rows (${side}: ${viewBox[side]} / ${slotBox[side]})`);
+  for (const side of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(slotBox[side] - viewBox[side]) <= 1, `the native page lies on its slot under the two rows, beside the grip (${side}: ${viewBox[side]} / ${slotBox[side]})`);
   await shot('03-website-light');
 
   // ---- the tabs share the room like Chrome's (one width, at most 200 px, at least 48 px, whole tabs only, "+" right
@@ -242,23 +255,22 @@ test('the side pane: tab strip, address row, panels as tabs, full view', { timeo
     await page.locator('.new-tab-row', { hasText: name }).first().click();
     await check();
   };
-  await panel('My day', () => page.locator('.day-panel').waitFor());
-  assert.equal(await shown(), 'My day');
+  // Quests 20.11.2026: the pane's Tasks tab is the one Tasks page, narrow (its own selection; the main zone stays)
+  await panel('Tasks', () => page.locator('.workspace-pane .tasks-page.in-pane').waitFor());
+  assert.equal(await shown(), 'Tasks');
   assert.equal(await page.locator('.browser-strip-tab[data-tab^="web-"] ~ .browser-strip-tab', { hasText: 'New tab' }).count(), 0, 'no blank tab stays behind');
-  assert.equal((await bar.locator('.browser-address').textContent()).trim(), 'My day');
+  assert.equal((await bar.locator('.browser-address').textContent()).trim(), 'Tasks');
   assert.equal(await nativeVisible(), 0, 'no native page over a panel');
-  await shot('08-my-day-light');
-  await scheme('dark'); await shot('09-my-day-dark'); await scheme('light');
-  await panel('Work', () => page.locator('.pane-work').waitFor());
-  assert.equal(await shown(), 'Work');
-  await shot('10-work-light');
-  await scheme('dark'); await shot('11-work-dark'); await scheme('light');
-  const workRow = page.locator('.pane-work .task-row').first();
-  if (await workRow.count()) {
-    await workRow.click();
-    await page.locator('.pane-work .tasks-detail').waitFor();
-    await shot('12-work-detail-light');
-    await page.locator('.pane-work .task-detail-close').click();
+  await shot('08-tasks-light');
+  await scheme('dark'); await shot('09-tasks-dark'); await scheme('light');
+  const paneRow = page.locator('.workspace-pane .tasks-page .todo-row .todo-open').first();
+  if (await paneRow.count()) {
+    const hash = await page.evaluate(() => location.hash);
+    await paneRow.click();
+    await page.locator('.workspace-pane .tasks-page .task-detail').waitFor();
+    assert.equal(await page.evaluate(() => location.hash), hash, 'the pane\'s detail leaves the main zone where it is');
+    await shot('12-tasks-detail-light');
+    await page.locator('.workspace-pane .task-detail').getByRole('button', { name: 'Close' }).click();
   }
   await panel('Notes', () => page.locator('.pane-notes-field').waitFor());
   // B-078 (T6b): Screen and Activity left the new-tab list

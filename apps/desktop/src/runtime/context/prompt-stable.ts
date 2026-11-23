@@ -3,10 +3,10 @@
 // here; org/standard.ts keeps the team's standard as a comment at its end); (3) "## My environment" (environment.ts);
 // (4) "## Skills" (skills.md and my main skills); (5) "## More tools": every tool my mode offers beyond the engine's
 // direct ones, one line each (tools-meta.ts moreToolsSection); (6) "## Rich answers" (shared/blocks/prompt.ts); (7) the
-// mode; (8) last, "## From <the person>": the agent's HUMAN.md (agent-core/human.ts – owner 15.11.2026: the person's
-// lines, "unten angehängt"), then "## From <the person> – for every agent": settings profile.forEveryAgent (owner
-// 16.11.2026: set once for every agent in Settings › Security, so it has the last word); the person and the agent change
-// both, no update does. The mode is always the agent's own (agents/turn-prepare.ts).
+// mode; (8) "## What <the person> and I agreed": the security mode and its texts (owner 19.11.2026,
+// security/agreements.ts – the texts are files, security/topics.ts); (9) last, "## From <the person>": the agent's
+// HUMAN.md (agent-core/human.ts – owner 15.11.2026: the person's lines, "unten angehängt"); the person and the agent
+// change it, no update does. The mode is always the agent's own (agents/turn-prepare.ts).
 // Nothing here moves by itself: it changes only with the agent's or the person's own act (SYSTEM.md, settings, org,
 // mode, skills index empty ↔ not, a learned tool at a fresh session) or with this PC or app version. What follows the
 // tools that can work here (`offered`, the More-tools list – tools/registry.ts) moves also when a phone is paired or
@@ -35,6 +35,11 @@ import { coreInstructions, mainSkillsSection, systemMdSection } from '../agent-c
 import { environmentSection, languageName, offeredTools } from './environment.ts';
 import { moreToolsSection } from '../tools/builtin/tools-meta.ts';
 import { offeredTools as engineTools } from '../agents/session-key.ts';
+import path from 'node:path';
+import { SECURITY_DIR, type SecurityMode, type SecurityTopic } from '../../shared/model/security-settings.ts';
+import { securityOf } from '../../shared/model/system.ts';
+import { securityTopics } from '../security/topics.ts';
+import { agreementsSection } from '../security/agreements.ts';
 
 const MAX_REPORTS = 15;
 const SKILL_DESCRIPTION_CHARS = 300;
@@ -59,7 +64,7 @@ export function identityValues(services: RuntimeServices, agent: Agent): Record<
   const reportText = reports.slice(0, MAX_REPORTS).map((item) => (item.role ? `${item.name} (${item.role})` : item.name)).join(', ')
     + (reports.length > MAX_REPORTS ? ` and ${reports.length - MAX_REPORTS} more` : '');
   // F13: people with the role CEO beside the owner – the agents work for them too.
-  const ceos = safe(() => services.people?.list() ?? [], []).filter((person) => !person.owner && person.role === 'ceo' && person.status !== 'revoked');
+  const ceos = safe(() => services.people?.list() ?? [], []).filter((person) => !person.owner && !person.fromEmployer && person.role === 'ceo' && person.status !== 'revoked'); // a seat's employer is no CEO of my own
   return {
     agent_name: agent.name,
     agent_role: agent.role?.trim() ?? '',
@@ -125,18 +130,22 @@ export function moreToolsFor(services: RuntimeServices, input: { agent: Agent; m
   return moreToolsSection(usable, direct, input.route.engine); // the engine's own names for our tools
 }
 
-/**
- * "## From <name>": the agent's HUMAN.md, then "## From <name> – for every agent": profile.forEveryAgent, the person's
- * lines to the whole team, last. Each part only when it has text ('' when neither has).
- */
+/** "## From <name>": the agent's HUMAN.md, the person's lines to this agent, last ('' when it has none). */
 export function humanSection(services: RuntimeServices, agent: Agent, name: string): string {
   const own = safe(() => services.agentCore?.human(agent.id) ?? '', '');
-  const every = safe(() => services.settings.get().profile?.forEveryAgent?.trim() ?? '', ''); // ≤ MAX_HUMAN_MD (settings/validate.ts)
-  const part = (heading: string, text: string) => (text ? [heading, safe(() => services.secrets.redact(text), text)].join('\n') : '');
-  return [part(`## From ${name}`, own), part(`## From ${name} – for every agent`, every)].filter(Boolean).join('\n\n');
+  return own ? [`## From ${name}`, safe(() => services.secrets.redact(own), own)].join('\n') : '';
 }
 
-/** One section of the stable prompt under its fixed name (identity, system-md, environment, skills, more-tools, rich-answers, mode, human). */
+/** "## What <name> and I agreed": the security mode, its switches and texts (security/agreements.ts; '' when they cannot be read). */
+export function securitySection(services: RuntimeServices, name: string): string {
+  return safe(() => {
+    const topics = securityTopics(services);
+    const text = (mode: SecurityMode, topic: SecurityTopic) => { const own = topics.text(mode, topic); return safe(() => services.secrets.redact(own), own); };
+    return agreementsSection({ security: securityOf(services.settings.get()), name, folder: (mode) => path.join(services.paths.data, SECURITY_DIR, mode), text });
+  }, '');
+}
+
+/** One section of the stable prompt under its fixed name (identity, system-md, environment, skills, more-tools, rich-answers, mode, security, human). */
 export interface StableSection { name: string; text: string }
 
 /** The stable prompt's non-empty sections in reading order; joined by a blank line they are the system prompt (context/service.ts). */
@@ -153,6 +162,7 @@ export function stableSections(services: RuntimeServices, templates: PromptTempl
     { name: 'more-tools', text: moreToolsFor(services, input) },
     { name: 'rich-answers', text: blockLine(blockOptions(services, { agent, mode, route })) }, // one line; the quick reference is ui.help "blocks"
     { name: 'mode', text: modeSection(mode) },
+    { name: 'security', text: securitySection(services, values.user_name) }, // owner 19.11.2026: Trust AI mode or Secure mode
     { name: 'human', text: humanSection(services, agent, values.user_name) }, // owner 15.11.2026: the person's own lines stand last
   ];
   return sections.filter((section) => section.text.trim());

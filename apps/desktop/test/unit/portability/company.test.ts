@@ -13,7 +13,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import { exportCompany, importCompany } from '../../../src/runtime/portability/company.ts';
 import { applyPendingRestore, stagedRestore } from '../../../src/runtime/portability/restore.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import type { WorkforceError } from '../../../src/shared/errors.ts';
 import { portabilityFixture } from './fixture.ts';
 

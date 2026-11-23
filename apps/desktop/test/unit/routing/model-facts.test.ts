@@ -75,3 +75,16 @@ test('B-083 (owner 09.11.): the temperature tag marks only models that take one 
   const sonnet = model('Claude Sonnet 4.6', { model: 'claude-sonnet-4-6', smarts: 80 });
   assert.match(factsLine([sonnet], ACCOUNTS), /Claude Sonnet 4\.6 · 80 · plan\./);
 });
+
+test('a model of an ACP plan CLI is paid by its plan, with or without the account at hand', () => {
+  for (const provider of ['gemini-cli', 'copilot', 'kimi-cli'] as const) {
+    const acp = model(`${provider} model`, { provider, engine: 'acp', accounts: [] });
+    assert.equal(sourceOf(acp), 'plan', provider);
+    assert.equal(sourceOf(acp, { ...ACCOUNTS[0], id: `acc_${provider}`, provider }), 'plan', provider);
+  }
+  assert.equal(sourceOf(model('Claude Opus 5.5', { accounts: [] })), 'plan');
+  assert.equal(sourceOf(model('gpt-6', { provider: 'openai', engine: 'openai', accounts: [] })), 'API key');
+  assert.equal(sourceOf(model('llama', { provider: 'ollama', engine: 'compatible', accounts: [] })), 'local');
+  assert.equal(sourceOf(model('Claude Opus 5.5'), { ...ACCOUNTS[0], plan: 'api' }), 'API key', 'Claude Code signed in with an API key');
+  assert.equal(sourceOf(model('x'), { ...ACCOUNTS[1], provider: 'compatible', auth: 'none' }), 'endpoint');
+});

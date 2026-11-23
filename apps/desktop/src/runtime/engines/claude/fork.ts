@@ -25,7 +25,7 @@
 import * as path from 'node:path';
 import type { EngineForkInput, EngineForkResult } from '../types.ts';
 import { sameFolder } from '../shared.ts';
-import { PROJECT_DIR_NAME, PROJECT_REF, isTranscriptPath, resumeTarget, type RebuildFiles } from './rebuild.ts';
+import { PROJECT_DIR_NAME, PROJECT_REF, isTranscriptPath, resumeTarget, type FileOps } from './rebuild.ts';
 
 /** Pending forks kept per process (the oldest go first beyond this). */
 const MAX_PENDING = 200;
@@ -37,8 +37,8 @@ export type ResumeAt = ReturnType<typeof resumeTarget> & { fork?: string };
 interface PendingFork { resume: string; env: Record<string, string>; sessionId: string }
 
 export interface ClaudeForksDeps {
-  /** The rebuilder's file operations (folder names and sizes: the disk unless the engine's FileOps give them). */
-  files: () => Pick<RebuildFiles, 'folders' | 'size'>;
+  /** The rebuilder's file operations (folder names and sizes). */
+  files: () => Pick<FileOps, 'folders' | 'size'>;
   uuid: () => string;
 }
 

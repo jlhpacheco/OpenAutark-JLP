@@ -3,7 +3,8 @@
 // and chats.export (K8: it writes a folder of this PC, given as an absolute path – so the rule of the paths, PATH_RULE: the
 // owner and, 16.11.2026, the owner's own phone on a secure transport). The owner and their devices with 'chat' act as the
 // owner ('human'); people of the organisation reach only person variants (rpc/table.ts addPerson –
-// their chats.direct is in people/rpc-chats.ts).
+// their chats.direct is in people/rpc-chats.ts). Sicher-Runde 19.11.2026: from a session that is not the person (an agent's
+// wf) chats.export with `dir` passes the write switch for that folder first (security/rpc-map.ts).
 // Owns: param checks and scope rules of these methods. Never: business logic (runtime/chat/direct.ts,
 // runtime/chat-files/*).
 

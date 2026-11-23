@@ -4,7 +4,7 @@ import { IPC } from '../../../src/shared/api/desktop.ts';
 import type { IpcResult } from '../../../src/shared/api/desktop.ts';
 import type { UpdateState } from '../../../src/shared/model/system.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
-import { registerIpc, trusted } from '../../../src/main/ipc.ts';
+import { bubbleCallOf, registerIpc, trusted } from '../../../src/main/ipc.ts';
 import type { IpcDeps, IpcEventLike, IpcMainLike } from '../../../src/main/ipc.ts';
 import * as args from '../../../src/main/ipc-args.ts';
 
@@ -46,7 +46,6 @@ function setup(overrides: Partial<IpcDeps> = {}) {
       state: () => STATE,
       apply: async () => { calls.push('apply'); return STATE; },
       defer: () => STATE,
-      setAutoDownload: async enabled => { calls.push(`auto:${enabled}`); return STATE; },
       setRendererReady: ready => { calls.push(`ready:${ready}`); },
     },
     restartAck: (id, ok) => { calls.push(`ack:${id}:${ok}`); },
@@ -68,7 +67,7 @@ function setup(overrides: Partial<IpcDeps> = {}) {
 
 test('every channel of the contract is registered', () => {
   const { ipc } = setup();
-  const pushOnly = new Set<string>([IPC.runtimePort, IPC.runtimeStatus, IPC.updateState, IPC.prepareRestart, IPC.navigate, IPC.feedbackKey]);
+  const pushOnly = new Set<string>([IPC.runtimePort, IPC.runtimeStatus, IPC.updateState, IPC.prepareRestart, IPC.navigate, IPC.feedbackKey, IPC.bubbleEnd]);
   for (const channel of Object.values(IPC)) {
     if (pushOnly.has(channel)) continue;
     assert.ok(ipc.handlers.has(channel) || ipc.listeners.has(channel), channel);
@@ -108,7 +107,6 @@ test('argument validation: bad input never reaches the action', async () => {
   await bad(IPC.mediaArm, []);
   await bad(IPC.filesPick, 'executables');
   await bad(IPC.filesOpen, '../../etc/passwd');
-  await bad(IPC.updateAutoDownload, 'yes');
   await bad(IPC.clipboardWrite, 'a\0b');
   await bad(IPC.openExternal, 'file:///C:/Windows/System32/cmd.exe');
   // fire-and-forget channels drop invalid input silently
@@ -281,4 +279,21 @@ test('ipcFailure keeps our sentences but hides system errors', () => {
 test('a disposed frame (throwing accessor) is never trusted', () => {
   const event = { sender: { id: WINDOW_ID }, get senderFrame(): { url: string } { throw new Error('Render frame was disposed'); } } as IpcEventLike;
   assert.equal(trusted(event, WINDOW_ID), false);
+});
+
+test('owner 19.11.2026: voice live and the bubble call reach main from the app page only, the call checked', () => {
+  const live: boolean[] = [];
+  const bubble: unknown[] = [];
+  const { ipc, e } = setup({ voiceLive: on => { live.push(on); }, bubbleCall: call => { bubble.push(call); } });
+  ipc.send(e.app, IPC.voiceLive, true);
+  ipc.send(e.app, IPC.voiceLive, 'yes');
+  ipc.send(e.subFrame, IPC.voiceLive, true);
+  assert.deepEqual(live, [true, false], 'only a real true is live; a sub-frame is refused');
+  ipc.send(e.app, IPC.bubbleCall, { conversationId: 'ch_1', title: 'Konrad' });
+  ipc.send(e.app, IPC.bubbleCall, null);
+  ipc.send(e.otherWindow, IPC.bubbleCall, { conversationId: 'ch_2', title: 'x' });
+  assert.deepEqual(bubble, [{ conversationId: 'ch_1', title: 'Konrad' }, null]);
+  assert.equal(bubbleCallOf({ conversationId: '', title: 'x' }), null);
+  assert.equal(bubbleCallOf({ conversationId: 'c'.repeat(201), title: 'x' }), null);
+  assert.equal(bubbleCallOf({ conversationId: 'ch', title: 't'.repeat(500) })?.title.length, 120);
 });

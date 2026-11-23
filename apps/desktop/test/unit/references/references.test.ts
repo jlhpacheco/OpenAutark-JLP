@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { KnowledgeStore } from '../../../src/runtime/knowledge/service.ts';
 import { captureReference, findReferences, rememberWhy } from '../../../src/runtime/references/references.ts';
 import type { Message } from '../../../src/shared/model/chat.ts';

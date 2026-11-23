@@ -1,5 +1,5 @@
-// The memory tree under attack: a folder description never comes back as an item; a blob named only in a memory file stays in
-// use however it got there; a pin on a topic file really reaches the prompt; a migration cut in the middle keeps the old ids.
+// The memory tree under attack: a stored meaning of a folder description never comes back as an item; a blob named only in a memory file stays in
+// use however it got there; a pin on a topic file really reaches the prompt.
 // Owns: these assertions only. Never: real models or network.
 
 import { test } from 'node:test';
@@ -9,13 +9,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { firstUse, fileUses } from '../../../src/runtime/files/references.ts';
 import { KnowledgeStore, type MemoryVectors } from '../../../src/runtime/knowledge/service.ts';
 import { insertItem } from '../../../src/runtime/knowledge/rows.ts';
 import { RootWatcher } from '../../../src/runtime/root/watcher.ts';
 import { unit } from '../../../src/runtime/vectors/embedders.ts';
-import { VectorSystem } from '../../../src/runtime/vectors/service.ts';
+import { vectorSystem } from '../../../src/runtime/vectors/create.ts';
+import { meaningDoc } from '../../../src/runtime/vectors/meaning.ts';
 import type { KnowledgeItem } from '../../../src/shared/model/knowledge.ts';
 
 const BLOB = 'a'.repeat(64);
@@ -34,17 +35,18 @@ function world(t: { after(fn: () => void): void }, seed?: (db: Db) => void) {
 
 const row = (id: string, body: string): KnowledgeItem => ({ id, scope: 'global', kind: 'fact', title: id, body, tags: [], source: { kind: 'agent', trusted: true }, confidence: 0.7, pinned: false, recordedAt: 1000, createdBy: 'human', uses: 0 });
 
-test('a folder description embedded on purpose never comes back from knowledge.search as a note', async (t) => {
+test('a stored meaning of a folder description never comes back from knowledge.search as a note', async (t) => {
   const w = world(t);
   const embedder = { id: 'f', batch: 4, remote: false, embed: async (texts: string[]) => texts.map((text) => unit([text.toLowerCase().includes('invoice') ? 1 : 0, 0.1])) };
-  const vectors = new VectorSystem({ db: w.db, memoryRoot: w.root, embedder: () => embedder, changeDelayMs: 0 });
-  t.after(() => vectors.stop());
+  const vectors = vectorSystem({ db: w.db, embedder: () => embedder });
+  t.after(() => vectors.stop?.());
   const store = new KnowledgeStore({ db: w.db, clock: w.clock, root: w.root, vectors: () => vectors });
   store.memoryWrite({ folder: 'company', title: 'Invoices', text: 'Invoices go out on the 3rd.' });
-  mkdirSync(path.join(w.root, 'company'), { recursive: true });
   writeFileSync(path.join(w.root, 'company', '_folder.md'), 'Everything about invoice work in the company.\n');
-  await vectors.embed(['memory']);
-  assert.ok((await vectors.search({ query: 'invoice', in: ['memory'] })).hits.some((hit) => hit.path.endsWith('_folder.md')), 'vector.search may show it');
+  const folder = 'memory/company/_folder.md';
+  await vectors.rank({ query: 'invoice', words: [], docs: [meaningDoc(folder, folder, 'Everything about invoice work')], limit: 5 });
+  await store.search({ text: 'invoice' });
+  await vectors.settled();
   const hits = await store.search({ text: 'invoice', limit: 10 });
   assert.deepEqual(hits.map((hit) => hit.item.title), ['Invoices']);
 });
@@ -62,10 +64,10 @@ test('a blob named only inside a memory file counts as in use, and stops countin
   assert.equal(firstUse(w.db, BLOB), undefined);
 });
 
-test('a blob named by a source line, a moved row or a pinned file stays in use', (t) => {
+test('a blob named by a source line, a stored row or a pinned file stays in use', (t) => {
   const w = world(t, (db) => insertItem(db, row('kn_old', `See ${BLOB}.`)));
   const store = new KnowledgeStore({ db: w.db, clock: w.clock, root: w.root });
-  assert.deepEqual(firstUse(w.db, BLOB), { kind: 'knowledge' }, 'a row that moved to a file at the start');
+  assert.deepEqual(firstUse(w.db, BLOB), { kind: 'knowledge' }, 'a row of the table that names it');
   const other = 'b'.repeat(64);
   const { path: file } = store.memoryWrite({ folder: 'company', title: 'From a file', text: 'Learned.', source: `file:${other}` });
   assert.deepEqual(firstUse(w.db, other), { kind: 'knowledge' });
@@ -140,24 +142,13 @@ test('many pinned files: the prompt part stays within its cap and never reads th
   assert.ok(items.length <= 200 && items.length < 400, 'a bounded count is read; the one size cap is on the rendered lines (knowledge/always.ts)');
 });
 
-test('a migration cut in the middle keeps the old id of what already moved', (t) => {
-  const w = world(t, (db) => { insertItem(db, row('kn_one', 'First text.')); insertItem(db, { ...row('kn_two', 'Second text.'), scope: 'agent', scopeId: 'ag_x' }); });
-  const crash = { info() {}, debug() {}, warn() { throw new Error('crash'); } };
-  // The second row cannot be written (a file stands where its folder belongs): the log call stands for a crash at that point.
-  writeFileSync(path.join(w.root, 'agents'), 'in the way');
-  assert.throws(() => new KnowledgeStore({ db: w.db, clock: w.clock, root: w.root, log: crash as never }), /crash/);
-  rmSync(path.join(w.root, 'agents'));
-  const store = new KnowledgeStore({ db: w.db, clock: w.clock, root: w.root });
-  assert.equal(store.get('kn_one')?.body, 'First text.', 'the row that moved before the crash');
-  assert.equal(store.get('kn_two')?.body, 'Second text.', 'the row that moved after it');
-});
-
-test('a vectors port that is not there never stops a blob note or a write', (t) => {
+test('a vectors port that is not there never stops a blob note, a write or a search', async (t) => {
   const w = world(t);
-  const broken: MemoryVectors = { available: () => true, embed: async () => { throw new Error('down'); }, search: async () => { throw new Error('down'); }, onFileChanged() { throw new Error('down'); }, onFileRemoved() { throw new Error('down'); } };
+  const broken: MemoryVectors = { available: () => true, rank: async () => { throw new Error('down'); }, forget() { throw new Error('down'); } };
   const store = new KnowledgeStore({ db: w.db, clock: w.clock, root: w.root, vectors: () => broken });
   const { path: file } = store.memoryWrite({ folder: 'company', title: 'Logo', text: `Named ${BLOB}.` });
   assert.deepEqual(firstUse(w.db, BLOB), { kind: 'knowledge' });
+  assert.equal((await store.search({ text: 'logo' })).length, 1, 'the words stand alone');
   assert.deepEqual(store.memoryForget(file), { removed: true });
   assert.equal(firstUse(w.db, BLOB), undefined);
 });

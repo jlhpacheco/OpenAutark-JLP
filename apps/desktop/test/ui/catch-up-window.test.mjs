@@ -1,6 +1,6 @@
 // Electron window check of the chat catch-up (C4) with the demo engine in an isolated profile.
-// 40 new messages are made through the runtime RPC while the chat is closed: the manager's answer
-// to one message (with an ask block → a to-do for the person) plus 39 chat.send tool posts; a
+// 40 new messages are made through the runtime RPC while the chat is closed: the manager answers one message with 40
+// <chat to> blocks into the chat (agents/chat-out.ts – the first carries an ask block → a to-do for the person); a
 // finished to-do and a new member add quiet status lines. Then:
 //   * opening the chat shows one "New messages" divider before the first new message (the list opens at the newest
 //     message – opening at the divider went with the digest, Umbau Einfachheit); the divider stays after markRead
@@ -20,10 +20,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
-const TOOL_POSTS = 39; // + the answer itself = 40 new messages
+const POSTS = 40; // an answer that addresses chats posts its blocks only: 40 new messages
 
 test('Catch-up: 40 new messages show the divider and "↓ N new"', { timeout: 600_000 }, async (t) => {
   const profile = await mkdtemp(path.join(os.tmpdir(), 'workforce-catch-up-'));
@@ -61,13 +62,13 @@ test('Catch-up: 40 new messages show the divider and "↓ N new"', { timeout: 60
     };
   });
   const toDivider = () => page.evaluate(() => document.querySelector('.unread-block')?.scrollIntoView({ block: 'start' }));
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('settings.update', { onboarding: { step: 'done' } }); // B-044: past the first-run layer on Home (first-run-window covers it)
 
   // The chat is closed while everything happens (Home is open), so nothing is marked read.
   await page.evaluate(() => { location.hash = '#/home'; });
-  await page.locator('.day-view').waitFor({ timeout: 15_000 });
+  await page.locator('.main-slot .tasks-page').waitFor({ timeout: 15_000 });
 
   const manager = (await rpc.call('agents.list')).find((agent) => agent.template === 'manager');
   const mia = await rpc.call('agents.create', { template: 'video-editor', name: 'Mia', managerId: manager.id });
@@ -75,11 +76,11 @@ test('Catch-up: 40 new messages show the divider and "↓ N new"', { timeout: 60
   await rpc.call('events.subscribe', { topics: ['chats', 'tasks', `chat:${chat.id}`] });
   const todo = await rpc.call('tasks.create', { conversationId: chat.id, title: 'Write the launch post' });
 
-  const posts = Array.from({ length: TOOL_POSTS }, (_, i) => `[[tool:chat.send {"text":"Launch update ${i + 1}: edit pass ${i + 1} is finished"}]]`).join('\n');
-  const ask = `[[ui:${JSON.stringify({ type: 'choice', question: 'Which thumbnail?', options: ['Bright', 'Dark'] })}]]`;
-  const sent = await rpc.call('messages.send', { conversationId: chat.id, body: `Post the launch updates\n${posts}\n${ask}` });
-  await rpc.waitFor('message.updated', (message) => message.conversationId === chat.id && message.authorId === manager.id
-    && message.state === 'final' && message.seq > sent.seq && message.body.includes('chat.send'), 120_000);
+  const ask = `\n\`\`\`ui\n${JSON.stringify({ type: 'choice', question: 'Which thumbnail?', options: ['Bright', 'Dark'] })}\n\`\`\`\n`;
+  const posts = Array.from({ length: POSTS }, (_, i) => `<chat to="${chat.id}">Launch update ${i + 1}: edit pass ${i + 1} is finished${i ? '' : ask}</chat>`).join('\n');
+  const sent = await rpc.call('messages.send', { conversationId: chat.id, body: `Post the launch updates\n${posts}` });
+  await rpc.waitFor('message.created', (message) => message.conversationId === chat.id && message.authorId === manager.id
+    && message.seq > sent.seq && message.body.startsWith(`Launch update ${POSTS}:`), 120_000);
   await rpc.call('tasks.finish', { id: todo.id });
   await rpc.call('chats.members', { id: chat.id, add: [mia.id] });
   const before = await rpc.call('chats.get', { id: chat.id });
@@ -121,7 +122,7 @@ test('Catch-up: 40 new messages show the divider and "↓ N new"', { timeout: 60
   await page.waitForTimeout(300);
   const mine = await rpc.call('messages.send', { conversationId: chat.id, body: 'Thanks, all clear' });
   await page.locator('.unread-divider').waitFor({ state: 'detached', timeout: 10_000 });
-  await rpc.waitFor('message.updated', (message) => message.conversationId === chat.id && message.authorId === manager.id
+  await rpc.waitFor('message.created', (message) => message.conversationId === chat.id && message.authorId === manager.id
     && message.state === 'final' && message.seq > mine.seq, 60_000);
   await page.waitForTimeout(500);
   assert.equal(await page.locator('.unread-divider').count(), 0, 'no divider after the person wrote');

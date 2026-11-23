@@ -143,11 +143,12 @@ test("B-080 wave 3: after the turn the chat where a person waits runs before a c
     call.finish();
     await flush();
     assert.equal(h.executor.last().request.conversationId, mine.id, "the person's chat first");
+    // Runde „Halb“ 21.11.2026: the colleague's chat rides along in that turn instead of a turn of its own.
+    assert.deepEqual(h.executor.last().request.riders?.map((rider) => rider.conversationId), [room.id], "the colleague's rides along");
     h.executor.last().finish();
     await flush();
-    assert.equal(h.executor.last().request.conversationId, room.id, "then the colleague's");
-    h.executor.last().finish();
-    await flush();
+    assert.equal(h.executor.calls.length, 2, 'no third turn');
+    assert.equal(openWakes(h.db).length, 0);
     await h.dispatcher.stop();
   }
 });

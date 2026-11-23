@@ -65,7 +65,7 @@ test('phone access: device token sees the To-do list and accounts, not owner-onl
   }).then((response) => response.json());
   assert.ok(exchange.result?.token, 'the secret is exchanged for a device token');
 
-  await client.call('todos.add', { text: 'Sign the delivery note' });
+  await client.call('tasks.quickCreate', { text: 'Sign the delivery note' });
   const phone = await connect(runtime.port, exchange.result.token, 'pwa');
   t.after(() => phone.close());
   const todos = await phone.call('todos.list');
@@ -145,9 +145,9 @@ test('restart keeps chats, tasks and agents', { timeout: 120_000 }, async (t) =>
   const first = await startRuntime({ keepData: true });
   const { client } = first;
   const { manager, chat } = await managerChat(client, 'Persistence');
-  await client.call('messages.send', { conversationId: chat.id, body: 'Note [[tool:tasks.create {"title":"Survives restart"}]]' });
+  await client.call('messages.send', { conversationId: chat.id, body: 'Note [[tool:tasks.add {"title":"Survives restart"}]]' });
   const task = await client.waitFor('task.upserted', (item) => item.title === 'Survives restart', 90_000);
-  await client.waitFor(MESSAGE_EVENTS, finalFrom(chat.id, manager.id, /tasks\.create/), 90_000);
+  await client.waitFor(MESSAGE_EVENTS, finalFrom(chat.id, manager.id, /tasks\.add/), 90_000);
   await first.stop();
 
   const second = await startRuntime({ dataDir: first.dataDir });

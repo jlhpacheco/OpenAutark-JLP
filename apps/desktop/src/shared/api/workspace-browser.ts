@@ -25,12 +25,13 @@ export interface BrowserBounds { x: number; y: number; width: number; height: nu
 
 /**
  * Where the person works; any AI may use it. A chat's space ('chat:<id>') holds the tabs shared by everyone in that chat,
- * an agent's ('agent:<id>') its own area, shown on its agent page.
+ * an agent's ('agent:<id>') its own area, shown on its agent page; 21.11.2026: a person with no PC of their own keeps
+ * their pane on the company's PCs as 'person:<id>' (shared/model/pane.ts).
  */
 export const GLOBAL_SPACE = 'global';
 export const chatSpace = (chatId: string): string => `chat:${chatId}`;
 export const agentSpace = (agentId: string): string => `agent:${agentId}`;
-export const isSpace = (value: unknown): value is string => typeof value === 'string' && /^(?:global|(?:chat|agent):[\w.:-]{1,128})$/.test(value);
+export const isSpace = (value: unknown): value is string => typeof value === 'string' && /^(?:global|(?:chat|agent|person):[\w.:-]{1,128})$/.test(value);
 /**
  * One entry of <data>/side-tabs.json: a website `{id, url, by?}` or one of the app's panels `{id, panel, …what it shows}`.
  * B-076: a panel that shows something of another linked PC names it in `device` – a file, folder or media item by path

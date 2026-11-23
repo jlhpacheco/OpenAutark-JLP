@@ -55,7 +55,7 @@ test('agent OS end-to-end over WebSocket RPC with the fake engine', { timeout: 3
   });
 
   await t.test('agent tool call creates a task anchored in the chat', async () => {
-    await client.call('messages.send', { conversationId: chat.id, body: 'Plan it [[tool:tasks.create {"title":"Draft launch plan"}]]' });
+    await client.call('messages.send', { conversationId: chat.id, body: 'Plan it [[tool:tasks.add {"title":"Draft launch plan"}]]' });
     const task = await client.waitFor('task.upserted', (item) => item.title === 'Draft launch plan', 90_000);
     assert.equal(task.conversationId, chat.id);
     const tasks = await client.call('tasks.list', { conversationId: chat.id });
@@ -110,17 +110,18 @@ test('agent OS end-to-end over WebSocket RPC with the fake engine', { timeout: 3
     await client.waitFor(MESSAGE_EVENTS, finalFrom(chat.id, manager.id, /Done in mini-app\ntake: 1/), 90_000);
   });
 
-  await t.test('a free-text to-do is a plain Done – no guessing of widgets or times (tasks/todo-draft.ts)', async () => {
-    const reminder = await client.call('todos.add', { text: 'Remind me at 17:00 to call the bank' });
+  await t.test('a typed line is a plain Done – no guessing of widgets or times (tasks/quick.ts)', async () => {
+    const { task: reminder } = await client.call('tasks.quickCreate', { text: 'Remind me at 17:00 to call the bank' });
     assert.equal(reminder.widget?.type, 'confirm');
     assert.equal(reminder.assigneeKind, 'human');
-    const recording = await client.call('todos.add', { text: 'Record the intro video for the course' });
+    const { task: recording } = await client.call('tasks.quickCreate', { text: 'Record the intro video for the course' });
     assert.equal(recording.widget?.type, 'confirm', 'another widget is picked with "Show as…" or by an agent');
   });
 
   await t.test('agent self-reminder becomes a visible schedule', async () => {
-    await client.call('messages.send', { conversationId: chat.id, body: 'Follow up [[tool:schedules.remind {"note":"Check comments","when":{"at":"+2h"}}]]' });
-    await client.waitFor(MESSAGE_EVENTS, finalFrom(chat.id, manager.id, /schedules\.remind/), 90_000);
+    // Quests round 20.11.2026: my own note at a time is tasks.remind (schedules.* tools went).
+    await client.call('messages.send', { conversationId: chat.id, body: 'Follow up [[tool:tasks.remind {"text":"Check comments","at":"+2h"}]]' });
+    await client.waitFor(MESSAGE_EVENTS, finalFrom(chat.id, manager.id, /tasks\.remind/), 90_000);
     const schedules = await client.call('schedules.list', { ownerId: manager.id });
     assert.ok(schedules.length >= 1, 'the reminder is listed');
   });
@@ -135,10 +136,10 @@ test('agent OS end-to-end over WebSocket RPC with the fake engine', { timeout: 3
     const own = await client.call('chats.create', { title: 'Stickers', agentIds: [manager.id] });
     await client.call('events.subscribe', { topics: [`chat:${own.id}`, `runs:${manager.id}`] });
     await client.call('messages.send', {
-      conversationId: own.id, body: 'Later [[tool:tasks.create {"title":"Compare sticker printers","doneWhen":"Three printers compared"}]]',
+      conversationId: own.id, body: 'Later [[tool:tasks.add {"title":"Compare sticker printers","doneWhen":"Three printers compared"}]]',
     });
     const task = await client.waitFor('task.upserted', (item) => item.title === 'Compare sticker printers', 90_000);
-    assert.equal(task.assigneeId, manager.id, 'tasks.create defaults to the creating agent');
+    assert.equal(task.assigneeId, manager.id, 'tasks.add defaults to me, the creating agent');
     try {
       const first = await client.waitFor('run.upserted', (run) => run.taskId === task.id && run.startedAt !== undefined, 90_000);
       // B-047 D4 (agents/publishing.ts): a background turn keeps its answer in the run journal, the chat gets nothing.

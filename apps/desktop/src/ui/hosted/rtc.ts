@@ -4,7 +4,7 @@
 // Android's relay/RtcSignal, RtcWay, RtcPipe and RtcPlan do the same. Everything is said inside the finished pinned
 // channel A on the tunnel (a SecureChannel exists only after its handshake, so nothing goes out before): hello {net}; the
 // PC's offer (SDP ≤ 16 KiB with its candidates, which go one by one through the address filter, ≤ 32; and its STUN
-// list – exactly what the browser gets as iceServers, an empty list stays empty) or no {why}; the answer (≤ 16 KiB,
+// list – only the bundled STUN endpoint if offered, otherwise no iceServers) or no {why}; the answer (≤ 16 KiB,
 // without candidates) and this phone's candidates as cand messages (UDP only, ≤ 32, the names the PC takes), then done;
 // end either way. When the PC's data channel "autark" opens, the pinned handshake runs again over it with this phone's
 // own key, and the PC must prove the key pinned for it – DTLS is only the wrapper, never the trust. The PC's ready {id}

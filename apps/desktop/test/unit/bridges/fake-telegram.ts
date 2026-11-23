@@ -6,7 +6,7 @@
 
 import { Bridges } from '../../../src/runtime/bridges/service.ts';
 import type { TgMessage, TgUpdate } from '../../../src/runtime/bridges/telegram-api.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import type { SecretService, SettingsService } from '../../../src/runtime/contracts.ts';
 import type { SecretInfo } from '../../../src/shared/model/security.ts';
 import { agent, harness } from '../chat/harness.ts';

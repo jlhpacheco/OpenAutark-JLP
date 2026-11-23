@@ -13,6 +13,9 @@
 # "app": <that window> – the runtime asked the window whether the target is a guarded control
 # (runtime/computer/app-guard.ts). Moves, wheel steps and focusing its window need no clearance.
 # An element of the app reached through another window (the desktop root) is refused outright.
+# Sicher-Runde 19.11.2026 (additive, protocol 4 stays): Trust AI mode sends no pids (today's open helper); Secure mode
+# sends Autark's pids and never clears a window, and with chosen apps 'config' also takes `apps` (process names):
+# a press, keys or an element action for any other process answers 'forbidden' and sends nothing.
 # B-055 'path' (runtime/computer/motion.ts): steps x, y, t (ms since the start) replayed on a
 # Stopwatch with 1 ms timer resolution, then a click (hold pressMs), a drag along a second path or
 # wheel steps; an element click ('act' with `path`) bends the path onto the element's clickable
@@ -406,9 +409,39 @@ namespace WorkforceHelper
     // ------------------------------------------------------------------ safety gates
     // The Workforce app's windows (B-044): a press, keys or an element action that reaches one is
     // refused with 'app_window' until the request clears exactly that top-level window ("app").
+    // Sicher-Runde 19.11.2026: in Secure mode the runtime sends Autark's process ids and never clears a window; with
+    // computer use set to chosen apps it also sends `apps` (process names, lower case, no .exe) and input reaches only
+    // windows of those processes (null: every app).
     public static class Guard
     {
         public static readonly Dictionary<int, bool> AppPids = new Dictionary<int, bool>();
+        public static HashSet<string> Apps = null;
+
+        /// The process name of pid (lower case), or "" when it cannot be read.
+        static string NameOf(int pid)
+        {
+            try { return System.Diagnostics.Process.GetProcessById(pid).ProcessName.ToLowerInvariant(); } catch (Exception) { return ""; }
+        }
+
+        /// Input for a process that is not among the chosen apps is refused (Autark's own windows are AppRoot's).
+        public static void ListedPid(int pid)
+        {
+            if (Apps == null || AppPids.ContainsKey(pid)) return;
+            string name = NameOf(pid);
+            if (name.Length > 0 && Apps.Contains(name)) return;
+            throw new HelperException("forbidden", "That input would reach " + (name.Length > 0 ? name : "a window whose app I cannot tell") + ", which is not among the apps open to me in this company. With its window named (computer.windows lists it), the app asks for it.");
+        }
+
+        /// The same for the top-level window hwnd belongs to.
+        public static void Listed(IntPtr hwnd)
+        {
+            if (Apps == null || hwnd == IntPtr.Zero) return;
+            IntPtr root = Native.GetAncestor(hwnd, 3); // GA_ROOTOWNER
+            if (root == IntPtr.Zero) root = hwnd;
+            uint pid;
+            Native.GetWindowThreadProcessId(root, out pid);
+            ListedPid((int)pid);
+        }
 
         /// The app's top-level window hwnd belongs to (GA_ROOTOWNER: menus and dialogs count), or Zero.
         public static IntPtr AppRoot(IntPtr hwnd)
@@ -451,41 +484,46 @@ namespace WorkforceHelper
             Native.POINT p = new Native.POINT();
             p.X = x;
             p.Y = y;
-            IntPtr root = AppRoot(Native.WindowFromPoint(p));
+            IntPtr under = Native.WindowFromPoint(p);
+            Listed(under);
+            IntPtr root = AppRoot(under);
             if (root == IntPtr.Zero || root.ToInt64() == cleared) return;
             Dictionary<string, object> app = Hit(root);
             Dictionary<string, object> at = new Dictionary<string, object>();
             at["x"] = x;
             at["y"] = y;
             app["point"] = at;
-            throw new AppWindowException("That point is on the Autark window: its guarded controls are checked first.", app);
+            throw new AppWindowException("That point is on Autark's own window, which stays closed to computer use in this company.", app);
         }
 
         /// Keys and typed text go to the window in front.
         public static void Foreground(long cleared)
         {
-            IntPtr root = AppRoot(Native.GetForegroundWindow());
+            IntPtr front = Native.GetForegroundWindow();
+            Listed(front);
+            IntPtr root = AppRoot(front);
             if (root == IntPtr.Zero || root.ToInt64() == cleared) return;
             Dictionary<string, object> app = Hit(root);
             app["keyboard"] = true;
-            throw new AppWindowException("The Autark window has the keyboard: its focused control is checked first.", app);
+            throw new AppWindowException("Autark's own window has the keyboard, and it stays closed to computer use in this company.", app);
         }
 
         /// An element action in a window of the app: the element's rectangle is checked first.
         public static void Element(IntPtr hwnd, AutomationElement.AutomationElementInformation current, long cleared)
         {
+            ListedPid(current.ProcessId);
             IntPtr root = AppRoot(hwnd);
             if (root == IntPtr.Zero) root = AppRoot(new IntPtr(current.NativeWindowHandle));
             // A web element of the app has no window handle of its own: reached through another
             // window (the desktop root) it would skip the check, so its process decides then.
             if (root == IntPtr.Zero && AppPids.ContainsKey(current.ProcessId))
-                throw new HelperException("forbidden", "That element is in the Autark window: act on it through that window (computer.windows marks it), so its guarded controls are checked.");
+                throw new HelperException("forbidden", "That element is in Autark's own window, which stays closed to computer use in this company.");
             if (root == IntPtr.Zero || root.ToInt64() == cleared) return;
             Dictionary<string, object> app = Hit(root);
             System.Windows.Rect r = current.BoundingRectangle;
             if (!r.IsEmpty && r.Width > 0 && r.Height > 0)
                 app["rect"] = new List<object> { (int)Math.Round(r.X), (int)Math.Round(r.Y), (int)Math.Round(r.Width), (int)Math.Round(r.Height) };
-            throw new AppWindowException("That element is in the Autark window: its guarded controls are checked first.", app);
+            throw new AppWindowException("That element is in Autark's own window, which stays closed to computer use in this company.", app);
         }
     }
 
@@ -1123,6 +1161,86 @@ namespace WorkforceHelper
             return Native.GetAncestor(Native.WindowFromPoint(p), 2) != Native.GetAncestor(window, 2); // GA_ROOT
         }
 
+        /// 22.11.2026 (live 21.11.: a card number typed into a billing form in the person's Chrome was readable in the
+        /// agent's screenshots): text fields of the captured window and the window in front whose name or id matches
+        /// `secretLabel` (card number, CVC, expiry, PIN, password, codes - the runtime's SECRET_LABEL), and every password
+        /// field, are painted black before the picture leaves the helper. Bounded to 2.5 s; what was found by then is painted.
+        static readonly HashSet<IntPtr> Asked = new HashSet<IntPtr>();
+        static int MaskSecrets(SD.Bitmap bmp, SD.Rectangle rect, Dictionary<string, object> a)
+        {
+            string label = Args.Str(a, "secretLabel", null);
+            if (string.IsNullOrEmpty(label)) return 0;
+            System.Text.RegularExpressions.Regex rx;
+            try { rx = new System.Text.RegularExpressions.Regex(label, System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant); }
+            catch (ArgumentException) { return 0; }
+            List<IntPtr> roots = new List<IntPtr>();
+            IntPtr window = ShotWindow(a);
+            if (window != IntPtr.Zero) roots.Add(window);
+            IntPtr front = Native.GetForegroundWindow();
+            if (front != IntPtr.Zero && front != window) roots.Add(front);
+            List<SD.Rectangle> boxes = new List<SD.Rectangle>();
+            Thread finder = new Thread(delegate ()
+            {
+                foreach (IntPtr root in roots)
+                {
+                    try
+                    {
+                        CacheRequest request = new CacheRequest();
+                        request.TreeScope = TreeScope.Element;
+                        request.Add(AutomationElement.NameProperty);
+                        request.Add(AutomationElement.AutomationIdProperty);
+                        request.Add(AutomationElement.IsPasswordProperty);
+                        request.Add(AutomationElement.BoundingRectangleProperty);
+                        Condition fields = new AndCondition(
+                            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
+                            new PropertyCondition(AutomationElement.IsOffscreenProperty, false));
+                        // Chrome and Edge build a page's tree only once a client asks (measured 22.11.: the first look at
+                        // a fresh window found only the address bar, a look 1 s later the page's fields): a window seen
+                        // for the first time is asked again until its page shows a field, within the time bound.
+                        bool first;
+                        lock (Asked) first = Asked.Add(root);
+                        for (int look = 0; look < (first ? 4 : 1); look++)
+                        {
+                            if (look > 0) Thread.Sleep(400);
+                            AutomationElementCollection edits;
+                            using (request.Activate()) edits = AutomationElement.FromHandle(root).FindAll(TreeScope.Descendants, fields);
+                            bool hit = false;
+                            foreach (AutomationElement edit in edits)
+                            {
+                                string name = edit.Cached.Name ?? "";
+                                string id = edit.Cached.AutomationId ?? "";
+                                if (!edit.Cached.IsPassword && !rx.IsMatch(name) && !rx.IsMatch(id)) continue;
+                                System.Windows.Rect r = edit.Cached.BoundingRectangle;
+                                if (r.IsEmpty || double.IsInfinity(r.Width) || r.Width <= 0 || r.Height <= 0) continue;
+                                SD.Rectangle box = new SD.Rectangle((int)r.X - 2, (int)r.Y - 2, (int)Math.Ceiling(r.Width) + 4, (int)Math.Ceiling(r.Height) + 4);
+                                lock (boxes) boxes.Add(box);
+                                hit = true;
+                            }
+                            if (hit || edits.Count > 1) break; // more than the address bar: the page is there
+                        }
+                    }
+                    catch (Exception) { /* a window that closed or does not answer: the others still count */ }
+                }
+            });
+            finder.IsBackground = true;
+            finder.Start();
+            finder.Join(2500);
+            List<SD.Rectangle> found;
+            lock (boxes) found = new List<SD.Rectangle>(boxes);
+            if (found.Count == 0) return 0;
+            using (SD.Graphics g = SD.Graphics.FromImage(bmp))
+            {
+                foreach (SD.Rectangle box in found)
+                {
+                    SD.Rectangle part = SD.Rectangle.Intersect(box, rect);
+                    if (part.Width <= 0 || part.Height <= 0) continue;
+                    part.Offset(-rect.X, -rect.Y);
+                    g.FillRectangle(SD.Brushes.Black, part);
+                }
+            }
+            return found.Count;
+        }
+
         public static Dictionary<string, object> Shot(Dictionary<string, object> a)
         {
             SD.Rectangle rect = Bounds(a);
@@ -1132,8 +1250,10 @@ namespace WorkforceHelper
             byte[] bytes;
             int width;
             int height;
+            int masked;
             using (SD.Bitmap full = Grab(a, rect))
             {
+                masked = MaskSecrets(full, rect, a);
                 double scale = Math.Min(1.0, (double)maxEdge / Math.Max(rect.Width, rect.Height));
                 width = Math.Max(1, (int)Math.Round(rect.Width * scale));
                 height = Math.Max(1, (int)Math.Round(rect.Height * scale));
@@ -1166,6 +1286,7 @@ namespace WorkforceHelper
             d["srcHeight"] = rect.Height;
             IntPtr window = ShotWindow(a);
             if (window != IntPtr.Zero && Covered(window, rect)) d["covered"] = true;
+            if (masked > 0) d["masked"] = masked;
             return d;
         }
     }
@@ -1887,6 +2008,10 @@ namespace WorkforceHelper
                     Guard.AppPids.Clear();
                     List<object> pids = Args.List(a, "appPids");
                     if (pids != null) foreach (object pid in pids) if (pid is double) Guard.AppPids[(int)(double)pid] = true;
+                    List<object> apps = Args.List(a, "apps");
+                    HashSet<string> chosen = null;
+                    if (apps != null) { chosen = new HashSet<string>(); foreach (object app in apps) if (app is string) chosen.Add(((string)app).ToLowerInvariant()); }
+                    Guard.Apps = chosen;
                     return Done();
                 case "presence":
                     return Presence.Read();

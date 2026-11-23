@@ -40,8 +40,8 @@
 
 .call-who { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
 .call-name, .call-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.call-name { font-size: 14px; font-weight: 600; line-height: 20px; }
-.call-status { color: var(--call-muted); font-size: 12px; line-height: 16px; }
+.call-name { font-size: calc(14px * var(--ui-text, 1)); font-weight: 600; line-height: max(20px, calc(20px * var(--ui-text, 1))); }
+.call-status { color: var(--call-muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(16px, calc(16px * var(--ui-text, 1))); }
 .call-card.phase-speaking .call-status { color: var(--call-agent); }
 .call-muted { color: var(--call-fg); }
 
@@ -63,7 +63,7 @@
 .call-control.hang-up:hover { background: var(--call-danger-hover); }
 .call-caption { /* the newest line of the call; two lines reserved, the card never grows */
   grid-column: 1 / -1; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
-  margin: 0; font-size: 13px; line-height: 18px; overflow-wrap: anywhere;
+  margin: 0; font-size: calc(13px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); overflow-wrap: anywhere;
 }
 .call-caption > strong { font-weight: 600; }
 .call-caption[data-side=agent] > strong { color: var(--call-agent); }
@@ -90,9 +90,9 @@
 .call-row-mark.live { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
 .call-row-words { display: flex; flex-direction: column; min-width: 0; }
 .call-row-title, .call-row-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.call-row-title { color: var(--text); font-size: 14px; font-weight: 600; line-height: 20px; }
-.call-row-meta { color: var(--muted); font-size: 12px; line-height: 16px; }
-.call-row-end { color: var(--text); font-size: 14px; font-weight: 600; }
+.call-row-title { color: var(--text); font-size: calc(14px * var(--ui-text, 1)); font-weight: 600; line-height: max(20px, calc(20px * var(--ui-text, 1))); }
+.call-row-meta { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(16px, calc(16px * var(--ui-text, 1))); }
+.call-row-end { color: var(--text); font-size: calc(14px * var(--ui-text, 1)); font-weight: 600; }
 .call-row-end.live { color: var(--success); }
 .call-row-card > .call-transcript-toggle { margin: 4px 0 0 44px; }
 .call-transcript > .call-transcript-body { margin-top: 8px; }
@@ -107,5 +107,5 @@
 .call-cut { position: absolute; box-sizing: border-box; border: 2px solid var(--call-person); border-radius: 4px; box-shadow: 0 0 0 9999px color-mix(in srgb, var(--call-bg) 45%, transparent); }
 .call-cut-drop {
   position: absolute; top: -10px; right: -10px; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0;
-  border-radius: 50%; background: var(--call-fg); color: var(--call-bg); font-size: 14px; line-height: 1; cursor: pointer;
+  border-radius: 50%; background: var(--call-fg); color: var(--call-bg); font-size: calc(14px * var(--ui-text, 1)); line-height: 1; cursor: pointer;
 }

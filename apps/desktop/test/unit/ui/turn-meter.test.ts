@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import type { Message } from '../../../src/shared/model/chat.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import { TurnMeter, type TurnNote } from '../../../src/ui/chat/call/turn-meter.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { register as calls } from '../../../src/runtime/rpc/handlers/calls.ts';
 import { OWNER, TestClient, rpcFixture, s1Table } from '../rpc/s1-helpers.ts';
 

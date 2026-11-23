@@ -44,6 +44,7 @@ import { personName } from '../../agents/publishing.ts';
 import { HUMAN_ID } from '../../../shared/ids.ts';
 import { tryAccount } from '../../accounts/try-turn.ts';
 import { modelUses } from '../../models/uses.ts';
+import { setUse } from '../../models/set-use.ts';
 
 const CHAT = { capability: 'chat' } as const;
 /** accounts.*: the owner, and the owner's phone on a secure transport. */
@@ -159,7 +160,7 @@ async function openOnPc<T>(ctx: HandlerContext, result: T): Promise<T> {
  * ACCOUNTS (`capability: 'settings', secure: true`, the rpc table's own check) - a handler added without it is open to every device.
  */
 function byThePerson(scope: ClientScope): boolean {
-  return scope.kind === 'device' || (scope.kind === 'owner' && scope.window === true && !scope.agentId);
+  return scope.kind === 'device' || (scope.kind === 'owner' && scope.person === true && !scope.agentId);
 }
 
 function personOnly(ctx: HandlerContext, what: string): void {
@@ -282,6 +283,11 @@ export function register(table: HandlerTable): void {
     onlyKeys(input(params), []);
     return modelUses(ctx.services);
   }, ACCOUNTS); // B-084: the phone's Settings › Models reads it like accounts.* (it was owner-only → empty pickers)
+  table.add('models.setUse', (params, ctx) => {
+    const o = input(params);
+    onlyKeys(o, ['use', 'value']);
+    return setUse(ctx.services, text(o, 'use', { max: 20 }), text(o, 'value', { max: 300 }), { pull: (id) => ctx.extras.voice.pullLocal(id) });
+  }, ACCOUNTS); // the same keys settings.update's Models section writes
   table.add('models.recent', (params, ctx) => ctx.services.catalog.recent(optId(input(params), 'agentId')), CHAT);
   table.add('models.getPolicy', (params, ctx) => {
     const o = input(params);

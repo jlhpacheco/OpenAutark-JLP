@@ -1,7 +1,7 @@
 // A person's page in Team (#/team/person/<id>; B-041 §8 – humans next to the agents, same page shape as the agent
 // page): round avatar, name, title and status, whom they report to and who reports to them (people and agents,
 // each opening their page; agents with the tiny "AI"), for the owner their devices, and one link to their work
-// (Work filtered to them; the caller's own is My day) and, for the owner, their next days (PersonCalendar.tsx, B-078,
+// (the Tasks page narrowed to them; the caller's own is the page itself) and, for the owner, their next days (PersonCalendar.tsx, B-078,
 // last on the page so its late arrival moves nothing). The NAME in the header is the dropdown with the person
 // menu (menus.ts personMenu: Message · Edit · Invite a device · Devices and chats · Remove access, or Remove for one who
 // never joined – F14: such a person is no report of anyone yet); a right click
@@ -9,8 +9,12 @@
 // ownsTopRow), the feedback cell ends it (feedback/cell.tsx) and this page mounts the person dialogs the sidebar
 // mounts on a computer. The caller's own page
 // ('human') names them as the profile button does.
-// 17.11.2026: "Invite a device" / "Invite again" shows its invite card at the top of this page (no modal).
+// 17.11.2026: "Invite a device" / "Invite again" shows its card at the top of this page (no modal) – 20.11.2026 the one
+// way a device joins (PersonJoin.tsx: this PC's connect code, their request with Accept, a link for a browser).
 // Renders before the people list is loaded (a spinner) and says so when the person is unknown.
+// Team-Call 21.11.2026: under Tasks, "New chat" with them and the chats shared with them (MemberChats.tsx); a company
+// colleague on an employee's PC (Person.fromEmployer) shows only the chats shared with them – no New chat, no manage
+// actions (menus.ts): no chat made here can hold them.
 // Owns: the person page. Never: changes people itself (the dialogs do) or shows messages of a person's chats.
 
 import { useEffect } from 'preact/hooks';
@@ -27,9 +31,10 @@ import { ensureSpaces } from './org-state.ts';
 import { AiTag } from './parts.tsx';
 import { personMenu } from './menus.ts';
 import { closeInvite, inviteOpen, PersonDialogs } from './person-dialogs.tsx';
-import { PersonInvite } from './PersonInvite.tsx';
+import { PersonJoin } from './PersonJoin.tsx';
 import { PersonCalendar } from './PersonCalendar.tsx';
 import { TitleMenu } from './TitleMenu.tsx';
+import { MemberChats } from './MemberChats.tsx';
 import { phoneFeedbackCells } from '../feedback/cell.tsx';
 
 /** A link to a member of the org: a person's page or an agent's insight. */
@@ -82,8 +87,8 @@ export function PersonView(props: PersonViewProps) {
   const { personId } = props;
   useEffect(() => { ensureSpaces(); }, []);
   useEffect(() => () => closeInvite(personId), [personId]); // the invite card goes with its page
-  const admin = can('people.save');
   const person = people.value.find((entry) => entry.id === personId);
+  const admin = can('people.save') && !person?.fromEmployer;
   const menu = useContextMenu(() => (person ? personMenu(person) : []));
   const self = personId === 'human';
   const name = self ? agentName('human') : person?.name ?? agentName(personId);
@@ -104,7 +109,7 @@ export function PersonView(props: PersonViewProps) {
       <Header zone="main" class="person-header" lead={lead} title={person ? <TitleMenu name={name} sections={() => personMenu(person)} /> : name} cells={phoneFeedbackCells()} />
       <div class="agent-scroll">
         <div class="agent-column" {...menu}>
-          {person && inviteOpen(personId) && <PersonInvite person={person} onClose={() => closeInvite()} />}
+          {person && inviteOpen(personId) && <PersonJoin person={person} onClose={() => closeInvite()} />}
           <section class="agent-profile" aria-label="Identity">
             <div class="agent-identity">
               <AgentAvatar agentId={personId} size={64} />
@@ -115,7 +120,8 @@ export function PersonView(props: PersonViewProps) {
             </div>
             {person && <Facts person={person} admin={admin} />}
           </section>
-          <button type="button" class="text-button agent-work-link" onClick={() => (self ? go.day() : go.tasks(undefined, personId))}>Work</button>
+          <button type="button" class="text-button agent-work-link" onClick={() => (self ? go.tasks() : go.tasks(undefined, personId))}>Tasks</button>
+          {!self && <MemberChats memberId={personId} canStart={person?.status === 'active' && !person.fromEmployer && can('chats.create')} />}
           {admin && !self && person && person.status !== 'revoked' && <PersonCalendar personId={personId} />}
         </div>
       </div>

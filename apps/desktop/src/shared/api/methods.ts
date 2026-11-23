@@ -11,7 +11,7 @@
 
 import type { Agent, AgentTemplate, OrgNode, Space } from '../model/org.ts';
 import type { Attachment, Conversation, ConversationSettings, ConversationSummary, Member, Message, SendMessageInput } from '../model/chat.ts';
-import type { CreateTaskInput, Schedule, ScheduleSpec, Task, TaskFilter, TaskStatus, TaskView } from '../model/tasks.ts';
+import type { CreateTaskInput, Schedule, ScheduleSpec, Task, TaskFilter, TaskStatus, TaskView, TodoRepeat } from '../model/tasks.ts';
 import type { KnowledgeHit, KnowledgeItem, KnowledgeKind, KnowledgeQuery, ModeInfo, ModeSaveInput, ModeSaveResult, SkillInfo } from '../model/knowledge.ts';
 import type { AgentActivity, Run, RunItem } from '../model/runs.ts';
 import type { FileRef, ResourceState, Settings, SettingsPatch, SystemInfo } from '../model/system.ts';
@@ -22,6 +22,7 @@ import type { RestoreStatus } from '../model/restore.ts';
 // are re-exported below.
 import './methods-providers.ts';
 import './methods-security.ts';
+import './methods-security-mode.ts';
 import './methods-devices.ts';
 import './methods-app.ts';
 import './methods-media.ts';
@@ -36,9 +37,11 @@ export interface Methods {
   'system.resources': { params: void; result: ResourceState };
   'events.subscribe': { params: { topics: Topic[] }; result: { ok: true } };
   'events.unsubscribe': { params: { topics: Topic[] }; result: { ok: true } };
+  /** The Android To-do Bubble only needs the owner's preferred speech language. */
+  'todos.speechLanguage': { params: void; result: { language: string | null } };
   'settings.get': { params: void; result: Settings };
   'settings.update': { params: SettingsPatch; result: Settings };
-  /** 16.11.2026: Settings › Security's change log – who changed the access level or the line for every agent, when, old → new (newest first). */
+  /** 16.11.2026: Settings › Security's change log – who changed the security mode, a switch or a topic text, when, old → new (newest first). */
   'settings.securityLog': { params: void; result: import('../model/security-log.ts').SecurityChange[] };
   'ui.state': { params: void; result: { drafts: Record<string, string>; secretDrafts?: Record<string, string[]>; draftFiles?: Record<string, Attachment[]>; lastConversationId?: string } };
   'ui.saveDraft': { params: { conversationId: string; text: string; attachments?: Attachment[]; secrets?: string[] }; result: { ok: true } };
@@ -58,7 +61,7 @@ export interface Methods {
    * start whether it landed. 'unavailable' headless and on macOS. Owner scope (also `npm run wf -- call system.install`).
    */
   'system.install': { params: { installer: string }; result: { ok: true; from: string; to?: string } };
-  'system.update': { params: { device?: string }; result: { ok: true } }; // 19.11.2026: this PC's Update button, or (device) a linked own PC's. Owner scope.
+  'system.update': { params: { device?: string }; result: import('../model/devices.ts').UpdateAnswer }; // 19.11.2026: this PC's Update button, or (device) a linked own PC's – what its updater said (E4). Owner scope.
   /** Added by R4 contracts: consistent copy of the database + blobs into `dir` (default chosen by the runtime). Owner scope. */
   'system.backup': { params: { dir?: string } | void; result: { path: string; bytes: number } };
   /** Added by R4 contracts: stages a backup; it replaces the data on the next start (applyPendingRestore). Owner scope. */
@@ -75,7 +78,7 @@ export interface Methods {
   'agents.org': { params: void; result: OrgNode[] };
   'agents.templates': { params: void; result: AgentTemplate[] };
   'agents.create': { params: { name?: string; template?: string; role?: string; managerId?: string; spaceId?: string; instructions?: string; mode?: string }; result: Agent };
-  'agents.update': { params: { id: string; patch: Partial<Pick<Agent, 'name' | 'role' | 'avatar' | 'instructions' | 'mode' | 'skills' | 'modelPolicy' | 'managerId' | 'spaceId' | 'team' | 'deviceId' | 'voice'>>; /** Wave 3: the instructions an editor started from – changed meanwhile (SYSTEM.md, another edit) = 'conflict'. */ base?: { instructions: string } }; result: Agent };
+  'agents.update': { params: { id: string; patch: Partial<Pick<Agent, 'name' | 'role' | 'avatar' | 'instructions' | 'mode' | 'skills' | 'modelPolicy' | 'spaceId' | 'team' | 'deviceId' | 'voice'>> & { /** null: no manager (the top of the org). */ managerId?: string | null }; /** Wave 3: the instructions an editor started from – changed meanwhile (SYSTEM.md, another edit) = 'conflict'. */ base?: { instructions: string } }; result: Agent };
   'agents.archive': { params: { id: string }; result: { ok: true } };
   /** O6: brings an archived agent back (under its old manager while active, else the person). */
   'agents.restore': { params: { id: string }; result: Agent };
@@ -84,7 +87,7 @@ export interface Methods {
   /** Added by R4 contracts: an agent (+ optionally its knowledge) as a portable file in the blob store. Owner scope. */
   'agents.export': { params: { id: string; includeKnowledge?: boolean }; result: FileRef };
   'runs.items': { params: { runId: string }; result: RunItem[] };
-  'runs.cancel': { params: { runId: string }; result: { ok: true } };
+  'runs.cancel': { params: { runId: string; agentId?: string; chatId?: string }; result: { ok: true } };
 
   // ----------------------------------------------------------------- chats
   'chats.list': { params: { includeHidden?: boolean; search?: string } | void; result: ConversationSummary[] };
@@ -104,8 +107,8 @@ export interface Methods {
   'messages.delete': { params: { id: string }; result: { ok: true } };
   'messages.stop': { params: { conversationId: string; agentId?: string }; result: { ok: true } };
   'messages.retry': { params: { messageId: string }; result: { ok: true } };
-  /** T11: `priority` 'important' posts it as important (B-050 K4: 'silent' posts it quietly; never with asTask); `asTask` (needs 'tasks') posts a team task each time (kind 'routine'; first line = title, "- " lines = steps). */
-  'messages.schedule': { params: { conversationId: string; body: string; spec: ScheduleSpec; mentions?: string[]; priority?: 'normal' | 'important' | 'silent'; asTask?: boolean; ultra?: boolean }; result: Schedule }; // ultra (B-057): Ultra suggested for the scheduled message
+  /** T11: `priority` 'important' posts it as important (B-050 K4: 'silent' posts it quietly). */
+  'messages.schedule': { params: { conversationId: string; body: string; spec: ScheduleSpec; mentions?: string[]; priority?: 'normal' | 'important' | 'silent'; ultra?: boolean }; result: Schedule }; // ultra (B-057): Ultra suggested for the scheduled message
   'blocks.answer': { params: { messageId: string; blockIndex: number; answer: unknown; clientId?: string }; result: { ok: true; taskId?: string } };
   'blocks.state': { params: { messageId: string; blockIndex: number; state?: unknown }; result: { state: unknown } };
   /** Added by package B: raw HTML of an ```app fence, served by main at wf-sandbox://app/<messageId>/<blockIndex>. */
@@ -128,8 +131,8 @@ export interface Methods {
   'tasks.get': { params: { id: string }; result: TaskView };
   /** `to`: an agent id, 'human', a colleague's per_… id, 'team' (Autark picks one owner now) or 'me' (default). No conversationId = a chat-free task. */
   'tasks.create': { params: Omit<CreateTaskInput, 'origin' | 'spaceId' | 'files' | 'assigneeKind' | 'assigneeId'> & { to?: string }; result: TaskView };
-  /** `status` 'open': resume a paused task or reopen a finished one. */
-  'tasks.update': { params: { id: string; rev?: number; patch: Partial<Pick<Task, 'title' | 'notes' | 'dueAt' | 'priority' | 'doneWhen' | 'dependsOn' | 'sort'>> & { plan?: string[]; status?: 'open' } }; result: TaskView };
+  /** `status` 'open': resume a paused task or reopen a finished one (a to-do of a closed quest only with its quest); `at`/`minutes` its time and `parentId` its quest (null clears). */
+  'tasks.update': { params: { id: string; rev?: number; patch: Partial<Pick<Task, 'title' | 'notes' | 'priority' | 'doneWhen' | 'dependsOn' | 'sort' | 'private' | 'kind'>> & { at?: number | null; minutes?: number | null; parentId?: string | null; plan?: string[]; status?: 'open' } }; result: TaskView };
   /** Gives the task to `to` (as tasks.create); the receiver hears at once, the giver hears how it ends. */
   'tasks.give': { params: { id: string; to: string; note?: string }; result: TaskView };
   /** Ends a task: done (default; a to-do with a widget is answered) or dropped. */
@@ -139,9 +142,8 @@ export interface Methods {
   'tasks.delete': { params: { id: string }; result: { ok: true } };
   /** Human to-dos: open tasks assigned to the human, across all chats. */
   'todos.list': { params: { limit?: number } | void; result: TaskView[] };
-  /** Turn free text typed into the To-do list into a task with the right widget. */
-  'todos.add': { params: { text: string; conversationId?: string }; result: TaskView };
-  'todos.changeWidget': { params: { id: string; type: string }; result: TaskView };
+  /** "Show as" a widget type; with `repeat` (type 'timer') the to-do repeats at its time (Repeat › Daily · Weekdays · Weekly). */
+  'todos.changeWidget': { params: { id: string; type: string; repeat?: TodoRepeat }; result: TaskView };
   /** F03: snooze a to-do (by id or its chat block) for `minutes` or until a time (epoch ms). */
   'todos.snooze': { params: { id?: string; messageId?: string; blockIndex?: number; minutes?: number; until?: number }; result: TaskView };
   'todos.stopRepeating': { params: { id: string }; result: TaskView };
@@ -149,9 +151,10 @@ export interface Methods {
   'todos.decline': { params: { id: string; reason?: string; clientId?: string }; result: TaskView };
   /** F06: removes a to-do the person added (agents' to-dos are declined instead). */
   'todos.remove': { params: { id: string }; result: { ok: true } };
-  'schedules.list': { params: { conversationId?: string; ownerId?: string } | void; result: Schedule[] };
-  /** T11: `body`/`priority`/`mentions` reword the person's own message or task post (not an agent's). */
-  'schedules.update': { params: { id: string; active?: boolean; spec?: ScheduleSpec; title?: string; body?: string; priority?: 'normal' | 'important' | 'silent'; mentions?: string[] }; result: Schedule };
+  /** `all`: the paused and ended ones too – the default for the person; an agent's own `wf` gets the running ones unless it asks (owner 21.11.2026). */
+  'schedules.list': { params: { conversationId?: string; ownerId?: string; all?: boolean } | void; result: Schedule[] };
+  /** T11: `body`/`priority`/`mentions` reword a scheduled message (an agent's too) – `body` alone an agent's reminder note; `conversationId` moves a message to another chat (owner 21.11.2026). */
+  'schedules.update': { params: { id: string; conversationId?: string; active?: boolean; spec?: ScheduleSpec; title?: string; body?: string; priority?: 'normal' | 'important' | 'silent'; mentions?: string[] }; result: Schedule };
   'schedules.delete': { params: { id: string }; result: { ok: true } };
   'schedules.runNow': { params: { id: string }; result: { ok: true } };
   /** T11: the next fire times of a spec (default 3, at most 10; `runs` already made count against maxRuns). Read-only. */
@@ -159,8 +162,7 @@ export interface Methods {
 
   // ----------------------------------------------------------------- knowledge, skills, modes
   'knowledge.search': { params: KnowledgeQuery; result: KnowledgeHit[] };
-  /** `kinds` (CTX5): several kinds at once – the knowledge browser lists every kind except observations. */
-  /** B-044: `before` = saved before ("Older than"); the first page names the kinds stored at all (`kinds`). */
+  /** `kinds` (CTX5): several kinds at once. B-044: `before` = saved before ("Older than"); the first page names the kinds stored at all (`kinds`). */
   'knowledge.list': { params: { scope?: string; scopeId?: string; kind?: string; kinds?: string[]; pinned?: boolean; cursor?: string; limit?: number; before?: number }; result: Page<KnowledgeItem> & { kinds?: KnowledgeKind[] } };
   'knowledge.save': { params: Partial<KnowledgeItem> & { title: string; body: string; scope: KnowledgeItem['scope'] }; result: KnowledgeItem };
   'knowledge.expire': { params: { id: string; reason?: string }; result: { ok: true } };

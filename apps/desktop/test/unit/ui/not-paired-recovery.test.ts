@@ -1,7 +1,10 @@
 // 10.11.2026 (CEO screenshot, Samsung, Android app): "Not paired" showed the old list and "Pair it again…" with no button –
 // the recovery row was iPhone-only (inHostedApp). Both phone apps now get it; "Not paired" names it "Pair again".
 // Feedback 16.11.2026 F15: Pair again in the Android app pairs over the company ('add') instead of forgetting it first;
-// a refusal (4401) goes to the app ('refused') so it tries the company's next PC; the offline sub line says it keeps trying.
+// a refusal (4401) goes to the app ('refused') so it tries the company's next PC.
+// Sicher-Runde 19.11.2026 (D1, D4, D5): "Not paired" (4401) and a PC that does not know the phone yet (4404) no longer
+// replace the shell – they are a line in the status line (shell/connection-line.ts, texts in connection-line.test.ts)
+// with Choose PC / Pair again; 4404 goes to the Android app as 'refused' too, so it tries the company's next PC.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -18,23 +21,12 @@ class FakePort {
   close() { /* nothing to close */ }
 }
 
-test('the not-paired views offer a way back in both phone apps, not only the iPhone web app', () => {
+test('the shell stays for 4401 and 4404: only a removed phone (4403) gets a screen of its own; no Forget, no read-only My day', () => {
   assert.equal(typeof isPhoneApp, 'function');
-  assert.doesNotMatch(app, /inHostedApp\(\) && \(/, 'no iPhone-only recovery row is left');
-  assert.match(app, /isPhoneApp\(\) && \( \/\/ 10\.11\.2026/);
-  assert.match(app, /\{props\.accessOff \? 'Pair again' : 'Forget this phone'\}/);
-  assert.match(app, /onClick=\{props\.accessOff \? pairAgain : forgetThisPhone\}/, 'Pair again pairs; Forget this phone forgets');
-  assert.match(app, /<BootNote text="This device is no longer paired\." detail=\{accessOffDetail\(\)\} repair \/>/);
-  assert.match(app, /props\.repair && isPhoneApp\(\) && <button type="button" class="button" onClick=\{pairAgain\}>Pair again<\/button>/);
-  assert.match(app, /Pair again, enter the PC's Remote ID, then accept on the PC\./);
-});
-
-// 10.11.2026: the Android app keeps every PC of the company; one refusing PC should not force forgetting all of them.
-test('the Android app offers Choose PC (native picker) before Pair again in both not-paired views', () => {
-  assert.match(app, /import \{ [^}]*\bshowPcs\b[^}]* \} from '\.\/pwa\/phone-companies\.ts';/);
-  assert.match(app, /isAndroidApp\(\) && <button type="button" class="button secondary" onClick=\{\(\) => showPcs\(\)\}>Choose PC<\/button>/);
-  assert.match(app, /props\.repair && isAndroidApp\(\) && <button type="button" class="button secondary" onClick=\{\(\) => showPcs\(\)\}>Choose PC<\/button>/);
-  assert.match(app, /isAndroidApp\(\) \? 'Choose another PC, or tap' : 'Tap'/);
+  assert.doesNotMatch(app, /OfflineTodos|offline-view|forgetThisPhone|>Forget/, 'the old "only My day" screen is gone, and with it its Forget');
+  assert.match(app, /if \(refused === 4403\) return <AccessRequest removed \/>;/);
+  assert.doesNotMatch(app, /refused === 4401|refused === 4404/, 'a refusal is a status line, not a screen');
+  assert.match(app, /useEffect\(\(\) => reportRefusals\(rpc\), \[\]\);/);
 });
 
 test('Pair again: the Android app gets "add" (its pairing over this company); the iPhone web app and an app without its port forget', () => {
@@ -65,10 +57,10 @@ test('Pair again: the Android app gets "add" (its pairing over this company); th
   }
 });
 
-test('a refused socket (opened, then closed with 4401) tells the Android app "refused" once per refusal; other closes do not', () => {
+test('a refused socket (opened, then closed with 4401 or 4404) tells the Android app "refused" once per refusal; other closes do not', () => {
   resetNativePort();
   const status = signal<'connecting' | 'open' | 'closed'>('connecting');
-  const refused = signal<4401 | 4403 | null>(null);
+  const refused = signal<4401 | 4403 | 4404 | null>(null);
   const stop = reportRefusals({ status, refused }, true);
   try {
     status.value = 'closed'; // a PC out of reach: never opened
@@ -85,10 +77,14 @@ test('a refused socket (opened, then closed with 4401) tells the Android app "re
     status.value = 'open';
     status.value = 'closed'; // the next PC refused as well
     assert.equal(port.sent.length, 2);
+    refused.value = 4404; // a PC the company's roster has not reached yet: on to the next PC too
+    status.value = 'open';
+    status.value = 'closed';
+    assert.equal(port.sent.length, 3);
     refused.value = 4403;
     status.value = 'open';
     status.value = 'closed'; // removed: that ends at once, no next PC
-    assert.equal(port.sent.length, 2);
+    assert.equal(port.sent.length, 3);
   } finally { stop(); resetNativePort(); }
   assert.equal(typeof reportRefusals({ status, refused }, false), 'function', 'outside the Android app nothing is wired');
 });
@@ -96,7 +92,7 @@ test('a refused socket (opened, then closed with 4401) tells the Android app "re
 test('a refusal before the app handed over its port is told once the port arrives', () => {
   resetNativePort();
   const status = signal<'connecting' | 'open' | 'closed'>('open');
-  const refused = signal<4401 | 4403 | null>(null);
+  const refused = signal<4401 | 4403 | 4404 | null>(null);
   const stop = reportRefusals({ status, refused }, true);
   try {
     refused.value = 4401;
@@ -108,11 +104,4 @@ test('a refusal before the app handed over its port is told once the port arrive
     adoptPort(next as unknown as MessagePort);
     assert.deepEqual(next.sent, [], 'told once');
   } finally { stop(); resetNativePort(); }
-});
-
-test('the offline sub line says the phone keeps trying (naming the PC when the app does); Not paired keeps its words', () => {
-  assert.match(app, /sub=\{<span class="offline-badge" role="status">\{offlineLine\(props\.accessOff, snapshot\.at\)\}<\/span>\}/);
-  assert.match(app, /if \(accessOff\) return `Not paired · \$\{relative\(at\)\}`;/);
-  assert.match(app, /return `Offline · trying \$\{pc \? `\$\{pc\} ` : ''\}again · \$\{relative\(at\)\}`;/);
-  assert.match(app, /useEffect\(\(\) => reportRefusals\(rpc\), \[\]\);/);
 });

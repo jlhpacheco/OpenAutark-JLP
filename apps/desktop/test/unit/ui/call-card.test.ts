@@ -82,6 +82,9 @@ test('call row: meta "21:24 · 3 lines", older days with their day; end words ke
   assert.equal(callMeta(record({ lines: [line, line, line] }), T0 + 60_000), `${time(T0)} · 3 lines`);
   assert.equal(callMeta(record({ lines: [line] }), T0 + 60_000), `${time(T0)} · 1 line`);
   assert.match(callMeta(record(), T0 + 2 * 86_400_000), new RegExp(`, ${time(T0)} · Nothing said$`));
+  const joined = [{ participant: 'device:dev_phone', name: 'Pixel' }, { participant: 'device:dev_tab', name: 'Tab' }];
+  assert.equal(callMeta(record({ lines: [line], joined }), T0 + 60_000), `${time(T0)} · 1 line · PC, Pixel and Tab`, 'owner 19.11.2026: the devices in a running call');
+  assert.equal(callMeta(record({ lines: [line], joined, endedAt: T0 + 1000 }), T0 + 60_000), `${time(T0)} · 1 line`, 'an ended call names none');
   assert.equal(callEnd(record(), T0 + 5000), 'Running');
   assert.equal(callEnd(record({ endedAt: T0 + 282_000 }), T0 + 300_000), '4:42');
   const ring = { by: 'ag_ava', why: 'x', until: T0 + 45_000 };

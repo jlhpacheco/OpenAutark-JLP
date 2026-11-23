@@ -1,7 +1,8 @@
 // The native "attach" picker: an open dialog, then every chosen file goes into the runtime blob
 // store by path (files.uploadPath streams it – no bytes travel through the renderer or main).
 // A folder is walked (sorted, bounded depth) and its files are uploaded one by one.
-// pickFolder answers only a folder path (where a backup or chat export goes, the backup to restore: Settings › About) – nothing is
+// pickFolder answers only a folder path (where a backup or chat export goes, the backup to restore: Settings › About; a
+// folder the team works in: Settings › Security) – nothing is
 // uploaded.
 // Owns: dialog options per kind and purpose, folder walking limits.
 // Never: reads file contents, imports electron (the dialog and the upload call are injected).
@@ -93,11 +94,12 @@ const FOLDER_DIALOGS: Record<FolderPurpose, DialogOptions> = {
   backup: { title: 'Choose where to save the backup', buttonLabel: 'Back up here', properties: ['openDirectory', 'createDirectory', 'promptToCreate'] },
   restore: { title: 'Choose an Autark backup folder', buttonLabel: 'Choose backup', properties: ['openDirectory'] },
   chats: { title: 'Choose a folder for the chat folders', buttonLabel: 'Choose folder', properties: ['openDirectory', 'createDirectory', 'promptToCreate'] },
+  security: { title: 'Choose a folder for your team', buttonLabel: 'Choose folder', properties: ['openDirectory'] },
 };
 
 /** Renderer input → purpose (throws bad_request for anything else). */
 export function folderPurpose(value: unknown): FolderPurpose {
-  if (value === 'restore' || value === 'backup' || value === 'chats') return value;
+  if (value === 'restore' || value === 'backup' || value === 'chats' || value === 'security') return value;
   throw new WorkforceError('bad_request', 'Invalid folder purpose.');
 }
 

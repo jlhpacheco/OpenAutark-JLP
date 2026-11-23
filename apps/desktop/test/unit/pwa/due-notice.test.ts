@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { buildSync } from 'esbuild';
-import { DUE_SHOW_MS, groupDue, isDuePush } from '../../../src/ui/pwa/due-notice.ts';
+import { groupDue, isDuePush } from '../../../src/ui/pwa/due-notice.ts';
 
 interface Notice { title?: string; body?: string; tag?: string; data?: { url?: string; due?: boolean; items?: string[]; stamp?: number }; close(): void }
 
@@ -57,7 +57,7 @@ test('three to-dos fall due in the same millisecond: one notice stays in the tra
   assert.equal(sw.tray[0]!.title, '3 to-dos due');
   assert.equal(sw.tray[0]!.body, '2 minutes at the PC · Recording · At the server');
   assert.equal(sw.tray[0]!.data?.url, '/#/day', 'a tap opens My day');
-  assert.deepEqual(sw.timers.map((timer) => timer.ms), [DUE_SHOW_MS, DUE_SHOW_MS, DUE_SHOW_MS]);
+  assert.deepEqual(sw.timers.map((timer) => timer.ms), [6_000, 6_000, 6_000]);
   sw.timers[0]!.fn(); // the first push's timer: a newer notice stands, so it stays
   await sw.flush();
   assert.equal(sw.tray.length, 1);

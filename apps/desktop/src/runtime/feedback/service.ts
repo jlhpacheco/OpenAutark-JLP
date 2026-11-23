@@ -4,10 +4,14 @@
 // (delivery.ts: sealed for the team, B-055), plus the team side on the PC holding the team's key (inbox.ts, setup.ts),
 // and the feedback log lines (B-085): at start whether sending is set up, then one line per sent (id, receipt) or
 // failed (id, code, reason, status) report.
-// 16.11.2026 (owner: "dass das Feedback verloren geht, … wäre sehr schlecht"): a person's report whose sealed letter
-// is still to go is sent again by itself – at start, after any send that went through, and once RESEND_AFTER_MS after
-// a send that found no connection or server (one unref'd timer, only while such a report waits). A letter the mailbox
-// refused and an agent's report (it waits for the person, tools/builtin/feedback.ts) never go by themselves.
+// 16.11.2026 (owner: "dass das Feedback verloren geht, … wäre sehr schlecht"): a report whose sealed letter is still to
+// go is sent again by itself – at start, after any send that went through, and once RESEND_AFTER_MS after a send that
+// found no connection or server (one unref'd timer, only while such a report waits). 21.11.2026: whoever wrote it – an
+// agent's report is sealed only when its own tool sent it (Trust AI mode), so an older build's agent report that waits
+// under Settings › Feedback › From agents has no letter and stays as it is; an agent's waiting letter goes only while
+// the company is in Trust AI mode (feedbackOpen – switched to Secure, it waits). A letter the mailbox refused never
+// goes by itself.
+// Owner 21.11.2026: a report carries up to FEEDBACK_IMAGES_MAX images (`imageFileIds`, in order).
 // Never: opens an issue form, publishes anything (every report is sealed for the team; `visibility` is ignored),
 // claims delivery before the mailbox answered, polls, or logs a report's text. Older browser drafts ('queued', with
 // their stored url) stay readable.
@@ -18,7 +22,7 @@ import path from 'node:path';
 import type { RuntimeServices } from '../contracts.ts';
 import type { FeedbackApi } from '../rpc/extras.ts';
 import { type FeedbackKind, type FeedbackReport, type FeedbackVisibility } from '../../shared/model/system.ts';
-import { FEEDBACK_CLIENT_DIAGNOSTICS_MAX, FEEDBACK_CLIENT_MAX, type FeedbackSetupResult, type FeedbackStatus } from '../../shared/model/feedback-delivery.ts';
+import { FEEDBACK_CLIENT_DIAGNOSTICS_MAX, FEEDBACK_CLIENT_MAX, FEEDBACK_IMAGES_MAX, type FeedbackSetupResult, type FeedbackStatus } from '../../shared/model/feedback-delivery.ts';
 import { HUMAN_ID, newId } from '../../shared/ids.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import { KvRepo } from '../store/kv.ts';
@@ -40,16 +44,15 @@ export const AGENT_REPORTS_PER_DAY = 5;
 export const RESEND_AFTER_MS = 10 * 60 * 1000;
 /** Why a send may go by itself later; 'refused' and 'not_set_up' wait for a person. */
 const PASSING: readonly DropReason[] = ['offline', 'timeout', 'server'];
-/** Stored file types a recorded take may have (the store names a file by its magic bytes: WebM sniffs as video/webm). */
-const AUDIO_FILES = ['audio/webm', 'video/webm', 'audio/mp4', 'video/mp4'];
 
 export interface FeedbackInput {
   /** Agents always; a person's report may leave it out. */
   kind?: FeedbackKind;
   text: string;
-  screenshotFileId?: string;
-  annotationFileId?: string;
-  audioFileIds?: string[];
+  /** The report's images in order (stored file ids, each as it goes), at most FEEDBACK_IMAGES_MAX. */
+  imageFileIds?: string[];
+  /** People only: the text was dictated – it is the transcript (owner 20.11.2026: a report never carries a recording). */
+  dictated?: boolean;
   view?: string;
   conversationId?: string;
   /** The agent run that filed the report (agent reports only). */
@@ -68,6 +71,14 @@ export function companySlot(s: Pick<RuntimeServices, 'host' | 'paths'>): string 
   const info = s.host.app.companies;
   if (!info) return undefined;
   return path.resolve(s.paths.data) === path.resolve(info.first) ? FIRST_FOLDER : path.basename(s.paths.data);
+}
+
+/**
+ * True when this company runs in Trust AI mode – the only mode with feedback.report and the only one in which an agent's
+ * waiting letter goes out by itself; unreadable counts as not.
+ */
+export function feedbackOpen(services: Pick<RuntimeServices, 'security'>): boolean {
+  try { return services.security?.current().mode === 'trust'; } catch { return false; }
 }
 
 /** A failed send that may go by itself later (no connection, no answer in time, a server error). */
@@ -149,7 +160,7 @@ export class FeedbackService implements FeedbackApi {
   }
 
   /**
-   * Sends every person's report again whose sealed letter is still to go (oldest first); answers how many went. A
+   * Sends every report again whose sealed letter is still to go (oldest first); answers how many went. A
    * pass that finds no connection stops there and tries once more RESEND_AFTER_MS later. One pass at a time.
    */
   resendPending(): Promise<number> {
@@ -164,7 +175,9 @@ export class FeedbackService implements FeedbackApi {
     if (!this.receiver(s)) return 0;
     const kv = new KvRepo(s.db);
     let sent = 0;
-    for (const report of this.repo(s).byStatus(HUMAN_ID, 'local')) {
+    const agentsMay = feedbackOpen(s);
+    for (const report of this.repo(s).byStatus('local')) {
+      if (report.author !== HUMAN_ID && !agentsMay) continue; // Secure mode: nothing of an agent's leaves this PC
       if (!resendable(kv.get<OutboxEntry>(OUTBOX, report.id))) continue;
       try {
         await this.send(report.id);
@@ -200,13 +213,10 @@ export class FeedbackService implements FeedbackApi {
     const textValue = typeof input.text === 'string' ? input.text.trim() : '';
     if (!textValue) throw new WorkforceError('bad_request', 'Describe the problem or idea.');
     if (textValue.length > MAX_TEXT) throw new WorkforceError('bad_request', `Keep the report under ${MAX_TEXT} characters.`);
-    for (const id of [input.screenshotFileId, input.annotationFileId]) {
-      if (id && !s.files.get(id)) throw new WorkforceError('not_found', 'The attached screenshot was not found.');
-    }
-    for (const id of input.audioFileIds ?? []) {
-      const file = s.files.get(id);
-      if (!file) throw new WorkforceError('not_found', 'The attached recording was not found.');
-      if (!AUDIO_FILES.includes(file.mime)) throw new WorkforceError('bad_request', 'Attach the recording as WebM or MP4 audio.');
+    const imageFileIds = input.imageFileIds ?? [];
+    if (imageFileIds.length > FEEDBACK_IMAGES_MAX) throw new WorkforceError('bad_request', `Attach at most ${FEEDBACK_IMAGES_MAX} images.`);
+    for (const id of imageFileIds) {
+      if (!s.files.get(id)) throw new WorkforceError('not_found', 'An attached image was not found.');
     }
     const now = s.clock.now();
     const text = this.redact(s, textValue);
@@ -236,9 +246,8 @@ export class FeedbackService implements FeedbackApi {
       createdAt: now,
     };
     if (input.kind) report.kind = input.kind;
-    if (input.screenshotFileId) report.screenshotFileId = input.screenshotFileId;
-    if (input.annotationFileId) report.annotationFileId = input.annotationFileId;
-    if (input.audioFileIds?.length) report.audioFileIds = [...new Set(input.audioFileIds)];
+    if (imageFileIds.length) report.imageFileIds = [...imageFileIds];
+    if (human && input.dictated) report.dictated = true;
     this.repo(s).save(report);
     s.bus.emit('feedback.upserted', report);
     return report;
@@ -254,8 +263,8 @@ export class FeedbackService implements FeedbackApi {
   }
 
   /**
-   * Seals the report for the team and drops it into the mailbox – a person's Send, or the resend of a person's report
-   * still to go. Concurrent calls share one request; `visibility` is ignored (nothing is public any more). A send that
+   * Seals the report for the team and drops it into the mailbox – a person's Send, an agent's feedback tool, or the
+   * resend of a report still to go. Concurrent calls share one request; `visibility` is ignored (nothing is public any more). A send that
    * went through sends what else waits; one that found no connection or server arms the one resend timer.
    */
   async send(id: string, options: SendOptions = {}): Promise<FeedbackReport> {
@@ -277,7 +286,7 @@ export class FeedbackService implements FeedbackApi {
           return sent;
         }, (error: unknown) => {
           s.log.warn('feedback send failed', sendFailure(id, error));
-          if (report.author === HUMAN_ID && passing(error)) this.retryLater();
+          if (passing(error)) this.retryLater();
           throw error;
         })
         .finally(() => { this.sending.delete(id); });

@@ -3,8 +3,10 @@
 // the hint) → messages.send marked spoken live → the agent's reply is read aloud → listen again. Up to three chats
 // talk over the one microphone; the chat started or focused last listens. The microphone opens once, inside the tap
 // of the first chat; later chats just join the loop. While a reply is spoken (and its tail) nothing is taken (echo
-// guard), unless the person talks over it (barge-in). The screen stays on (wake lock); on a phone every conversation
-// ends when the page is hidden (app switched, screen locked) – a phone never keeps listening in the background.
+// guard), unless the person talks over it (barge-in). The screen stays on (wake lock). Owner 19.11.2026 ("Call läuft
+// weiter, wenn man die App verlässt"): in the Android app (native port) the call goes on when the page is hidden – the
+// app keeps it running (boot/voice-live.ts tells it); a browser page without the app (the iPhone web app) cannot record
+// in the background, so there every conversation ends when the page is hidden (app switched, screen locked).
 // B-081: start with a callId takes that call (an agent's ring or a call on another device); agents' names for the
 // reading voice come from the org store. Each call turn's times go out once as calls.turn (ui/chat/call/turn-meter.ts).
 // Owns: the page side (capture, speaking, wake lock, hide, the chat topics it holds). Never: audio processing beyond
@@ -17,11 +19,13 @@ import { VoiceSessions } from '../../../shared/voice/conversation.ts';
 import type { ConversationRpc, VoiceSessionEntry, VoiceSessionView } from '../../../shared/voice/conversation.ts';
 import { recordingProblem } from '../../lib/dictation.ts';
 import { platform } from '../../lib/platform.ts';
+import { hasNativePort } from '../../pwa/native-port.ts';
 import { rpc } from '../../lib/rpc.ts';
 import { activeConversationId, agentMap, settings } from '../../lib/store.ts';
 import { TurnMeter } from '../call/turn-meter.ts';
-import { browserCapture, browserSpeech, ConversationCapture } from './conversation-audio.ts';
-import type { CaptureDeps, SpeechOutput } from './conversation-audio.ts';
+import { browserCapture, ConversationCapture } from './conversation-audio.ts';
+import type { CaptureDeps } from './conversation-audio.ts';
+import { browserSpeech, type SpeechOutput } from './device-speech.ts';
 import { shownWith } from '../call/call-view.ts';
 import type { Attachment } from '../../../shared/model/chat.ts';
 
@@ -200,15 +204,23 @@ function screenWakeLock(): Promise<{ release(): unknown } | null> {
   return api ? api.request('screen') : Promise.resolve(null);
 }
 
-/** The phone page hidden (app switched, screen locked); the desktop window keeps talking when minimized. */
+/** Hiding the page ends the talk: a browser page on the phone without the Android app's port; the desktop window and
+ *  the Android app keep talking hidden (checked at the moment it hides – the app's port may come after the start). */
+export function hideEndsTalk(kind: string, nativePort: boolean): boolean {
+  return kind === 'pwa' && !nativePort;
+}
+
+/** The phone page hidden (app switched, screen locked) where that ends the talk (hideEndsTalk). */
 function onPageHidden(listener: () => void): () => void {
   if (platform !== 'pwa' || typeof document === 'undefined') return () => {};
-  const changed = () => { if (document.visibilityState === 'hidden') listener(); };
+  const ends = () => hideEndsTalk(platform, hasNativePort());
+  const changed = () => { if (document.visibilityState === 'hidden' && ends()) listener(); };
+  const left = () => { if (ends()) listener(); };
   document.addEventListener('visibilitychange', changed);
-  window.addEventListener('pagehide', listener);
+  window.addEventListener('pagehide', left);
   return () => {
     document.removeEventListener('visibilitychange', changed);
-    window.removeEventListener('pagehide', listener);
+    window.removeEventListener('pagehide', left);
   };
 }
 

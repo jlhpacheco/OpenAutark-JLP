@@ -57,5 +57,7 @@ jobs:
       - run: npm ci --no-fund --no-audit
       - name: Restart sign-in unit tests (no real login)
         run: node --test test/unit/computer/signin.test.ts
+      - name: Windows installer-helper and Markdown path fixtures
+        run: node --test test/unit/main/install-helper.test.ts test/unit/media/absolute-paths.test.ts
       - name: Real TCP port and company binds
         run: npm run test:native-tcp

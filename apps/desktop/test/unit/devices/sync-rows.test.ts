@@ -5,8 +5,7 @@
 // their owner runs; an employee's PC gets its person's part in her ids (no secret handles either way; a removal and a
 // reassignment reach it) and sends back only her own lines and task changes, which the CEO's PC checks like a line
 // from her phone and delivers (anything else is left out quietly); the first link-up's history
-// wakes nobody; a joining PC retires its untouched first-run Manager; B-080: a SYSTEM.md or prompt review handed over
-// from another PC is dropped (it belongs to the PC the agent runs on); B-087: a waiting wake goes at its own PC's
+// wakes nobody; a joining PC retires its untouched first-run Manager; B-087: a waiting wake goes at its own PC's
 // link-up, and a catch-up whose link goes sends no further page; taking over a SYSTEM.md that came before its row is an
 // echo, so the row of the PC it came from still wins with its other fields.
 
@@ -63,7 +62,7 @@ test('a schedule fires where its owner runs: a home that moves takes it along, a
   const tom = agent('ag_tom', 'Tom', { deviceId: 'dev_a' });
   for (const pc of [a, b]) pc.h.org.add({ ...tom });
   const routine = a.h.scheduler.create({ ownerId: 'ag_tom', kind: 'reminder', title: 'Standup', spec: { everyMs: 3_600_000 }, payload: {} });
-  const tea = a.h.scheduler.create({ ownerId: 'human', kind: 'timer', title: 'Tea', spec: { everyMs: 3_600_000 }, payload: {} });
+  const tea = a.h.scheduler.create({ ownerId: 'human', kind: 'message', conversationId: 'ch_tea', title: 'Tea', spec: { everyMs: 3_600_000 }, payload: { body: 'Tea' } });
   await settle();
   const due = (pc: Pc, id: string) => pc.h.db.get<{ next_at: number | null }>('SELECT next_at FROM schedules WHERE id = ?', [id])?.next_at ?? null;
   assert.deepEqual([due(a, routine.id) !== null, due(b, routine.id) !== null], [true, false], 'Tom\'s routine fires on his home, A');
@@ -389,26 +388,6 @@ test('a PC that joins the company retires its own untouched first-run Manager on
   await settle();
   assert.deepEqual(archived, ['ag_seed'], 'one chief of staff: the company\'s');
   assert.equal(b.h.chats.get(direct.id), undefined, 'its empty chat went too');
-});
-
-test('B-080: a SYSTEM.md or prompt review handed over from another PC is dropped there; a message wake in the same batch is stored', async () => {
-  const net = new Net();
-  const a = makePc(net, 'dev_a');
-  const b = makePc(net, 'dev_b');
-  link(a, b);
-  for (const pc of [a, b]) pc.h.org.add(agent('ag_mara', 'Mara', { deviceId: 'dev_b' }));
-  const chat = a.h.chats.create({ agentIds: ['ag_mara'], createdBy: 'human' });
-  await settle();
-  net.up = false;
-  a.h.wakes.wake({ agentId: 'ag_mara', reason: 'review', coalesceKey: 'system-prompt:rev1', origin: { source: 'system-prompt', label: 'System prompt update' }, note: 'Autark ships a new standard system prompt.' });
-  a.h.wakes.wake({ agentId: 'ag_mara', reason: 'review', coalesceKey: 'prompt-update:rules:rev1', origin: { source: 'system-prompt:rules', label: 'System prompt update: rules' }, note: 'Autark has a new default system prompt: rules.' });
-  a.h.wakes.wake({ agentId: 'ag_mara', reason: 'message', conversationId: chat.id, coalesceKey: `chat:${chat.id}` });
-  net.up = true;
-  assert.ok(await a.sync.catchUp('dev_b', undefined));
-  a.sync.resume();
-  await settle();
-  assert.equal(a.h.wakes.pending('ag_mara'), 0, 'all three went to her home');
-  assert.deepEqual(b.h.wakeRows().map((wake) => wake.reason), ['message'], 'her home keeps only the message wake: it compares SYSTEM.md with its own release');
 });
 
 test('B-087: taking over a SYSTEM.md that came before its row is an echo – the row of the PC it came from still wins, with its other fields', async () => {

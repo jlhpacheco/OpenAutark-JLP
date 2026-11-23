@@ -1,7 +1,8 @@
 // Owns: the Electron check of feedback where this build cannot send (settings audit 23.10.2026):
 // no operator endpoint → the panel offers Save (not Send), says reports stay on this PC, saves the
 // report locally and never attempts a delivery (opened from the header's feedback cell – Settings has no Feedback
-// group any more). Light, dark, 640×480 and phone width. Needs a build without WORKFORCE_FEEDBACK_ORIGIN (the default `npm run build`).
+// group any more). Light, dark, 640×480 and phone width. The start names a receiver file that does not exist
+// (WORKFORCE_FEEDBACK_RECEIVER), so the shipped receiver is not used.
 // Never: publishes anything or opens the browser; uses an isolated demo profile.
 import { testNetworkEnv } from '../../scripts/test-network-env.mjs';
 import { test } from 'node:test';
@@ -12,6 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -22,6 +24,9 @@ test('feedback without a configured sender: Save keeps the report on this PC and
   await mkdir(shots, { recursive: true });
   const env = testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' });
   delete env.WORKFORCE_FEEDBACK_ORIGIN; // no operator endpoint for this start
+  // the build ships the team's receiver (resources/feedback/receiver.json) since 16.11.2026: point at none (unpackaged
+  // only – runtime/feedback/receiver.ts), so this start cannot send and never drops a letter into the real mailbox
+  env.WORKFORCE_FEEDBACK_RECEIVER = path.join(profile, 'no-receiver.json');
   const app = await electron.launch({ executablePath: electronPath, args: [root], cwd: root, timeout: 60_000, env });
   let rpc;
   t.after(async () => {
@@ -41,7 +46,7 @@ test('feedback without a configured sender: Save keeps the report on this PC and
     win.setContentSize(w, h);
   }, [width, height]);
   await size(1280, 820);
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   assert.equal((await rpc.call('feedback.status')).sending, false, 'this start has no operator endpoint');
   const shot = (name) => page.screenshot({ path: path.join(shots, `${name}.png`) });

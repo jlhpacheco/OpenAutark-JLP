@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { DeviceIdentity } from '../../../src/runtime/devices/identity.ts';
 import { DeviceMesh, type Timers } from '../../../src/runtime/devices/mesh.ts';
 import { EARLY_REFUSAL_MS, FRESH_MS, RACE_RETRY_MS } from '../../../src/runtime/devices/mesh-retry.ts';
-import { socketPair } from '../../../src/runtime/devices/channel.ts';
+import { socketPair } from './socket-pair.ts';
 import { DevicesRepo } from '../../../src/runtime/devices/repo.ts';
 import { ManualClock, fakeHost, memoryDb, recordingBus, silentLog } from './fakes.ts';
 

@@ -113,6 +113,8 @@ const HARMLESS = new Set(['clipboard-sanitized-write', 'fullscreen']);
 export function allowPermissionRequest(facts: PermissionFacts, media: MediaArm): boolean {
   if (!facts.trusted) return false;
   if (HARMLESS.has(facts.permission)) return true;
+  // Electron 45+: getDisplayMedia asks as display-capture; the display-media handler then picks the screen (and its sound only while audio is armed).
+  if (facts.permission === 'display-capture') return media.armed('video');
   if (facts.permission !== 'media') return false;
   const kinds = facts.mediaTypes ?? [];
   if (!kinds.length) return false;
@@ -123,6 +125,7 @@ export function allowPermissionRequest(facts: PermissionFacts, media: MediaArm):
 export function allowPermissionCheck(facts: PermissionFacts, media: MediaArm): boolean {
   if (!facts.trusted) return false;
   if (HARMLESS.has(facts.permission)) return true;
+  if (facts.permission === 'display-capture') return media.armed('video');
   if (facts.permission !== 'media') return false;
   return (facts.mediaType === 'audio' || facts.mediaType === 'video') && media.armed(facts.mediaType);
 }

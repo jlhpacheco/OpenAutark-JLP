@@ -51,7 +51,7 @@ export class TaskVerification {
       if (!verdict.ok && verdict.fact && updated.assigneeKind === 'agent' && updated.assigneeId) { // B-080: a runtime fact, not a model's doubt
         this.t.s.wakes.wake({
           agentId: updated.assigneeId, reason: 'task', conversationId: updated.conversationId, taskId: updated.id, coalesceKey: `verify:${updated.id}`,
-          note: `The runtime checked my result: ${excerpt(verdict.reason, 300)}\nIf it is right, what is missing becomes a new task of mine (tasks.create); otherwise I leave it done.`,
+          note: `The runtime checked my result: ${excerpt(verdict.reason, 300)}\nIf it is right, what is missing becomes a new to-do of mine (tasks.add); otherwise I leave it done.`,
         });
       }
     } catch (error) {

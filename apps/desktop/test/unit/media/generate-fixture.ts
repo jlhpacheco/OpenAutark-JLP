@@ -30,7 +30,7 @@ export function model(id: string, fn: ModelFunction, accountId: string, provider
 }
 
 /** Catalog, accounts and settings for one image model (`imageModel`) and one speech model on `accounts[0]`, plus `more` models. */
-export function services(accounts: Account[], functions: Record<string, string> = {}, imageModel = 'gpt-image-1', more: ModelInfo[] = []): GenerateServices {
+export function services(accounts: Account[], uses: Record<string, string> = {}, imageModel = 'gpt-image-1', more: ModelInfo[] = []): GenerateServices {
   const first = accounts[0];
   const models = first.provider === 'codex' ? more : [model(`${first.provider}:${imageModel}`, 'image', first.id, first.provider), model(`${first.provider}:tts-1`, 'tts', first.id, first.provider), ...more];
   return {
@@ -40,7 +40,7 @@ export function services(accounts: Account[], functions: Record<string, string> 
       candidates: () => accounts,
       apiKey: async (id: string) => (accounts.find((entry) => entry.id === id)?.auth === 'api_key' ? KEY : undefined),
     },
-    settings: { get: () => ({ routing: { functions, allowPaidFallback: true }, voice: {}, profile: { language: 'en' } }) },
+    settings: { get: () => ({ routing: { ...uses, allowPaidFallback: true }, voice: {}, profile: { language: 'en' } }) },
   } as unknown as GenerateServices;
 }
 
@@ -106,7 +106,7 @@ export function fakeCodex(answer: (input: EngineTurnInput) => Promise<EngineTurn
     id: 'codex', run: async (input: EngineTurnInput) => { turns.push(input); return answer(input); },
     deleteSession: async (_account: Account, ref: string) => { deleted.push(ref); return 'deleted' as const; },
   };
-  return { engines: { get: () => engine, all: () => [engine], disposeIdle: async () => undefined }, turns, deleted };
+  return { engines: { get: () => engine, all: () => [engine] }, turns, deleted };
 }
 
 /**

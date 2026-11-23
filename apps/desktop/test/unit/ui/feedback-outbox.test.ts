@@ -1,7 +1,9 @@
 // Feedback 16.11.2026 (F15/F22): nothing written on a phone may be lost – the page's outbox (src/ui/feedback/outbox.ts)
 // keeps a sent report before anything goes out, delivers it with its clientId (a lost answer never makes a second
 // report), holds it while the PC is away and flushes it on the next connect, oldest first; the draft itself survives a
-// reload. A fake store and a fake PC stand in for IndexedDB and the runtime.
+// reload. Owner 21.11.2026: an entry carries several images (uploaded in order → imageFileIds); an older build's entry
+// with one `image` still goes with it; a kept draft's photos come back, an older draft's boxes as covering pen lines.
+// A fake store and a fake PC stand in for IndexedDB and the runtime.
 // Owns: these assertions. Never: a real IndexedDB, socket or runtime.
 
 import { test } from 'node:test';
@@ -10,7 +12,7 @@ import { RpcError } from '../../../src/ui/lib/rpc.ts';
 import type { KeyValue } from '../../../src/ui/lib/take-store.ts';
 import type { FeedbackReport } from '../../../src/shared/model/system.ts';
 import { EMPTY_DRAFT } from '../../../src/ui/feedback/draft.ts';
-import { FeedbackOutbox, OUTBOX_MAX_AGE_MS, draftOf, newClientId } from '../../../src/ui/feedback/outbox.ts';
+import { FeedbackOutbox, OUTBOX_MAX_AGE_MS, WORDLESS_TEXT, draftOf, entryImages, newClientId, penMarks } from '../../../src/ui/feedback/outbox.ts';
 import type { OutboxEntry, Outcome } from '../../../src/ui/feedback/outbox.ts';
 
 function memoryKv(): KeyValue & { map: Map<string, unknown> } {
@@ -82,7 +84,7 @@ function fakePc(kv: KeyValue | null, start = 1_000_000) {
 function entry(change: Partial<OutboxEntry> = {}): OutboxEntry {
   return {
     clientId: newClientId(), at: 1_000_000, send: true, text: 'The sidebar flickers', where: { view: '#/chat/ch_1', conversationId: 'ch_1' },
-    client: 'Android app 0.3.15 · Android 16 · samsung SM-S918B · 412×915 @3x', audio: [], ...change,
+    client: 'Android app 0.3.15 · Android 16 · samsung SM-S918B · 412×915 @3x', ...change,
   };
 }
 
@@ -92,20 +94,19 @@ test('a client id is short, URL-safe and new every time', () => {
   assert.notEqual(newClientId(1), a);
 });
 
-test('the entry is stored before anything goes out, sent with its clientId, client and files, then deleted', async () => {
+test('the entry is stored before anything goes out, sent with its clientId, client, images and words, then deleted', async () => {
   const kv = memoryKv();
   const { pc, outbox } = fakePc(kv);
-  const audio = [{ blob: new Blob([new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1])], { type: 'audio/webm' }), mime: 'audio/webm' as const, ms: 4200 }];
-  const report = entry({ image: 'data:image/jpeg;base64,QUJD', audio, clientDiagnostics: 'android.os.NetworkOnMainThreadException' });
+  const report = entry({ images: ['data:image/jpeg;base64,QUJD', 'data:image/jpeg;base64,REVG'], dictated: true, clientDiagnostics: 'android.os.NetworkOnMainThreadException' });
   await outbox.put(report);
   assert.ok(kv.map.has(`feedback:${report.clientId}`), 'in the page storage before any upload or call');
   const outcome = await outbox.deliver(report);
   assert.equal(outcome.kind, 'sent');
-  assert.deepEqual(pc.uploads.map((file) => [file.name, file.type]), [['screenshot.jpg', 'image/jpeg'], ['feedback-recording-1.webm', 'audio/webm']]);
+  assert.deepEqual(pc.uploads.map((file) => [file.name, file.type]), [['screenshot.jpg', 'image/jpeg'], ['screenshot.jpg', 'image/jpeg']], 'the images only: a report is its words (owner 20.11.2026)');
   const stored = [...pc.reports.values()][0] as unknown as { params: Record<string, unknown> };
   assert.deepEqual(stored.params, {
-    text: 'The sidebar flickers', clientId: report.clientId, client: report.client, screenshotFileId: 'file_1', audioFileIds: ['file_2'],
-    view: '#/chat/ch_1', conversationId: 'ch_1', clientDiagnostics: 'android.os.NetworkOnMainThreadException',
+    text: 'The sidebar flickers', clientId: report.clientId, client: report.client, imageFileIds: ['file_1', 'file_2'],
+    view: '#/chat/ch_1', conversationId: 'ch_1', clientDiagnostics: 'android.os.NetworkOnMainThreadException', dictated: true,
   }, 'no kind: the person\'s report has none');
   assert.equal(kv.map.size, 0, 'deleted once the PC holds it');
   assert.deepEqual(await outbox.pending(), []);
@@ -184,16 +185,17 @@ test('Save only creates; a report refused as invalid is deleted and comes back a
   assert.equal((await outbox.deliver(saved)).kind, 'saved');
   assert.deepEqual(pc.calls, [`create ${saved.clientId}`], 'Save never sends');
   pc.createRefuses = new RpcError({ code: 'bad_request', message: 'text is too long' });
-  const bad = entry({ text: 'Words to keep', image: 'data:image/jpeg;base64,QUJD', clientDiagnostics: 'trace' });
+  const bad = entry({ text: 'Words to keep', images: ['data:image/jpeg;base64,QUJD', 'data:image/jpeg;base64,REVG'], clientDiagnostics: 'trace' });
   await outbox.put(bad);
   const outcome = await outbox.deliver(bad);
   assert.equal(outcome.kind, 'refused');
   assert.equal(kv.map.size, 0, 'it would never go: not kept');
   const draft = draftOf(bad);
   assert.equal(draft.text, 'Words to keep');
-  assert.equal(draft.shot, 'data:image/jpeg;base64,QUJD');
+  assert.deepEqual(draft.photos.map((photo) => [photo.src, photo.marks.length]), [['data:image/jpeg;base64,QUJD', 0], ['data:image/jpeg;base64,REVG', 0]], 'its images come back as photos (their marks are in them)');
+  assert.equal(draft.shot, null, 'the next press takes the window anew');
   assert.equal(draft.diagnostics, 'trace');
-  assert.equal(draftOf(entry({ text: '(dictation not transcribed)' })).text, '', 'a placeholder text is not the person\'s words');
+  assert.equal(draftOf(entry({ text: '(crash report)' })).text, '', 'a placeholder text is not the person\'s words');
 });
 
 test('one delivery of an entry at a time; a flush skips the one on its way and keeps going', async () => {
@@ -248,19 +250,83 @@ test('storage that throws never fails a report', async () => {
   assert.equal(await outbox.loadDraft(), undefined);
 });
 
-test('the draft survives a reload: kept with its recordings, an empty one clears the key', async () => {
+test('the draft survives a reload, an empty one clears the key; an older draft\'s recordings stay behind', async () => {
   const kv = memoryKv();
   const { outbox } = fakePc(kv);
-  const take = { blob: new Blob([new Uint8Array([1, 2])], { type: 'audio/mp4' }), mime: 'audio/mp4' as const, ms: 900 };
-  await outbox.saveDraft({ ...EMPTY_DRAFT, text: 'Half written', shot: 'data:image/jpeg;base64,QUJD', audio: [take], where: { view: '#/home' } });
+  await outbox.saveDraft({ ...EMPTY_DRAFT, text: 'Half written', shot: 'data:image/jpeg;base64,QUJD', dictated: true, where: { view: '#/home' } });
   const kept = await outbox.loadDraft();
   assert.equal(kept?.text, 'Half written');
-  assert.equal(kept?.audio.length, 1);
-  assert.equal(kept?.withAudio, true);
-  assert.deepEqual(kept?.where, { view: '#/home' });
+  assert.equal(kept?.dictated, true);
+  const take = { blob: new Blob([new Uint8Array([1, 2])], { type: 'audio/mp4' }), mime: 'audio/mp4', ms: 900 };
+  kv.map.set('feedback-draft', { at: 1_000_000, draft: { ...EMPTY_DRAFT, text: 'Older', audio: [take], withAudio: true } });
+  const older = await outbox.loadDraft();
+  assert.equal(older?.text, 'Older');
+  assert.equal(older && ('audio' in older || 'withAudio' in older), false);
+  await outbox.saveDraft({ ...EMPTY_DRAFT, text: 'Half written', shot: 'data:image/jpeg;base64,QUJD', where: { view: '#/home' } });
+  const again = await outbox.loadDraft();
+  assert.deepEqual(again?.where, { view: '#/home' });
   await outbox.saveDraft({ ...EMPTY_DRAFT, shot: 'data:image/jpeg;base64,QUJD' });
   assert.equal(kv.map.has('feedback-draft'), false, 'a screenshot alone is no draft (the next press retakes it)');
   assert.equal(await outbox.loadDraft(), undefined);
   kv.map.set('feedback-draft', { at: 1, draft: { ...EMPTY_DRAFT, text: 'ancient' } });
   assert.equal(await (fakePc(kv, 1 + OUTBOX_MAX_AGE_MS + 1).outbox).loadDraft(), undefined, 'a month-old draft is not brought back');
+});
+
+test('owner 21.11.2026: a kept draft\'s photos come back; photos alone are a draft; an older draft\'s box covers as a pen line', async () => {
+  const kv = memoryKv();
+  const { outbox } = fakePc(kv);
+  const pen = { tool: 'pen' as const, width: 4, points: [[1, 1], [9, 9]] as [number, number][] };
+  await outbox.saveDraft({ ...EMPTY_DRAFT, photos: [{ id: 'p1', src: 'data:image/jpeg;base64,QUJD', marks: [pen] }], onStage: 'p1' });
+  assert.ok(kv.map.has('feedback-draft'), 'a photo alone is worth keeping');
+  const kept = await outbox.loadDraft();
+  assert.deepEqual(kept?.photos, [{ id: 'p1', src: 'data:image/jpeg;base64,QUJD', marks: [pen] }]);
+  assert.equal(kept?.onStage, 'p1');
+  kv.map.set('feedback-draft', { at: 1_000_000, draft: { text: 'Before the update', shot: 'data:x', painted: 'data:flat', withShot: true, where: {}, marks: [{ tool: 'box', from: [30, 50], to: [10, 10] }, pen, { tool: 'blob' }] } });
+  const older = await outbox.loadDraft();
+  assert.deepEqual(older?.marks, [{ tool: 'pen', width: 40, points: [[10, 30], [30, 30]] }, pen], 'as tall as the box along its middle: its round ends cover it whole');
+  assert.deepEqual(older?.photos, []);
+  assert.equal(older?.onStage, null);
+  assert.equal(older && 'painted' in older, false);
+  assert.deepEqual(penMarks('nope'), []);
+  assert.deepEqual(entryImages({ image: 'data:a' }), ['data:a'], 'an older build\'s entry: its one image');
+  assert.deepEqual(entryImages({ images: ['data:a', 'data:b'] }), ['data:a', 'data:b']);
+  assert.deepEqual(entryImages({}), []);
+});
+
+test('review 20.11.2026: an older recording-only report is held for words – never sent with its placeholder, back in an empty form', async () => {
+  const kv = memoryKv();
+  const { pc, outbox } = fakePc(kv);
+  const old = entry({ text: WORDLESS_TEXT, image: 'data:image/jpeg;base64,QUJD', at: 1_000_000 });
+  const later = entry({ text: 'Written after it', at: 1_000_001 });
+  await outbox.put(old);
+  await outbox.put(later);
+  assert.equal((await outbox.deliver(old)).kind, 'held');
+  const seen: string[] = [];
+  await outbox.flush((_outcome, done) => seen.push(done.text));
+  assert.deepEqual(seen, ['Written after it'], 'held for words, it blocks nothing behind it');
+  assert.equal(pc.calls.some((call) => call.includes(old.clientId)), false, 'the placeholder never goes out');
+  const back = await outbox.takeWordless();
+  assert.equal(back?.clientId, old.clientId);
+  const draft = draftOf(back!);
+  assert.equal(draft.text, '', 'the placeholder is no one\'s words');
+  assert.deepEqual(draft.photos.map((photo) => photo.src), ['data:image/jpeg;base64,QUJD'], 'an older entry\'s one image');
+  assert.equal(await outbox.takeWordless(), undefined, 'taken out of the outbox');
+});
+
+test('review 20.11.2026: a PC of an older build refusing `dictated` gets the report again without it', async () => {
+  const { pc, outbox } = fakePc(memoryKv());
+  const report = entry({ dictated: true });
+  const refusing = new RpcError({ code: 'bad_request', message: 'Invalid parameter "params.dictated": expected one of kind, text.' });
+  const original = outbox['deps'].create;
+  outbox['deps'].create = async (params) => {
+    if ('dictated' in params) throw refusing; // the older PC
+    return original(params);
+  };
+  const outcome = await outbox.deliver(report);
+  assert.equal(outcome.kind, 'sent');
+  const stored = [...pc.reports.values()][0] as unknown as { params: Record<string, unknown> };
+  assert.equal('dictated' in stored.params, false, 'the words went, without the new flag');
+  const other = new RpcError({ code: 'bad_request', message: 'Invalid parameter "params.text": expected a text.' });
+  outbox['deps'].create = async () => { throw other; };
+  assert.equal((await outbox.deliver(entry({ dictated: true }))).kind, 'refused', 'any other refusal stays a refusal');
 });

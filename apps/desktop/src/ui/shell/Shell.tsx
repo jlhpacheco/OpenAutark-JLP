@@ -13,7 +13,9 @@
 // In full view (workspace/full-view.ts) the pane lies over the main zone's body. A chat's own tabs are its area
 // in the chat column (chat/ChatArea.tsx), not here.
 // Plus the global overlays (palette, new chat, feedback, confirm, Mark a region). The phone layout
-// (MobileShell) is the same frame as a stack; the global tabs are a pushed sheet there instead of the pane.
+// (MobileShell) is the same frame as a stack; the global tabs are a pushed sheet there instead of the pane. 19.11.2026 (D1):
+// the frame shows from the first paint, also before data and with the PC away – views show their empty states, the
+// status line says why (connection-line.ts).
 // Owns: layout composition, the caption assignment and global hotkeys. Never: view content.
 
 import { useEffect, useLayoutEffect, useRef } from 'preact/hooks';
@@ -21,14 +23,14 @@ import { useSignal } from '@preact/signals';
 import { GLOBAL_SPACE } from '../../shared/api/workspace-browser.ts';
 import { isMobile, loadError, loaded, preferences, route, updatePreferences } from '../lib/store.ts';
 import { rpc } from '../lib/rpc.ts';
+import { watchConnection } from './connection-line.ts';
 import { bridge, os, platform } from '../lib/platform.ts';
 import { pushToast, toasts } from '../lib/toasts.ts';
-import { chatZoom, nextZoom, restoreChatZoom, setChatZoom, zoomKey } from '../chat/text-zoom.ts';
+import { restoreTextSizes, setSize, TEXT, textPx, zoomKey } from '../lib/text-size.ts';
 import { hotkey } from '../lib/hotkeys.ts';
 import { toggleSettings } from '../lib/router.ts';
 import { ConfirmHost } from '../lib/dialog.tsx';
 import { RememberWhyHost } from '../chat/RememberWhy.tsx';
-import { Spinner } from '../lib/ui.tsx';
 import { newChatOpen, paletteOpen } from '../lib/shell-state.ts';
 import { canStartChat } from './gates.ts';
 import { FeedbackCell, toggleSidebar, WorkspaceCell } from './WindowBar.tsx';
@@ -60,20 +62,20 @@ function useGlobalHotkeys(): void {
     ];
     return () => off.forEach((fn) => fn());
   }, []);
-  // 17.11.2026 (Theo, portrait videos): Ctrl +/−/0 sizes the chat's text on the desktop (chat/text-zoom.ts) – after
-  // workspace/pane-shortcuts.ts, which keeps the key for a website tab the keyboard is in.
+  // 17.11.2026 (Theo, portrait videos): Ctrl +/−/0 sizes the text on the desktop (lib/text-size.ts) – after
+  // workspace/pane-shortcuts.ts, which keeps the key for a website tab the keyboard is in. 21.11.2026: both stored sizes
+  // apply on every device; the keys are the desktop's (a browser has its own zoom).
   useEffect(() => {
+    restoreTextSizes();
     if (platform !== 'desktop') return undefined;
-    restoreChatZoom();
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
       const dir = zoomKey({ key: event.key, mod: os === 'mac' ? event.metaKey : event.ctrlKey, alt: event.altKey });
       if (dir === undefined) return;
       event.preventDefault();
-      setChatZoom(nextZoom(chatZoom.peek(), dir), (percent) => {
-        toasts.value = toasts.peek().filter((toast) => !toast.title.startsWith('Chat text ')); // one size line, not a pile
-        pushToast({ title: `Chat text ${percent} %`, body: percent === 100 ? undefined : `${os === 'mac' ? '⌘' : 'Ctrl'}+0 resets` }, 1500);
-      });
+      const px = setSize(TEXT, dir === 0 ? TEXT.base : textPx.peek() + dir);
+      toasts.value = toasts.peek().filter((toast) => !toast.title.startsWith('Text size ')); // one size line, not a pile
+      pushToast({ title: `Text size ${px} px`, body: px === TEXT.base ? undefined : `${os === 'mac' ? '⌘' : 'Ctrl'}+0 resets` }, 1500);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -157,11 +159,10 @@ export function Shell() {
   useGlobalHotkeys();
   useCaptionLayout(isMobile.value);
   useEffect(() => registerShellNotices(), []);
+  useEffect(() => watchConnection(rpc.status), []); // the connection line comes after a short grace (connection-line.ts)
   const ready = loaded.value || Boolean(loadError.value);
   useEffect(() => (ready ? watchWorkspaceAttention() : undefined), [ready]); // both layouts: the phone's ways in land in the open chat's area, else in its global sheet
-  if (!ready) {
-    return <div class="boot">{rpc.status.value === 'closed' ? <p class="muted">Offline</p> : <Spinner size={20} />}</div>;
-  }
+  // 19.11.2026 (D1): the frame is there from the first paint – before any data, with the PC away – never a lone word.
   if (isMobile.value) {
     return (
       <>

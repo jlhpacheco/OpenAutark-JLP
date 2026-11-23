@@ -291,18 +291,15 @@ export interface Engine {
    */
   purgeHistories?(account: Account): Promise<{ purged: boolean; message?: string }>;
   /**
-   * Owner 07.11.2026 (Codex): this account's app-server lent to a dictation heard by the plan's realtime voice
-   * (voice/codex-hear.ts runs the protocol); throws when the server cannot start.
+   * Owner 07.11.2026 (Codex): this account's app-server lent for a request of its own – the plan's dictation refreshes its
+   * login with it (voice/plan-transcribe.ts); throws when the server cannot start.
    */
   realtime?(account: Account): Promise<RealtimeLink>;
 }
 
-/** Engine.realtime: requests and notifications of the account's server, a hold against its idle shutdown, and a thread's base settings. */
+/** Engine.realtime: requests to the account's server and a hold against its idle shutdown. */
 export interface RealtimeLink {
   request<T = unknown>(method: string, params?: unknown, timeoutMs?: number): Promise<T>;
-  onNotification(listener: (note: { method: string; params: Record<string, unknown> }) => void): () => void;
   /** Marks the session as running, so the server does not idle out under it; returns its end. */
   hold(): () => void;
-  /** thread/start settings of the server's own folder: cwd, approval policy, read-only sandbox, untrusted folder (isolation.ts). */
-  thread: { config?: Record<string, unknown> } & Record<string, unknown>;
 }

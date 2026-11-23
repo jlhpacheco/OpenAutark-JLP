@@ -10,7 +10,7 @@ import path from 'node:path';
 import type { NormalizedImage } from '../../../src/shared/api/host-bridge.ts';
 import { Blobs } from '../../../src/runtime/files/store.ts';
 import type { HostMedia } from '../../../src/runtime/host.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { VISION_CACHE } from '../../../src/runtime/media/vision-cache.ts';
 import { smallerEdge, VISION_LIMITS, visionInputs, type VisionServices } from '../../../src/runtime/media/vision-image.ts';
 import { harness } from '../chat/harness.ts';

@@ -11,7 +11,8 @@
 // (openInPcPane), so the person finishes it from the phone. A page the runtime itself already opened there for the phone (a
 // plan sign-in, accounts.* – rpc/handlers/providers.ts openOnPc) only opens the sheet (showOpenedOnPc), never a second tab.
 // 18.11.2026: a person's device (a colleague, scope 'person') reads the same way only the websites shared in the areas of
-// its chats (people/rpc-pane.ts); they come into its own spaces (withShared) and nothing goes back.
+// its chats (people/rpc-pane.ts) – 21.11.2026 also an agent's own browser it put there; they come into its own spaces
+// (withShared, always as the PC has them now) and nothing goes back.
 // Owns: that link. Never: tab logic (pages.ts) or a tab's picture.
 
 import '../../shared/api/methods-tabs.ts';
@@ -78,7 +79,7 @@ export function phoneChanges(known: SideSpaces, next: SideSpaces): { spaces: Sid
 export function withShared(own: SideSpaces, shared: SideSpaces): SideSpaces {
   const next: SideSpaces = {};
   for (const key of new Set([...Object.keys(own), ...Object.keys(shared)])) {
-    const tabs = [...(shared[key]?.tabs ?? []), ...(own[key]?.tabs ?? []).filter((tab) => tab.panel !== 'remote')];
+    const tabs = [...(shared[key]?.tabs ?? []), ...(own[key]?.tabs ?? []).filter((tab) => tab.panel !== 'remote' && tab.panel !== 'agent')];
     const shown = own[key]?.shown ?? shared[key]?.shown;
     if (tabs.length) next[key] = { ...(shown !== undefined && tabs.some((tab) => tab.id === shown) ? { shown } : {}), tabs };
   }

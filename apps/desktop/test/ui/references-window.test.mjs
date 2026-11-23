@@ -1,6 +1,6 @@
 // Electron window check of the references (Umbau Einfachheit: "Remember why…" in the message menu) with the demo
 // engine in an isolated test profile:
-//   * the person's own message's right-click menu holds Reply, Copy, Edit, Remember why…, Delete; the agent's answer
+//   * the person's own message's right-click menu holds Reply, Start thread, Copy, Edit, Remember why…, Delete; the agent's answer
 //     offers no "Remember why…";
 //   * Remember why… opens the one-field dialog with the message quoted; Keep is off until a reason is typed; Keep
 //     stores the message as an example and the reason – knowledge items of scope 'reference' from that message –
@@ -19,6 +19,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -42,7 +43,7 @@ test('references: Remember why… on an own message keeps the example and the re
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
   await page.waitForSelector('.shell', { timeout: 60_000 });
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   const size = (width, height) => app.evaluate(({ BrowserWindow }, [w, h]) => { const [win] = BrowserWindow.getAllWindows(); win.setMinimumSize(320, 480); win.setSize(w, h); }, [width, height]);
   const shot = async (name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
@@ -57,7 +58,7 @@ test('references: Remember why… on an own message keeps the example and the re
   await page.evaluate((id) => { location.hash = `#/chat/${id}`; }, chat.id);
   await page.locator('.message-scroller').waitFor({ timeout: 15_000 });
   const own = await rpc.call('messages.send', { conversationId: chat.id, body: 'We keep the price and add a second revision round instead of a discount.' });
-  const answer = await rpc.waitFor('message.updated', (message) => message.conversationId === chat.id && message.authorId === manager.id && message.state === 'final', 60_000);
+  const answer = await rpc.waitFor('message.created', (message) => message.conversationId === chat.id && message.authorId === manager.id && message.state === 'final', 60_000);
   const item = (id) => page.locator(`[data-message-id="${id}"]`);
   await item(answer.id).locator('.message-content').waitFor({ timeout: 15_000 });
   await item(own.id).locator('.message-content').waitFor({ timeout: 15_000 });
@@ -71,10 +72,10 @@ test('references: Remember why… on an own message keeps the example and the re
   await page.keyboard.press('Escape');
   await menu.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
 
-  // The person's own message: Reply, Copy, Edit, Remember why…, Delete.
+  // The person's own message: Reply, Start thread, Copy, Edit, Remember why…, Delete.
   await item(own.id).locator('.message-content').click({ button: 'right' });
   await menu.waitFor({ timeout: 5_000 });
-  assert.deepEqual(await menuItems(), ['Reply', 'Copy', 'Edit', 'Remember why…', 'Delete']);
+  assert.deepEqual(await menuItems(), ['Reply', 'Start thread', 'Copy', 'Edit', 'Remember why…', 'Delete']);
   await shot('references-01-menu-light');
   await menu.getByRole('menuitem', { name: 'Remember why…' }).click();
   const dialog = page.locator('dialog.remember-why[open]');

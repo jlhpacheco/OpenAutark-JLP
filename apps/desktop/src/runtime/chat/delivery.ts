@@ -85,7 +85,8 @@
 //    'reply' (KI-Runde 17.11.2026: naming whom a line is for is not ringing them – an agent rings with `push`), except in a
 //    chat the person set to "Mentions and tasks", where a mention is what they asked to hear (notify/levels.ts); agent-only rooms and rooms an agent hid from the list (chat section 'team')
 //    never notify. The notification's title is the chat as the owner sees it (B-050 K2, chat/titles.ts):
-//    in a room of two the author's name, with " · topic" when it has one; in a larger room "Author · chat". The chat's level and sound apply
+//    in a room of two the author's name, with " · topic" when it has one; in a larger room "Author · chat" – in a task's
+//    thread always "Author · <task>" (tasks/thread.ts; a tap opens the task). The chat's level and sound apply
 //    centrally in notify/service.ts.
 // Owns: those rules (the routing steps are chat/delivery-route.ts, the responder question is chat/responders.ts). Never: writes messages other
 // than guard status lines and the brake's demotion (an important line past the brake is stored as
@@ -99,7 +100,7 @@ import '../contracts/people.ts';
 import { previewText } from '../../shared/text/chat-names.ts';
 import { chatSection } from '../../shared/text/chat-sections.ts';
 import type { DeliveryService } from '../contracts.ts';
-import { messageLevel, type Member, type Message } from '../../shared/model/chat.ts';
+import { isTaskThread, messageLevel, type Member, type Message } from '../../shared/model/chat.ts';
 import { announceMentions, mentionedExternalAgents, revokeOnChatRemoval, revokeOnRemoval } from '../bridges/external-agents.ts';
 import { unansweredMessages } from './delivery-recovery.ts';
 import { DeliveryRouter, type DeliveryDeps, type RouteOptions } from './delivery-route.ts';
@@ -231,7 +232,7 @@ export class DeliveryServiceImpl implements DeliveryService {
       const room = chatTitleFor(this.s, message.conversationId, HUMAN_ID);
       notifications.notify({
         kind: important ? 'important' : 'reply',
-        title: members.length > 2 ? (room ? `${author} · ${room}` : author) : (room || author),
+        title: members.length > 2 || isTaskThread(message.conversationId) ? (room ? `${author} · ${room}` : author) : (room || author),
         body: previewText(message.body, message.attachments, 160),
         conversationId: message.conversationId,
         taskId: message.taskId,

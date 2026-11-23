@@ -14,7 +14,6 @@ import type { PersonChat } from '../../../shared/model/people.ts';
 import type { RuntimeServices } from '../../contracts.ts';
 import '../../contracts/people.ts';
 import { chatIdsOf } from '../../people/access.ts';
-import { directChat } from '../../people/direct-chat.ts';
 import { memberName } from '../../chat/titles.ts';
 import { displayTitle } from '../../../shared/text/chat-names.ts';
 import { registerPersonBase } from '../../people/rpc-base.ts';
@@ -73,11 +72,6 @@ export function register(table: HandlerTable): void {
     return peopleOf(ctx.services).audit(id(o), optNum(o, 'limit', { min: 1, max: 500 }));
   });
   table.add('people.chats', (params, ctx) => { const personId = id(input(params)); peopleOf(ctx.services).require(personId); return chatsOf(ctx.services, personId); });
-  table.add('people.directChat', (params, ctx) => {
-    const conversationId = directChat(ctx.services, HUMAN_ID, id(input(params)));
-    if (ctx.services.chats.get(conversationId)?.archivedAt !== undefined) ctx.services.chats.unarchive(conversationId); // B-050 K1: opened on purpose, as chats.direct
-    return { conversationId };
-  });
 
   // ---------------------------------------------------------------- tokenless joining (rpc/tokenless.ts serves these)
   table.add('people.join', (params, ctx) => {

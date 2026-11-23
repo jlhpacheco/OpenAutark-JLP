@@ -46,7 +46,7 @@ public final class PhoneRoutes {
 
     /** The one tag every "Due: …" notice shares, and how long it stays (17.11.2026, the owner: three stacked cards that stay far too long). */
     static final String DUE_TAG = "due";
-    static final long DUE_SHOW_MS = 20_000;
+    static final long DUE_SHOW_MS = 6_000;
     private static final String DUE_PREFIX = "Due: ";
     private static final int DUE_ITEMS = 5;
 

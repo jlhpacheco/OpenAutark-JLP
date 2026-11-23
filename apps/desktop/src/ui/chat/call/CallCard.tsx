@@ -10,12 +10,14 @@
 // call-card-model.ts), the call's newest line as the caption, Mute (mute.ts: realtime voice sends silence, the voice
 // conversation's capture – composer/conversation-audio.ts – drops muted blocks), Camera and Screen (owner 19.11.2026: what
 // this device shows goes with its lines – call-view.ts; the preview with its cut-out is CallShare.tsx under the card) and the
-// red Hang up (the call cell's End).
+// red Hang up (the call cell's End). Team-Call 21.11.2026: while the card shows, with several people in the call the status line
+// names who is in (their audio runs from the shell, people-call.ts – not from this card) ("… · Dominik and Momo").
 // Owns: the card's markup, its clock and its level loop. Never: starts or ends audio itself, or decides a call's state.
 
 import { createPortal } from 'preact/compat';
 import type { RefObject } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { callDeviceNames, callDevices } from '../../../shared/model/call.ts';
 import type { ConversationSummary } from '../../../shared/model/chat.ts';
 import { ChatFace, chatTitle } from '../../lib/chat-face.tsx';
 import { voicePhase, voiceSessions } from '../../lib/shell-state.ts';
@@ -84,12 +86,14 @@ export function CallCard(props: { chat: ConversationSummary; anchor: RefObject<E
     if (realtime || !root) return;
     if (agentSpeaks) root.dataset.speaker = 'agent'; else delete root.dataset.speaker;
   }, [realtime, agentSpeaks, host]);
+  const call = runningCall(messagesFor(chat.id).value, now);
+  const devices = call ? callDevices(call) : [];
   if (!host) return null;
 
-  const call = runningCall(messagesFor(chat.id).value, now);
   const agentId = call?.ring?.by ?? call?.agents?.[0];
   const name = (agentId && knownAgentMap.value.get(agentId)?.name) || chatTitle(chat);
   const caption = captionOf(call?.lines[call.lines.length - 1]);
+  const people = call && new Set(devices.map((device) => device.person ?? '')).size > 1 ? callDeviceNames(call) : ''; // Team-Call: who is in
   const muted = callMuted.value; // B-082 gates the voice conversation's capture too (composer/conversation-audio.ts)
   const shows = callShare.value?.conversationId === chat.id ? callShare.value.kind : undefined;
   // realtime voice sends audio only: a picture reaches the agent with the voice conversation's lines
@@ -104,7 +108,7 @@ export function CallCard(props: { chat: ConversationSummary; anchor: RefObject<E
       <span class="call-face">{agentId ? <AgentAvatar agentId={agentId} size={FACE} /> : <ChatFace chat={chat} size={FACE} />}</span>
       <span class="call-who">
         <span class="call-name">{name}</span>
-        <span class="call-status tabular">{muted && <span class="call-muted">Microphone off · </span>}{statusLine(phase, call ? callSince(call) : undefined, now)}</span>
+        <span class="call-status tabular">{muted && <span class="call-muted">Microphone off · </span>}{statusLine(phase, call ? callSince(call) : undefined, now)}{people && ` · ${people}`}</span>
       </span>
       <span class="call-controls">
         <button type="button" class="call-control" aria-pressed={muted} aria-label={muted ? 'Unmute' : 'Mute'} title={muted ? 'Unmute' : 'Mute'} onClick={() => setCallMuted(!muted)}>

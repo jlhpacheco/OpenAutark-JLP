@@ -9,7 +9,7 @@ import { Blobs } from '../../../src/runtime/files/store.ts';
 import { onArrival } from '../../../src/runtime/devices/sync/blobs.ts';
 import { withMediaHook } from '../../../src/runtime/media/hook.ts';
 import { MediaService } from '../../../src/runtime/media/service.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import type { Attachment } from '../../../src/shared/model/chat.ts';
 import type { MediaInfo } from '../../../src/shared/model/media.ts';
 import type { FileRef } from '../../../src/shared/model/system.ts';

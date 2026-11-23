@@ -1,12 +1,19 @@
-// Exact-value redaction: replaces known secret values (and their common encodings) in any text
+// Value redaction: replaces known secret values (and their common encodings) in any text
 // with the secret's handle `secret://<id>`. X05: a 2FA setup key is learnt as a `pattern` (any
 // case and grouping, totp.ts seedPattern) – never its stored JSON.
-// Owns: the in-memory matcher. Never: logs values, matches values shorter than MIN_SECRET_CHARS
-// (too many false hits; the UI flags such secrets as "too short for leak detection").
+// 22.11.2026 (a stored card number showed in three agents' tool results, written in groups of four by the page):
+// a value of MIN_SECRET_CHARS or more also matches in any grouping, and a shorter one (a CVC, a PIN, an expiry, from
+// MIN_PLACE_CHARS) is replaced where it stands in a secret place – after a card, code or password label – but not in
+// running text (shared/secrets/secret-places.ts).
+// Owns: the in-memory matcher. Never: logs values, matches a value shorter than MIN_SECRET_CHARS outside a secret
+// place, or one shorter than MIN_PLACE_CHARS at all.
 
+import { looseKey, looseReplace, maskInPlaces } from '../../shared/secrets/secret-places.ts';
 import { findKeys } from '../../shared/secrets/token-patterns.ts';
 
 export const MIN_SECRET_CHARS = 8;
+/** A stored value this long or longer (and under MIN_SECRET_CHARS) is replaced in secret places only. */
+export const MIN_PLACE_CHARS = 3;
 
 /**
  * 18.11.2026 (a live Stripe key printed by an error text – the third case in two days): what a tool prints is masked by the
@@ -58,31 +65,40 @@ export class Redactor {
   private byValue = new Map<string, string>(); // variant → secret id
   private ordered: string[] = []; // variants, longest first (prefer the most specific match)
   private patterns = new Map<string, RegExp>(); // secret id → every spelling of a 2FA key (global)
+  private loose = new Map<string, string>(); // a long value without its grouping → secret id
+  private short = new Map<string, string>(); // a short value without its grouping → secret id (secret places only)
 
   set(id: string, value: string | undefined, pattern?: RegExp): void {
     this.remove(id);
     if (pattern?.global) this.patterns.set(id, pattern);
-    const forms = value && value.length >= MIN_SECRET_CHARS ? variants(value) : [];
-    if (!forms.length) return;
-    for (const form of forms) this.byValue.set(form, id);
+    if (!value) return;
+    const key = looseKey(value);
+    if (value.length < MIN_SECRET_CHARS) {
+      if (key.length >= MIN_PLACE_CHARS) this.short.set(key, id);
+      return;
+    }
+    if (key.length >= MIN_SECRET_CHARS) this.loose.set(key, id);
+    for (const form of variants(value)) this.byValue.set(form, id);
     this.reorder();
   }
 
   remove(id: string): void {
     this.patterns.delete(id);
+    for (const map of [this.loose, this.short]) for (const [key, owner] of map) if (owner === id) map.delete(key);
     let changed = false;
     for (const [variant, owner] of this.byValue) if (owner === id) { this.byValue.delete(variant); changed = true; }
     if (changed) this.reorder();
   }
 
   redact(text: string): string {
-    if (!text || (this.ordered.length === 0 && this.patterns.size === 0)) return text;
+    if (!text || (this.ordered.length === 0 && this.patterns.size === 0 && this.short.size === 0)) return text;
     let out = text;
     for (const [id, pattern] of this.patterns) out = out.replace(pattern, () => handleFor(id));
     for (const variant of this.ordered) {
       if (out.includes(variant)) out = out.split(variant).join(handleFor(this.byValue.get(variant)!));
     }
-    return out;
+    out = looseReplace(out, this.loose, handleFor);
+    return maskInPlaces(out, this.short, handleFor);
   }
 
   private reorder(): void {

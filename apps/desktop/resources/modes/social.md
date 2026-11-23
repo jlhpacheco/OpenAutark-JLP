@@ -21,7 +21,6 @@ tools:
   - "chat.*"
   - "knowledge.*"
   - "skills.*"
-  - "schedules.*"
 category: social-media
 workspace: browser
 verifier: The post is live (or scheduled) on the right account with a link or id; text, media and metadata match the final version; the follow-up routine is scheduled and visible.

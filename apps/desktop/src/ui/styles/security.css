@@ -1,0 +1,70 @@
+/* Settings › Security (owner 19.11.2026, src/ui/settings/SecurityPage.tsx and security-*.tsx): a switch with its list and
+   note as one block between two dividers, the topic texts (fixed height, scrolling inside), the lock button with one
+   width for Edit / Yes, change it / Done, the "Change it?" question laid over the top of its field (nothing moves), the
+   folder and app lists (quiet while their switch does not use them – colour only), the waiting requests' answers and
+   the Changes group's lines. Groups and rows are settings.css's (.set-group, .set-row).
+   Owns: `sec-*` classes. Never: the shared settings controls (settings.css), colours outside tokens.css. */
+
+/* ---------------------------------------------------------------- blocks: a switch, its list, its note */
+.sec-block { padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.sec-block > .set-row { border-bottom: 0; }
+.sec-block > .sec-topic:first-child { padding-top: 12px; }
+.sec-block > .sec-list { margin: 0 0 10px; }
+
+/* ---------------------------------------------------------------- a topic text */
+.sec-topic { min-width: 0; }
+.sec-topic-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; margin-bottom: 6px; }
+.sec-topic-label, .sec-topic-sub { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.sec-topic-label { color: var(--text); font-size: calc(14px * var(--ui-text, 1)); line-height: 1.4; }
+.sec-topic-sub { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: 1.5; }
+.sec-topic-actions { display: flex; flex: none; align-items: center; gap: 6px; }
+.sec-topic-field { position: relative; }
+.sec-topic-text { resize: vertical; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+.sec-topic-text[readonly] { background: var(--hover); color: var(--secondary); }
+.sec-topic-text[readonly]:focus { border-color: var(--field); }
+/* the inert copy of "Reset to default" while a text has no file of its own: the same box, nothing to see or press */
+.sec-reset.inert { border-color: transparent; background: transparent; color: transparent; pointer-events: none; user-select: none; }
+
+/* ---------------------------------------------------------------- the mode marker and double confirm */
+.sec-mode .segmented button { display: inline-flex; align-items: center; gap: 4px; }
+.sec-mode-mark { display: inline-flex; flex: none; width: 14px; height: 14px; }
+.sec-mode .segmented button.selected:disabled { opacity: 1; }
+.button.small.sec-lock { min-width: 112px; justify-content: center; }
+.sec-confirm {
+  position: absolute; inset: 1px 1px auto 1px; padding: 8px 12px; border-radius: var(--r-md) var(--r-md) 0 0;
+  background: var(--surface); color: var(--danger); font-size: calc(13px * var(--ui-text, 1)); line-height: 1.5; box-shadow: 0 1px 0 var(--line);
+}
+.sec-confirming .set-row-hint { color: var(--danger); }
+
+/* ---------------------------------------------------------------- folder and app lists */
+.sec-list { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; transition: opacity .15s; }
+.sec-list-off { opacity: .55; }
+.sec-list-items { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; max-width: 100%; }
+.sec-list-empty { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: 1.5; }
+.sec-item {
+  display: inline-flex; align-items: center; gap: 2px; max-width: 100%; min-width: 0; padding: 2px 2px 2px 10px;
+  border: 1px solid var(--line); border-radius: 999px; color: var(--text); font-size: calc(12px * var(--ui-text, 1)); line-height: 1.5;
+}
+.sec-item-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sec-item-x { display: grid; place-items: center; flex: none; width: 22px; height: 22px; border-radius: 50%; color: var(--muted); font-size: calc(15px * var(--ui-text, 1)); line-height: 1; }
+.sec-item-x:hover { background: var(--hover); color: var(--text); }
+.sec-item-x:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.sec-add-row { flex-wrap: nowrap; width: min(100%, 420px); }
+.sec-add-row > .set-input { flex: 1 1 auto; width: auto; min-width: 0; }
+.sec-add-row > .button.small { align-self: stretch; min-height: 0; }
+
+/* ---------------------------------------------------------------- waiting requests */
+.sec-request-what { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sec-request-what > b { font-weight: 600; }
+.sec-request-answers { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; max-width: 100%; }
+.sec-answer { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------------------------------------------------------------- changes: the named setting opens its before and after */
+.sec-change { align-items: flex-start; }
+.sec-change-line { all: unset; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.sec-change-line > span[aria-hidden] { flex: none; }
+.sec-change-line:hover { text-decoration: underline; }
+.sec-change-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sec-change-line:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
+.sec-change-cap { display: block; margin-top: 6px; font-size: calc(11px * var(--ui-text, 1)); font-weight: 600; }
+.sec-change-text { display: block; color: var(--text); white-space: pre-wrap; user-select: text; }

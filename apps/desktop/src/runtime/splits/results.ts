@@ -22,7 +22,7 @@
 
 import type { RunJournal } from '../contracts.ts';
 import type { Run, RunItem } from '../../shared/model/runs.ts';
-import { PAST_WINDOW, SPLIT_LIMITS, TOLD_ORIGIN, type Split, type SplitGroup, type SplitGroupView } from '../../shared/model/splits.ts';
+import { ASKED, PAST_WINDOW, SPLIT_LIMITS, type Split, type SplitGroup, type SplitGroupView } from '../../shared/model/splits.ts';
 import { excerpt } from '../../shared/text/chat-names.ts';
 import { ANSWER_ITEM } from '../agents/publishing.ts';
 import { runsBySplit } from './views.ts';
@@ -58,30 +58,13 @@ function answerIn(items: readonly RunItem[]): string | undefined {
   return text || undefined;
 }
 
-/** B-080: the text of the last note to its origin (agents.split_tell {to:'origin'}, journaled as "To my origin: …"). */
-function toldIn(items: readonly RunItem[]): string | undefined {
-  const call = items.findLast((item) => item.kind === 'tool_call' && item.name === 'agents.split_tell' && String(item.data.summary ?? '').startsWith(TOLD_ORIGIN));
-  if (!call) return undefined;
-  const told = (noteText(call.data.args) ?? String(call.data.summary).slice(TOLD_ORIGIN.length)).trim(); // the summary: its start
-  return told || undefined;
-}
+/** The run item a part's note to its origin is journaled as (tools/builtin/agents-split-tell.ts), whole. */
+export const TOLD_ITEM = 'To my origin';
 
-/**
- * B-080: a note's "text" from its journaled args – also when the journal cut them (tools/outputs.ts preview: the first
- * JOURNAL_CHARS and "…"; a note may be as long): the text up to the cut, marked "…". Undefined: no text in them.
- */
-function noteText(args: unknown): string | undefined {
-  if (args && typeof args === 'object') { const text = (args as { text?: unknown }).text; return typeof text === 'string' ? text : undefined; }
-  if (typeof args !== 'string') return undefined;
-  try { return noteText(JSON.parse(args)); } catch { /* cut: read the text value up to the cut */ }
-  const at = args.indexOf('"text":"');
-  if (at < 0) return undefined;
-  const rest = args.slice(at + 8).replace(/…$/, '');
-  const value = /^(?:[^"\\]|\\.)*/.exec(rest)![0]; // up to its closing quote, or to the cut (a lone "\" of a cut escape stays out)
-  try {
-    const text: unknown = JSON.parse(`"${value.replace(/\\u[0-9a-fA-F]{0,3}$/, '')}"`);
-    return typeof text === 'string' ? `${text}${rest[value.length] === '"' ? '' : '…'}` : undefined;
-  } catch { return undefined; }
+/** B-080: the text of the last note to its origin (agents.split_tell {to:'origin'}). */
+function toldIn(items: readonly RunItem[]): string | undefined {
+  const text = items.findLast((item) => item.kind === 'note' && item.name === TOLD_ITEM)?.data.text;
+  return typeof text === 'string' && text.trim() ? text.trim() : undefined;
 }
 
 /** The final answer of a run (its 'Answer' run items joined), or undefined. */
@@ -277,7 +260,7 @@ const pointerOf = (group: SplitGroup, split: Split) => `the whole result: agents
 
 /** B-086: what I asked of the part (its brief, and what it brings back when I named it), shown beside its result. */
 export function askedLine(split: Pick<Split, 'brief' | 'returns'>): string {
-  return `Asked: ${excerpt(split.brief, 300)}${split.returns ? ` → back: ${excerpt(split.returns, 160)}` : ''}`;
+  return `${ASKED}${excerpt(split.brief, 300)}${split.returns ? ` → back: ${excerpt(split.returns, 160)}` : ''}`;
 }
 
 /** Each split's newest run, what it brought back (resultOf) and how it ran (one read of its items). */

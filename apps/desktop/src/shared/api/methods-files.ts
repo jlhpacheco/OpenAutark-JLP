@@ -45,6 +45,8 @@ declare module '../api/methods.ts' {
     /** Writes the text (folders are created). `base`: the stamp it was made on; a file changed since is a conflict. */
     'files.writePath': { params: { path: string; text: string; base?: string; device?: string }; result: PathWritten };
     'files.listPath': { params: { path: string; device?: string }; result: PathList };
+    /** The person confirms a network host (`\\host\…`): this PC may open paths there from now on. */
+    'files.allowHost': { params: { host: string }; result: { host: string } };
   }
 }
 

@@ -16,7 +16,8 @@ import type { VoiceSessionView } from '../../../shared/voice/conversation.ts';
 import { uploadRef } from '../../lib/files.ts';
 import { openMicrophone } from '../../lib/microphone.ts';
 import type { Microphone, SampleListener } from '../../lib/microphone.ts';
-import { PCM_RATE, Pcm16Encoder, pcm16ToFloat, rms, wavFile } from '../../lib/pcm.ts';
+import { PCM_RATE, Pcm16Encoder, rms, wavFile } from '../../lib/pcm.ts';
+import { pcm16Samples } from '../../../shared/voice/wav.ts';
 import { createTurnDetector, type TurnModels } from '../../lib/turn-detect.ts';
 import { BargeInDetector, echoCancelled } from '../../lib/barge-in.ts';
 import { deviceSpeech, prepareLocalVoice } from './device-speech.ts';
@@ -141,7 +142,7 @@ export class ConversationCapture {
       return;
     }
     if (this.models && !this.take && !this.detector.speaking) { this.detector = createTurnDetector({ models: this.models, onModelError: modelsLost }); this.models = null; }
-    const edge = this.detector.feed(pcm16ToFloat(pcm));
+    const edge = this.detector.feed(pcm16Samples(pcm));
     if (edge === 'start') this.record(); else if (edge === 'end') this.finish();
   }
 
@@ -189,9 +190,6 @@ export class ConversationCapture {
 }
 
 // ------------------------------------------------------------------ speaking
-
-export type { SpeechOutput } from './device-speech.ts';
-export { browserSpeech } from './device-speech.ts';
 
 /**
  * A phone plays audio only after it was started inside a tap: call this synchronously in the "Start conversation"

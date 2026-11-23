@@ -2,7 +2,9 @@
 // progress is shared) from <data>/browser-profiles/<agentId> with the off-screen window of launch.ts, closed after
 // 10 min without use (not while the person has the real window on the screen), on request or at shutdown. Tab ids
 // (t1, t2 …), the active tab, downloads into <workspace>/downloads/<agentId>, each tab's console and network log
-// (devtools.ts), and the agent's last look per tab (the change lists of diff.ts).
+// (devtools.ts), and the agent's last look per tab (the change lists of diff.ts). Umzug 21.11.2026: profileHooks – what
+// keeps an agent's sign-ins the same on its other PCs (devices/sync/share-browser.ts) hears a profile right after it
+// opened (before its first page) and right before it is closed here.
 // Owns: the sessions map, launching, the idle timer, tab ids and the change listeners of the live view (view.ts).
 // Never: acts on a page (service.ts does) or touches the person's own browser profile.
 
@@ -29,7 +31,14 @@ export interface Session {
   logs: WeakMap<PageLike, PageLog>;
   /** The person brought the window onto the screen (Show window): no idle close then. */
   shown?: boolean;
+  /** When the browser was last used (touch). */
+  usedAt: number;
 }
+
+/** Hears an agent's profile right after it opened and right before it is closed here; both are awaited. */
+export interface ProfileHooks { opened(session: Session): Promise<void>; closing(session: Session): Promise<void> }
+/** The hooks of a runtime, by its paths object (the one its BrowserService got). */
+export const profileHooks = new WeakMap<object, ProfileHooks>();
 
 /** Why the live view is told (view.ts). */
 export type BrowserChange = 'open' | 'close' | 'page';
@@ -133,6 +142,8 @@ export class BrowserSessions {
     await Promise.all(ids.map(async (id) => {
       const session = this.sessions.get(id);
       if (!session) return;
+      await profileHooks.get(this.deps.paths)?.closing(session).catch(() => undefined);
+      if (this.sessions.get(id) !== session) return; // it closed by itself meanwhile
       this.drop(session, agentId ? 'closed' : 'shutdown');
       await session.context.close().catch((error: unknown) => this.deps.log.debug('browser close failed', { agentId: id, error: String(error) }));
     }));
@@ -146,6 +157,7 @@ export class BrowserSessions {
 
   /** Use: the idle time starts again. */
   touch(session: Session): void {
+    session.usedAt = Date.now();
     if (session.timer) clearTimeout(session.timer);
     session.timer = setTimeout(() => {
       if (session.shown) return; // the person uses the real window; Hide starts the idle time again
@@ -210,7 +222,8 @@ export class BrowserSessions {
       throw launchError(message, channel);
     }
     context.setDefaultTimeout(this.deps.actionTimeoutMs ?? 10_000);
-    const session: Session = { agentId, context, ids: new WeakMap(), nextTab: 1, downloads: [], texts: new WeakMap(), looks: new WeakMap(), logs: new WeakMap() };
+    const session: Session = { agentId, context, ids: new WeakMap(), nextTab: 1, downloads: [], texts: new WeakMap(), looks: new WeakMap(), logs: new WeakMap(), usedAt: Date.now() };
+    await profileHooks.get(this.deps.paths)?.opened(session).catch(() => undefined);
     context.on('close', () => this.drop(session, 'closed'));
     context.on('page', (page) => { this.track(session, page); this.changed(agentId); });
     for (const page of context.pages()) this.track(session, page);

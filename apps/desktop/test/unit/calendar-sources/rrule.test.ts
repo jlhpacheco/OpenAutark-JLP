@@ -6,7 +6,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readIcs } from '../../../src/runtime/calendar/sources/ics.ts';
-import { parseIcsTime, wallToUtc } from '../../../src/runtime/calendar/sources/ics-time.ts';
+import { parseIcsTime } from '../../../src/runtime/calendar/sources/ics-time.ts';
+import { wallTime } from '../../../src/shared/text/when.ts';
 import { expandDates, parseRRule } from '../../../src/runtime/calendar/sources/rrule.ts';
 import { VIENNA, vienna } from './ics-fixtures.ts';
 
@@ -15,7 +16,7 @@ function dates(rule: string, start: string, last: string, first = start): string
   const time = parseIcsTime(`${start.replace(/-/g, '')}T100000`, { TZID: VIENNA }, VIENNA)!;
   const parsed = parseRRule(rule, time);
   assert.ok(parsed, `rule ${rule} parses`);
-  return expandDates(parsed, time, { firstDate: first, lastDate: last }, (date) => wallToUtc(date, 36_000, VIENNA));
+  return expandDates(parsed, time, { firstDate: first, lastDate: last }, (date) => wallTime(date, 600, VIENNA));
 }
 
 test('DAILY with INTERVAL and COUNT (DTSTART is the first of them)', () => {

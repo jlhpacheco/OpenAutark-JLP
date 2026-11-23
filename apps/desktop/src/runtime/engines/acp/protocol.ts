@@ -1,13 +1,13 @@
-// ACP (Agent Client Protocol) wire: newline-delimited JSON-RPC 2.0 over an agent's stdio.
-// Owns: request/response matching, notification fan-out, agent→client requests (answered by a
-// handler; unknown methods get -32601), timeouts, connection failure, the initialize request
+// ACP (Agent Client Protocol) wire: newline-delimited JSON-RPC 2.0 over an agent's stdio (the line client: engines/line-rpc.ts).
+// Owns: ACP's errors on that client (prompt turns pass timeout 0: they can wait hours for approvals), the initialize request
 // (protocol version 1, no fs/terminal client capabilities) and reading the agent's capabilities
 // (prompt images and, B-058 G7, audio) and auth methods; classifying errors (auth required, usage limit, gone).
 // Never: knows sessions or turns (process.ts / turn.ts do), logs message bodies, or offers the
 // agent file or terminal access through us (it uses its own tools; we only approve them).
 
 import type { ChildLike } from '../../system/supervisor.ts';
-import { isRecord, readJsonLines, str } from '../shared.ts';
+import { LineRpc } from '../line-rpc.ts';
+import { isRecord, str } from '../shared.ts';
 
 export const ACP_PROTOCOL_VERSION = 1;
 /** ACP's error code for "authentication required" (RequestError.authRequired). */
@@ -53,108 +53,16 @@ export function isLimitError(error: unknown): boolean {
   return error instanceof AcpRpcError && error.kind === 'remote' && LIMIT_TEXT.test(error.message);
 }
 
-export interface AcpNotification { method: string; params: Record<string, unknown> }
-export type AgentRequestHandler = (method: string, params: Record<string, unknown>) => Promise<unknown>;
-
-export class AcpConnection {
-  private readonly child: ChildLike;
-  private readonly pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void; timer?: ReturnType<typeof setTimeout> }>();
-  private readonly listeners = new Set<(note: AcpNotification) => void>();
-  private readonly closeListeners = new Set<(error: Error) => void>();
-  private sequence = 0;
-  private closed: AcpRpcError | undefined;
-  handler: AgentRequestHandler | undefined;
-
+/** An ACP agent's connection: the one line client (engines/line-rpc.ts) on ACP's wire – JSON-RPC 2.0, AcpRpcError for every failure. */
+export class AcpConnection extends LineRpc {
   constructor(child: ChildLike) {
-    this.child = child;
-    if (!child.stdout || !child.stdin) throw new Error('ACP agent needs piped stdio');
-    const fail = (reason: string) => this.close(new AcpRpcError('closed', -32099, `ACP connection closed (${reason})`));
-    readJsonLines(child.stdout, (message) => this.receive(message), fail);
-    child.stdin.on('error', () => fail('stdin'));
-    child.once('exit', () => fail('exit'));
-    child.once('error', () => fail('spawn'));
-  }
-
-  get isClosed(): boolean { return this.closed !== undefined; }
-
-  onNotification(listener: (note: AcpNotification) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-
-  onClose(listener: (error: Error) => void): () => void {
-    if (this.closed) { listener(this.closed); return () => {}; }
-    this.closeListeners.add(listener);
-    return () => this.closeListeners.delete(listener);
-  }
-
-  /** `timeoutMs` 0 = wait until answered or closed (a prompt turn can wait hours for approvals). */
-  request<T = unknown>(method: string, params: unknown = {}, timeoutMs = 20_000): Promise<T> {
-    if (this.closed) return Promise.reject(this.closed);
-    const id = ++this.sequence;
-    return new Promise<T>((resolve, reject) => {
-      const entry: { resolve(value: unknown): void; reject(error: Error): void; timer?: ReturnType<typeof setTimeout> } = { resolve: resolve as (v: unknown) => void, reject };
-      if (timeoutMs > 0) {
-        entry.timer = setTimeout(() => { this.pending.delete(id); reject(new AcpRpcError('timeout', -32098, `The agent did not answer ${method}.`)); }, timeoutMs);
-        entry.timer.unref?.();
-      }
-      this.pending.set(id, entry);
-      try { this.write({ jsonrpc: '2.0', id, method, params }); } catch (error) { if (entry.timer) clearTimeout(entry.timer); this.pending.delete(id); reject(error as Error); }
+    super(child, {
+      jsonrpc2: true,
+      closed: (reason) => new AcpRpcError('closed', -32099, reason ? `ACP connection closed (${reason})` : 'ACP connection closed'),
+      timeout: (method) => new AcpRpcError('timeout', -32098, `The agent did not answer ${method}.`),
+      remote: (error) => new AcpRpcError('remote', typeof error.code === 'number' ? error.code : -32603, rpcErrorText(error)),
+      codeOf: (error) => (error instanceof AcpRpcError ? error.rpcCode : undefined),
     });
-  }
-
-  notify(method: string, params: unknown = {}): void {
-    try { this.write({ jsonrpc: '2.0', method, params }); } catch { /* connection gone */ }
-  }
-
-  close(error: AcpRpcError = new AcpRpcError('closed', -32099, 'ACP connection closed')): void {
-    if (this.closed) return;
-    this.closed = error;
-    for (const entry of this.pending.values()) { if (entry.timer) clearTimeout(entry.timer); entry.reject(error); }
-    this.pending.clear();
-    for (const listener of this.closeListeners) { try { listener(error); } catch { /* isolate */ } }
-    this.closeListeners.clear();
-  }
-
-  private write(message: unknown): void {
-    if (this.closed) throw this.closed;
-    const stdin = this.child.stdin;
-    if (!stdin || stdin.destroyed) throw new AcpRpcError('closed', -32099, 'ACP agent stdin unavailable');
-    stdin.write(`${JSON.stringify(message)}\n`);
-  }
-
-  private receive(message: unknown): void {
-    if (!isRecord(message)) return;
-    const id = message.id;
-    const method = str(message.method);
-    if (method && id !== undefined && id !== null) { void this.answerAgent(id, method, isRecord(message.params) ? message.params : {}); return; }
-    if (method) {
-      const note = { method, params: isRecord(message.params) ? message.params : {} };
-      for (const listener of this.listeners) { try { listener(note); } catch { /* isolate */ } }
-      return;
-    }
-    if (typeof id !== 'number') return;
-    const entry = this.pending.get(id);
-    if (!entry) return;
-    this.pending.delete(id);
-    if (entry.timer) clearTimeout(entry.timer);
-    if (isRecord(message.error)) {
-      const code = typeof message.error.code === 'number' ? message.error.code : -32603;
-      entry.reject(new AcpRpcError('remote', code, rpcErrorText(message.error)));
-    } else entry.resolve(message.result);
-  }
-
-  private async answerAgent(id: unknown, method: string, params: Record<string, unknown>): Promise<void> {
-    let reply: Record<string, unknown>;
-    if (!this.handler) reply = { jsonrpc: '2.0', id, error: { code: METHOD_NOT_FOUND, message: 'This action is not available.' } };
-    else {
-      try { reply = { jsonrpc: '2.0', id, result: (await this.handler(method, params)) ?? null }; }
-      catch (error) {
-        const code = error instanceof AcpRpcError ? error.rpcCode : -32603;
-        reply = { jsonrpc: '2.0', id, error: { code, message: error instanceof AcpRpcError ? error.message : 'The request failed.' } };
-      }
-    }
-    try { this.write(reply); } catch { /* connection gone */ }
   }
 }
 

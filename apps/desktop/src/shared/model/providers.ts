@@ -66,6 +66,9 @@ export interface AccountLimits {
   stale?: boolean;
   /** B-044: banked resets (Codex only; absent = never reported). */
   resets?: LimitResets;
+  /** 21.11.2026: a reading of one window only (Claude's rate_limit_event) – merging keeps the others; any other reading
+   *  lists every account-wide window the plan has, so one it no longer sends (a plan without a 5-hour limit) is gone. Never stored. */
+  partial?: true;
 }
 
 export interface Account {
@@ -114,22 +117,6 @@ export interface ModelCaps {
   uses?: readonly ModelUse[];
 }
 
-export interface ModelScores {
-  intelligence?: number; // Artificial Analysis indexes (user's own key; attributed)
-  coding?: number;
-  agentic?: number;
-  /** Addition (RT6): finance & accounting index – routes business workflows. */
-  finance?: number;
-  outputTokensPerSecond?: number;
-  timeToFirstTokenSeconds?: number;
-  priceInputPerM?: number;
-  priceOutputPerM?: number;
-  contextTokens?: number;
-  /** Where older rows' numbers came from (no writer since B-061; kept so stored rows still read). */
-  source: 'artificial-analysis' | 'provider' | 'priors' | 'feeds';
-  fetchedAt?: number;
-}
-
 /** B-078 (D16): a model's API list price in USD per 1M tokens – curated (model-priors.json) or from the keyless OpenRouter list. */
 export interface ModelPrice {
   inputPerM: number;
@@ -146,7 +133,6 @@ export interface ModelInfo {
   efforts: Effort[]; // supported, normalized
   defaultEffort?: Effort;
   caps: ModelCaps;
-  scores?: ModelScores;
   tier: 'local' | 'small' | 'strong' | 'frontier';
   /** Addition (R3-R): relative marginal price 0..1 (curated priors, else AA list prices, else tier
    * default; 0 for local runtimes). Subscription discounts are applied by the router per account. */

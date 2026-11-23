@@ -5,7 +5,8 @@
 // B-044 work plan: with a work plan (the Work use naming a plan, Settings.routing.work; auto = 'claude' while a Claude Code plan login is
 // enabled – preference.ts workPlanOf) an agent turn's model on that provider's plan login gets WORK_PLAN_BONUS while
 // the plan has at least WORK_PLAN_MIN_HEADROOM % left – a preference, never a pin.
-// "Paid" is the booking rule of models/pricing.ts (chargeOf), so routing and spend agree.
+// Paid, plan or free is the account's charge (shared/model/charge.ts accountCharge), the rule booking and the UI read too, so
+// routing and spend agree – every plan sign-in counts as a plan, the ACP CLIs' (Gemini CLI, Copilot, Kimi Code) as Codex's and Claude Code's.
 // B-083: an API key holding a plan's monthly API credits (Account.credits) is no spill-over – it costs like a plan whose
 // headroom is unknown (no balance read exists), so its credits are spent before they expire; used up, it cools a day.
 // Owns: the weights. Never: I/O – the router passes models and accounts in.
@@ -13,7 +14,7 @@
 import type { Account, ModelInfo } from '../../shared/model/providers.ts';
 import { headroom as remaining } from '../accounts/candidates.ts';
 import { LOCAL_PROVIDERS } from '../engines/http/common.ts';
-import { chargeOf } from '../models/pricing.ts';
+import { accountCharge } from '../../shared/model/charge.ts';
 import { TIER_ORDER } from './policies.ts';
 
 export type CostMode = 'economy' | 'balanced' | 'best';
@@ -33,7 +34,6 @@ const COST_WEIGHT: Record<CostMode, number> = { economy: 0.8, balanced: 0.35, be
 const PREFER_BONUS = 0.25;
 const HEADROOM_WEIGHT = 0.2;
 const TIER_COST: Record<Tier, number> = { local: 0, small: 0.05, strong: 0.3, frontier: 0.6 };
-const PLAN_PROVIDERS: ReadonlySet<string> = new Set(['codex', 'claude']);
 /** The cost factor of a plan whose remaining quota is unknown – also an API key holding plan credits (B-083). */
 export const UNKNOWN_HEADROOM = 0.3;
 /** B-044: bonus of a model on the preferred work plan (the Work use, preference.ts workPlanOf) while it has quota. */
@@ -71,7 +71,7 @@ export function unmetNeed(model: ModelInfo, needs: { vision?: boolean; computerU
  * (models/pricing.ts). Plans, keys holding plan credits (B-083) and local runtimes are not.
  */
 export function isPaid(account: Account): boolean {
-  return chargeOf(account) === 'paid';
+  return accountCharge(account) === 'paid';
 }
 
 /**
@@ -81,10 +81,11 @@ export function isPaid(account: Account): boolean {
  */
 export function costFactor(account: Account | undefined, now: number, model?: string): number {
   if (!account) return 1;
-  if (isPaid(account)) return 1;
+  const charge = accountCharge(account);
+  if (charge === 'paid') return 1;
   if (account.auth === 'local' || LOCAL_PROVIDERS.has(account.provider)) return 0;
   if (account.credits) return UNKNOWN_HEADROOM;
-  if (!PLAN_PROVIDERS.has(account.provider) || account.auth !== 'cli') return 0.5;
+  if (charge !== 'plan') return 0.5; // a server without a key: billed by nobody, its cost unknown
   const headroom = remaining(account, now, model);
   if (headroom === undefined) return UNKNOWN_HEADROOM;
   if (headroom < 10) return 1;
@@ -102,7 +103,7 @@ export function marginalCost(model: ModelInfo, account: Account | undefined, now
 }
 
 function headroomBonus(account: Account | undefined, now: number, model?: string): number {
-  if (!account || !PLAN_PROVIDERS.has(account.provider)) return 0;
+  if (!account || accountCharge(account) !== 'plan') return 0;
   const headroom = remaining(account, now, model);
   return headroom === undefined ? 0 : ((headroom - 50) / 100) * HEADROOM_WEIGHT;
 }
@@ -114,7 +115,7 @@ function planPreference(account: Account | undefined, workPlan: string | undefin
 
 /** WORK_PLAN_BONUS for a plan login of the work plan's provider with quota left (unknown limits count as left). */
 export function workPlanBonus(account: Account | undefined, workPlan: string | undefined, now: number, model?: string): number {
-  if (!workPlan || !account || account.provider !== workPlan || chargeOf(account) !== 'plan') return 0;
+  if (!workPlan || !account || account.provider !== workPlan || accountCharge(account) !== 'plan') return 0;
   const left = remaining(account, now, model);
   return left === undefined || left >= WORK_PLAN_MIN_HEADROOM ? WORK_PLAN_BONUS : 0;
 }

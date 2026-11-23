@@ -7,7 +7,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync, mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { receivePiece, sendFile } from '../../../src/runtime/devices/send-file.ts';
+import { sendFile } from '../../../src/runtime/devices/send-file.ts';
+import { receivePiece } from '../../../src/runtime/devices/receive-file.ts';
 import { scopeOfPath } from '../../../src/runtime/knowledge/memory-tree.ts';
 import { Spend } from '../../../src/runtime/spend/ledger.ts';
 import { marksFile, mediaSegmentTools, partLine, partsIn } from '../../../src/runtime/tools/builtin/media-segments.ts';
@@ -53,6 +54,9 @@ function pcs(t: { after(fn: () => void): void }) {
       call: async (_id: string, _method: string, params: unknown) => {
         calls.push(params);
         if (fail && !(params as { abort?: boolean }).abort) throw new Error('the link dropped');
+        // Both "PCs" share one disk here: the sender's folder is mirrored to one Tower lacks, so the file lands in the inbox.
+        const begin = (params as { begin?: { from?: string } }).begin;
+        if (begin?.from) begin.from = begin.from.replace(here, path.join(there, 'not-on-tower'));
         return receivePiece(remoteServices, params, 'dev_me');
       },
     },
@@ -71,7 +75,8 @@ test('devices.send_file: big files in pieces, empty ones too, and it never overw
   assert.equal(sent.ok, true);
   assert.equal(sent.sentTo, 'Tower');
   assert.equal(sent.bytes, big.length);
-  assert.equal(calls.length, 9, 'nine pieces of at most 1 MiB (B-077)');
+  assert.equal(calls.length, 10, 'begin, then nine pieces of at most 1 MiB (B-077)');
+  assert.equal((calls[0] as { begin?: { name: string } }).begin?.name, 'big.bin');
   assert.equal(sent.path, path.join(there, 'inbox', 'My_PC', 'big.bin'), "under the sending PC's cleaned name");
   assert.ok(readFileSync(sent.path!).equals(big));
 
@@ -101,7 +106,7 @@ test('files.put refuses a piece out of order and a bad id', async (t) => {
   const services = { paths: { workspace: there }, devices: { list: () => [] } } as never;
   const id = '00000000-0000-4000-8000-000000000000';
   await assert.rejects(receivePiece(services, { id: 'x/../y', name: 'a', offset: 0, dataBase64: '' }, 'dev'), /transfer id/);
-  await assert.rejects(receivePiece(services, { id, name: 'a', offset: 5, dataBase64: 'aGk=' }, 'dev'), /does not follow/);
+  await assert.rejects(receivePiece(services, { id, name: 'a', offset: 5, dataBase64: 'aGk=' }, 'dev'), /no longer open here/, 'Umzug: a piece of no open transfer');
   const done = await receivePiece(services, { id, name: '../../evil.txt', offset: 0, dataBase64: 'aGk=', last: true }, 'dev');
   assert.equal(path.dirname(done.path!), path.join(there, 'inbox', 'linked PC'), 'a name cannot climb out of the inbox');
 });

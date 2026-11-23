@@ -1,6 +1,6 @@
 // B-078 D7 (T1.3), KI-Runde 17.11.2026: work for an agent out of a 1:1 or a chat the person is in that it is not in reaches it in the giver's own 1:1 with it – on
 // tasks.create (tasks/create.ts) and on tasks.assign (tasks/service.ts → owners.ts routeOwner); the wake lands where
-// the agent is a member, and the 1:1 stays two.
+// the agent is a member, and the 1:1 stays two; work given from a chat it does not land in keeps that chat (ledger.givenIn).
 // Owns: these assertions only. Never: engines or timers.
 
 import { test } from 'node:test';
@@ -43,9 +43,10 @@ test('T1.3: a task for a member of the 1:1, or created by the system, keeps its 
 test('KI-Runde 17.11.2026: work handed from a group the person is in to an agent who is not in it lands in the giver\'s 1:1 with the receiver; nobody joins the group', async () => {
   const h = pair();
   const group = h.chats.create({ agentIds: ['ag_ava'], createdBy: 'human', title: 'Mobile apps' });
-  const task = h.tasks.create({ conversationId: group.id, title: 'Build the login screen', assigneeId: 'ag_bob', createdBy: 'ag_ava' });
+  const task = h.tasks.create({ conversationId: group.id, title: 'Build the login screen', assigneeId: 'ag_bob', createdBy: 'ag_ava', givenIn: group.id });
   const room = findDirect(h.services, 'ag_ava', 'ag_bob');
   assert.equal(task.conversationId, room, 'the work is in Ava\'s 1:1 with Bob');
+  assert.equal(task.ledger.givenIn, group.id, 'and keeps the chat it was given from (Ava hears back there)');
   assert.equal(isMember(h, group.id, 'ag_bob'), false, 'Bob is not seated in the person\'s group');
   const wake = h.wakeRows().find((row) => row.agent_id === 'ag_bob' && row.task_id === task.id);
   assert.equal(wake?.conversation_id, room, 'Bob is woken where he is a member');

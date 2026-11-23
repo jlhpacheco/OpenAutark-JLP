@@ -1,8 +1,8 @@
 // Event wiring: applies runtime deltas to the store signals and keeps the subscription set
 // in sync with the open chat. Called once from main.tsx.
 // Owns: event → signal mapping, the `chat:<id>` topic lifecycle, the one start notice (RC1), when a toast is
-// seen already (its chat or My day open), the For-you clock's timing (F04); My day's calendar, briefing and
-// handed-off events are applied by lib/day-store.ts (wireDay, called here). Who works for a chat arrives
+// seen already (its chat or the Tasks page open), the For-you clock's timing (F04); the calendar's events are applied
+// by lib/day-store.ts (wireDay, called here). Who works for a chat arrives
 // with its summary (conversation.upserted, its `live` – the live bar); agent.activity still feeds `activity` for Team, tasks and the work stop
 // (F10: with the runs of the person's other PCs, each with its deviceId). F25: a start notice saying an update did not install stays until Dismiss.
 // Never: fetches big snapshots on every event (only on reconnect, see store.loadAll).
@@ -15,8 +15,10 @@ import {
   accounts, activeConversationId, activity, agents, archivedAgents, conversations, loadAll, messages, models, putMessage,
   removeById, route, settings, systemInfo, tasks, todoClock, todos, updateState, upsertById, usage,
 } from './store.ts';
-import { nextListChange, onForYouList } from '../tasks/todo-time.ts';
+import { onForYouList } from '../../shared/model/todo-later.ts';
+import { nextListChange } from '../tasks/todo-time.ts';
 import type { Topic } from '../../shared/api/protocol.ts';
+import type { Route } from './router.ts';
 import { dismissToastsWhere, toastNotification, toastStartNotice } from './toasts.ts';
 import { wirePeople } from './people.ts';
 import { wireDay } from './day-store.ts';
@@ -35,21 +37,21 @@ function rememberNotice(id: string): void {
   try { localStorage.setItem(NOTICE_KEY, id); } catch { /* storage blocked: shown again after a reload */ }
 }
 
-/** The person is where a toast's Open leads (shell/StatusLine.tsx) or sees what it is about: its chat, or My day (also
- *  as Home) for a to-do outside a chat and – 17.11.2026, a second line over My day said the list's rows again – for any
- *  to-do its list shows. */
-function atToastTarget(item: { conversationId?: string; taskId?: string }): boolean {
-  const at = route.peek();
+/** The person is where a toast's Open leads (shell/StatusLine.tsx) or sees what it is about: its chat, or the Tasks page
+ *  (#/tasks or Home – an older #/day link parses to #/tasks) for a to-do outside a chat and – 17.11.2026, a second line
+ *  over the page said the list's rows again – for any to-do its For-you list shows. The route and the list default to
+ *  the store's. */
+export function atToastTarget(
+  item: { conversationId?: string; taskId?: string }, at: Route = route.peek(), list: ReadonlyArray<Pick<TaskView, 'id'>> = todos.peek(),
+): boolean {
   if (at.view === 'chat') return item.conversationId === at.id;
-  const myDay = at.view === 'day' || at.view === 'home';
-  return myDay && item.taskId !== undefined && (!item.conversationId || todos.peek().some((task) => task.id === item.taskId));
+  const onTasks = at.view === 'home' || at.view === 'tasks';
+  return onTasks && item.taskId !== undefined && (!item.conversationId || list.some((task) => task.id === item.taskId));
 }
 
 /**
- * On the For-you list – the same rule as the runtime's todos.list (tasks/repo.ts todos): human
- * to-dos and human steps that are open, need the person or are in progress, and those waiting
- * for a ring (snoozed, or a repeating timer until its next time), which the list keeps under
- * "Later" (F04, tasks/todo-time.ts onForYouList); any other wait leaves it.
+ * On the For-you list – the same rule as the runtime's todos.list (tasks/repo.ts todos): the person's own
+ * unfinished to-dos, in a quest or not (shared/model/todo-later.ts onForYouList); "Later" is a time, never a wait.
  */
 function isOpenTodo(task: TaskView): boolean {
   return onForYouList(task);
@@ -112,7 +114,7 @@ export function wireEvents(): void {
     else removeById(todos, task.id);
   });
   rpc.on('task.removed', ({ id }) => { removeById(tasks, id); removeById(todos, id); dismissToastsWhere((toast) => toast.taskId === id); });
-  wireDay(); // B-041: calendar.upserted/removed, day.briefing, handed-off work, the day clock
+  wireDay(); // B-041: calendar.upserted/removed and the day clock
 
   // org
   rpc.on('agent.upserted', (event) => {
@@ -133,7 +135,7 @@ export function wireEvents(): void {
 
   // system
   rpc.on('settings.updated', (value) => { settings.value = value; });
-  rpc.on('update.state', (state) => { updateState.value = state; });
+  rpc.on('update.state', (state) => { updateState.value = state; }); // also right after every (re)connect's subscribe (runtime/rpc/server.ts KEPT): a phone has no other way to read it
   rpc.on('notify', (note) => {
     // OS notifications and their sound are main's job; in-window we show a toast for what matters (a to-do, a
     // blocker or an important message stays until Open or Dismiss, see below). The

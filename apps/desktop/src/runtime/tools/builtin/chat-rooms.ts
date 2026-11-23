@@ -63,7 +63,7 @@ const createChat = defineTool<{ title?: string; members?: string[]; hidden?: boo
     const named = namedMembers(ctx, memberIds(args));
     if (typeof named === 'string') return failure(named);
     const ids = named.filter((id) => id !== ctx.agent.id);
-    // A work room of the agent alone (others join later, chat.add_members) needs a title – as before B-050.
+    // A work room of the agent alone (others join later, chat.update add) needs a title – as before B-050.
     if (!ids.length && !args.title?.trim()) return failure('Nothing was created: name at least one member besides myself, or a title for a room of my own.');
     if (ids.length === 1 && !args.title?.trim() && !args.hidden && !args.parent) return openDirect(ctx, ids[0]); // K1: one member, no topic – the pair's default 1:1, as the UI's new chat
     const why = scopeRefusal(ctx, [], [ctx.agent.id, ...ids]);

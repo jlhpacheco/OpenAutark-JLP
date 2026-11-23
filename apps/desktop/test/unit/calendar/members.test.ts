@@ -1,9 +1,9 @@
 // B-078 (D20, head of staff as an open capability): the calendar across members – commonGaps over each member's own
 // window and buffer; `who` resolution (human, a colleague on their own linked PC, rooms, unknown ids); calendar.ask on
-// the PC that answers (my own PC and the company get entries with "Only me" to-dos masked, an employee's PC asking the
-// company gets busy only; an add goes through that PC's own rules and names the asking PC); the agent tools with `who`
-// (busy only for others and in shared chats, the time everyone shares, one booking per member, refused over a
-// colleague's appointment before anything is written, an offline PC said plainly); rooms from calendar.connect; people.list
+// the PC that answers (my own PC and the company get entries, "Only me" to-dos by their title, an employee's PC asking the
+// company gets busy only; an add goes through that PC's own rules and names the asking PC); calendar.list with `who`
+// (busy only for others and in shared chats, with `minutes` the time everyone shares, an offline PC said plainly – Quests
+// round 20.11.2026: a meeting an agent sets is a to-do with a time for each person); rooms from calendar.connect; people.list
 // says where each person is reachable; calendar.person for the person page.
 // Owns: these assertions only. Never: a real mesh, network or timers.
 
@@ -80,13 +80,13 @@ test('who: a string or a list; rooms by name; unknown ids say why; a colleague r
   assert.deepEqual(resolveMember(a.s, HUMAN_ID, name), { who: HUMAN_ID, name: 'Robin', where: 'here', ownerId: HUMAN_ID });
 });
 
-test('calendar.ask: the company gets entries with an "Only me" to-do masked; an employee PC asking the company gets busy only; an unknown PC nothing', async () => {
+test('calendar.ask: the company gets entries ("Only me" to-dos by their title too); an employee PC asking the company gets busy only; an unknown PC nothing', async () => {
   const { a, b } = linked();
   b.row({ title: 'Dentist', startAt: at('10:00'), endAt: at('11:00') });
   const secret = b.todo('Therapy', { private: true });
   b.row({ kind: 'todo', taskId: secret.id, startAt: at('12:00'), endAt: at('12:30') });
   const toCompany = await serveAsk(b.s, { op: 'list', from: at('00:00'), to: at('23:59') }, 'dev_a');
-  assert.deepEqual(toCompany.entries?.map((entry) => entry.title), ['Dentist', 'Busy']);
+  assert.deepEqual(toCompany.entries?.map((entry) => entry.title), ['Dentist', 'Therapy']);
   assert.equal(toCompany.tz, 'Europe/Vienna');
   assert.deepEqual(toCompany.hours, { start: '08:00', end: '20:00' });
   a.row({ title: 'Board meeting', startAt: at('09:00'), endAt: at('10:00') });
@@ -108,7 +108,7 @@ test('calendar.ask add: written through that PC\'s rules – never over its appo
   assert.equal(row.setBy, 'agent');
 });
 
-test('calendar tools with who: others as busy only, the time both share, one booking each; titles only for the turn\'s own person', async () => {
+test('calendar.list with who: others as busy only, with minutes the time both share; titles only for the turn\'s own person', async () => {
   const { a, b, calls } = linked();
   b.row({ title: 'Dentist', startAt: at('10:00'), endAt: at('11:00') });
   a.row({ title: 'Board meeting', startAt: at('09:00'), endAt: at('10:00') });
@@ -122,20 +122,9 @@ test('calendar tools with who: others as busy only, the time both share, one boo
   const own = await call('calendar.list', { from: DAY, to: DAY });
   assert.match(own.text, /Board meeting/, 'the owner alone with the agent sees their own titles');
 
-  const free = await call('calendar.find_free', { date: DAY, minutes: 60, who: ['human', ANNA] });
-  const first = (free.data!.free as Array<{ start: string }>)[0];
+  const free = await call('calendar.list', { from: DAY, to: DAY, minutes: 60, who: ['human', ANNA] });
+  const first = (free.data!.free as Array<{ free: Array<{ start: string }> }>)[0].free[0];
   assert.equal(Date.parse(first.start), at('11:10'), 'after both appointments and the 10-minute buffer');
-  assert.deepEqual(free.data!.with, ['Robin', 'Anna']);
-
-  const booked = await call('calendar.add', { title: 'Sync', startAt: '2026-10-27T11:30', endAt: '2026-10-27T12:00', who: ['human', ANNA] });
-  assert.equal(booked.data!.ok, true, booked.text);
-  assert.equal(a.calendar.list(HUMAN_ID, at('11:00'), at('13:00')).events.filter((row) => row.title === 'Sync').length, 1);
-  assert.equal(b.calendar.list(HUMAN_ID, at('11:00'), at('13:00')).events.filter((row) => row.title === 'Sync').length, 1, 'Anna\'s PC wrote it into her calendar');
-
-  const over = await call('calendar.add', { title: 'Clash', startAt: '2026-10-27T10:15', endAt: '2026-10-27T10:45', who: ['human', ANNA] });
-  assert.equal(over.error, true);
-  assert.match(over.text, /Anna is busy then/);
-  assert.equal(a.calendar.list(HUMAN_ID, at('10:00'), at('11:00')).events.some((row) => row.title === 'Clash'), false, 'nothing written for anyone');
 });
 
 test('in a chat colleagues read along: busy only for the owner too; an offline colleague is said plainly', async () => {
@@ -147,23 +136,16 @@ test('in a chat colleagues read along: busy only for the owner too; an offline c
   const list = await call('calendar.list', { from: DAY, to: DAY });
   assert.equal(list.error, false);
   assert.doesNotMatch(list.text, /Board meeting/);
-  const free = await call('calendar.find_free', { date: DAY, minutes: 30, who: ['human', ANNA] });
+  const free = await call('calendar.list', { from: DAY, to: DAY, minutes: 30, who: ['human', ANNA] });
   assert.match(free.text, /Anna is offline \(Anna-Laptop\)/);
-  const booked = await call('calendar.add', { title: 'Sync', startAt: '2026-10-27T14:00', who: [ANNA] });
-  assert.equal(booked.error, true);
-  assert.match(booked.text, /offline/);
 });
 
-test('rooms: a connected calendar of a room is listed and booked in Autark; people.list says where each person is', async () => {
+test('rooms: a connected calendar of a room is read with who; people.list says where each person is', async () => {
   const { a } = linked();
   a.db.run(`INSERT INTO calendar_sources (id, owner_id, kind, label, visible, writable, status, created_at) VALUES ('cal_room', 'room:atelier', 'ics', 'Atelier', 1, 0, 'ok', 1)`);
   const call = tools(a);
-  const free = await call('calendar.find_free', { date: DAY, minutes: 30, who: ['room:atelier'] });
+  const free = await call('calendar.list', { from: DAY, to: DAY, minutes: 30, who: ['room:atelier'] });
   assert.equal(free.error, false, free.text);
-  const booked = await call('calendar.add', { title: 'Workshop', startAt: '2026-10-27T15:00', who: ['room:Atelier'] });
-  assert.equal(booked.data!.ok, true, booked.text);
-  assert.match(booked.text, /booked in Autark/);
-  assert.equal(a.calendar.list('room:atelier', at('14:00'), at('16:00')).events.length, 1);
 
   a.s.people = { list: () => [
     { id: HUMAN_ID, name: '', title: 'CEO', status: 'active' }, { id: ANNA, name: 'Anna', title: 'Design', status: 'active' },

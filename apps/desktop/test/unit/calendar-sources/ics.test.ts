@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { icsAddress, readIcs } from '../../../src/runtime/calendar/sources/ics.ts';
 import { parseDuration, parseLine, readCalendar, unescapeText, unfold } from '../../../src/runtime/calendar/sources/ics-parse.ts';
-import { parseIcsTime, wallToUtc, zoneOf } from '../../../src/runtime/calendar/sources/ics-time.ts';
+import { parseIcsTime, zoneOf } from '../../../src/runtime/calendar/sources/ics-time.ts';
 import { FROM, GOOGLE_EXPORT, OUTLOOK_EVENT, TO, VIENNA, vienna } from './ics-fixtures.ts';
 
 const read = (text = GOOGLE_EXPORT, from = FROM, to = TO) => readIcs(text, from, to, VIENNA);
@@ -91,7 +91,7 @@ test('zones: IANA names, vendor prefixes, Windows names; an unknown TZID or a fl
   assert.equal(parseIcsTime('20260230', {}, VIENNA), undefined, 'no 30 February');
   assert.equal(parseIcsTime('2026-10-24', {}, VIENNA), undefined);
   // 02:30 on 29 March 2026 does not exist in Vienna: it moves on by the gap
-  assert.equal(wallToUtc('2026-03-29', 2.5 * 3600, VIENNA), Date.UTC(2026, 2, 29, 1, 30));
+  assert.equal(parseIcsTime('20260329T023000', { TZID: VIENNA }, 'UTC')!.at, Date.UTC(2026, 2, 29, 1, 30));
 });
 
 test('the content-line grammar: folding, quoted parameters with colons, TEXT escapes, DURATION values', () => {

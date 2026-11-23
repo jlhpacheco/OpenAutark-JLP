@@ -1,22 +1,21 @@
-// RPC handlers: tasks (board/chat tasks), the person's "For you" list (todos) and schedules.
-// tasks.create (to: an agent, 'human', a colleague, 'team' – Autark picks – or 'me'), tasks.update (fields, the plan,
-// status 'open' to resume or reopen), tasks.give, tasks.finish (done or dropped – a to-do with a widget done is an
+// RPC handlers: tasks (quests and to-dos), the person's "For you" list (todos) and schedules.
+// tasks.create (to: an agent, 'human', a colleague, 'team' – Autark picks – or 'me'; kind 'quest' or a to-do in a quest),
+// tasks.update (fields, its time, its quest, the plan, status 'open' to resume or reopen), tasks.give, tasks.finish (done or dropped – a to-do with a widget done is an
 // *answer*: stored, the person's line posted, its author woken). A task without a chat is chat-free (the origin is
 // runtime-written). tasks.share ("Share to chat…") lives in handlers/task-links.ts.
 // Owns: param checks and scope rules. Never: business logic – it delegates to the task service and the scheduler. A
 // device without the 'tasks' capability may only finish the person's to-dos, not agents' work. Changing, deleting or
-// running schedules needs 'manage'; a snoozed to-do's recorded end follows its paused, resumed or deleted ring.
+// running schedules needs 'manage'.
 
 import { WorkforceError } from '../../../shared/errors.ts';
 import { HUMAN_ID } from '../../../shared/ids.ts';
 import { validateBlock } from '../../../shared/blocks/validate.ts';
 import type { UiBlock } from '../../../shared/blocks/catalog.ts';
-import type { CreateTaskInput, ScheduleSpec, Task, TaskFilter, TaskStatus, TaskView } from '../../../shared/model/tasks.ts';
+import { TASK_KINDS, TODO_REPEATS, type CreateTaskInput, stillRuns, type Schedule, type ScheduleSpec, type Task, type TaskFilter, type TaskStatus, type TaskView } from '../../../shared/model/tasks.ts';
 import type { TaskPatch } from '../../tasks/service.ts';
 import type { RuntimeServices } from '../../contracts.ts';
 import { answerWithSecrets } from '../../secrets/capture.ts';
 import { MAX_DECLINE_REASON, declineAnswer, removeTodo } from '../../tasks/decline.ts';
-import { snoozeChanged } from '../../tasks/timers.ts';
 import { POST_PRIORITIES, rewordPost } from '../../schedules/post.ts';
 import { registerTaskLinks } from './task-links.ts';
 import { PREVIEW_MAX, previewTimes } from '../../schedules/preview.ts';
@@ -33,7 +32,8 @@ const STATUSES: readonly TaskStatus[] = ['open', 'waiting', 'done', 'dropped'];
 const ASSIGNEES = ['team', 'agent', 'human'] as const;
 const PRIORITIES = [0, 1, 2] as const;
 const MAX_NOTES = 50_000;
-const PATCH_KEYS = ['title', 'notes', 'dueAt', 'priority', 'doneWhen', 'dependsOn', 'sort', 'plan', 'status'] as const;
+const PATCH_KEYS = ['title', 'notes', 'at', 'minutes', 'priority', 'doneWhen', 'dependsOn', 'sort', 'plan', 'status', 'private', 'parentId', 'kind'] as const;
+const MAX_MINUTES = 24 * 60;
 
 function taskOrThrow(services: RuntimeServices, taskId: string): TaskView {
   return services.tasks.get(taskId) ?? notFound('Task', { taskId });
@@ -53,39 +53,44 @@ function widgetOf(o: Obj): UiBlock | undefined {
 
 function filterOf(params: unknown): TaskFilter {
   const o = input(params);
-  onlyKeys(o, ['conversationId', 'status', 'assigneeKind', 'assigneeId', 'spaceId', 'search', 'includeSteps', 'limit', 'completedSince']);
+  onlyKeys(o, ['conversationId', 'kind', 'status', 'assigneeKind', 'assigneeId', 'spaceId', 'search', 'includeSteps', 'limit', 'completedSince', 'givenBy']);
   const status = optStrings(o, 'status', { maxItems: STATUSES.length, max: 20 });
   if (status?.some((value) => !(STATUSES as readonly string[]).includes(value))) bad('status', `statuses from ${STATUSES.join(', ')}`);
   return {
-    conversationId: optId(o, 'conversationId'), status: status as TaskStatus[] | undefined, assigneeKind: optOneOf(o, 'assigneeKind', ASSIGNEES),
+    conversationId: optId(o, 'conversationId'), kind: optOneOf(o, 'kind', TASK_KINDS), status: status as TaskStatus[] | undefined, assigneeKind: optOneOf(o, 'assigneeKind', ASSIGNEES),
     assigneeId: optId(o, 'assigneeId'), spaceId: optId(o, 'spaceId'), search: optText(o, 'search', { max: 200, allowEmpty: true }),
     includeSteps: optBool(o, 'includeSteps'), limit: optNum(o, 'limit', { min: 1, max: 1000 }),
-    completedSince: optNum(o, 'completedSince', { min: 0 }),
+    completedSince: optNum(o, 'completedSince', { min: 0 }), givenBy: optText(o, 'givenBy', { max: 120 }),
   };
 }
 
 function createInput(params: unknown): { input: Omit<CreateTaskInput, 'assigneeKind' | 'assigneeId'>; to: string } {
   const o = input(params);
-  onlyKeys(o, ['conversationId', 'title', 'notes', 'plan', 'to', 'dueAt', 'priority', 'doneWhen', 'dependsOn', 'parentId', 'widget', 'clientId']);
+  onlyKeys(o, ['conversationId', 'kind', 'title', 'notes', 'plan', 'to', 'at', 'minutes', 'priority', 'doneWhen', 'dependsOn', 'parentId', 'widget', 'clientId', 'private']);
   return {
     to: optText(o, 'to', { max: 120 }) ?? 'me',
     input: {
       conversationId: optId(o, 'conversationId'), title: text(o, 'title', { max: 300 }), notes: optText(o, 'notes', { max: MAX_NOTES, allowEmpty: true, multiline: true }),
-      plan: optStrings(o, 'plan', { maxItems: 20, max: 300 }), dueAt: optNum(o, 'dueAt', { min: 0 }), priority: priorityOf(o),
+      kind: optOneOf(o, 'kind', TASK_KINDS), plan: optStrings(o, 'plan', { maxItems: 20, max: 300 }), at: optNum(o, 'at', { min: 0 }),
+      minutes: optNum(o, 'minutes', { min: 1, max: MAX_MINUTES }), priority: priorityOf(o), private: optBool(o, 'private'),
       doneWhen: optText(o, 'doneWhen', { max: 2000, multiline: true }), parentId: optId(o, 'parentId'), widget: widgetOf(o),
       clientId: optText(o, 'clientId', { max: 100 }), dependsOn: optIds(o, 'dependsOn', 50),
     },
   };
 }
 
-/** Patch for tasks.update: null clears optional fields (JSON has no undefined). */
+/** Patch for tasks.update: null clears optional fields (JSON has no undefined) – `at`/`minutes` the time, `parentId` the quest. */
 function patchOf(value: unknown): TaskPatch {
   const o = input(value);
   onlyKeys(o, PATCH_KEYS, 'patch');
   const patch: TaskPatch = {};
   if ('title' in o) patch.title = text(o, 'title', { max: 300 });
   if ('notes' in o) patch.notes = optText(o, 'notes', { max: MAX_NOTES, allowEmpty: true, multiline: true }) ?? '';
-  if ('dueAt' in o) patch.dueAt = optNum(o, 'dueAt', { min: 0 });
+  if ('at' in o) patch.at = optNum(o, 'at', { min: 0 }) ?? null;
+  if ('minutes' in o) patch.minutes = optNum(o, 'minutes', { min: 1, max: MAX_MINUTES }) ?? null;
+  if ('parentId' in o) patch.parentId = optId(o, 'parentId') ?? null;
+  if ('kind' in o) patch.kind = optOneOf(o, 'kind', TASK_KINDS);
+  if ('private' in o) patch.private = optBool(o, 'private') === true;
   if ('priority' in o) patch.priority = priorityOf(o) ?? 0;
   if ('doneWhen' in o) patch.doneWhen = optText(o, 'doneWhen', { max: 2000, multiline: true });
   if ('dependsOn' in o) patch.dependsOn = optIds(o, 'dependsOn', 50) ?? [];
@@ -94,7 +99,7 @@ function patchOf(value: unknown): TaskPatch {
   if ('status' in o) patch.status = optOneOf(o, 'status', ['open'] as const);
   for (const key of Object.keys(patch) as Array<keyof TaskPatch>) {
     // Keys the service must not clear stay out when null was sent for them.
-    if (patch[key] === undefined && (key === 'sort' || key === 'title' || key === 'status')) delete patch[key];
+    if (patch[key] === undefined && (key === 'sort' || key === 'title' || key === 'status' || key === 'kind')) delete patch[key];
   }
   return patch;
 }
@@ -136,6 +141,15 @@ function reorder(params: unknown, ctx: HandlerContext): { ok: true } {
   return { ok: true };
 }
 
+/** Settings › Scheduled (owner 21.11.2026): a scheduled message moves to another chat – one its author is in. */
+function movedTo(services: RuntimeServices, schedule: Schedule, conversationId: string): string {
+  if (schedule.kind !== 'message') throw new WorkforceError('bad_request', 'Only a scheduled message moves to another chat.', { details: { scheduleId: schedule.id } });
+  services.chats.get(conversationId) ?? notFound('Chat', { conversationId });
+  const member = services.chats.members(conversationId).some((entry) => entry.memberId === schedule.ownerId && !entry.leftAt);
+  if (schedule.ownerId !== HUMAN_ID && !member) throw new WorkforceError('bad_request', 'Its agent is not in that chat.', { details: { scheduleId: schedule.id, conversationId } });
+  return conversationId;
+}
+
 export function register(table: HandlerTable): void {
   // ---------------------------------------------------------------- tasks
   table.add('tasks.list', (params, ctx) => ctx.services.tasks.list(filterOf(params)), TASKS);
@@ -171,13 +185,9 @@ export function register(table: HandlerTable): void {
 
   // ---------------------------------------------------------------- human to-dos
   table.add('todos.list', (params, ctx) => ctx.services.tasks.todos(optNum(input(params), 'limit', { min: 1, max: 200 }) ?? 50), TODO);
-  table.add('todos.add', (params, ctx) => {
-    const o = input(params);
-    return ctx.services.tasks.addTodo(text(o, 'text', { max: 4000, multiline: true }), optId(o, 'conversationId'));
-  }, TODO);
   table.add('todos.changeWidget', (params, ctx) => {
     const o = input(params);
-    return ctx.services.tasks.changeWidget(taskOrThrow(ctx.services, id(o)).id, text(o, 'type', { max: 40 }));
+    return ctx.services.tasks.changeWidget(taskOrThrow(ctx.services, id(o)).id, text(o, 'type', { max: 40 }), optOneOf(o, 'repeat', TODO_REPEATS));
   }, TODO);
   // Snooze (F03): by to-do id or by the chat block it came from; minutes from now or an exact time.
   table.add('todos.snooze', (params, ctx) => {
@@ -212,11 +222,13 @@ export function register(table: HandlerTable): void {
   // ---------------------------------------------------------------- schedules
   table.add('schedules.list', (params, ctx) => {
     const o = input(params);
-    return ctx.services.scheduler.list({ conversationId: optId(o, 'conversationId'), ownerId: optId(o, 'ownerId') });
+    const list = ctx.services.scheduler.list({ conversationId: optId(o, 'conversationId'), ownerId: optId(o, 'ownerId') });
+    const agent = ctx.scope.kind === 'agent' || (ctx.scope.kind === 'owner' && ctx.scope.agentId !== undefined);
+    return (optBool(o, 'all') ?? !agent) ? list : list.filter(stillRuns); // what no longer runs reaches an agent when it asks
   }, TASKS);
   table.add('schedules.update', (params, ctx) => {
     const o = input(params);
-    onlyKeys(o, ['id', 'active', 'spec', 'title', 'body', 'priority', 'mentions']);
+    onlyKeys(o, ['id', 'conversationId', 'active', 'spec', 'title', 'body', 'priority', 'mentions']);
     const scheduleId = id(o);
     const current = ctx.services.scheduler.get(scheduleId) ?? notFound('Schedule', { scheduleId });
     const patch: Parameters<RuntimeServices['scheduler']['update']>[1] = {};
@@ -224,14 +236,14 @@ export function register(table: HandlerTable): void {
     if (active !== undefined) patch.active = active;
     const spec = optObj(o, 'spec');
     if (spec) patch.spec = spec as ScheduleSpec; // validated by the scheduler
-    // T11: rewording the person's own message or task post (schedules/post.ts refuses agents' ones).
+    const conversationId = optId(o, 'conversationId');
+    if (conversationId !== undefined && conversationId !== current.conversationId) patch.conversationId = movedTo(ctx.services, current, conversationId);
+    // T11, owner 21.11.2026: rewording any scheduled message or an agent's reminder note (schedules/post.ts).
     const reword = { body: optText(o, 'body', { max: 100_000, multiline: true }), priority: optOneOf(o, 'priority', POST_PRIORITIES), mentions: optIds(o, 'mentions', 50) };
     if (reword.body !== undefined || reword.priority !== undefined || reword.mentions !== undefined) Object.assign(patch, rewordPost(current, reword));
     const title = optText(o, 'title', { max: 120 });
     if (title !== undefined) patch.title = title;
-    const updated = ctx.services.scheduler.update(scheduleId, patch, HUMAN_ID); // B-044: the person's pause only the person lifts
-    snoozeChanged(ctx.services, updated);
-    return updated;
+    return ctx.services.scheduler.update(scheduleId, patch, HUMAN_ID); // B-044: the person's pause only the person lifts
   }, MANAGE);
   /** T11: read-only next-run preview for the schedule dialog (the chat tier schedules messages). */
   table.add('schedules.preview', (params, ctx) => {
@@ -243,9 +255,8 @@ export function register(table: HandlerTable): void {
   }, { capability: 'chat' });
   table.add('schedules.delete', (params, ctx) => {
     const scheduleId = id(input(params));
-    const schedule = ctx.services.scheduler.get(scheduleId) ?? notFound('Schedule', { scheduleId });
+    ctx.services.scheduler.get(scheduleId) ?? notFound('Schedule', { scheduleId });
     ctx.services.scheduler.remove(scheduleId);
-    snoozeChanged(ctx.services, schedule);
     return { ok: true };
   }, MANAGE);
   table.add('schedules.runNow', (params, ctx) => {

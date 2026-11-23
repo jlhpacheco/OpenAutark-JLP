@@ -23,6 +23,7 @@ import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { openDatabase } from '../../src/runtime/db/upgrade.ts';
 import { FIXTURE, writeOldProfile } from '../unit/repair/old-profile.ts';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -32,7 +33,7 @@ test('repair screen: a newer data schema, diagnostics, restore of the pre-update
   const shots = process.env.SCREENSHOTS ? path.resolve(process.env.SCREENSHOTS) : path.join(profile, 'shots');
   await mkdir(shots, { recursive: true });
   writeOldProfile(profile);
-  openDatabase({ file: path.join(profile, 'workforce.db'), dataDir: profile, version: '0.1.9' }).close(); // the copy '0.1.9-s9'
+  openDatabase({ file: path.join(profile, 'workforce.db'), dataDir: profile, version: '0.1.9' }).close(); // the copy '0.1.9-s91'
   const db = new DatabaseSync(path.join(profile, 'workforce.db'));
   db.prepare(`UPDATE meta SET value = '9999' WHERE key = 'schema'`).run();
   db.close();
@@ -98,7 +99,7 @@ test('repair screen: a newer data schema, diagnostics, restore of the pre-update
   await shot('repair-05-confirm');
   await dialog.getByRole('button', { name: 'Restore' }).click();
   await page.locator('.shell').waitFor({ timeout: 90_000 });
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   const rpc = await connect(info.port, info.token, 'cli');
   t.after(() => rpc.close?.());
   assert.ok((await rpc.call('chats.list')).some((chat) => chat.id === FIXTURE.chatId), 'the old chat is back');

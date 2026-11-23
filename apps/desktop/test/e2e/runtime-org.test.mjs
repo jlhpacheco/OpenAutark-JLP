@@ -6,8 +6,8 @@
 //     approval to-do); the Secretary exists once,
 //     reports to the person (no manager, her own root) and works in the new Private space – her
 //     own system prompt says so.
-//  3. Delegation: the Manager gives a web developer a job (tasks.create to the developer, in a work
-//     chat); the developer finishes it with tasks.finish in its 'task' turn; the Manager is woken
+//  3. Delegation: the Manager gives a web developer a job (tasks.add for the developer); the
+//     developer finishes it with tasks.update (status done) in its 'task' turn; the Manager is woken
 //     with reason 'child' in the chat it gave the work from (tasks/lifecycle.ts tellGiver, ledger.givenIn).
 //  4. Scale: 30 agents in 3 spaces under 3 managers (and the Manager above them) – org depth and
 //     counts, the identity's report list cap (15 + "and N more"), the size of agents.list for a
@@ -117,13 +117,13 @@ test('hiring and delegation: the secretary at once, delegated work comes back to
   const work = await client.call('chats.create', { title: 'Landing page', agentIds: [manager.id] });
   await client.call('events.subscribe', { topics: [`chat:${brief.id}`, `chat:${work.id}`, `runs:${dev.id}`, `runs:${manager.id}`] });
 
-  const complete = '[[tool:tasks.finish {"taskId":"$task","status":"done","summary":"Landing page built","evidence":[{"kind":"note","label":"Landing page checked in the preview"}]}]]';
+  const complete = '[[tool:tasks.update {"id":"$task","status":"done","result":"Landing page built","evidence":[{"kind":"note","label":"Landing page checked in the preview"}]}]]';
   // The fake engine runs directives only from new input: the developer's turn reads the task's anchor line in the work
   // chat ("[task …] <title>") as new, not the brief in its prompt – so the finishing directive rides at the end of the
   // title, past the 120 characters its wake note and line headers quote (a cut-off directive there would swallow it).
   const brief120 = 'Build the landing page: one screen with a headline, three short benefits, the pricing table and a sign-up form, checked in the preview.';
   assert.ok(brief120.length > 120);
-  const job = { to: dev.id, title: `${brief120} ${complete}`, chatId: work.id, notes: 'One page; brand colours; works on phones.' };
+  const job = { for: dev.id, title: `${brief120} ${complete}`, notes: 'One page; brand colours; works on phones.' };
   // The checkpoint quotes the first 300 characters of the latest request to the developer: the
   // brief comes first, so no complete directive of the Manager's own call reaches it.
   const text = 'The landing page presents the product on one screen: a headline, three short benefits, the pricing table and a sign-up '
@@ -132,8 +132,8 @@ test('hiring and delegation: the secretary at once, delegated work comes back to
   assert.ok(text.length > 300);
   const doneTask = later(waitForNew(client, 'task.upserted', (task) => task.title === job.title && task.status === 'done', 30_000));
   const childRun = later(waitForNew(client, 'run.upserted', (run) => run.agentId === manager.id && run.trigger === 'child' && run.status === 'done', 30_000));
-  const sent = await ask(client, brief.id, manager.id, `${text} [[tool:tasks.create ${hidden(job)}]]`, { pattern: /tasks\.create → / });
-  const delegated = toolResult(sent.message.body, 'tasks.create');
+  const sent = await ask(client, brief.id, manager.id, `${text} [[tool:tasks.add ${hidden(job)}]]`, { pattern: /tasks\.add → / });
+  const delegated = toolResult(sent.message.body, 'tasks.add');
   assert.deepEqual([delegated.ok, delegated.owner], [true, `${dev.name} (${dev.id})`], JSON.stringify(delegated));
 
   const done = await doneTask;

@@ -4,18 +4,12 @@
 // One file at a time: a second save waits for the first, so the app never sees two files' chunks interleaved.
 // Owns: the chunking. Never: decides where the file lands (the app does), downloads anything outside the app.
 
+import { toBase64 } from '../lib/files.ts';
 import { hasNativePort, sendNative } from './native-port.ts';
 
 export const CHUNK_BYTES = 512 * 1024;
 /** What the app takes in one save (and what files.read hands the page at most). */
 export const PHONE_DOWNLOAD_MAX = 25 * 1024 * 1024;
-
-/** Base64 of bytes, built in slices (one String.fromCharCode call per 32 KB). */
-export function toBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(binary);
-}
 
 /** A file name without folders, at most 120 characters ("download" when nothing is left). */
 export function safeName(name: string): string {

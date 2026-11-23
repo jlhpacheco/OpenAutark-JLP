@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { SecretVault } from '../../../src/runtime/secrets/service.ts';
 import { FindService } from '../../../src/runtime/find/service.ts';
 import { findTools } from '../../../src/runtime/tools/builtin/find.ts';
@@ -93,7 +93,7 @@ function answering(answer: (call: Parameters<StructuredRunner>[0]) => Record<str
   return { runner, calls };
 }
 
-test('the look before a turn offers a fitting login and opens it as the main AI\'s own knowledge.open – handles, never the value', async () => {
+test('the look before a turn offers a fitting login and hints it with its handles – never the value, never an open call', async () => {
   const f = fixture();
   const vault = new SecretVault({ db: f.db, host, clock: f.clock });
   (f.services as unknown as { secrets: SecretVault }).secrets = vault;
@@ -103,14 +103,15 @@ test('the look before a turn offers a fitting login and opens it as the main AI\
   const ida = f.org.add(agent('ag_ida', 'Ida', { role: 'Assistant' }));
   const id = `secret:${login.group.id}`;
   type Schema = { properties: Record<string, { items?: { properties?: { id?: { enum?: string[] } } } }> };
-  const brain = answering((call) => ({ open: ((call.schema as Schema).properties.open?.items?.properties?.id?.enum ?? []).filter((entry) => entry === id).map((entry) => ({ id: entry, changes: 'the portal login it signs in with' })) }));
+  const brain = answering((call) => ({ hints: ((call.schema as Schema).properties.hints?.items?.properties?.id?.enum ?? []).filter((entry) => entry === id).map((entry) => ({ id: entry, line: `The portal login it signs in with (password ${PASSWORD}).` })) }));
   const look = await routeTurn(f.services, brain.runner, { agent: ida, said: 'Log in to the Larsen Marine Portal and download the invoices.', held: true, deadlineMs: ROUTE_WAIT_MS });
   const [call] = brain.calls;
   assert.match(call.prompt, new RegExp(`- ${id} · secret · Larsen Marine Portal – The supplier portal`));
   assert.match(call.system, /the secrets catalog \(names and handles, never values\)/);
-  assert.equal(look?.calls.length, 1);
-  const [opened] = look!.calls;
-  assert.deepEqual([opened.tool, opened.args.id], ['knowledge.open', id]);
-  assert.match(opened.output, /username secret:\/\/\S+, password secret:\/\/\S+/);
-  assert.ok(!opened.output.includes(PASSWORD) && !call.prompt.includes(PASSWORD));
+  assert.equal(look?.hints.length, 1);
+  const [hint] = look!.hints;
+  assert.equal(hint.id, id);
+  assert.match(hint.open, /username secret:\/\/\S+, password secret:\/\/\S+/, 'its handles instead of the open call');
+  assert.doesNotMatch(hint.open, /knowledge\.open/);
+  assert.ok(!hint.line.includes(PASSWORD) && !hint.open.includes(PASSWORD) && !call.prompt.includes(PASSWORD));
 });

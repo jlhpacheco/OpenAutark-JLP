@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -40,11 +41,12 @@ test('a browser per chat: shared tabs, global untouched, agents with the window 
   // An old profile's flat list: it moves over once.
   await writeFile(path.join(profile, 'workspace-tabs.json'), JSON.stringify({ version: 1, tabs: [{ id: 'web-old-global', url: `${address}/Old%20global` }] }));
 
-  const launch = () => electron.launch({
+  let launchedAt = 0; // a restart reads the runtime.json of its own start (lib/runtime-info.mjs)
+  const launch = () => { launchedAt = Date.now(); return electron.launch({
     executablePath: path.join(root, 'node_modules/electron/dist', process.platform === 'win32' ? 'electron.exe' : 'electron'),
     args: [root], cwd: root, timeout: 60_000,
     env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', WORKFORCE_TAB_IDLE_MS: '30000' }),
-  });
+  }); };
   let app = await launch();
   let rpc;
   t.after(async () => {
@@ -63,7 +65,7 @@ test('a browser per chat: shared tabs, global untouched, agents with the window 
   await page.waitForSelector('.shell', { timeout: 60_000 });
   const reconnect = async () => {
     rpc?.close?.();
-    const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+    const info = await runtimeInfo(profile, 60_000, launchedAt);
     rpc = await connect(info.port, info.token, 'cli');
   };
   await reconnect();
@@ -179,6 +181,9 @@ test('a browser per chat: shared tabs, global untouched, agents with the window 
   // ---- an agent really clicks in a tab nobody looks at, with the window open: the person stays on what they see
   await goChat(other.id);
   await page.locator(AREA).waitFor({ state: 'detached' }); // the other chat's area is closed: nobody looks at the shared page
+  // A cursor resting where the page was (this PC's real mouse) makes Windows send the page a move as it goes: that is
+  // the person's input for side-driver's 2 s rule (PERSON_PRIORITY_MS), so the agent's click waits it out.
+  await page.waitForTimeout(2_100);
   const snapshot = await agentDoes(group, lena, '[[tool:browser.snapshot {"where":"chat"}]]');
   const press = /button "Press"[^\n]*\[ref=(s\d+)\]/.exec(snapshot)?.[1];
   assert.ok(press, snapshot.slice(0, 400));
@@ -249,10 +254,10 @@ test('a browser per chat: shared tabs, global untouched, agents with the window 
 
   // ---- an edit of the file reaches the window: a panel and a new website tab in global
   const edited = await file();
-  edited.spaces.global.tabs.push({ id: 'day', panel: 'day' }, { id: 'web-from-file', url: `${address}/From%20file` });
+  edited.spaces.global.tabs.push({ id: 'tasks', panel: 'tasks' }, { id: 'web-from-file', url: `${address}/From%20file` });
   await writeFile(path.join(profile, 'side-tabs.json'), JSON.stringify(edited, null, 1));
   await until('the file\'s tabs in the strip', async () => (await page.locator(`${PANE} .browser-strip-tab`).count()) === global.titles.length + 2);
-  assert.ok(await page.locator(`${PANE} .browser-strip-tab[data-tab="day"]`).count());
+  assert.ok(await page.locator(`${PANE} .browser-strip-tab[data-tab="tasks"]`).count());
   assert.ok(await page.locator(`${PANE} .browser-strip-tab[data-tab="web-from-file"]`).count());
   await shot('04-after-file-edit');
 

@@ -112,19 +112,6 @@ export function pcm16Bytes(samples: Float32Array): Uint8Array {
   return out;
 }
 
-/** The part of a Web Audio AudioBuffer wavFromDecoded reads (no DOM types in the shared layer). */
-export interface DecodedAudio { numberOfChannels: number; sampleRate: number; length: number; getChannelData(channel: number): Float32Array }
-
-/** A page's decoded take (AudioContext.decodeAudioData of its webm/ogg) as a 16 kHz mono WAV for the local model. */
-export function wavFromDecoded(audio: DecodedAudio, rate = 16_000): Uint8Array {
-  const mono = new Float32Array(audio.length);
-  for (let channel = 0; channel < audio.numberOfChannels; channel++) {
-    const data = audio.getChannelData(channel);
-    for (let index = 0; index < mono.length; index++) mono[index] += (data[index] ?? 0) / audio.numberOfChannels;
-  }
-  return encodeWav(resample(mono, audio.sampleRate, rate), rate);
-}
-
 /** A mono PCM16 WAV file of `samples`. */
 export function encodeWav(samples: Float32Array, sampleRate: number): Uint8Array {
   const pcm = pcm16Bytes(samples);

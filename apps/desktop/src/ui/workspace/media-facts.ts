@@ -2,6 +2,8 @@
 // PDF or any other file, from its type and name) and its one-line facts ("1280×720 · 0:42 · 3.2 MB").
 // Owns: these conversions. Never: the DOM or RPC (tested in test/unit/ui/workspace-tabs.test.ts).
 
+import { fileSize } from '../lib/format.ts';
+
 export type ViewKind = 'image' | 'video' | 'audio' | 'pdf' | 'file';
 
 export function viewKind(mime: string, name: string): ViewKind {
@@ -40,18 +42,12 @@ export function durationLabel(ms: number): string {
   return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}` : `${minutes}:${seconds}`;
 }
 
-function sizeLabel(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
 /** Measured facts joined by " · "; empty when nothing is known. */
 export function mediaFacts(info: { width?: number; height?: number; durationMs?: number; pages?: number; size?: number }): string {
   const parts: string[] = [];
   if (info.width && info.height) parts.push(`${info.width}×${info.height}`);
   if (info.durationMs) parts.push(durationLabel(info.durationMs));
   if (info.pages) parts.push(info.pages === 1 ? '1 page' : `${info.pages} pages`);
-  if (info.size !== undefined) parts.push(sizeLabel(info.size));
+  if (info.size !== undefined) parts.push(fileSize(info.size));
   return parts.join(' · ');
 }

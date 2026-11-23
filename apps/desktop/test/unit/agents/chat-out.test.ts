@@ -103,3 +103,20 @@ test('"## My chats": a stable line per chat; unseen lines of others get one news
   const [message] = h.chats.messages(h.mine.id, { limit: 1 });
   assert.match(lineLabel(renderContext(h.services, 'ag_tom'), message), new RegExp(`^\\[${h.mine.id} "Rechnungen" · CEO · \\d\\d:\\d\\d #${message.seq}\\]$`));
 });
+
+test('a block that only imitates a call ("[ran …]") is never posted; the run log notes it (feedback 33b2e3af, 20.11.)', async () => {
+  const h = room();
+  const out = new ChatOutbox(h.services, { agentId: 'ag_tom', runId: 'run_1' });
+  out.segment(`<chat to="${h.mine.id}">[ran WebSearch: {"query":"best text to speech API"}]</chat>\n<chat to="${h.mine.id}">Real answer.</chat>`, true);
+  await out.done();
+  assert.deepEqual(h.tom(h.mine.id).map((message) => message.body), ['Real answer.']);
+  assert.ok(out.notes.some((line) => line.includes('only imitated a tool call')));
+});
+
+test('"[ran out of …" at the start of a block is prose and posts (review 20.11.)', async () => {
+  const h = room();
+  const out = new ChatOutbox(h.services, { agentId: 'ag_tom', runId: 'run_1' });
+  out.segment(`<chat to="${h.mine.id}">[ran out of time on the export – it continues tomorrow]</chat>`, true);
+  await out.done();
+  assert.equal(h.tom(h.mine.id).length, 1);
+});

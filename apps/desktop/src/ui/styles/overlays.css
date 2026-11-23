@@ -10,7 +10,7 @@ dialog.dialog[open] { animation: wf-dialog-in .16s ease-out; }
 dialog.dialog[open]::backdrop { animation: wf-fade-in .16s ease-out; }
 @keyframes wf-dialog-in { from { opacity: 0; transform: translateY(6px) scale(.985); } }
 @keyframes wf-fade-in { from { opacity: 0; } }
-.dialog-header h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; }
+.dialog-header h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(17px * var(--ui-text, 1)); }
 .dialog-header .icon-button.small { margin-right: -6px; color: var(--secondary); }
 /* the title's × gets the focus when a dialog opens: a quiet filled square (no heavy ring around it at every opening) */
 .dialog-header .icon-button.small:focus-visible { outline: none; background: var(--hover); color: var(--text); }
@@ -19,7 +19,7 @@ dialog.dialog[open]::backdrop { animation: wf-fade-in .16s ease-out; }
 .dialog-content > .dialog-text + .dialog-actions { margin-top: 20px; }
 .dialog-actions { flex-wrap: wrap; }
 /* one footer button size in every dialog (Cancel, Save, Done, Start …): a small row button keeps the footer's height */
-.dialog-actions > .button.small, .dialog-actions > span > .button.small { min-height: 36px; padding: 7px 14px; border-radius: var(--r-md); font-size: 13px; }
+.dialog-actions > .button.small, .dialog-actions > span > .button.small { min-height: 36px; padding: 7px 14px; border-radius: var(--r-md); font-size: calc(13px * var(--ui-text, 1)); }
 /* confirm host: short title, one line of text, Cancel + one action */
 .dialog-text:empty { display: none; }
 /* B-044 visual pass, round 2 – a form taller than the window keeps its title and its buttons: the title row
@@ -68,6 +68,13 @@ dialog.dialog.anchored { margin-block: var(--dialog-top) auto; max-height: calc(
 .menu-item { min-height: 36px; line-height: 1.4; }
 .menu-item .menu-label small { margin-top: 1px; }
 .menu-item > .icon:last-child:not(.menu-check) { opacity: .5; }
+/* 20.11.2026: a row with its own ⋯ (a company in the profile menu) – the slot at its end is always kept, so the tick and the
+   text never move; the dots show on hover or keyboard focus, always on touch */
+.menu-row { position: relative; }
+.menu .menu-row > .menu-item { padding-right: 40px; }
+.menu-row > .menu-more { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); color: var(--secondary); opacity: 0; transition: opacity .12s; }
+.menu-row:hover > .menu-more, .menu-row:has(:focus-visible) > .menu-more { opacity: 1; }
+@media (hover: none) { .menu-row > .menu-more { opacity: 1; } }
 
 /* ---------------------------------------------------------------- toasts */
 .toast { animation: wf-toast-in .18s ease-out; }
@@ -84,5 +91,5 @@ dialog.dialog.anchored { margin-block: var(--dialog-top) auto; max-height: calc(
 .dialog-choice { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
 .dialog-choice.on { border-color: var(--text); }
 .dialog-choice input[type=radio] { flex: none; width: 16px; height: 16px; margin: 2px 0 0; }
-.dialog-choice-text { display: grid; gap: 2px; min-width: 0; color: var(--text); font-size: 14px; line-height: 1.4; }
-.dialog-choice-text small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.dialog-choice-text { display: grid; gap: 2px; min-width: 0; color: var(--text); font-size: calc(14px * var(--ui-text, 1)); line-height: 1.4; }
+.dialog-choice-text small { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: 1.5; }

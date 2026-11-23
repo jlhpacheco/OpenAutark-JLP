@@ -1,13 +1,13 @@
 // Due notices on the phone (17.11.2026, the owner: three stacked cards "Due: 2 minutes at the PC …", "Due: Recording …" that "bleiben viel zu lange, nervenvoll"):
 // the runtime pushes one notice per to-do that falls due (runtime/tasks/watch.ts "Due: <title>", kind 'todo', each under its own tag). The worker keeps ONE
 // of them – the tag "due" – that names what is due now ("Due: Call the tax office", then "3 to-dos due" with their titles), replaces the earlier one quietly
-// instead of stacking, and closes it by itself after DUE_SHOW_MS (a tap on it still opens My day). Pure: it decides the text and the data; sw-notify.ts shows it.
+// instead of stacking, and closes it by itself after DUE_SHOW_MS (a tap on it still opens the Tasks page). Pure: it decides the text and the data; sw-notify.ts shows it.
 // Owns: what a Due notice says and how long it stays. Never: shows, closes or sends anything.
 
 import type { PushPayload } from './sw-notify.ts';
 
 /** How long a Due notice stays before the worker closes it. */
-export const DUE_SHOW_MS = 20_000;
+export const DUE_SHOW_MS = 6_000;
 /** The one tag every Due notice shares. */
 export const DUE_TAG = 'due';
 /** Titles kept in the grouped notice. */

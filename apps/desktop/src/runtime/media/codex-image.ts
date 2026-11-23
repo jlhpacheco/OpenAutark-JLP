@@ -28,7 +28,7 @@ import type { RuntimeServices } from '../contracts.ts';
 import type { Account, ModelInfo } from '../../shared/model/providers.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import type { EngineFile, EngineTurnInput } from '../engines/types.ts';
-import { chargeOf } from '../models/pricing.ts';
+import { accountCharge } from '../../shared/model/charge.ts';
 import { tierRank } from '../routing/score.ts';
 import { GENERATED_MAX_BYTES, imageMime } from './generate-http.ts';
 import type { Generated, GenerationRequest } from './providers/types.ts';
@@ -58,7 +58,7 @@ const UNABLE_TOOL = {
 export function codexImageAccount(s: Pick<RuntimeServices, 'accounts'>): Account | undefined {
   let accounts: Account[];
   try { accounts = s.accounts.candidates('codex'); } catch { return undefined; }
-  return accounts.find((account) => account.provider === 'codex' && account.enabled && account.state === 'ok' && chargeOf(account) === 'plan');
+  return accounts.find((account) => account.provider === 'codex' && account.enabled && account.state === 'ok' && accountCharge(account) === 'plan');
 }
 
 /** The account's small model: the newest Luna, else the lowest tier (the image tool does the work, not the chat model). */

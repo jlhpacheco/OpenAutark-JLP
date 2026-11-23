@@ -1,7 +1,7 @@
 // Startup sweep of chat delivery (C3, F-44): a message is committed in its own transaction before
 // delivery writes its wakes, and an un-addressed group message waits for the decision model – a
 // crash, quit or failed delivery in between leaves it unanswered. After wakes.reconcile() this
-// finds, per chat that has agent members (archived ones too, C2), the newest non-silent text message
+// finds, per chat that has agent members (archived ones and tasks' threads too, C2), the newest non-silent text message
 // when it is human- or external-authored, younger than RECOVER_WINDOW_MS, above every agent
 // member's read cursor (no agent has seen it), no agent member has any wake for that chat and no
 // agent member has a run in that chat that started at or after it. That run took the message up:
@@ -46,7 +46,7 @@ export function unansweredMessages(s: RecoveryDeps): Message[] {
     return runs.some(run => run.conversationId === conversationId && (run.startedAt ?? -1) >= since);
   };
   const found: Message[] = [];
-  for (const chat of s.chats.list({ includeHidden: true })) {
+  for (const chat of s.chats.list({ includeHidden: true, threads: true })) {
     const agents = chat.members.filter(member => member.kind === 'agent' && !member.leftAt);
     if (!agents.length) continue;
     const newest = newestText(s.chats.messages(chat.id, { limit: SCAN }));

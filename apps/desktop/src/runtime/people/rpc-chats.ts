@@ -13,6 +13,8 @@
 // the owner – the owner himself stays in it –, and writing in one they are not in makes them a member first – never
 // the owner's own 1:1s.
 // 18.11.2026: they search the chats they read (chats.search) and stop the agents' replies there (messages.stop).
+// Quests 20.11.2026: chats.thread opens a task's own thread (tasks/thread.ts) of a task they read – they join it –, and
+// chats.threadNews names their tasks whose thread has lines they have not read.
 // Owns: these person variants. Never: the owner's handlers, drafts, chat settings or files a person may not read.
 
 import { WorkforceError } from '../../shared/errors.ts';
@@ -30,6 +32,7 @@ import { chatAccess, chatIdsOf, companyChat, companyChatIds, mayReadFile, member
 import { realId, viewMember, viewMessage, viewSummary } from './perspective.ts';
 import { caller, usableAgent } from './rpc-base.ts';
 import { uploadNameIn } from './uploads.ts';
+import { threadNews, threadOf } from '../tasks/thread.ts';
 
 const MAX_BODY = 100_000;
 
@@ -82,6 +85,14 @@ export function registerPersonChats(table: HandlerTable): void {
     const { chat } = ownChat(ctx.services, person, id(input(params)));
     return personSummary(ctx.services, person, ctx.services.chats.summary(chat.id));
   });
+  table.addPerson('chats.thread', (params, ctx) => {
+    const person = caller(ctx);
+    const o = input(params);
+    onlyKeys(o, ['taskId']);
+    const thread = threadOf(ctx.services, id(o, 'taskId'), person.id);
+    return personSummary(ctx.services, person, ctx.services.chats.summary(thread.id));
+  });
+  table.addPerson('chats.threadNews', (_params, ctx) => threadNews(ctx.services, caller(ctx).id));
   table.addPerson('chats.create', (params, ctx) => {
     const person = caller(ctx);
     if (!person.scopes.startChats) throw new WorkforceError('forbidden', 'You may not start chats here. Ask the owner of the organisation.');

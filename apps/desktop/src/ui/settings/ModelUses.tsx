@@ -9,6 +9,7 @@
 // Owns: these rows. Never: resolves a use (the runtime does), or words a row (uses-view.ts).
 
 import { useEffect, useRef, useState } from 'preact/hooks';
+import { MODEL_CHOICES, MODEL_CHOICE_LABELS } from '../../shared/model/model-guide.ts';
 import { MODEL_USES, USE_LABELS, type ModelUse, type UseNow } from '../../shared/model/models-uses.ts';
 import type { RoutingSettings } from '../../shared/model/system.ts';
 import { rpc } from '../lib/rpc.ts';
@@ -20,9 +21,10 @@ import { act, ActionButton, Group, Row, Segmented, Select, useAsync, type Option
 import { openInTab } from './open-file.ts';
 import { localModels, pullModel, readLocalModels, speechChanges, speechPulls, useModel, watchSpeechPulls } from './speech-models.ts';
 import { running } from './speech-models-text.ts';
-import { namedValue, OTHER, setUpRequest, useRowView, writeModel, writeProvider, type UseWrite } from './uses-view.ts';
+import type { UseWrite } from '../../shared/model/models-uses.ts';
+import { namedValue, OTHER, setUpRequest, useRowView, writeModel, writeProvider } from './uses-view.ts';
 
-const COST_MODES: Array<Option<RoutingSettings['costMode']>> = [{ value: 'best', label: 'Best' }, { value: 'balanced', label: 'Balanced' }, { value: 'economy', label: 'Cheaper' }];
+const COST_MODES: Array<Option<RoutingSettings['costMode']>> = MODEL_CHOICES.map((value) => ({ value, label: MODEL_CHOICE_LABELS[value] }));
 const STATE_WORD: Readonly<Record<string, string>> = { ready: 'Ready', setup: 'Needs one step', off: 'Off', pending: '' };
 
 function save(write: UseWrite | undefined): void {

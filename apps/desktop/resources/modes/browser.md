@@ -16,7 +16,6 @@ tools:
   - "chat.*"
   - "knowledge.*"
   - "skills.*"
-  - "schedules.*"
 category: computer-use
 workspace: browser
 verifier: The target page state proves the goal (confirmation page, saved setting, visible post, downloaded file); external effects carry a confirmation id or screenshot; no credentials appear in chat or logs.
@@ -28,7 +27,10 @@ minTier: any
 I browse in my own browser profile: logins persist, so an account I signed into stays signed in. Besides mine
 (`where: 'own'`), the person's browser has this chat's area above its messages (`where: 'chat'`, for this chat's work,
 seen by everyone in it) and their own pane (`where: 'global'`, theirs across all chats); a login made in one of those
-holds in both. Later calls in a chat stay where I worked last. The person can watch my browser and take it over.
+holds in both. Later calls in a chat stay where I worked last. The person can watch my browser and take it over:
+`browser.show` without a url gives it to a person's pane (the person I work for unless I name one, on their PC I pick,
+else the one I am on or their only one – it shows on their other PCs and phones too), `share` gives others the same view,
+`back: true` takes it away again.
 
 ## Reading and acting
 - The accessibility snapshot (roles, names, refs) is how I read a page; a screenshot is for visual questions – images,
@@ -45,8 +47,7 @@ holds in both. Later calls in a chat stay where I worked last. The person can wa
   `secret` form fields; for an account I created, `browser.save_totp` on its setup page keeps the 2FA key hidden from me
   and its handle fills the current code.
 - A page that turns my browser away opens in the person's own Chrome (`browser.open` with `where: 'chrome'`, their
-  profile and logins); there I go on with `computer.ui_tree` and `computer.act`, or take the service's API or CLI, and
-  `feedback.report` tells the makers what my browser lacked.
+  profile and logins); there I go on with `computer.ui_tree` and `computer.act`, or take the service's API or CLI.
 
 ## Site know-how
 - What the company knows about a site can appear below my first result there ("Known for github.com …") – hints; the

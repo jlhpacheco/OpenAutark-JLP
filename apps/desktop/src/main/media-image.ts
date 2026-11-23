@@ -4,21 +4,27 @@
 // and HEIF, which Chromium cannot decode, are named so they are refused before a window opens), the
 // pixel count from a PNG/JPEG header (decompression bombs are refused), the job's page spec and the
 // check of the encoded result the page posts back (a real PNG or JPEG within the edge and the bytes).
+// 21.11.2026 (an agent's feedback, runtime/tools/builtin/feedback-images.ts): `cover` – up to IMAGE_COVER_MAX rectangles of the
+// whole image as fractions, painted solid black by the page after the image is drawn – and `maxBytes`, a byte limit
+// below IMAGE_LIMITS.maxBytes (a PNG over it becomes a JPEG in the page).
 // Owns: these rules. Never: touches files, windows, timers or the network.
 
-import { IMAGE_LIMITS } from '../shared/api/host-bridge.ts';
+import { IMAGE_COVER_MAX, IMAGE_LIMITS } from '../shared/api/host-bridge.ts';
 import type { ImageRegion, NormalizedImage } from '../shared/api/host-bridge.ts';
 import { WorkforceError } from '../shared/errors.ts';
 import { jpegSize } from './media-keyframes.ts';
-import { isBlobId, sniffMime } from './protocols/rules.ts';
+import { sniffMime } from '../shared/files/mime.ts';
+import { isBlobId } from './protocols/rules.ts';
 
-export interface ImageRequest { fileId: string; mime?: string; maxPx: number; region?: ImageRegion }
+export interface ImageRequest { fileId: string; mime?: string; maxPx: number; region?: ImageRegion; cover?: ImageRegion[]; maxBytes?: number }
 
 /** What the page is told for an image job (media-analyzer-image.ts). */
 export interface ImageSpec {
   task: 'image';
   maxPx: number;
   region: ImageRegion | null;
+  /** Rectangles of the whole image (fractions) painted solid black after the image is drawn; [] = none. */
+  cover: ImageRegion[];
   /** SVG is drawn from an <img> at svgPx on its longest edge (vector art has no pixel size of its own), within maxPx. */
   svg: boolean;
   svgPx: number;
@@ -31,6 +37,8 @@ export interface ImageSpec {
 }
 
 export const MIN_PX = 16;
+/** The smallest byte limit a request may ask for. */
+export const MIN_BYTES = 4096;
 /** Bytes of the file read before a job (a JPEG's frame header can sit behind a large EXIF block). */
 export const IMAGE_HEAD_BYTES = 256 * 1024;
 /** Larger images are refused before decoding (about 400 MB of pixels). */
@@ -46,15 +54,40 @@ const HEIF_BRANDS = /^(?:heic|heix|hevc|hevx|heim|heis|mif1|msf1)$/;
 const bad = (message: string) => new WorkforceError('bad_request', message);
 const fraction = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
 
-/** The host op's arguments, checked: a blob id, the longest edge (16–1568, default 1568), a region or none, an image MIME type or none. */
-export function imageRequest(args: { fileId?: unknown; mime?: unknown; maxPx?: unknown; region?: unknown }): ImageRequest {
+/**
+ * The host op's arguments, checked: a blob id, the longest edge (16–1568, default 1568), a region or none, an image MIME
+ * type or none, covering rectangles or none, a byte limit or none.
+ */
+export function imageRequest(args: { fileId?: unknown; mime?: unknown; maxPx?: unknown; region?: unknown; cover?: unknown; maxBytes?: unknown }): ImageRequest {
   if (typeof args.fileId !== 'string' || !isBlobId(args.fileId)) throw bad('Invalid file id.');
   const maxPx = args.maxPx ?? IMAGE_LIMITS.maxPx;
   if (typeof maxPx !== 'number' || !Number.isSafeInteger(maxPx) || maxPx < MIN_PX || maxPx > IMAGE_LIMITS.maxPx) {
     throw bad(`maxPx must be a whole number from ${MIN_PX} to ${IMAGE_LIMITS.maxPx}.`);
   }
   const mime = typeof args.mime === 'string' ? args.mime.split(';')[0].trim().toLowerCase() : '';
-  return { fileId: args.fileId, maxPx, ...(args.region === undefined ? {} : { region: regionOf(args.region) }), ...(IMAGE_MIME.test(mime) ? { mime } : {}) };
+  const cover = coverOf(args.cover);
+  const maxBytes = args.maxBytes;
+  if (maxBytes !== undefined && (typeof maxBytes !== 'number' || !Number.isSafeInteger(maxBytes) || maxBytes < MIN_BYTES || maxBytes > IMAGE_LIMITS.maxBytes)) {
+    throw bad(`maxBytes must be a whole number from ${MIN_BYTES} to ${IMAGE_LIMITS.maxBytes}.`);
+  }
+  return {
+    fileId: args.fileId, maxPx, ...(args.region === undefined ? {} : { region: regionOf(args.region) }), ...(IMAGE_MIME.test(mime) ? { mime } : {}),
+    ...(cover.length ? { cover } : {}), ...(maxBytes === undefined ? {} : { maxBytes }),
+  };
+}
+
+/** Covering rectangles: fractions 0..1 of the whole image, at most IMAGE_COVER_MAX, each inside the image (none is cut to fit). */
+function coverOf(value: unknown): ImageRegion[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > IMAGE_COVER_MAX) throw bad(`cover must be a list of at most ${IMAGE_COVER_MAX} rectangles.`);
+  return value.map((item) => {
+    const r = (typeof item === 'object' && item !== null ? item : {}) as Record<string, unknown>;
+    const { x, y, w, h } = r;
+    if (!fraction(x) || !fraction(y) || !fraction(w) || !fraction(h) || x >= 1 || y >= 1 || w <= 0 || h <= 0 || x + w > 1.000001 || y + h > 1.000001) {
+      throw bad('Each cover rectangle must be fractions 0..1 of the image, inside it: x and y its top left corner, w and h its size.');
+    }
+    return { x, y, w: Math.min(w, 1 - x), h: Math.min(h, 1 - y) };
+  });
 }
 
 /** A region as fractions of the image: x, y top left in [0, 1), w, h > 0 and inside the image. */
@@ -72,7 +105,7 @@ export function isHeif(mime: string): boolean {
   return /^image\/hei[cf](?:-sequence)?$/.test(mime);
 }
 
-/** The image type from the file's first bytes (HEIF and AVIF by their brand, BMP, else rules.ts sniffMime); '' when unknown. */
+/** The image type from the file's first bytes (HEIF and AVIF by their brand, BMP, else shared/files/mime.ts sniffMime); '' when unknown. */
 export function imageMime(head: Uint8Array): string {
   const ascii = (at: number, length: number) => String.fromCharCode(...head.subarray(at, at + length));
   if (head.length >= 12 && ascii(4, 4) === 'ftyp') {
@@ -103,8 +136,8 @@ export function headerPixels(head: Uint8Array): number | undefined {
 
 export function imageSpec(request: ImageRequest, mime: string): ImageSpec {
   return {
-    task: 'image', maxPx: request.maxPx, region: request.region ?? null, svg: mime === 'image/svg+xml', svgPx: SVG_PX,
-    lossless: LOSSLESS.has(mime), opaque: mime === 'image/jpeg', quality: QUALITY, maxBytes: IMAGE_LIMITS.maxBytes, inputBytes: INPUT_BYTES,
+    task: 'image', maxPx: request.maxPx, region: request.region ?? null, cover: request.cover ?? [], svg: mime === 'image/svg+xml', svgPx: SVG_PX,
+    lossless: LOSSLESS.has(mime), opaque: mime === 'image/jpeg', quality: QUALITY, maxBytes: request.maxBytes ?? IMAGE_LIMITS.maxBytes, inputBytes: INPUT_BYTES,
   };
 }
 

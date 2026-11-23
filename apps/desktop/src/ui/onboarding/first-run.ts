@@ -14,7 +14,6 @@ import { can } from '../lib/session.ts';
 import { conversations, settings, updateSettings, upsertById } from '../lib/store.ts';
 import { firstRunShown } from './first-run-model.ts';
 
-export { managerAgent, managerFirstChat } from './manager.ts';
 
 /** The layer shows on this window now (reactive: reads the settings and session signals). */
 export function firstRunActive(): boolean {

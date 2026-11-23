@@ -1,6 +1,5 @@
 // The static "waiting on … since" line of a task bubble: who or what the work waits on, since when and why – "Paused
-// by you since …" for work the person stopped (shared isPaused), "Until Mon 14:45" for a wait with an end – the
-// detail's one sentence of state (stateLine), its planned next look (nextLookLine: people see what the agent sees) and
+// by you since …" for work the person stopped (shared isPaused) – the detail's one sentence of state (stateLine) and
 // whether the detail offers Resume.
 // Owns: that text and the Resume rule (unit-tested in test/unit/ui/task-waiting.test.ts).
 // Never: imports the store, rpc or the DOM – names come in from the caller.
@@ -30,8 +29,7 @@ export function waitingLine(task: Waiting, nameOf: (id: string) => string, now =
   const wait = task.waitingOn;
   if (isPaused(task)) return `Paused by ${whoOf(task, nameOf)} since ${time(wait.since)}`;
   const who = whoOf(task, nameOf);
-  const head = who ? `Waiting on ${who}` : wait.until !== undefined ? `Until ${at(wait.until, now)}` : 'Waiting';
-  return `${head} since ${time(wait.since)} · ${plainPreview(wait.why, 90)}`;
+  return `${who ? `Waiting on ${who}` : 'Waiting'} since ${time(wait.since)} · ${plainPreview(wait.why, 90)}`;
 }
 
 type Stated = Waiting & Pick<TaskView, 'assigneeKind' | 'assigneeId' | 'running' | 'completedAt' | 'updatedAt'>;
@@ -50,12 +48,6 @@ export function stateLine(task: Stated, nameOf: (id: string) => string, now = Da
   const owner = task.assigneeId ? nameOf(task.assigneeId) : '';
   if (task.running) return `${owner || 'An agent'} is on it`;
   return owner ? `${owner} has it` : 'Open';
-}
-
-/** "Next look: Mon 16 Nov 07:00" – when the watcher looks at it next (undefined: finished, paused or nothing planned). */
-export function nextLookLine(task: Waiting & Pick<TaskView, 'nextAt'>, now = Date.now()): string | undefined {
-  if (task.nextAt === undefined || task.status === 'done' || task.status === 'dropped' || isPaused(task)) return undefined;
-  return task.nextAt <= now ? 'Next look: now' : `Next look: ${at(task.nextAt, now)}`;
 }
 
 /** Resume in the task detail: only for work the person paused – tasks.update status 'open' ends the pause and its owner goes on. */

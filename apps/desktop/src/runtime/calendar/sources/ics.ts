@@ -10,7 +10,8 @@
 import { WorkforceError } from '../../../shared/errors.ts';
 import type { CalendarEvent } from '../../../shared/model/calendar.ts';
 import { readCalendar, isCalendar, type IcsEvent } from './ics-parse.ts';
-import { addDays, daysBetween, localWall, occurrenceKey, onDate, wallToUtc, type IcsTime } from './ics-time.ts';
+import { daysBetween, occurrenceKey, onDate, type IcsTime } from './ics-time.ts';
+import { addDays, wallOf, wallTime } from '../../../shared/text/when.ts';
 import { expandDates, parseRRule } from './rrule.ts';
 import { readCapped, type FetchFn, type FetchResponse } from './http.ts';
 
@@ -59,7 +60,7 @@ function lengthOf(event: IcsEvent): { days: number; ms: number } {
 }
 
 function endOf(start: IcsTime, length: { days: number; ms: number }): number {
-  if (start.allDay) return wallToUtc(addDays(start.date, length.days), 0, start.tz);
+  if (start.allDay) return wallTime(addDays(start.date, length.days), 0, start.tz);
   return (length.days ? onDate(start, addDays(start.date, length.days)).at : start.at) + length.ms;
 }
 
@@ -83,7 +84,7 @@ function seriesOccurrences(master: IcsEvent | undefined, overrides: readonly Ics
     const series = Boolean(rule) || master.rdates.length > 0;
     const spanDays = length.days + Math.ceil(length.ms / 86_400_000) + 1;
     const dates = rule
-      ? expandDates(rule, master.start, { firstDate: addDays(localWall(from, master.start.tz).date, -spanDays), lastDate: addDays(localWall(to, master.start.tz).date, 1) },
+      ? expandDates(rule, master.start, { firstDate: addDays(wallOf(from, master.start.tz).date, -spanDays), lastDate: addDays(wallOf(to, master.start.tz).date, 1) },
         (date) => onDate(master.start, date).at)
       : [master.start.date];
     const starts: IcsTime[] = [...dates.map((date) => onDate(master.start, date)), ...master.rdates.filter((time) => time.at !== master.start.at)];
@@ -91,7 +92,7 @@ function seriesOccurrences(master: IcsEvent | undefined, overrides: readonly Ics
     const exDays = new Set(master.exdates.filter((time) => time.allDay).map((time) => time.date));
     for (const start of starts) {
       const key = occurrenceKey(start);
-      const day = localWall(start.at, master.start.tz).date;
+      const day = wallOf(start.at, master.start.tz).date;
       if (exKeys.has(key) || exDays.has(day) || replaced.has(key) || replacedDays.has(day)) continue;
       const item = occurrence(master, start, series ? `${uid}#${key}` : uid, length);
       if (overlaps(item.startAt, item.endAt, from, to)) out.set(item.externalId, item);

@@ -1,7 +1,8 @@
 // B-088: the ChatGPT plan's one-request dictation (src/runtime/voice/plan-transcribe.ts): what goes up (the take, a language,
 // the login in the headers, no model fields), what comes back, the one refresh-and-retry through the account's own
 // Codex server, that no token ever shows in an error, and that the login comes from every account (KI-Runde 17.11.2026:
-// a used-up Codex week or a cooling account still dictates on the plan).
+// a used-up Codex week or a cooling account still dictates on the plan). STIMME 21.11.2026: the phone's copy of the login
+// (phoneLogin) – its expiry from the token, a refresh before an expired one goes out and on the phone's word (fresh).
 // Owns: these assertions only. Never: the network, a real login or a real Codex server.
 
 import { test } from 'node:test';
@@ -12,7 +13,7 @@ import path from 'node:path';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import { selectCandidates } from '../../../src/runtime/accounts/candidates.ts';
 import type { Account } from '../../../src/shared/model/providers.ts';
-import { PLAN_TRANSCRIBE_URL, planMissing, planReady, planTranscribe } from '../../../src/runtime/voice/plan-transcribe.ts';
+import { PHONE_LOGIN_MARGIN_MS, PHONE_LOGIN_UNKNOWN_MS, PLAN_TRANSCRIBE_URL, phoneLogin, planMissing, planReady, planTranscribe, tokenExpiry } from '../../../src/runtime/voice/plan-transcribe.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import { quietLog, toneWav } from './local-fixture.ts';
 
@@ -193,4 +194,45 @@ test('a plan login whose week is used up, or that cools, is still the login of t
       assert.equal(t.calls.length, 1, name);
     } finally { t.done(); }
   }
+});
+
+/** A JWT-shaped test token (no real login) whose payload names `exp` in seconds. */
+const jwt = (name: string, exp?: number) => ['e30', Buffer.from(JSON.stringify(exp === undefined ? { sub: name } : { sub: name, exp })).toString('base64url'), 'sig'].join('.');
+const NOW = 1_800_000_000_000;
+
+test("the phone gets the login with the token's own expiry; one without exp lives PHONE_LOGIN_UNKNOWN_MS; no refresh", async () => {
+  const t = setup({ login: { tokens: { access_token: jwt('a', NOW / 1000 + 3600), account_id: 'acct-1' } } });
+  try {
+    assert.deepEqual(await phoneLogin(t.services, false, NOW), { token: jwt('a', NOW / 1000 + 3600), accountId: 'acct-1', expiresAt: NOW + 3_600_000 });
+    assert.deepEqual(t.requests, []);
+  } finally { t.done(); }
+  const plain = setup({ login: { tokens: { access_token: 'tok-plain' } } });
+  try {
+    assert.deepEqual(await phoneLogin(plain.services, false, NOW), { token: 'tok-plain', expiresAt: NOW + PHONE_LOGIN_UNKNOWN_MS });
+  } finally { plain.done(); }
+  assert.equal(tokenExpiry('no.jwt-here.x'), undefined);
+  assert.equal(tokenExpiry(jwt('x', 12)), 12_000);
+});
+
+test("an expired token or the phone's fresh ask: Codex refreshes it first; still expired or no refresh: a user-safe error", async () => {
+  const stale = setup({ login: { tokens: { access_token: jwt('old', NOW / 1000 + 10) } }, refreshWrites: { tokens: { access_token: jwt('new', NOW / 1000 + 7200) } } });
+  try {
+    assert.equal((await phoneLogin(stale.services, false, NOW)).token, jwt('new', NOW / 1000 + 7200), 'within the margin: refreshed before it goes');
+    assert.deepEqual(stale.refreshes, [{ refreshToken: true }]);
+  } finally { stale.done(); }
+  const fresh = setup({ login: { tokens: { access_token: jwt('a', NOW / 1000 + 3600) } }, refreshWrites: { tokens: { access_token: jwt('b', NOW / 1000 + 3600) } } });
+  try {
+    assert.equal((await phoneLogin(fresh.services, true, NOW)).token, jwt('b', NOW / 1000 + 3600), "the phone's copy was rejected: refreshed");
+    assert.deepEqual(fresh.requests, ['account/read']);
+  } finally { fresh.done(); }
+  const dead = setup({ login: { tokens: { access_token: jwt('old', NOW / 1000 - 5) } }, refreshFails: true });
+  try {
+    await assert.rejects(phoneLogin(dead.services, false, NOW), (error: unknown) => error instanceof WorkforceError && error.code === 'unavailable' && !/old|eyJ/.test(error.message));
+  } finally { dead.done(); }
+  const still = setup({ login: { tokens: { access_token: jwt('old', NOW / 1000 + PHONE_LOGIN_MARGIN_MS / 2000) } } });
+  try {
+    await assert.rejects(phoneLogin(still.services, false, NOW), /expired/, 'the refresh wrote nothing newer');
+  } finally { still.done(); }
+  const none = setup({ signedIn: false });
+  try { await assert.rejects(phoneLogin(none.services, false, NOW), /No ChatGPT plan login/); } finally { none.done(); }
 });

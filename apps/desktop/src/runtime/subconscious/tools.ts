@@ -6,9 +6,9 @@
 // knowledge.find finds what the main AI's knowledge.find finds: memory files (knowledge search – by their words, by meaning
 // where a person chose an embedding model) as hits a run can show, the knowledge catalog (knowledge/find.ts) and the secrets
 // catalog's best entries with their handles (F19, secrets/metadata.ts findSecretLines – never a value).
-// vector.search and vector.embed need a chosen embedding model (requires 'embeddings'): without one a run is not offered them
-// (flow.ts), like the main AI (tools/registry.ts). vector.search only compares with what is already embedded; nothing is
-// embedded here unless the run calls vector.embed. thought.keep keeps the run's own keyword thoughts
+// vector.search is the main AI's (tools/builtin/vector-search.ts searchByMeaning): the one search over memory, the catalog and
+// added files, re-ranked by meaning where a person chose an embedding model; vector.embed adds files or folders to it, only when
+// the run calls it. thought.keep keeps the run's own keyword thoughts
 // (thoughts.ts), knowledge.open opens one of the agent's skills whole, memory.read pages a
 // file. voice.words adds to the learned words of speech recognition (settings.json voice.vocabulary) through the settings
 // store and writes nothing else there. How the main AI's coming turn runs is the routing call's (route-turn.ts, v1), not a tool's.
@@ -26,6 +26,7 @@ import { withWords, WORD_CHARS, wordOf } from '../../shared/voice/vocabulary.ts'
 import '../contracts/open-fs.ts';
 import '../contracts/vectors.ts';
 import { folderText } from '../tools/builtin/memory.ts';
+import { searchByMeaning } from '../tools/builtin/vector-search.ts';
 import { loadedSkillText } from '../tools/builtin/skills.ts';
 import { contextTools } from './context-tools.ts';
 import { thoughtTool } from './thoughts.ts';
@@ -45,8 +46,6 @@ export interface FlowRun {
   readonly hits: Map<string, { search: number; hit: VectorHit }>;
   /** Each search that numbered hits: the tool and its query and places, as the main AI is shown the call. */
   readonly searches: Array<{ tool: string; query: string; in: string[] }>;
-  /** One text from the run's model, outside the steps (a condensation); undefined when there is none or the run has used its budget. */
-  word?(system: string, prompt: string): Promise<string | undefined>;
   /** What this run knows: what happened and what its tools returned, as its last step read them. */
   saw?(): string;
   /** What the run costs and saves, in tokens: its model use against what its marks take off the main AI's context at each of its turns. */
@@ -62,8 +61,6 @@ export interface FlowTool {
   /** The args in one short form, e.g. {query, in: [places], k?}. */
   args: string;
   line: string;
-  /** 'embeddings': offered only while a chosen embedding model can serve (the main AI's tools carry the same). */
-  requires?: 'embeddings';
   run(args: Record<string, unknown>, run: FlowRun): Promise<string> | string;
 }
 
@@ -122,15 +119,14 @@ const vectorTools: FlowTool[] = [
   {
     name: 'vector.search',
     args: '{query, in: [places], k?, hops?}',
-    line: 'Like grep by meaning: compares my query text as a whole with what is already embedded under the places in "in", so the words a matching text holds (names, things) find it and a question or a list of kinds of information blurs it. A place is a file or folder path, or a path in the memory tree (memory, memory/<folder>); "catalog" is the skills, home project and public library. hops 1–2: the best hits search on, so what lies close to them comes too. Numbers its hits h1, h2 ….',
-    requires: 'embeddings',
+    line: 'Finds texts by what they mean and the words they hold, in the places of "in": the memory tree (memory, memory/<folder>), "catalog" (the agent\'s skills and home project) or files and folders added with vector.embed. The words a matching text holds (names, things) find it best; a question or a list of kinds of information blurs it. hops 1–2: the best hits\' own texts search on, so what lies close to them comes too. Numbers its hits h1, h2 ….',
     async run(args, run) {
       const query = stringOf(args.query);
       const places = listOf(args.in).map((given) => placeOf(run, given));
       if (!query || !places.length) return 'vector.search needs a query and at least one place in "in".';
       const k = Number(args.k);
       const hops = Number(args.hops);
-      const result = await run.services.vectors.search({ query, in: places, ...(Number.isInteger(k) && k > 0 ? { k } : {}), ...(Number.isInteger(hops) && hops > 0 ? { hops } : {}) });
+      const result = await searchByMeaning(run.services, run.agent, { query, in: places, ...(Number.isInteger(k) && k > 0 ? { k } : {}), ...(Number.isInteger(hops) && hops > 0 ? { hops } : {}) });
       const search = run.searches.push({ tool: 'vector.search', query, in: places }) - 1;
       const lines = result.hits.map((hit) => numbered(run, search, hit));
       return [...lines, result.note ?? '', lines.length || result.note ? '' : 'No hits.'].filter(Boolean).join('\n');
@@ -139,8 +135,7 @@ const vectorTools: FlowTool[] = [
   {
     name: 'vector.embed',
     args: '{paths: [files or folders]}',
-    line: 'Embeds these files or folders so they can be searched from now on (whole files; binaries, caches and secrets are skipped). I choose them deliberately.',
-    requires: 'embeddings',
+    line: 'Adds these files or folders to what vector.search finds (whole files; binaries, caches and secrets stay out): their words at once, their meaning once a model embedded them. I choose them deliberately.',
     async run(args, run) {
       const { vectors } = run.services;
       const paths = listOf(args.paths).map((given) => placeOf(run, given));

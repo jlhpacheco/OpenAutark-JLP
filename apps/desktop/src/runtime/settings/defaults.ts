@@ -5,8 +5,8 @@
 // without the app, and English for anything unusable. A stored profile language stays as it is.
 // Owns: what a fresh installation starts with and this PC's locale. Never: persistence or validation.
 // Defaults follow the confirmed decisions: pushes only for human to-dos, blockers and important messages, with a
-// sound (B-072); My day (B-041): working hours 08:00–20:00, 10 min buffer, the morning plan at 06:00, AI helps on, keep
-// awake on, agents' lane off; B-044: Realtime call voice off; B-055: a new install starts with the feedback tour.
+// sound (B-072); the day (B-041): working hours 08:00–20:00, 10 min buffer, the night until 06:00, AI helps on, keep
+// awake on; B-044: Realtime call voice off; B-055: a new install starts with the feedback tour.
 
 import type { Settings } from '../../shared/model/system.ts';
 import { SECTIONS, defaultOf, type KeyDef, type PcDefaults } from './schema.ts';

@@ -26,14 +26,12 @@ test('global default policy: set, get, clear', () => {
   assert.deepEqual(getPolicy(h.services, {}), { pin: 'claude:claude-opus-5-5' });
 });
 
-test('an older stored global pin moves to the Work use once (while Work is auto)', () => {
+test('an older stored global pin is no part of the global policy: reading it writes nothing, the Work use decides', () => {
   const h = setup();
   h.settings.update({ routing: { work: 'auto' } });
   h.db.run('INSERT INTO kv (ns, key, value, updated_at) VALUES (?, ?, ?, ?)', ['routing', 'default_policy', JSON.stringify({ pin: 'codex:gpt-6.1-sol', effort: 'low' }), 1]);
-  assert.deepEqual(getPolicy(h.services, {}), { effort: 'low', pin: 'codex:gpt-6.1-sol' });
-  assert.equal(h.settings.get().routing.work, 'codex:gpt-6.1-sol');
-  const left = h.db.get<{ value: string }>('SELECT value FROM kv WHERE ns = ? AND key = ?', ['routing', 'default_policy']);
-  assert.deepEqual(JSON.parse(String(left?.value)), { effort: 'low' });
+  assert.deepEqual(getPolicy(h.services, {}), { effort: 'low' });
+  assert.equal(h.settings.get().routing.work, 'auto');
 });
 
 test('agent policy goes through org.update and comes back normalized', () => {

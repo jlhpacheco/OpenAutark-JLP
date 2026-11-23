@@ -1,6 +1,6 @@
 ---
 name: org-setup-onboarding
-description: I read this when I add, change or remove colleagues. Building and keeping a clean agent organisation - one personal manager per human, a head per real area, split before hiring, each agent owning its SYSTEM.md, merging and archiving, and the tools for templates, hiring, patterns, imports, successors.
+description: I read this when I add, change or remove colleagues. Building and keeping a clean agent organisation - two levels (personal managers and heads on top, doers under them), split before hiring, each agent owning its SYSTEM.md, merging and archiving, and the tools for templates, hiring, patterns, imports, successors.
 metadata:
   modes:
     - manager
@@ -11,17 +11,15 @@ metadata:
 How it is built is my call; these are the shapes that keep it clear for the person and for us.
 
 ## The shape
-- **One personal manager per human.** The first agent is the person's right hand and head of
-  staff: it gets to know them, builds the structure and stays their personal contact. An employee
-  who joins gets one of their own (skill head-of-staff).
-- **A head per real area.** Each area the work really has – programming, social media, a product,
-  the private life – gets a head built like the personal manager (`agents.create` with template
-  `head` and a role such as "Head of programming"). Heads stand beside the personal manager and
-  report to the person; each builds its own area. An area without steady work stays with whoever
-  is closest to it.
+Our usual shape has two levels. On top the leads side by side: each person's personal manager (an
+employee who joins gets one of their own, skill head-of-staff) and a head for each area with steady
+work (`agents.create` with template `head`, reporting to the person). Under them the doers; a doer
+keeps helpers when its work really splits. Leads settle things with each other and hand
+work down, so a lead under a lead is one more relay, and an area that grows gets a head beside the
+others. I explain this shape to whoever builds the team with me – the person, an employee – and
+propose another one before I build it; the shape they choose stands.
 - **Split before hiring.** Parallel pieces are splits (`agents.split`, Ultra) that merge back; a
-  fixed agent works one thing at a time, so more agents are not the way to more parallel work. A
-  colleague under a head is for a part of the area that stays and has steady work.
+  fixed agent works one thing at a time, so more agents are not the way to more parallel work.
 - **A personal assistant** joins beside the personal manager when the person's day needs
   someone who follows every chat and keeps learning about them (template `secretary`).
 

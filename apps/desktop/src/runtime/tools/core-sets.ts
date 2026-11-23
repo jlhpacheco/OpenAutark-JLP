@@ -19,11 +19,12 @@ export const META_TOOLS: readonly string[] = [FIND_TOOL, CALL_TOOL];
 type Reasons = Readonly<Record<string, string>>;
 
 export const BASE_CORE: Reasons = {
-  'model.set': 'self-routing (RT4): the rules tell every agent to say which model its work needs',
-  'tasks.create': 'the four task commands every agent runs: new work for me, a colleague, a person or "team" – asking a person is one',
-  'tasks.give': 'the four task commands: handing a task on or taking one',
-  'tasks.update': 'the four task commands: the state, the wait, the plan and facts of my work',
-  'tasks.finish': 'the four task commands: done or dropped with what came out (turn-finish judges the task change)',
+  // Quests round 20.11.2026: the four task commands every agent runs; they replace twenty, among them tasks.get (235 calls
+  // through tools.call in 2.5 days) and schedules.remind (62 calls, 15 lookups by name)
+  'tasks.add': 'the four task commands: a to-do in a quest for me, a colleague or the person, or a new quest',
+  'tasks.update': 'the four task commands: words, the person\'s time, owner, wait, done or dropped (turn-finish judges the task change)',
+  'tasks.list': 'the four task commands: my quests, or one quest or to-do whole with its thread',
+  'tasks.remind': 'the four task commands: my own note at a time – the one look later I have',
   'chat.read': 'B-050 K10: a chat\'s lines again (the context compacts them; render.ts points to chat.read for a cut message) – ~120 tokens',
   'chat.direct': 'B-050 K10: the 1:1 with any member (agent, person, colleague) without a search first – ~120 tokens',
   'web.fetch': 'the environment web line names it: reading a page whose address I know',
@@ -31,9 +32,7 @@ export const BASE_CORE: Reasons = {
   'knowledge.open': 'opens what knowledge.find returns and loads a skill by name (the skills index says to load one before that kind of work)',
   subconscious: 'owner 15.10./01.11.2026: the main AI can start the subconscious itself with any text; its answer is the tool output – ~110 tokens',
   // KI-Runde 17.11.2026 (tools-friction 1.4): the tools every agent called through tools.call in every mode and looked up again and again
-  'tasks.get': '235 calls through tools.call in 2.5 days, the top tool outside the core set',
   'shell.exec': '555 calls, 25 lookups by name; a command on a linked PC or with a stored secret',
-  'schedules.remind': '62 calls, 15 lookups by name: my own follow-ups',
   'memory.write': '69 calls, 14 lookups by name: what I learned stays',
   'agents.split': '32 calls, 23 lookups by name: parts of me for parallel pieces',
   'agents.split_tell': '209 calls, 26 lookups by name: talking with my parts while they work',
@@ -69,9 +68,7 @@ export const MODE_CORE: Readonly<Record<string, Reasons>> = {
   },
   secretary: {
     ...UI_HELP,
-    'calendar.list': 'appointments and the person\'s day',
-    'calendar.add': 'putting an appointment into the calendar',
-    'todos.prepare': 'the rules: the person\'s to-dos are prepared, never ticked off (has_todos)',
+    'calendar.list': 'appointments, to-dos with a time and free gaps of the person\'s days',
   },
   research: {
     'browser.open': 'primary sources that need a real browser',
@@ -101,7 +98,6 @@ export const MODE_CORE: Readonly<Record<string, Reasons>> = {
     'browser.screenshot': 'checking a post as it looks',
     'media.look': 'mode text: watch a video before describing or posting it',
     'media.listen': 'mode text: hear audio before describing or posting it',
-    'schedules.routine': 'mode text: every publish gets its comment routine',
   },
   video: {
     'media.look': 'mode text: watch a video (keyframes) before answering about it',

@@ -6,7 +6,7 @@
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
 import { Bus } from '../../../src/runtime/bus.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { ChatServiceImpl } from '../../../src/runtime/chat/service.ts';
 import { DeliveryServiceImpl } from '../../../src/runtime/chat/delivery.ts';
 import { TaskServiceImpl } from '../../../src/runtime/tasks/service.ts';

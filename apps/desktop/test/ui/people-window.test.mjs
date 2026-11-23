@@ -1,7 +1,7 @@
 // Electron window check of people of the organisation (F-52; Umbau Einfachheit: the org lives in the Team sidebar, a
 // person's actions are the row's right-click menu) with the demo engine in an isolated profile:
-//   * Team's Add › Person adds Anna (name, title, reports to you) and goes on to her invite: QR code, then "Show code"
-//     (6 digits), Done; she shows in the sidebar's People group;
+//   * Team's Add › Person adds Anna (name, title, reports to you); her menu's "Invite a device" shows the card with this
+//     PC's connect code (QR), × closes it; she shows in the sidebar's People group;
 //   * her browser joins with the invite ticket and the owner allows it → her row's menu › Devices and chats lists the
 //     device; Chat details › Members lists her as a person;
 //   * a task made in that chat (/task) is given to her in Work's task detail – it lands on her list, not the owner's;
@@ -24,6 +24,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { randomBytes } from 'node:crypto';
+import { runtimeInfo } from './lib/runtime-info.mjs';
+
+const PERSON_TOKEN = randomBytes(24).toString('hex'); // FX1: a test profile hands main the person token (main/runtime-link.ts personTokenOf)
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -41,7 +45,7 @@ test('Team › People: add, invite, join, chat member, task owner, and the perso
   await mkdir(shots, { recursive: true });
   const app = await electron.launch({
     executablePath: electronPath, args: [root], cwd: root, timeout: 60_000,
-    env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }),
+    env: testNetworkEnv(profile, { WORKFORCE_PERSON_TOKEN: PERSON_TOKEN, WORKFORCE_FAKE_ENGINE: '1', ELECTRON_ENABLE_LOGGING: '0' }),
   });
   let rpc;
   t.after(async () => {
@@ -62,8 +66,8 @@ test('Team › People: add, invite, join, chat member, task owner, and the perso
     const overflow = await target.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     assert.ok(overflow <= 1, `no horizontal page scroll ${what} (${overflow}px)`);
   };
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
-  rpc = await connect(info.port, info.token, 'cli');
+  const info = await runtimeInfo(profile);
+  rpc = await connect(info.port, PERSON_TOKEN, 'cli'); // FX1: the person's own token (runtime.json's launch token is no person)
   await rpc.call('settings.update', { onboarding: { step: 'done' } });
   await rpc.call('pwa.enable', { enabled: true, bind: 'localhost' });
   const agents = await rpc.call('agents.list');
@@ -88,15 +92,15 @@ test('Team › People: add, invite, join, chat member, task owner, and the perso
   await invited.getByRole('button', { name: 'Invited (1)' }).click();
   await invited.locator('.team-row.person').click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Invite a device', exact: true }).click();
-  const invite = page.locator('.person-invite');
-  await invite.locator('img.qr').waitFor({ timeout: 15_000 });
+  const invite = page.locator('.person-join-card');
+  await invite.locator('img.remote-qr-code').waitFor({ timeout: 15_000 });
+  assert.equal(await invite.locator('.pair-code').count(), 0, 'one way: this PC\'s connect code, no person-scoped code');
   await shot('people-02-invite-qr-light');
-  await invite.getByRole('button', { name: 'Show code' }).click();
-  assert.match((await invite.locator('.pair-code').textContent()) ?? '', /^\d{3} \d{3}$/);
   await page.emulateMedia({ colorScheme: 'dark' });
-  await shot('people-03-invite-code-dark');
+  await shot('people-03-invite-dark');
   await page.emulateMedia({ colorScheme: 'light' });
-  await invite.getByRole('button', { name: 'Done' }).click();
+  await invite.getByRole('button', { name: 'Close' }).click();
+  await invite.waitFor({ state: 'detached', timeout: 5_000 });
   const anna = (await rpc.call('people.list')).find((person) => person.name === 'Anna Berg');
   assert.equal(anna.status, 'invited');
   assert.equal(anna.managerId, 'human', 'reports to you by default');
@@ -202,6 +206,9 @@ test('Team › People: add, invite, join, chat member, task owner, and the perso
   // B-044 visual pass: what she may do lives in her Edit dialog – her row shows no line of permission words
   const scopesOf = async () => (await rpc.call('people.list')).find((person) => person.id === anna.id).scopes;
   assert.doesNotMatch((await row.textContent()) ?? '', /spaces|Starts chats|tasks for agents/, 'no permission jargon on the row');
+  // a new person works with every agent (people/service.ts save: spaces 'all'); the box takes it away and gives it back
+  assert.deepEqual(await scopesOf(), { spaces: 'all', startChats: true, assignAgents: true });
+  await rights((edit) => edit.getByRole('checkbox', { name: 'Works with your agents' }).uncheck());
   assert.deepEqual(await scopesOf(), { spaces: [], startChats: true, assignAgents: true }); // whose agents she works with – not "No agents" (agents may report to her)
   await rights((edit) => edit.getByRole('checkbox', { name: 'Works with your agents' }).check());
   assert.deepEqual(await scopesOf(), { spaces: 'all', startChats: true, assignAgents: true });

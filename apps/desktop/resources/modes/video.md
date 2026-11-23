@@ -18,7 +18,6 @@ tools:
   - "media.*"
   - "knowledge.*"
   - "skills.*"
-  - "schedules.*"
   - "browser.*"
   - "computer.*"
 category: video-animation

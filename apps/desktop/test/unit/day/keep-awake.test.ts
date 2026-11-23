@@ -6,14 +6,14 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { zonedTime } from '../../../src/runtime/calendar/when.ts';
+import { wallTime } from '../../../src/shared/text/when.ts';
 import { KEEP_AWAKE_REASON, KeepAwake, nightOf } from '../../../src/runtime/day/keep-awake.ts';
 import type { DaySettings } from '../../../src/shared/model/day-settings.ts';
 import type { AgentActivity } from '../../../src/shared/model/runs.ts';
 import { FakeTimers } from '../chat/harness.ts';
 import { BERLIN, dayFixture } from './fixture.ts';
 
-const wall = (date: string, clock: string) => zonedTime(date, Number(clock.slice(0, 2)) * 60 + Number(clock.slice(3)), BERLIN);
+const wall = (date: string, clock: string) => wallTime(date, Number(clock.slice(0, 2)) * 60 + Number(clock.slice(3)), BERLIN);
 const MON = '2026-10-26';
 const turn: AgentActivity = { agentId: 'ag_x', runId: 'run_1', note: 'working', startedAt: 0 };
 

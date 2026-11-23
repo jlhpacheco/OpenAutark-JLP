@@ -10,7 +10,7 @@ import type { CreateTaskInput } from '../../../src/shared/model/tasks.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import '../../../src/runtime/contracts/calendar.ts';
 import { CalendarServiceImpl } from '../../../src/runtime/calendar/service.ts';
-import { zonedTime } from '../../../src/runtime/calendar/when.ts';
+import { wallTime } from '../../../src/shared/text/when.ts';
 import { agent, harness, tick } from '../chat/harness.ts';
 
 export { agent, tick };
@@ -25,7 +25,7 @@ export const ANNA = 'per_anna00000000';
 /** Epoch ms of `hhmm` on `date` in the fixture zone. */
 export function at(hhmm: string, date = DAY): number {
   const [h, m] = hhmm.split(':').map(Number);
-  return zonedTime(date, h * 60 + m, TZ);
+  return wallTime(date, h * 60 + m, TZ);
 }
 
 export function world(options: { day?: Partial<DaySettings>; now?: string; start?: boolean } = {}) {
@@ -44,6 +44,11 @@ export function world(options: { day?: Partial<DaySettings>; now?: string; start
   /** The person's own to-do (chat-free, B-054). */
   const todo = (title: string, extra: Partial<CreateTaskInput> = {}) =>
     h.tasks.create({ title, assigneeKind: 'human', createdBy: HUMAN_ID, ...extra });
+  /** A to-do's time (Quests round: its own `at`/`minutes`; its calendar row is read from it). */
+  const place = (taskId: string, startAt: number, endAt: number) => {
+    h.tasks.update(taskId, { at: startAt, minutes: Math.round((endAt - startAt) / MIN) }, HUMAN_ID);
+    return calendar.repo.get(taskId)!;
+  };
   /** A row written straight into the table (no events). */
   const row = (fields: Partial<CalendarEvent> & Pick<CalendarEvent, 'startAt' | 'endAt'>): CalendarEvent => {
     const event: CalendarEvent = {
@@ -64,5 +69,5 @@ export function world(options: { day?: Partial<DaySettings>; now?: string; start
     `INSERT INTO members (conversation_id, member_id, kind, joined_at) VALUES (?, ?, 'human', 1)`, [conversationId, personId]);
   const removedEvents = () => h.of('calendar.removed');
   const upserted = () => h.of('calendar.upserted');
-  return { ...h, s, settings, calendar, changes, todo, row, source, chat, addPerson, removedEvents, upserted };
+  return { ...h, s, settings, calendar, changes, todo, place, row, source, chat, addPerson, removedEvents, upserted };
 }

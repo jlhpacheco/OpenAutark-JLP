@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startRuntime } from './lib/runtime-client.mjs';
+import { startRuntime, connectYes } from './lib/runtime-client.mjs';
 
 const A_ENV = { WORKFORCE_DISCOVERY_TARGETS: '127.0.0.2,127.0.0.3' };
 const B_ENV = { WORKFORCE_DISCOVERY_TARGETS: '127.0.0.3,127.0.0.2' };
@@ -36,7 +36,7 @@ test('two linked runtimes share agents, tasks and chats; an agent runs on its ho
 
   const aId = (await a.client.call('remote.state')).self.deviceId;
   const bId = (await b.client.call('remote.state')).self.deviceId;
-  await b.client.call('remote.connect', { target: (await a.client.call('remote.state')).self.remoteId });
+  await connectYes(b.client, (await a.client.call('remote.state')).self.myId); // Eine-ID: my own ID makes B one of my devices (after B's yes)
   const incoming = await until(() => a.client.call('remote.state').then((state) => state.incoming), (list) => list.length === 1, 'the request on A');
   await a.client.call('remote.decide', { id: incoming[0].id, accept: true });
   await until(() => a.client.call('devices.list').then((list) => list.find((device) => device.id === bId)?.status), (status) => status === 'online', 'A to list B online');
@@ -45,7 +45,8 @@ test('two linked runtimes share agents, tasks and chats; an agent runs on its ho
   const started = Date.now();
   const mara = await a.client.call('agents.create', { name: 'Mara', role: 'Writer' });
   await a.client.call('agents.update', { id: mara.id, patch: { deviceId: bId } });
-  await until(() => b.client.call('agents.list').then((list) => list.find((agent) => agent.id === mara.id)?.deviceId), (id) => id === bId, 'Mara on B, at home there');
+  // Umzug 21.11.2026: a row naming the receiving PC is stored there as "this PC" (no deviceId) – one spelling for here.
+  await until(() => b.client.call('agents.list').then((list) => list.find((agent) => agent.id === mara.id)), (agent) => Boolean(agent) && agent.deviceId === undefined, 'Mara on B, at home there');
   const managers = (runtime) => runtime.client.call('agents.list').then((list) => list.filter((agent) => !agent.archivedAt && (agent.template === 'manager' || agent.role === 'Personal manager')).length);
   for (const runtime of [b, a]) await until(() => managers(runtime), (n) => n === 1, 'one personal manager (B retired its own first-run Manager)');
   const task = await a.client.call('tasks.create', { title: 'Sync check' });
@@ -75,7 +76,7 @@ test('an employee\'s PC gets her chat in her ids and her reply goes back to the 
 
   const lena = await a.client.call('people.save', { name: 'Lena' });
   const eId = (await e.client.call('remote.state')).self.deviceId;
-  await e.client.call('remote.connect', { target: (await a.client.call('remote.state')).self.remoteId, role: 'employee' });
+  await e.client.call('remote.connect', { target: (await a.client.call('remote.state')).self.companyId }); // Eine-ID: the company ID makes her PC a new member
   const incoming = await until(() => a.client.call('remote.state').then((state) => state.incoming), (list) => list.length === 1, 'the request on A');
   await a.client.call('remote.decide', { id: incoming[0].id, accept: true, personId: lena.id });
   await until(() => a.client.call('devices.list').then((list) => list.find((device) => device.id === eId)?.status), (status) => status === 'online', 'A to list her PC online');

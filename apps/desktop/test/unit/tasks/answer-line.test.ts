@@ -65,9 +65,6 @@ test('review fixes: two asks in one message are told apart; a typed secret never
   assert.match(seen, /\(answer to my ask "Was zuerst\?"\)\nBuch/, seen);
   assert.doesNotMatch(seen, /Wie weit darf ich gehen/, 'the other ask is not quoted');
 
-  // An answer stored before B-076 (no question kept) finds its ask by its block key "<message id>:<index>".
-  const older = h.chats.send({ conversationId: h.chat.id, body: 'Buch', kind: 'answer', authorId: HUMAN_ID, authorKind: 'human', replyTo: message.id, meta: { answer: { blockKey: `${message.id}:1`, summary: 'Chose: Buch' } } });
-  assert.match(h.render(older.seq - 1), /\(answer to my ask "Was zuerst\?"\)\nBuch/);
   // An answer with no asking message (a to-do on a task) still names its ask.
   const loose = h.chats.send({ conversationId: h.chat.id, body: 'Approved', kind: 'answer', authorId: HUMAN_ID, authorKind: 'human', meta: { answer: { blockKey: 'task_x', summary: 'Approved', question: 'Domain kaufen?' } } });
   assert.match(h.render(loose.seq - 1), /\(answer to the ask "Domain kaufen\?"\)\nApproved/);

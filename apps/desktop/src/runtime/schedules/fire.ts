@@ -1,57 +1,22 @@
-// What a due schedule does, per kind:
-//  * message  → a normal chat post by the owner (as if typed then), meta.via 'schedule';
+// What a due schedule does, per kind (Quests round 20.11.2026: message and reminder – a repeat lives in the reminder's
+// spec, a person's ring in the to-do's own `at`):
+//  * message  → a normal chat post by the owner (as if typed then), meta.via 'schedule' ("Send later");
 //  * reminder → wakes the owning agent with its own first-person note (no chat post) – B-080 (live: 14 reminder runs
 //               in a chat its agent had left when B-078 D7 moved the task): in its task's chat while the agent is a
-//               member there, else the one it was set in;
-//  * routine  → creates a tracked task from payload.taskTemplate (title, notes and – T11 – its steps as the plan;
-//               payload.priority 'important' → High); an agent owner is woken once (under the task's key, with the
-//               schedule's note, else "I took on …"); the person's "Post as task" routines go to the one owner Autark picks (tasks/give.ts);
-//               the stored template is bounded first (post.ts boundedTemplate: no malformed or
-//               oversized steps/title from an agent's raw `task` can break or flood a run);
-//  * timer    → notifies the human (kind 'todo'); a linked to-do waiting for this ring is open again (it rings now) –
-//               never for a to-do that is already done or dropped (the schedule ends).
-// B-044: also the one quiet "Scheduled" chat line when a post or routine is created (announceCreated).
-// B-054: a routine without a chat creates a chat-free task; only a routine whose chat was set and is gone ends
-// (ScheduleGone). Reminder and routine wakes – and routine tasks – carry the origin schedule:<id>.
-// B-059 (overlap, Temporal-style skip): an agent's routine whose previous occurrence task is still unfinished
-// (any state but done/dropped, isRoutineOccurrence) creates no second copy and wakes nobody – that task gets one
-// fact "Skipped the HH:MM run – the previous one is still open" (the newest replaces an older one).
+//               member there, else the one it was set in. The note is the wake's; the quest as it stands comes with the
+//               turn (the agent's context reads the reminder's task).
+// B-044: also the one quiet "Scheduled" chat line when a post is created (announceCreated). Reminder wakes carry the
+// origin schedule:<id>.
 // Owns: those effects. Never: computes times or touches the schedules table.
 
-import { HUMAN_ID, SYSTEM_ID } from '../../shared/ids.ts';
+import { HUMAN_ID } from '../../shared/ids.ts';
 import type { RuntimeServices } from '../contracts.ts';
-import type { Schedule, Task, TaskView } from '../../shared/model/tasks.ts';
+import type { Schedule } from '../../shared/model/tasks.ts';
 import { cleanOrigin, scheduleSource, type Origin } from '../../shared/model/origin.ts';
-import { boundedTemplate } from './post.ts';
-import { clockText, validZone } from '../context/time.ts';
 
-const SKIPPED = /^Skipped the \d{2}:\d{2} run – /;
-
-/**
- * B-059: is `task` an occurrence task of this routine – top-level, the routine's origin and its template's title?
- * (Work the agent creates during a routine's run carries the same origin but its own title.)
- */
-export function isRoutineOccurrence(schedule: Schedule, task: Pick<Task, 'parentId' | 'origin' | 'title'>): boolean {
-  return schedule.kind === 'routine' && !task.parentId && task.origin?.source === scheduleSource(schedule.id)
-    && task.title === boundedTemplate(schedule.payload.taskTemplate, schedule.title).title;
-}
-
-/** B-059: the agent's still unfinished task of an earlier occurrence of this routine, if any. */
-function openOccurrence(schedule: Schedule, s: FireDeps): TaskView | undefined {
-  try { return s.tasks.openFor(schedule.ownerId).find((task) => isRoutineOccurrence(schedule, task)); } catch { return undefined; }
-}
-
-/** B-059: the one skip note on the open occurrence (a failed note never fails the fire). */
-function noteSkip(task: TaskView, schedule: Schedule, occurrence: number, s: FireDeps): void {
-  const fact = `Skipped the ${clockText(occurrence, validZone(schedule.spec.tz))} run – the previous one is still open`;
-  const facts = [...(task.ledger.facts ?? []).filter((line) => !SKIPPED.test(line)), fact].slice(-20);
-  try { s.tasks.update(task.id, { facts }, SYSTEM_ID); } catch { /* the skip stands without its note */ }
-}
-
-/** B-054: why a schedule's wake or task exists – 'Reminder' or 'Routine "<title>"'. */
+/** B-054: why a schedule's wake exists – 'Reminder', or 'Schedule' for a post. */
 export function scheduleOrigin(schedule: Pick<Schedule, 'id' | 'kind' | 'title'>): Origin {
-  const label = schedule.kind === 'routine' ? `Routine "${schedule.title}"` : schedule.kind === 'reminder' ? 'Reminder' : 'Schedule';
-  return cleanOrigin({ source: scheduleSource(schedule.id), label })!;
+  return cleanOrigin({ source: scheduleSource(schedule.id), label: schedule.kind === 'reminder' ? 'Reminder' : 'Schedule' })!;
 }
 
 export type FireDeps = Pick<RuntimeServices, 'chats' | 'tasks' | 'wakes'> & Partial<Pick<RuntimeServices, 'notifications' | 'log'>>;
@@ -98,52 +63,16 @@ export function fireSchedule(schedule: Schedule, occurrence: number, s: FireDeps
       });
       return;
     }
-    case 'routine': {
-      // B-054: a routine needs no chat; one whose chat was set and is gone ends.
-      if (schedule.conversationId && !s.chats.get(schedule.conversationId)) throw new ScheduleGone('chat removed');
-      const template = boundedTemplate(schedule.payload.taskTemplate, schedule.title);
-      const origin = scheduleOrigin(schedule);
-      const open = ownerKind === 'agent' ? openOccurrence(schedule, s) : undefined;
-      if (open) { noteSkip(open, schedule, occurrence, s); return; } // B-059: the last run is still open – no second copy
-      const fields = {
-        ...(schedule.conversationId ? { conversationId: schedule.conversationId } : {}), origin,
-        title: template.title, notes: template.notes, ...(template.steps?.length ? { plan: template.steps } : {}),
-        priority: schedule.payload.priority === 'important' ? 1 as const : undefined, createdBy: schedule.ownerId,
-      };
-      if (ownerKind !== 'agent') {
-        void s.tasks.createTo(fields, 'team').catch((error: unknown) => s.log?.warn('routine task not created', { scheduleId: schedule.id, error: String(error) }));
-        return;
-      }
-      const task = s.tasks.create({ ...fields, assigneeKind: 'agent', assigneeId: schedule.ownerId });
-      // one wake (same key as tasks/give.ts tellGiven's, which is bare for work whose maker is its owner): the schedule's
-      // note, else the work it made – the routine made it, not a turn of mine (wave-3b review R5)
-      const note = schedule.payload.note?.trim() || `I took on "${template.title}".`;
-      s.wakes.wake({ agentId: schedule.ownerId, reason: 'schedule', conversationId: schedule.conversationId, taskId: task.id, note, coalesceKey: `task:${task.id}`, origin });
-      return;
-    }
-    case 'timer': {
-      const linked = schedule.taskId ? s.tasks.get(schedule.taskId) : undefined;
-      if (schedule.taskId && (!linked || linked.status === 'done' || linked.status === 'dropped')) throw new ScheduleGone('to-do finished');
-      s.notifications?.notify({
-        kind: 'todo', title: schedule.title, body: schedule.payload.note && schedule.payload.note !== schedule.title ? schedule.payload.note : '',
-        conversationId: schedule.conversationId, taskId: schedule.taskId,
-      });
-      if (schedule.taskId) {
-        const task = s.tasks.get(schedule.taskId);
-        if (task?.status === 'waiting' && task.waitingOn?.on === 'outside') s.tasks.update(task.id, { status: 'open' }, SYSTEM_ID); // it rings now
-      }
-      return;
-    }
   }
 }
 
 /**
- * B-044: the one quiet chat line when a post or routine is scheduled – the person's and the agents'
- * alike (reminders and timers stay private). The UI shows it as "Scheduled · <when>" (details.nextAt),
+ * B-044: the one quiet chat line when a post is scheduled – the person's and the agents'
+ * alike (reminders stay private). The UI shows it as "Scheduled · <when>" (details.nextAt),
  * linking to Chat details › Scheduled. A failed line never fails the schedule.
  */
 export function announceCreated(schedule: Schedule, s: Pick<RuntimeServices, 'chats'>): void {
-  if (!schedule.conversationId || schedule.kind === 'reminder' || schedule.kind === 'timer') return;
+  if (!schedule.conversationId || schedule.kind === 'reminder') return;
   const details = { scheduleId: schedule.id, ...(schedule.nextAt !== undefined ? { nextAt: schedule.nextAt } : {}) };
   s.chats.status(schedule.conversationId, { type: 'schedule_created', text: `Scheduled · ${schedule.title}`, details }, { authorId: schedule.ownerId, taskId: schedule.taskId });
 }

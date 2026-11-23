@@ -8,13 +8,14 @@
 // B-078: nestChats puts sub-chats under their parent (one level) and leaves threads out. F24 (owner 16.11.2026): the
 // list follows the org – the person's 1:1 with an agent that reports to another agent sits under the 1:1 with its
 // top-most agent manager that the list holds (orgParent; one level, so a deeper org gathers under its top manager); a
-// chat's own parent (settings.parentId, set by the person or the AI with chat.set_parent) wins, so a group stays at
+// chat's own parent (settings.parentId, set by the person or the AI with chat.update parentId) wins, so a group stays at
 // the level the AI gave it whoever joins later.
 // Owns: that order and nesting. Never: reads the store, decides sections (archive.ts) or names chats (lib/chat-face.tsx).
 
 import { directPair, type ConversationSettings, type ConversationSummary } from '../../shared/model/chat.ts';
 import type { Agent } from '../../shared/model/org.ts';
 import { HUMAN_ID } from '../../shared/ids.ts';
+import { isThread } from './threads.ts';
 
 type Active = Pick<ConversationSummary, 'settings' | 'lastMessageAt' | 'createdAt'>;
 type Ordered = Active & Pick<ConversationSummary, 'pinned'>;
@@ -70,14 +71,14 @@ export function orgParent(chat: Placed, agents: ReadonlyMap<string, OrgAgent>, d
 }
 
 /**
- * B-078: a section's ordered chats as a one-level tree – threads (settings.anchorId) are never rows; a sub-chat goes
+ * B-078: a section's ordered chats as a one-level tree – threads (a message's or a task's, threads.ts) are never rows; a sub-chat goes
  * under its parent when that parent is a top row of the same list, else it stays a top row itself (a parent elsewhere,
  * filtered out by a search, or an older deeper chain), so no chat ever drops out of the list. F24: with the org's
  * agents (active ones), the person's 1:1s with sub-agents go under their top manager's 1:1 too (orgParent), and a
  * chat placed under such a 1:1 goes where that 1:1 went (one level: into its top manager's group).
  */
 export function nestChats<C extends Placed>(ordered: readonly C[], agents?: ReadonlyMap<string, OrgAgent>): ChatNode<C>[] {
-  const rows = ordered.filter((chat) => !chat.settings.anchorId);
+  const rows = ordered.filter((chat) => !isThread(chat));
   const ids = new Set(rows.map((chat) => chat.id));
   const directs = new Map<string, string>();
   if (agents) for (const chat of rows) { const agentId = directAgent(chat, agents); if (agentId && !directs.has(agentId)) directs.set(agentId, chat.id); }

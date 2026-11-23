@@ -16,7 +16,7 @@ import { fileUses, firstUse, isBusy } from '../../../src/runtime/files/reference
 import { Blobs } from '../../../src/runtime/files/store.ts';
 import { withMediaHook } from '../../../src/runtime/media/hook.ts';
 import { MediaService } from '../../../src/runtime/media/service.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import type { Attachment } from '../../../src/shared/model/chat.ts';
 import type { FileRef } from '../../../src/shared/model/system.ts';
 import { agent, harness } from '../chat/harness.ts';

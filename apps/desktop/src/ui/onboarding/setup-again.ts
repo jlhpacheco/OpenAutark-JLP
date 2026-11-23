@@ -9,7 +9,8 @@ import { confirm } from '../lib/dialog.tsx';
 import { can } from '../lib/session.ts';
 import { agents } from '../lib/store.ts';
 import { toastError } from '../lib/toasts.ts';
-import { managerAgent, setUpTeamAgain } from './first-run.ts';
+import { setUpTeamAgain } from './first-run.ts';
+import { managerAgent } from '../../shared/text/manager-chat.ts';
 
 /** This connection may start the setup again (owner, a Manager to run it). */
 export function setupAgainAllowed(): boolean {

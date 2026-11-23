@@ -38,6 +38,8 @@ export interface RuntimeHostDeps<P> {
   modulePath: string;
   env: Record<string, string | undefined>;
   token: string;
+  /** FX1: a test profile's person token (runtime-link.ts personTokenOf), sent in `init` like the token, never in env. */
+  personToken?: string;
   app: AppInfo;
   /** Executes a host op for the runtime (host-services.ts). */
   handle(request: HostRequest): Promise<unknown>;
@@ -181,7 +183,7 @@ export class RuntimeHost<P> {
     child.on('message', message => this.receive(child, message));
     child.on('exit', code => this.exited(child, code));
     // The token travels in a message, never in env (env is inherited by the runtime's children).
-    child.postMessage({ type: 'init', token: deps.token, protocol: HOST_BRIDGE_PROTOCOL, app: deps.app });
+    child.postMessage({ type: 'init', token: deps.token, ...(deps.personToken ? { personToken: deps.personToken } : {}), protocol: HOST_BRIDGE_PROTOCOL, app: deps.app });
     this.bootTimer = this.timer(() => {
       if (this.child === child && !this.up) {
         this.bootMisses++;

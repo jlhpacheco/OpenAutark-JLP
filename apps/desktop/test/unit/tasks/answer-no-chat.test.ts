@@ -1,7 +1,7 @@
 // B-054 return path (src/runtime/tasks/human.ts answer, answer-receipt.ts, decline.ts): a to-do with no
 // chat and no message is answered and declined like any other – the answer is stored on its row, no
 // line is posted anywhere and the author agent is woken on its task with no chat (never a hidden
-// one), the person's line in its note. A to-do typed into the list (addTodo) has no chat either. A to-do
+// one), the person's line in its note. A line the person typed (tasks/quick.ts) has no chat either. A to-do
 // in a chat keeps the person's line there (B-076: and its author is woken as for a typed line).
 // Owns: these assertions only. Never: real timers or model calls.
 
@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { agent, harness } from '../chat/harness.ts';
 import { HUMAN_ID } from '../../../src/shared/ids.ts';
+import { quickCreate } from '../../../src/runtime/tasks/quick.ts';
 
 function setup() {
   const h = harness();
@@ -48,9 +49,9 @@ test('declining a chat-free to-do cancels it and wakes its author without a chat
   assert.equal(wakes[0].note, 'Reply to my to-do "Call the venue":\nI can\'t do this: No time');
 });
 
-test('a typed to-do (addTodo) has no chat; a to-do in a chat still gets its receipt there', async () => {
+test('a typed line (quickCreate) has no chat; a to-do in a chat still gets its receipt there', async () => {
   const h = setup();
-  const typed = await h.tasks.addTodo('Call the dentist');
+  const { task: typed } = await quickCreate(h.services, { text: 'Call the dentist' }, HUMAN_ID);
   assert.equal(typed.conversationId, undefined);
   assert.deepEqual(typed.origin, { source: 'todo-list', label: 'To-do area' });
 

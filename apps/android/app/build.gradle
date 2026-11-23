@@ -27,8 +27,14 @@ android {
         // 10.11.: 0.3.9 phone-use main-thread fix; 0.3.10 updates and the phone-use build download by themselves (owner 10.11.).
         // 16.11.: 0.3.15 feedback round – quiet notice with the Autark mark, phone-use bubble (ask, status, auto-continue),
         // camera capture, window picture and crash report for feedback, company switch off the main thread.
-        versionCode = 15
-        versionName = '0.3.15'
+        // 19.11.: 0.3.16 – the phone-use bubble goes when the AI's run ends and carries the AI's own buttons; offline screen
+        // without Forget (Choose PC), wake a sleeping PC from the phone, quieter background notice, to-do button icons.
+        // 20.11.: 0.3.17 – feedback round (the AI keeps typing while you type, open by app name, bubble dictation and call
+        // with the microphone service, to-do button posts that survive a half dead socket and never double a task).
+        // 21.11.: 0.3.18 – the phone hears dictation itself at the person's ChatGPT plan (page and bubble; the PC's way
+        // when that gives nothing).
+        versionCode = 18
+        versionName = '0.3.18'
         ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' } // F25: libwebrtc for phones only (x86 would add ~20 MB)
     }
     sourceSets { main { assets.srcDir('build/generated/tour') } } // the feedback video page (build.ps1)

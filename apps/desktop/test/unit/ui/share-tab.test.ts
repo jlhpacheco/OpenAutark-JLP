@@ -1,19 +1,15 @@
-// 18.11.2026: handing a website on (src/ui/workspace/share-tab.ts, phone-tabs.ts withShared). "Open on" lists the person's
-// other PCs but the one the page runs on; "Share in chat" the latest listed chats but the area it is in; a person's
-// device takes the websites shared in its chats' areas in place of the ones it had and keeps its own tabs.
+// A tab handed on (src/ui/workspace/share-tab.ts, phone-tabs.ts withShared). "Share in chat" offers the latest listed
+// chats but the area the page is in; a person's device takes the websites shared in its chats' areas in place of the
+// ones it had and keeps its own tabs. "Open on" and "Share with": pane-menu-share.test.ts.
 // Owns: these assertions only. Never: a socket or a window.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ConversationSummary } from '../../../src/shared/model/chat.ts';
-import type { Device } from '../../../src/shared/model/devices.ts';
-import { shareChats, shareSections, SHARE_CHATS } from '../../../src/ui/workspace/share-tab.ts';
+import { chatSections, shareChats, SHARE_CHATS } from '../../../src/ui/workspace/share-tab.ts';
 import { withShared } from '../../../src/ui/workspace/phone-tabs.ts';
-import { session } from '../../../src/ui/lib/session.ts';
-import type { SessionInfo } from '../../../src/shared/api/methods.ts';
 
 const chat = (id: string, at: number, extra: Partial<ConversationSummary> = {}) => ({ id, title: id, titleNamed: true, createdBy: 'human', pinned: false, settings: {}, lastSeq: 0, createdAt: 0, updatedAt: 0, lastMessageAt: at, members: [], unread: 0, working: [], openTasks: 0, ...extra }) as ConversationSummary;
-const pc = (id: string, status = 'online') => ({ id, name: id.toUpperCase(), kind: 'pc', status }) as unknown as Device;
 
 test('Share in chat: the latest listed chats, not the area the page is in', () => {
   const chats = [chat('a', 1), chat('b', 3), chat('c', 2, { archivedAt: 5 }), chat('d', 4, { settings: { hiddenFromList: true } }), ...Array.from({ length: 9 }, (_, i) => chat(`x${i}`, 0))];
@@ -22,14 +18,10 @@ test('Share in chat: the latest listed chats, not the area the page is in', () =
   assert.equal(shareChats(chats)[0].id, 'b');
 });
 
-test('Open on: every other PC of the person, offline ones marked; nothing without an address', () => {
-  session.value = { kind: 'owner', allowedMethods: [], capabilities: [] } as unknown as SessionInfo;
-  const sections = shareSections('https://a.example/', 'chat:a', 'pc_one', [pc('pc_one'), pc('pc_two', 'offline')], [chat('a', 1), chat('b', 2)]);
-  assert.deepEqual(sections.map((section) => [section.title, section.items.map((item) => [item.label, item.hint])]), [
-    ['Open on', [['PC_TWO', 'Offline']]],
-    ['Share in chat', [['b', undefined]]],
-  ]);
-  assert.deepEqual(shareSections('', 'global', undefined, [pc('pc_two')], [chat('b', 2)]), []);
+test('Share in chat as a section: the other chats; nothing without an address', () => {
+  const sections = chatSections('https://a.example/', 'chat:a', [chat('a', 1), chat('b', 2)]);
+  assert.deepEqual(sections.map((section) => [section.title, section.items.map((item) => item.label)]), [['Share in chat', ['b']]]);
+  assert.deepEqual(chatSections('', 'global', [chat('b', 2)]), []);
 });
 
 test('a person\'s device: shared websites replace the shared ones it had, its own tabs stay', () => {

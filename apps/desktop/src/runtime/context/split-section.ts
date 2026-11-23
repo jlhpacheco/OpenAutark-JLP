@@ -2,7 +2,7 @@
 // (context/prompt-volatile.ts). A part's own turn (thread `split:<id>`) gets 'split': design/principle.md "Ultra PART" with
 // its name, piece and the whole filled in, its other parts (titles, for agents.split_tell) and the one files line – no
 // bans: a part is the agent (it may write in chats, remember, set its model, add parts); it leaves out the sections that
-// belong to its origin's own work (SPLIT_SKIP: my tasks, what I gave and my schedules). An agent's own turn, while groups
+// belong to its origin's own work (SPLIT_SKIP: my quests and the related open work). An agent's own turn, while groups
 // of its parts are still at work, gets 'splits' – "## My parts": per group (B-080: from every chat, this thread's first, a
 // group split in another chat named with that chat's title) one line per part: status, model · effort · temperature
 // (a working part's from its activity row – what its turn runs on now), a working part's last RECENT_STEPS steps (tool and
@@ -18,12 +18,13 @@ import type { SplitProgress } from '../contracts/splits.ts';
 import type { Agent } from '../../shared/model/org.ts';
 import type { AgentActivity, RunItem } from '../../shared/model/runs.ts';
 import { HUMAN_ID } from '../../shared/ids.ts';
+import { isTaskThread } from '../../shared/model/chat.ts';
 import { TOLD_ORIGIN, isSplitThread, splitThread, type SplitGroupView, type SplitView } from '../../shared/model/splits.ts';
 import { displayTitle, excerpt } from '../../shared/text/chat-names.ts';
 import { answerOf } from '../splits/results.ts';
 
 /** Sections a part's turn leaves out: its origin's own work. */
-export const SPLIT_SKIP: ReadonlySet<string> = new Set(['tasks', 'given', 'schedules']);
+export const SPLIT_SKIP: ReadonlySet<string> = new Set(['quests', 'related']);
 
 /** B-083: older messages only (the composer's Ultra cell went – the agent sees for itself when parts help). */
 export const ULTRA_NOTE = '(the person thought splitting could help)';
@@ -77,11 +78,13 @@ const LINE_CHARS = 640;
 /** A working part's newest steps shown here (owner 13.11.2026: "was die gerade sagen … nicht Kontext überfüllt"). */
 export const RECENT_STEPS = 3;
 
-type ActiveServices = Pick<RuntimeServices, 'splits'> & Partial<Pick<RuntimeServices, 'chats' | 'org' | 'settings' | 'people' | 'runs' | 'dispatcher'>>;
+type ActiveServices = Pick<RuntimeServices, 'splits'> & Partial<Pick<RuntimeServices, 'chats' | 'org' | 'settings' | 'people' | 'runs' | 'dispatcher' | 'tasks'>>;
 
-/** A chat's title as this agent sees it (shared/text/chat-names.ts displayTitle); 'another chat' when it cannot be read. */
+/** A chat's title as this agent sees it (shared/text/chat-names.ts displayTitle; a task's own thread by its task); 'another chat' when it cannot be read. */
 function chatTitle(services: ActiveServices, agentId: string, conversationId: string): string {
   try {
+    const task = isTaskThread(conversationId) ? services.tasks?.get(conversationId) : undefined;
+    if (task) return task.title;
     const chat = services.chats?.get(conversationId);
     if (!chat) return 'another chat';
     const human = (() => { try { return services.settings?.get().profile.name?.trim() || 'the CEO'; } catch { return 'the CEO'; } })();

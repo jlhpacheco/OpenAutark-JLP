@@ -1,4 +1,4 @@
-// The candidate pool of one route (router.ts; model-list.ts filters on its own): stage-wise hard filters – connected
+// The candidate pool of one route (router.ts; model-list.ts filters on its own, with this tier preference – preferTier): stage-wise hard filters – connected
 // and not excluded → capability needs → not "never" for the category → inside the agent's policy band –, the mode's
 // minimum tier as a preference (models below it only when none at or above it is connected), the accounts that can
 // run each model now (its provider and listed accounts, healthy for that model – accounts.candidates gets it –, not
@@ -55,6 +55,21 @@ export interface Pool {
   inBand(model: ModelInfo): boolean;
 }
 
+/** The accounts that can run `model` now: its engine's healthy, enabled candidates (accounts.candidates) of its provider and – when the catalog names them – its own. */
+export function runnableAccounts(s: Pick<RuntimeServices, 'accounts'>, model: ModelInfo): Account[] {
+  try {
+    return s.accounts.candidates(model.engine, model.model)
+      .filter((account) => account.provider === model.provider && (!model.accounts.length || model.accounts.includes(account.id)));
+  } catch { return []; }
+}
+
+/** Pay-per-use API keys only as a spill-over: while one entry runs on a free account, every entry keeps only its free ones – unless the person allowed paid fallback. */
+export function spillOver<T extends { accounts: Account[] }>(entries: readonly T[], allowPaid: boolean): { entries: T[]; unpaidOnly: boolean } {
+  const unpaidOnly = !allowPaid && entries.some((entry) => entry.accounts.some((account) => !isPaid(account)));
+  if (!unpaidOnly) return { entries: [...entries], unpaidOnly };
+  return { entries: entries.map((entry) => ({ ...entry, accounts: entry.accounts.filter((account) => !isPaid(account)) })).filter((entry) => entry.accounts.length > 0), unpaidOnly };
+}
+
 export function buildPool(input: PoolInput): Pool {
   const { s, category, policy, needs, minTier } = input;
   const exclude = input.exclude ?? new Set<string>();
@@ -63,14 +78,12 @@ export function buildPool(input: PoolInput): Pool {
   const accountsFor = (model: ModelInfo): Account[] => {
     let list = memo.get(model.id);
     if (!list) {
-      list = s.accounts.candidates(model.engine, model.model).filter((account) => account.provider === model.provider
-        && (!model.accounts.length || model.accounts.includes(account.id)) && !exclude.has(account.id));
+      list = runnableAccounts(s, model).filter((account) => !exclude.has(account.id));
       memo.set(model.id, list);
     }
     return list;
   };
   const structured = (model: ModelInfo) => { try { return s.engines.get(model.engine).caps.structured; } catch { return false; } };
-  const tierOk = (model: ModelInfo) => !minTier || tierRank(model.tier) >= tierRank(minTier);
   const inBand = (model: ModelInfo) => withinTiers(model.tier, policy.floorTier, policy.ceilingTier) && !policy.avoid.includes(model.id);
   const unusable = (model: ModelInfo): string | undefined => {
     if (!model.available || exclude.has(model.id)) return 'unavailable';
@@ -83,19 +96,14 @@ export function buildPool(input: PoolInput): Pool {
   // Stage-wise filtering keeps the reason when nothing is left.
   const stages = (connected: ModelInfo[]) => {
     const capable = connected.filter((model) => !unmetNeed(model, needs, structured(model)));
-    const atTier = capable.filter(tierOk);
-    const tiered = atTier.length ? atTier : capable; // the mode's tier is a preference, never a refusal
+    const tiered = preferTier(capable, minTier);
     const suitable = tiered.filter((model) => strengthOf(model, category) > NEVER);
     return { connected, capable, tiered, suitable, bounded: suitable.filter(inBand) };
   };
-  /** The runnable entries of `bounded` with `accounts`: pay-per-use API keys only as a spill-over (unless the user allowed them). */
+  /** The runnable entries of `bounded` with `accounts`, paid keys as the spill-over. */
   const entriesOf = (bounded: ModelInfo[], accounts: (model: ModelInfo) => Account[]) => {
-    let all = bounded.map((model) => ({ model, accounts: accounts(model) })).filter((entry) => entry.accounts.length > 0);
-    const unpaidOnly = !allowPaid && all.some((entry) => entry.accounts.some((account) => !isPaid(account)));
-    if (unpaidOnly) {
-      all = all.map((entry) => ({ model: entry.model, accounts: entry.accounts.filter((account) => !isPaid(account)) })).filter((entry) => entry.accounts.length > 0);
-    }
-    return { entries: newestOnly(all), unpaidOnly };
+    const kept = spillOver(bounded.map((model) => ({ model, accounts: accounts(model) })).filter((entry) => entry.accounts.length > 0), allowPaid);
+    return { entries: newestOnly(kept.entries), unpaidOnly: kept.unpaidOnly };
   };
   const { connected, capable, tiered, suitable, bounded } = stages(input.models.filter((model) => model.available && !exclude.has(model.id)));
   const { entries, unpaidOnly } = entriesOf(bounded, accountsFor);
@@ -117,6 +125,15 @@ export function buildPool(input: PoolInput): Pool {
     return newer.find((entry) => entry.model.provider === model.provider) ?? newer[0];
   };
   return { connected, capable, tiered, suitable, bounded, entries, whole, entryFor, accountsFor, runs, unusable, inBand };
+}
+
+/**
+ * The mode's minimum tier as a preference, never a refusal: the models at or above it while a connected one is among them,
+ * else all of them (models.list follows the same rule, model-list.ts).
+ */
+export function preferTier<T extends Pick<ModelInfo, 'tier' | 'available'>>(models: readonly T[], minTier: Tier | 'any' | undefined): T[] {
+  const atTier = models.filter((model) => !minTier || tierRank(model.tier) >= tierRank(minTier));
+  return atTier.some((model) => model.available) ? atTier : [...models];
 }
 
 /** The entries without a model whose family has a newer version among them (models/family.ts reads both from the id). */

@@ -5,11 +5,12 @@
 //      approval any more – agents may do everything); all end done, committed on their branches;
 //   2. "Launch check" chat: #1 hangs ([[hang:bash]] – running until stopped), #2 answers, #3 waits for #1 (after).
 // Checked:
-//   (a) the chat header's working popover: ONE row for the running group – the agent, its goal in the model slot,
-//       "1 of 3 parts working"; it opens to the group's split rows (spinner / done / waiting) and a part row to its
-//       steps; the popover keeps its place and width (a phone's sheet its sides and bottom), its title and the row's
-//       avatar, name and toggle keep their boxes;
-//   (b) Team › agent › Activity log: the turn that split shows its agents.split call as "Split · 1 of 3 done" (spinner,
+//   (a) the chat: the header's live line says "1 of 3 parts working" and opens the live bar's lines; the running part's
+//       line ("#1 …", no Stop of its own) opens to its steps and its group's split rows (spinner / done / waiting), a
+//       part row to its steps; the header, the composer and the line keep their boxes (20.11.2026: the bar replaced the
+//       working popover), and opening a part row moves none of the part rows above it (the bar keeps its height and
+//       scrolls inside);
+//   (b) Team › agent › Work › Activity log: the turn that split shows its agents.split call as "Split · 1 of 3 done" (spinner,
 //       the goal as title), open from the start as columns – #1 and #2 side by side, then #1 alone once #2 is back
 //       ("Done · … · back to <agent>"), #3 waiting below, the parts' own steps in their columns; closing and opening
 //       move nothing above; no sideways page scroll at phone width;
@@ -35,6 +36,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -81,10 +83,10 @@ async function until(read, check, label, ms = 120_000) {
 function layoutProblems() {
   const out = [];
   const shown = (el) => el.getClientRects().length > 0;
-  for (const el of [document.documentElement, ...document.querySelectorAll('.shell, .mobile-shell, .message-scroller, .agent-scroll, .team-nav, .team-splits, .working-popover')]) {
+  for (const el of [document.documentElement, ...document.querySelectorAll('.shell, .mobile-shell, .message-scroller, .agent-scroll, .team-nav, .team-splits, .live-bar')]) {
     if (shown(el) && el.scrollWidth > el.clientWidth + 1) out.push(`${el.className || el.tagName} scrolls sideways (${el.scrollWidth} > ${el.clientWidth})`);
   }
-  for (const box of document.querySelectorAll('.split-rows, .split-facts, .team-split-group, .working-row-detail')) {
+  for (const box of document.querySelectorAll('.split-rows, .split-facts, .team-split-group, .live-bar-parts')) {
     if (!shown(box)) continue;
     const b = box.getBoundingClientRect();
     for (const kid of box.children) {
@@ -92,7 +94,7 @@ function layoutProblems() {
       if (r.width && (r.right > b.right + 0.5 || r.left < b.left - 4.5)) out.push(`${kid.className || kid.tagName} sticks out of ${box.className} (${Math.round(r.left)}–${Math.round(r.right)} in ${Math.round(b.left)}–${Math.round(b.right)})`);
     }
   }
-  for (const head of document.querySelectorAll('.split-row-head, .team-split-row, .working-row-head, .split-branch-line')) {
+  for (const head of document.querySelectorAll('.split-row-head, .team-split-row, .live-bar-row, .split-branch-line')) {
     if (!shown(head)) continue;
     const box = head.getBoundingClientRect();
     const kids = [...head.children].filter((kid) => shown(kid) && kid.getBoundingClientRect().width > 0);
@@ -106,14 +108,14 @@ function layoutProblems() {
   for (const el of document.querySelectorAll('.split-row-model, .split-row-time, .team-split-time, .split-branch, .split-branch-cell, .split-facts dd, .split-step > .run-item-head .run-item-target')) {
     if (shown(el) && el.scrollWidth > el.clientWidth + 1) out.push(`${el.className || el.tagName} cut: "${el.textContent?.trim()}" (${el.scrollWidth} > ${el.clientWidth})`);
   }
-  for (const el of document.querySelectorAll('.team-split-goal-text, .split-row-title, .team-split-title, .working-row-note, .working-row-model')) {
+  for (const el of document.querySelectorAll('.team-split-goal-text, .split-row-title, .team-split-title, .live-bar-text')) {
     const style = shown(el) ? getComputedStyle(el) : undefined;
     if (style && (style.whiteSpace !== 'nowrap' || style.textOverflow !== 'ellipsis')) out.push(`${el.className} may wrap or be cut without an ellipsis`);
   }
   return out;
 }
 
-test('splits, part 2: popover group row, Runs › parts, merge conflict and sidebar goal lines in the real window', { timeout: 900_000 }, async (t) => {
+test('splits, part 2: the live bar\'s part line, Runs › parts, merge conflict and sidebar goal lines in the real window', { timeout: 900_000 }, async (t) => {
   const profile = await mkdtemp(path.join(os.tmpdir(), 'workforce-splits-more-'));
   const shots = process.env.SCREENSHOTS ? path.resolve(process.env.SCREENSHOTS) : path.join(profile, 'shots');
   mkdirSync(shots, { recursive: true });
@@ -160,7 +162,7 @@ test('splits, part 2: popover group row, Runs › parts, merge conflict and side
   const present = (list) => page.evaluate((all) => all.filter((s) => document.querySelector(s)), list);
   await size(1280, 800);
 
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   const manager = (await rpc.call('agents.list')).find((agent) => agent.template === 'manager');
   await rpc.call('agents.setHome', { agentId: manager.id, home: repo });
@@ -200,54 +202,49 @@ test('splits, part 2: popover group row, Runs › parts, merge conflict and side
   ])}`);
   const g2 = await groupWhen(G2, (g) => byIdx(g)[0].status === 'running' && byIdx(g)[1].status === 'done', 'group 2 runs #1 and finished #2');
 
-  // (a) The working popover: one row for the group; it opens to the split rows in place.
-  const popover = page.locator('.working-popover');
-  const groupRow = popover.locator('.working-row:not([data-run-id])');
-  const openPopover = async () => {
+  // (a) The live bar: the running part's line opens to its steps and its group's split rows in place.
+  const bar = page.locator('.live-bar');
+  const partLine = bar.locator('.live-bar-item', { has: page.locator('.live-bar-text', { hasText: '#1 Draft the landing copy' }) });
+  const barParts = partLine.locator('.live-bar-parts');
+  const openPart = async () => {
     await go(`#/chat/${launch.id}`, '.message-scroller');
     await page.waitForFunction(() => /1 of 3 parts working/.test(document.querySelector('.chat-sub .chat-live')?.getAttribute('title') ?? ''), null, { timeout: 20_000 });
-    await page.locator('.chat-sub .chat-live').click();
-    await groupRow.locator('.working-row-toggle').waitFor({ timeout: 10_000 });
+    await partLine.waitFor({ timeout: 10_000 });
+    if ((await partLine.locator('.live-bar-caret').getAttribute('aria-expanded')) !== 'true') await page.locator('.chat-sub .chat-live').click();
+    await barParts.locator('.split-row').nth(2).waitFor({ timeout: 15_000 });
   };
-  const chatFixed = ['.chat-header', '.chat-header .chat-title-button', '.message-scroller', '.composer'];
+  const chatFixed = ['.chat-header', '.chat-header .chat-title-button', '.composer'];
   await go(`#/chat/${launch.id}`, '.message-scroller');
-  await expectStable(page, chatFixed, openPopover);
-  assert.equal(await popover.locator('.working-row').count(), 1, 'one row for the group – never one per split');
-  assert.equal((await groupRow.locator('.working-row-name').textContent())?.trim(), manager.name);
-  // the goal comes with the group's read (splits.list, coalesced after the parts started) – it fills the reserved slot
-  await page.waitForFunction((goal) => document.querySelector('.working-popover .working-row:not([data-run-id]) .working-row-model')?.textContent?.trim() === goal, G2, { timeout: 10_000 }).catch(() => undefined);
-  assert.equal((await groupRow.locator('.working-row-model').textContent())?.trim(), G2, 'the goal where a run names its model');
-  assert.equal(await groupRow.locator('.working-row-model').getAttribute('title'), G2);
-  assert.equal((await groupRow.locator('.working-row-note').textContent())?.trim(), '1 of 3 parts working');
-  assert.equal(await groupRow.locator('.working-row-toggle').getAttribute('aria-expanded'), 'false');
-  await noProblems('popover closed 1280×800');
-  await shots2('more-01-popover-group');
-  const popFixed = [...chatFixed, '.working-popover .menu-title', '.working-popover .working-row-avatar', '.working-popover .working-row-name', '.working-popover .working-row-toggle'];
-  let frame = await box('.working-popover');
-  await expectStable(page, popFixed, async () => { await groupRow.locator('.working-row-toggle').click(); await popover.locator('.split-row').nth(2).waitFor({ timeout: 15_000 }); });
-  assert.deepEqual((await box('.working-popover')).slice(0, 3), frame.slice(0, 3), 'the popover keeps its place and width');
-  assert.deepEqual((await popover.locator('.split-row-title').allTextContents()).map((s) => s.trim()), ['#1 Draft the landing copy', '#2 Collect the screenshots', '#3 Review the draft']);
-  assert.deepEqual(await popover.locator('.split-icon').evaluateAll((icons) => icons.map((i) => i.className.replace('split-icon ', ''))), ['running', 'done', 'waiting']);
-  assert.ok((await popover.locator('.split-row-head').evaluateAll((l) => l.map((h) => Math.round(h.getBoundingClientRect().height)))).every((h) => h === 24), 'fixed 24 px rows');
-  await page.waitForFunction(() => document.querySelector('.working-popover .split-row:nth-child(1) .split-row-model')?.innerText.trim() === 'High', null, { timeout: 10_000 });
-  await expectStable(page, [...popFixed, '.working-popover .split-row:nth-child(2) > .split-row-head'], async () => {
-    await popover.locator('.split-row-head').nth(1).click();
-    await popover.locator('.split-row-body .run-items').waitFor({ timeout: 15_000 });
+  await expectStable(page, chatFixed, openPart);
+  assert.match((await partLine.locator('.live-bar-name').textContent())?.trim() ?? '', new RegExp(manager.name));
+  assert.equal(await partLine.locator('.live-bar-stop .stop-run').count(), 0, 'a part has no Stop of its own');
+  assert.deepEqual((await barParts.locator('.split-row-title').allTextContents()).map((t) => t.trim()), ['#1 Draft the landing copy', '#2 Collect the screenshots', '#3 Review the draft']);
+  assert.deepEqual(await barParts.locator('.split-icon').evaluateAll((icons) => icons.map((i) => i.className.replace('split-icon ', ''))), ['running', 'done', 'waiting']);
+  assert.ok((await barParts.locator('.split-row-head').evaluateAll((l) => l.map((h) => Math.round(h.getBoundingClientRect().height)))).every((h) => h === 24), 'fixed 24 px rows');
+  await page.waitForFunction(() => document.querySelector('.live-bar-parts .split-row:nth-child(1) .split-row-model')?.innerText.trim() === 'High', null, { timeout: 10_000 });
+  await noProblems('bar part open 1280×800');
+  await shots2('more-01-bar-part');
+  const lineFixed = [...chatFixed, '.live-bar-parts .split-row:nth-child(1) > .split-row-head', '.live-bar-parts .split-row:nth-child(2) > .split-row-head'];
+  await expectStable(page, lineFixed, async () => {
+    await barParts.locator('.split-row-head').nth(1).click();
+    await barParts.locator('.split-row-body .run-items').waitFor({ timeout: 15_000 });
   });
-  assert.deepEqual((await box('.working-popover')).slice(0, 3), frame.slice(0, 3));
-  await noProblems('popover open 1280×800');
-  await shots2('more-02-popover-group-open');
-  await page.keyboard.press('Escape');
-  await popover.waitFor({ state: 'detached', timeout: 5_000 });
+  await noProblems('bar part row open 1280×800');
+  await shots2('more-02-bar-part-row-open');
+  await page.locator('.chat-sub .chat-live').click();
+  await barParts.waitFor({ state: 'detached', timeout: 5_000 });
 
-  // (b) Team › agent › Activity log: the turn that split; its "Split" line opens to the parts; nothing above moves.
+  // (b) Team › agent › Work › Activity log (the log's page since F11, 16.11.2026): the turn that split; its "Split" line
+  // opens to the parts; nothing above moves.
   const STEP = '[data-test-run="split"] .run-item.split-step';
   const runsOf = async () => {
-    await go(`#/team/${manager.id}`, '.agent-log .log-turn');
-    // the one turn in "Launch check" is the run that split there (group 1 was split in "Site title")
-    const row = page.locator('.agent-log .log-turn', { has: page.locator('.log-system-text', { hasText: 'Launch check' }) });
+    await go(`#/team/${manager.id}/work`, '.agent-log .log-turn');
+    // the turn in "Launch check" that split there (group 1 was split in "Site title"); #2's return woke the Manager there
+    // once more (splits/gather.ts: each part returns on its own) – that turn has no Split line
+    const row = page.locator('.agent-log .log-turn', { has: page.locator('.log-system-text', { hasText: 'Launch check' }) })
+      .filter({ has: page.locator('.run-item.split-step') });
     await row.first().waitFor({ timeout: 15_000 });
-    assert.equal(await row.count(), 1, 'one turn of that chat');
+    assert.equal(await row.count(), 1, 'one turn of that chat split');
     const above = await row.evaluate((el) => {
       const rows = [...document.querySelectorAll('.agent-log .log-turn')];
       const index = rows.indexOf(el);
@@ -357,20 +354,14 @@ test('splits, part 2: popover group row, Runs › parts, merge conflict and side
     await page.locator('.split-brief-body').waitFor({ state: 'detached', timeout: 5_000 });
   });
 
-  // The phone (390×844): the popover's sheet keeps its sides and bottom; the run's parts; the goal lines; a conflict.
+  // The phone (390×844): the bar's part line with its group's rows; the run's parts; the goal lines; a conflict.
   await size(390, 844);
-  await openPopover();
-  await shots2('more-07-popover-group-phone');
-  frame = await box('.working-popover');
-  await groupRow.locator('.working-row-toggle').click();
-  await popover.locator('.split-row').nth(2).waitFor({ timeout: 15_000 });
+  await openPart();
   await page.waitForTimeout(400);
-  const sheet = await box('.working-popover');
-  assert.deepEqual([sheet[0], sheet[2], sheet[4]], [frame[0], frame[2], frame[4]], 'the sheet keeps its sides and bottom');
-  await noProblems('popover phone');
-  await shots2('more-08-popover-group-open-phone');
-  await page.keyboard.press('Escape');
-  await popover.waitFor({ state: 'detached', timeout: 5_000 });
+  await noProblems('bar part phone');
+  await shots2('more-08-bar-part-phone');
+  await page.locator('.chat-sub .chat-live').click();
+  await barParts.waitFor({ state: 'detached', timeout: 5_000 });
   runs = await runsOf();
   await runs.step.locator('.split-lane-row').nth(1).waitFor({ timeout: 15_000 });
   await runs.step.locator('.split-step-body').scrollIntoViewIfNeeded();

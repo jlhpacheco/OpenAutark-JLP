@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const shots = path.resolve(process.argv[2] ?? path.join(os.tmpdir(), 'workforce-tour'));
@@ -28,7 +29,7 @@ await page.waitForSelector('.shell', { timeout: 60_000 });
 const size = (width, height) => app.evaluate(({ BrowserWindow }, [w, h]) => { const [win] = BrowserWindow.getAllWindows(); win.setSize(w, h); }, [width, height]);
 await size(1280, 820);
 
-const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+const info = await runtimeInfo(profile);
 const rpc = await connect(info.port, info.token, 'cli');
 await rpc.call('settings.update', { onboarding: { step: 'done' } }); // B-044: past the first-run layer on Home
 await rpc.call('events.subscribe', { topics: ['chats', 'tasks', 'org'] });
@@ -38,12 +39,10 @@ const firstChat = (await rpc.call('chats.list'))[0];
 const group = await rpc.call('chats.create', { title: 'Course launch', agentIds: [manager.id, video.id] });
 await rpc.call('events.subscribe', { topics: [`chat:${group.id}`, `chat:${firstChat.id}`] });
 
-let replies = 0;
+/** The person's line and the agent's first line after it (an answer is message.created, final – chat/publish-message.ts). */
 const say = async (conversationId, body) => {
-  await rpc.call('messages.send', { conversationId, body });
-  replies += 1;
-  const want = replies;
-  await rpc.waitFor('message.updated', (message) => message.conversationId === conversationId && message.authorId !== 'human' && message.state === 'final' && rpc.events.filter((frame) => frame.event === 'message.updated' && frame.data.state === 'final' && frame.data.authorId !== 'human').length >= want, 60_000).catch(() => undefined);
+  const sent = await rpc.call('messages.send', { conversationId, body });
+  await rpc.waitFor('message.created', (message) => message.conversationId === conversationId && message.authorId !== 'human' && message.seq > sent.seq, 60_000).catch(() => undefined);
 };
 const ui = (block) => `[[ui:${JSON.stringify(block)}]]`;
 
@@ -53,9 +52,9 @@ await say(group.id, '@Manager flow:\n```mermaid\nflowchart LR\n  Idea --> Script
 await say(group.id, `@Manager ${ui({ type: 'record', mode: 'video', script: 'Hi, I am Alex. In this course you will learn how to run a one-person company with AI colleagues.', maxSeconds: 90 })}`);
 await say(group.id, `@Manager ${ui({ type: 'choice', question: 'Which thumbnail?', options: ['Bright', 'Dark', 'Minimal'] })} ${ui({ type: 'checklist', items: ['Charge the camera', 'Clean the desk', 'Close other apps'] })}`);
 await say(firstChat.id, `${ui({ type: 'timer', label: 'Call the bank', duration: 'PT2H' })} ${ui({ type: 'form', fields: [{ name: 'company', label: 'Company name' }, { name: 'vat', label: 'VAT ID' }], submit: 'Save' })}`);
-await say(firstChat.id, 'Create tasks [[tool:tasks.create {"title":"Edit the course trailer","notes":"Cut to 60 seconds"}]] [[tool:tasks.create {"title":"Answer YouTube comments"}]]');
+await say(firstChat.id, 'Create tasks [[tool:tasks.add {"title":"Edit the course trailer","notes":"Cut to 60 seconds"}]] [[tool:tasks.add {"title":"Answer YouTube comments"}]]');
 await say(firstChat.id, 'Clean up [[tool:shell.exec {"command":"echo cleanup"}]]');
-await rpc.call('todos.add', { text: 'Sign the delivery note' });
+await rpc.call('tasks.quickCreate', { text: 'Sign the delivery note' });
 await page.waitForTimeout(1500);
 
 const go = async (hash, name, wait = 900) => {
@@ -75,8 +74,7 @@ await page.evaluate(() => { const el = document.querySelector('.message-scroller
 await page.waitForTimeout(500);
 await page.screenshot({ path: path.join(shots, '03b-group-chat-middle-light.png') });
 await go(`#/chat/${firstChat.id}`, '04-manager-chat-light', 1500);
-await go('#/tasks', '05-tasks-all-light');
-await go('#/day', '06-my-day-light');
+await go('#/tasks', '05-tasks-light'); // Quests 20.11.2026: one Tasks page (My day and Work before)
 await go('#/team', '07-team-light');
 await go(`#/team/${video.id}`, '08-agent-light');
 for (const section of ['general', 'models', 'permissions', 'devices', 'customize', 'about']) await go(`#/settings/${section}`, `09-settings-${section}-light`); // B-044: no Agents section
@@ -96,7 +94,7 @@ await theme('light');
 await size(420, 860);
 await go('#/home', '30-phone-home', 1200);
 await go(`#/chat/${group.id}`, '31-phone-chat', 1500);
-await go('#/day', '32-phone-my-day', 1200);
+await go('#/tasks', '32-phone-tasks', 1200);
 await size(640, 480);
 await go(`#/chat/${firstChat.id}`, '40-small-chat', 1200);
 
@@ -140,12 +138,13 @@ const agentBudget = await page.evaluate(() => document.querySelector('.agent-col
 if (!agentBudget.includes('Model use and USD purchases') || !agentBudget.includes('Purchases')) problems.push('budgets: the agent page does not show both budgets');
 if (await page.locator('.agent-budget-bar').count() < 2) problems.push('budgets: the agent page shows fewer than two budget bars');
 
-// Catch-up (C4): 40 new messages while the chat is closed (the answer + 39 chat.send posts) →
-// "New messages" divider with the digest, the list opens at it, "↓ N new" below.
+// Catch-up (C4): 40 new messages while the chat is closed (the agent's 40 <chat to> blocks – agents/chat-out.ts; an
+// answer that addresses chats posts nothing else) → "New messages" divider with the digest, the list opens at it, "↓ N new" below.
 await page.evaluate(() => { location.hash = '#/home'; });
 const catchUpChat = await rpc.call('chats.create', { title: 'Weekly review', agentIds: [manager.id] });
 await rpc.call('events.subscribe', { topics: [`chat:${catchUpChat.id}`] });
-await say(catchUpChat.id, `Post the review notes\n${Array.from({ length: 39 }, (_, i) => `[[tool:chat.send {"text":"Review note ${i + 1}"}]]`).join('\n')}`);
+await say(catchUpChat.id, `Post the review notes\n${Array.from({ length: 40 }, (_, i) => `<chat to="${catchUpChat.id}">Review note ${i + 1}</chat>`).join('\n')}`);
+await rpc.waitFor('message.created', (message) => message.conversationId === catchUpChat.id && message.body === 'Review note 40', 60_000).catch(() => undefined);
 await go(`#/chat/${catchUpChat.id}`, '65-catch-up-light', 1500);
 if (await page.locator('.unread-divider').count() !== 1) problems.push('catch-up: no single "New messages" divider after 40 new messages');
 if (!(await page.locator('.catch-up-digest').count())) problems.push('catch-up: no digest after 40 new messages');

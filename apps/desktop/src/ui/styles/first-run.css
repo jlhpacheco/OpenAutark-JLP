@@ -9,13 +9,13 @@
 .first-run-view { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; min-height: 0; background: var(--surface); }
 .first-run-scroll { flex: 1 1 auto; min-height: 0; overflow: hidden auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .first-run-column { max-width: 620px; margin: 0 auto; padding: 28px clamp(16px, 4vw, 40px) 56px; }
-.first-run-step { min-height: 18px; margin: 0 0 8px; padding: 0 2px; color: var(--muted); font-size: 12px; line-height: 18px; } /* empty on the choice card, same slot */
+.first-run-step { min-height: 18px; margin: 0 0 8px; padding: 0 2px; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); } /* empty on the choice card, same slot */
 
 .first-run-card { display: flex; flex-direction: column; gap: 12px; min-height: 552px; padding: 20px 22px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); }
-.first-run-title { margin: 0; padding-bottom: 12px; border-bottom: 1px solid var(--line); color: var(--text); font-size: 17px; font-weight: 600; line-height: 24px; }
+.first-run-title { margin: 0; padding-bottom: 12px; border-bottom: 1px solid var(--line); color: var(--text); font-size: calc(17px * var(--ui-text, 1)); font-weight: 600; line-height: max(24px, calc(24px * var(--ui-text, 1))); }
 .first-run-body { display: flex; flex-direction: column; flex: 1 0 auto; gap: 10px; min-width: 0; }
 .first-run-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-.first-run-status { min-height: 18px; margin: 0; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.first-run-status { min-height: 18px; margin: 0; overflow: hidden; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); text-overflow: ellipsis; white-space: nowrap; }
 .first-run-body > .first-run-status { margin-top: auto; } /* the status line sits on the body's foot in every card */
 .first-run-status.error { color: var(--danger); }
 .first-run-status.ok { color: var(--success); }
@@ -31,7 +31,7 @@
 /* The "Open sign-in page" / "Get a key" link cell (onboarding/sign-in-link.tsx, settings/account-forms.tsx): the link, or an inert
    placeholder of the same text and size */
 .first-run-link {
-  flex: none; padding: 0; border: 0; background: none; color: var(--secondary); font-size: 12px; line-height: 18px; white-space: nowrap;
+  flex: none; padding: 0; border: 0; background: none; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); white-space: nowrap;
   text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
 }
 .first-run-link:hover { color: var(--text); }
@@ -52,8 +52,8 @@
 .first-run-choice:hover:not(:disabled) { background: var(--hover); }
 .first-run-choice.primary { border-color: var(--text); }
 .first-run-choice:disabled { opacity: var(--disabled-opacity, .5); cursor: default; }
-.first-run-choice-title { font-size: 15px; font-weight: 600; line-height: 22px; }
-.first-run-choice-text { color: var(--muted); font-size: 13px; line-height: 19px; }
+.first-run-choice-title { font-size: calc(15px * var(--ui-text, 1)); font-weight: 600; line-height: max(22px, calc(22px * var(--ui-text, 1))); }
+.first-run-choice-text { color: var(--muted); font-size: calc(13px * var(--ui-text, 1)); line-height: max(19px, calc(19px * var(--ui-text, 1))); }
 .first-run-actions > .first-run-link { margin-right: auto; align-self: center; }
 
 /* B-085 About you: the PC access rows – a choice changes only the colour, both rows keep their size */
@@ -61,7 +61,7 @@
 .first-run-access > legend { padding: 0; margin-bottom: 6px; }
 .first-run-access-row {
   display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 11px 12px; border: 1px solid var(--line);
-  border-radius: var(--r-md); color: var(--muted); font-size: 13px; line-height: 20px; cursor: pointer;
+  border-radius: var(--r-md); color: var(--muted); font-size: calc(13px * var(--ui-text, 1)); line-height: max(20px, calc(20px * var(--ui-text, 1))); cursor: pointer;
 }
 .first-run-access-row:hover { background: var(--hover); }
 .first-run-access-row.chosen { border-color: var(--text); color: var(--text); }

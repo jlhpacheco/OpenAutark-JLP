@@ -190,7 +190,7 @@
 .rail-badge {
   position: absolute; top: 1px; right: -3px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
   background: var(--badge-bg); color: var(--badge-fg); box-shadow: 0 0 0 2px var(--chrome);
-  font-size: 10px; font-weight: 600; line-height: 16px; text-align: center; pointer-events: none;
+  font-size: calc(10px * var(--ui-text, 1)); font-weight: 600; line-height: max(16px, calc(16px * var(--ui-text, 1))); text-align: center; pointer-events: none;
 }
 .rail-bottom { display: flex; flex-direction: column; align-items: center; gap: 12px; min-height: 0; margin-top: auto; padding-top: 12px; }
 
@@ -205,16 +205,16 @@
 .update-button:disabled { opacity: 1; cursor: default; }
 .update-button .ring { color: var(--badge-fg); }
 .update-button .ring-track { stroke: color-mix(in srgb, var(--badge-fg) 30%, transparent); }
-.update-button .ring-content { font-size: 9px; letter-spacing: -.2px; }
+.update-button .ring-content { font-size: calc(9px * var(--ui-text, 1)); letter-spacing: -.2px; }
 .update-button .spinner { border-color: color-mix(in srgb, var(--badge-fg) 30%, transparent); border-top-color: var(--badge-fg); }
 .rail-tooltip {
   position: absolute; z-index: 40; left: calc(100% + 12px); top: 50%; transform: translateY(-50%);
   padding: 8px 14px; border-radius: 20px; background: var(--tooltip-bg); color: var(--tooltip-fg);
-  font-size: 12px; font-weight: 500; white-space: nowrap; pointer-events: none;
+  font-size: calc(12px * var(--ui-text, 1)); font-weight: 500; white-space: nowrap; pointer-events: none;
 }
-.update-popover { padding: 14px 16px; font-size: 13px; }
+.update-popover { padding: 14px 16px; font-size: calc(13px * var(--ui-text, 1)); }
 .update-title { font-weight: 600; }
-.update-popover .muted { margin-top: 2px; font-size: 12px; }
+.update-popover .muted { margin-top: 2px; font-size: calc(12px * var(--ui-text, 1)); }
 .update-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 
 /* plan quotas (B-078, shell/QuotaRail.tsx): one compact badge per plan, every part in a fixed slot – the 5-hour ring
@@ -224,7 +224,8 @@
   display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 0 1 auto; min-height: 0;
   max-height: min(45vh, 300px); overflow: hidden auto; scrollbar-width: none;
 }
-.usage-badge {
+.usage-badge { --ui-text: 1; /* 21.11.2026: the rail's compact badge keeps its size (the number sits inside the ring) */
+ 
   --plan: var(--provider-codex); --plan-bar: var(--provider-codex-bar);
   display: flex; flex-direction: column; align-items: center; flex: none;
   width: 46px; height: 50px; padding: 0 1px; border-radius: var(--r-sm); color: var(--text); /* 28 + 11 + 11: every slot whole */
@@ -241,19 +242,19 @@
 .usage-ring circle { fill: none; stroke-width: 2.5; }
 .usage-ring-track { stroke: var(--line); }
 .usage-ring-arc { stroke: var(--plan-bar); stroke-linecap: round; }
-.usage-value { position: relative; color: var(--plan); font-size: 9.5px; font-weight: 600; line-height: 11px; letter-spacing: -.2px; }
-.usage-wait, .usage-name { display: block; flex: none; align-self: stretch; height: 11px; overflow: hidden; font-size: 10px; line-height: 11px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.usage-value { position: relative; color: var(--plan); font-size: calc(9.5px * var(--ui-text, 1)); font-weight: 600; line-height: max(11px, calc(11px * var(--ui-text, 1))); letter-spacing: -.2px; }
+.usage-wait, .usage-name { display: block; flex: none; align-self: stretch; height: 11px; overflow: hidden; font-size: calc(10px * var(--ui-text, 1)); line-height: max(11px, calc(11px * var(--ui-text, 1))); text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .usage-wait { color: var(--secondary); }
 .usage-name { color: var(--muted); }
-.usage-more { flex: none; color: var(--muted); font-size: 11px; line-height: 16px; cursor: default; }
-.popover.usage-popover { padding: 14px 16px; font-size: 12px; }
+.usage-more { flex: none; color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); line-height: max(16px, calc(16px * var(--ui-text, 1))); cursor: default; }
+.popover.usage-popover { padding: 14px 16px; font-size: calc(12px * var(--ui-text, 1)); }
 .usage-card { --plan: var(--provider-codex); --plan-bar: var(--provider-codex-bar); }
-.usage-card h4 { margin: 0 0 8px; color: var(--plan); font-size: 13px; font-weight: 600; }
+.usage-card h4 { margin: 0 0 8px; color: var(--plan); font-size: calc(13px * var(--ui-text, 1)); font-weight: 600; }
 .usage-window + .usage-window { margin-top: 10px; }
 .usage-row { display: flex; justify-content: space-between; gap: 12px; color: var(--text); }
 .usage-bar { height: 6px; margin-top: 6px; border-radius: 6px; background: var(--hover); overflow: hidden; }
 .usage-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--plan-bar, var(--provider-codex-bar)); }
-.usage-reset { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.usage-reset { margin: 6px 0 0; color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); line-height: 1.5; }
 
 /* profile bubble and menu (no gear, no divider chrome in the rail) */
 .profile-button { display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 4px; border-radius: 50%; }
@@ -268,39 +269,34 @@
 .profile-head-row { display: flex; align-items: flex-start; gap: 2px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
 .profile-head-row .profile-head { flex: 1 1 auto; margin-bottom: 0; border-bottom: 0; }
 .profile-add { flex: none; margin: 6px 4px 0 0; }
-.profile-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 500; }
-.profile-company { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.profile-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(14px * var(--ui-text, 1)); font-weight: 500; }
+.profile-company { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); }
 .profile-menu .menu-item { padding: 10px 12px; }
+/* 20.11.2026: a company's ⋯ menu – its name and line (folder · this one · linked PCs) as the head, not a button */
+.company-head { display: flex; flex-direction: column; gap: 1px; min-width: 0; margin-bottom: 4px; padding: 12px; border-bottom: 1px solid var(--line); }
 
 /* ---------------------------------------------------------------- sidebar rows */
 .chat-list, .sidebar-section { padding: 12px 0 18px; }
 .sidebar :is(.chat-list, .sidebar-section, .team-nav, .settings-nav) { padding-top: 8px; } /* under the side header row */
 .sidebar-action {
   display: flex; align-items: center; gap: 10px; width: 100%; height: 44px; padding: 0 20px;
-  color: var(--secondary); font-size: 14px; text-align: left;
+  color: var(--secondary); font-size: calc(14px * var(--ui-text, 1)); text-align: left;
 }
 .sidebar-action:hover { background: var(--hover); color: var(--text); }
 .sidebar-action .icon { opacity: .7; }
 .nav-list { display: flex; flex-direction: column; }
-.nav-row {
-  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 0 16px 0 20px;
-  color: var(--secondary); font-size: 14px; text-align: left;
-}
-.nav-row:hover { background: var(--hover); color: var(--text); }
-.nav-row[aria-current=page] { background: var(--selected); color: var(--text); }
-.nav-row > span:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nav-count { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.nav-count { margin-left: auto; color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); font-variant-numeric: tabular-nums; }
 
 /* ---------------------------------------------------------------- command palette */
 dialog.dialog.palette { margin-top: 12vh; margin-bottom: auto; }
 .palette .dialog-body { padding: 0; }
 .palette-search { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 16px; border-bottom: 1px solid var(--line); color: var(--muted); }
-.palette-input { flex: 1 1 auto; min-width: 0; border: 0; outline: none; background: transparent; color: var(--text); font-size: 15px; }
+.palette-input { flex: 1 1 auto; min-width: 0; border: 0; outline: none; background: transparent; color: var(--text); font-size: calc(15px * var(--ui-text, 1)); }
 .palette-input:focus-visible { outline: none; }
 .palette-input::placeholder { color: var(--muted); }
 /* one height and the scrollbar's room always: typing never resizes the dialog or narrows a row */
 .palette-list { height: min(420px, 60vh); padding: 6px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
-.palette-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 8px; color: var(--text); font-size: 13px; text-align: left; }
+.palette-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 8px; color: var(--text); font-size: calc(13px * var(--ui-text, 1)); text-align: left; }
 .palette-row .icon { opacity: .64; }
 .palette-row[aria-selected=true] { background: var(--hover); }
 .palette-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

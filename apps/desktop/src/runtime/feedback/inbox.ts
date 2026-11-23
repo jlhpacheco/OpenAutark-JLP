@@ -1,6 +1,9 @@
 // The team inbox (B-055 Q2/Q3) on every PC and company whose vault holds the team's private key: a fetch lists the
 // mailbox, opens each letter it does not have yet (seal.ts, checked by letter.ts) and stores it as
-// <data>/feedback-inbox/<id>.json (+ <id>.png|jpg|webp, + <id>.a<n>.webm|m4a recordings). No new table: plain files.
+// <data>/feedback-inbox/<id>.json (+ its images <id>.png|jpg|webp, <id>.2.…, owner 21.11.2026: several per report; an
+// item an older build stored with `screenshot` has that file as its first image). No new table: plain files. Owner
+// 20.11.2026: a report is its words – a recording in an older letter is not kept, and removing a report takes every file
+// of it (also the <id>.a<n>.* recordings older inboxes stored beside it).
 // 16.11.2026: a fetch no longer deletes a readable letter. The team key travels to the owner's linked PCs, and every
 // company of a PC can hold it, so whoever fetched first took the letters away from all the others (three reports of the
 // morning sat on the notebook only). Now every team PC sees every letter; a letter leaves the mailbox when the team
@@ -18,14 +21,14 @@
 // Marks stay per PC.
 // Spam guard: at most UNREADABLE_KEEP letters are kept under unreadable/ (each lives UNREADABLE_KEEP_MS); a flood of
 // letters nobody of ours sealed beyond that is counted and deleted in the mailbox instead of filling this PC.
-// Owns: the fetch order (open → attachments → JSON last), the local files, the tombstones, deleting a removed report's
+// Owns: the fetch order (open → images → JSON last), the local files, the tombstones, deleting a removed report's
 // letter and the age deletion. Never: deletes a readable young letter at a fetch, logs a key, a token or a letter's
 // text, or polls.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { RuntimeServices } from '../contracts.ts';
-import { FEEDBACK_AUDIO_EXT, FEEDBACK_AUDIO_MAX, FEEDBACK_HANDLED_KEEP_MS, FEEDBACK_IMAGE_EXT, INBOX_DIR, type FeedbackAudioType, type FeedbackHandled, type FeedbackImageType, type FeedbackInboxFetch, type FeedbackInboxItem } from '../../shared/model/feedback-delivery.ts';
+import { FEEDBACK_HANDLED_KEEP_MS, inboxImageFile, INBOX_DIR, type FeedbackHandled, type FeedbackImageType, type FeedbackInboxFetch, type FeedbackInboxItem } from '../../shared/model/feedback-delivery.ts';
 import { SYSTEM_ID } from '../../shared/ids.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import { KvRepo } from '../store/kv.ts';
@@ -51,11 +54,6 @@ export const UNREADABLE_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 export const GONE = '.gone';
 export const TOMBSTONE_KEEP_MS = LETTER_TTL_MS + 24 * 60 * 60 * 1000;
 const LIST_MAX = 500;
-/** Every attachment file a report may have beside its JSON. */
-const ATTACHED = [
-  ...Object.values(FEEDBACK_IMAGE_EXT),
-  ...Array.from({ length: FEEDBACK_AUDIO_MAX }, (_, index) => Object.values(FEEDBACK_AUDIO_EXT).map((ext) => `a${index + 1}.${ext}`)).flat(),
-];
 
 export interface InboxDeps {
   services: () => RuntimeServices;
@@ -118,32 +116,23 @@ export class FeedbackInbox {
 
   private read(id: string): FeedbackInboxItem | undefined {
     try {
-      const item = JSON.parse(readFileSync(path.join(this.dir(), `${id}.json`), 'utf8')) as FeedbackInboxItem;
-      return item && item.id === id && typeof item.text === 'string' ? item : undefined;
+      const stored = JSON.parse(readFileSync(path.join(this.dir(), `${id}.json`), 'utf8')) as FeedbackInboxItem & { audio?: unknown; screenshot?: { mime: FeedbackImageType; size: number } };
+      if (!stored || stored.id !== id || typeof stored.text !== 'string') return undefined;
+      const { audio: _recordings, screenshot, ...item } = stored; // an older inbox's list of recordings: not part of a report
+      return screenshot && !item.images ? { ...item, images: [screenshot] } : item; // an older build's one screenshot: <id>.<ext>
     } catch {
       return undefined;
     }
   }
 
-  screenshot(id: string): { mime: FeedbackImageType; dataBase64: string } {
-    const item = this.read(checkId(id));
-    if (!item?.screenshot) throw new WorkforceError('not_found', 'This report has no screenshot.');
+  /** Image `index` (0-based) of a stored report. */
+  image(id: string, index: number): { mime: FeedbackImageType; dataBase64: string } {
+    const image = this.read(checkId(id))?.images?.[index];
+    if (!image) throw new WorkforceError('not_found', 'This report has no such image.');
     try {
-      return { mime: item.screenshot.mime, dataBase64: readFileSync(path.join(this.dir(), `${id}.${FEEDBACK_IMAGE_EXT[item.screenshot.mime]}`)).toString('base64') };
+      return { mime: image.mime, dataBase64: readFileSync(path.join(this.dir(), inboxImageFile(id, index, image.mime))).toString('base64') };
     } catch {
-      throw new WorkforceError('not_found', 'This report has no screenshot.');
-    }
-  }
-
-  /** Recorded take `index` (0 = the first) of a stored report. */
-  audio(id: string, index: number): { mime: FeedbackAudioType; dataBase64: string } {
-    const take = this.read(checkId(id))?.audio?.[index];
-    const missing = () => new WorkforceError('not_found', 'This report has no such recording.');
-    if (!take || !ATTACHED.some((ext) => take.file === `${id}.${ext}`)) throw missing(); // a name this inbox wrote, nothing else
-    try {
-      return { mime: take.mime, dataBase64: readFileSync(path.join(this.dir(), take.file)).toString('base64') };
-    } catch {
-      throw missing();
+      throw new WorkforceError('not_found', 'This report has no such image.');
     }
   }
 
@@ -180,13 +169,15 @@ export class FeedbackInbox {
   }
 
   /**
-   * Deletes a stored report and its attachments on this PC and its letter in the mailbox; the tombstone keeps the next
-   * fetch from bringing it back when that delete fails (offline).
+   * Deletes a stored report and every file of it on this PC (<id>.*) and its letter in the mailbox; the tombstone keeps
+   * the next fetch from bringing it back when that delete fails (offline).
    */
   remove(id: string): { ok: true } {
     checkId(id);
     const dir = this.dir();
-    for (const ext of ['json', ...ATTACHED]) rmSync(path.join(dir, `${id}.${ext}`), { force: true });
+    let names: string[] = [];
+    try { names = readdirSync(dir); } catch { /* no inbox folder yet */ }
+    for (const name of names) if (name.startsWith(`${id}.`)) rmSync(path.join(dir, name), { force: true }); // ids have no ".": only this report's
     try {
       mkdirSync(dir, { recursive: true, mode: 0o700 });
       writeFileSync(path.join(dir, `${id}${GONE}`), '', { mode: 0o600 });
@@ -288,9 +279,8 @@ export class FeedbackInbox {
       writeAtomic(path.join(dir, UNREADABLE_DIR, `${id}.wfb`), sealed);
       return 'kept';
     }
-    const { item, image, audio } = opened;
-    if (image && item.screenshot) writeAtomic(path.join(dir, `${id}.${FEEDBACK_IMAGE_EXT[item.screenshot.mime]}`), image);
-    audio?.forEach((bytes, index) => writeAtomic(path.join(dir, item.audio![index].file), bytes));
+    const { item, images } = opened;
+    item.images?.forEach((image, index) => writeAtomic(path.join(dir, inboxImageFile(id, index, image.mime)), images[index]));
     writeAtomic(path.join(dir, `${id}.json`), `${JSON.stringify(item, null, 2)}\n`); // last: it marks the letter stored
     return 'added';
   }

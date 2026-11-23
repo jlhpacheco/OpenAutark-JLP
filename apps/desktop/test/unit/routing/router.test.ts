@@ -34,7 +34,7 @@ test('rules: balanced chat picks the best fit; the category comes from the mode 
   const inferred = await h.router.route(request({ text: 'Bitte schneide das Musikvideo und baue eine Intro-Animation in Remotion.' }));
   assert.equal(inferred.category, 'video-animation');
   assert.equal(inferred.modelId, 'claude:claude-opus-5-5');
-  assert.equal(inferred.effort, 'high'); // category default for video work
+  assert.equal(inferred.effort, 'medium'); // Runde „Halb“ 21.11.2026: medium unweighed, no category default (video: high) for an agent's turn
   assert.match(inferred.reason, /video animation/);
 });
 
@@ -206,7 +206,9 @@ test('effort: agent policy > default (a chat\'s suggested effort is no route); c
   assert.equal((await h.router.route(request({ agent: fixed, conversationId: 'ch_1' }))).effort, 'xhigh'); // Sol tops out at xhigh
   const none = agent('ag_1', { modelPolicy: { pin: 'claude:claude-opus-5-5', effort: 'none' } });
   assert.equal((await h.router.route(request({ agent: none }))).effort, 'low'); // Opus cannot switch thinking off
-  assert.equal((await h.router.route(request({ mode: mode('cheap-chat') }))).effort, 'low');
+  // Runde „Halb“ 21.11.2026: an agent's turn with nothing set runs at medium, not at its category's default (cheap chat: low)
+  const cheap = await h.router.route(request({ mode: mode('cheap-chat') }));
+  assert.equal(cheap.effort, 'medium', cheap.reason);
   setPolicy(h.services, {}, { effort: 'high' });
   assert.equal((await h.router.route(request())).effort, 'high'); // global default policy
 });
@@ -291,7 +293,7 @@ test('B-047 D12: a Manager\'s chat or research turn takes its text\'s category �
   const boss = agent('ag_boss', { mode: 'manager' });
   const planning = await h.router.route({ agent: boss, mode: manager, text: 'Plan the roadmap, prioritise the milestones and delegate them to the team.' });
   assert.equal(planning.category, 'manager-planner');
-  assert.equal(planning.effort, 'high', 'real planning keeps its category default');
+  assert.equal(planning.effort, 'medium', 'Runde „Halb“: unweighed, real planning runs at medium too – the weighing lifts it');
   const chat = await h.router.route({ agent: boss, mode: manager, text: 'Hi! How are you today?' });
   assert.equal(chat.category, 'chat');
   assert.notEqual(chat.modelId, 'codex:gpt-6-astra');

@@ -1,6 +1,11 @@
 // Device model: this PC, linked PCs, phones and browsers.
+// 19.11.2026 (Sicher-Runde D2): a linked PC says why it goes (`away`, device.bye before a deliberate stop), the public key of
+// its wake helper (`caps.wakeKey`, runtime/devices/wake.ts) and what its Update button did (`UpdateAnswer`, system.update).
+// Fest round 22.11.2026 (G): the connection's quality now (`link`, LinkQuality – measured, never stored).
 // Owns: the device registry shapes shared by runtime and UI, phone/browser access state, and the app version order (compareAppVersions).
 // Never: carries private keys or one-time pairing secrets to the UI.
+
+import type { UpdateState } from './system.ts';
 
 export type DeviceKind = 'pc' | 'phone' | 'browser';
 // Every PC is home of its own data and linked PCs are peers ('home'); 'node' is only read from older
@@ -18,7 +23,33 @@ export interface DeviceCaps {
   os?: string;
   /** F25 (16.11.2026): the Autark version that PC runs (Settings › Devices; a newer one on my own PC checks for the update here). Older PCs send none. */
   version?: string;
+  /** 19.11.2026: the base64url Ed25519 public key of that PC's wake helper (runtime/devices/wake.ts); absent: it cannot be woken. */
+  wakeKey?: string;
 }
+
+/**
+ * Fest round 22.11.2026 (G): how good this PC's connection to a device is now (runtime/devices/link-quality.ts, memory only):
+ * the round trip (median of the last pings), `slow` from SLOW_LINK_MS, and for a linked PC its clock minus this PC's
+ * (`offsetMs`, NTP-style); `at` is the newest sample.
+ */
+export interface LinkQuality { rttMs: number; slow?: true; offsetMs?: number; at: number }
+/** A voice call turns awkward past ~150 ms each way (ITU-T G.114): a round trip from here on is a slow connection. */
+export const SLOW_LINK_MS = 300;
+/** A figure older than this says nothing about now (two catch-up rounds of a PC link, twenty pings of a page). */
+export const LINK_STALE_MS = 5 * 60_000;
+
+/** Why a linked PC is away: the person closed its app, it installs an update, or its Windows session ended. */
+export type AwayReason = 'quit' | 'update' | 'session-end';
+/** What a linked PC said with `device.bye` right before a deliberate stop (cleared when its link is back). */
+export interface DeviceAway { reason: AwayReason; at: number }
+
+/**
+ * system.update's answer (E4): what the PC's own updater says right after its fresh check – 'downloading' / 'downloaded' /
+ * 'installing' (it goes on by itself), 'current' (the official feed has nothing newer), 'available' with
+ * automaticInstall false (it installs by hand there), 'error' with its message, 'development' (no updater). A PC on an
+ * older version answers only `{ ok: true }`.
+ */
+export type UpdateAnswer = { ok: true } & Partial<Pick<UpdateState, 'status' | 'version' | 'availableVersion' | 'message' | 'automaticInstall'>>;
 
 /**
  * Orders two app versions ("0.3.8", "0.3.6-local.3"): negative when `a` is older, 0 when equal, positive when newer. The
@@ -62,6 +93,10 @@ export interface Device {
   personId?: string;
   /** B-081: this PC joined that PC – as its CEO (everything the same) or as an employee there (files stay there). */
   joinedAs?: 'ceo' | 'employee';
+  /** 19.11.2026: a linked PC that said goodbye before a deliberate stop (device.bye); gone again once its link is back. */
+  away?: DeviceAway;
+  /** G (22.11.2026): this PC's connection to it now, while measured (never stored). */
+  link?: LinkQuality;
 }
 
 export interface PwaState {

@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SPLIT_LIMITS } from '../../../src/shared/model/splits.ts';
-import { fairShare } from '../../../src/runtime/splits/results.ts';
+import { TOLD_ITEM, fairShare } from '../../../src/runtime/splits/results.ts';
 import { NOTHING_BACK } from '../../../src/runtime/agents/split-turn.ts';
 import { CHAT, part, splitAndEnd, world } from './fixture.ts';
 
@@ -106,24 +106,13 @@ test('B-080: a done part that reported through agents.split_tell to its origin s
   const groupId = splitAndEnd(w, [part('Pairs')]);
   const splitId = w.lanes.started[0];
   const runId = w.lanes.lanes.get(splitId)!.runId;
-  const tell = (to: string | number, text: string, summary: string) => w.runs.item(runId, { kind: 'tool_call', name: 'agents.split_tell', effectStatus: 'none',
-    data: { callId: `call_${text.length}`, args: JSON.stringify({ to, text }), summary } });
-  tell('origin', 'First pair found.', 'To my origin: First pair found.');
-  tell(2, 'Take the EU pairs.', 'To my part #2: Take the EU pairs.');
-  tell('origin', 'EU-IN pairs: Anna and Ben.', 'To my origin: EU-IN pairs: Anna and Ben.');
+  const told = (text: string) => w.runs.item(runId, { kind: 'note', name: TOLD_ITEM, effectStatus: 'none', data: { text } }); // agents.split_tell {to: 'origin'}
+  told('First pair found.');
+  w.runs.item(runId, { kind: 'tool_call', name: 'agents.split_tell', effectStatus: 'none', data: { callId: 'call_2', args: JSON.stringify({ to: 2, text: 'Take the EU pairs.' }), summary: 'To my part #2: Take the EU pairs.' } });
+  told('EU-IN pairs: Anna and Ben.');
   w.lanes.end(splitId, 'done');
   const block = w.splits.pendingResults('ag_ava', CHAT)!.text;
   assert.match(block, /### #1 Pairs – done · codex:gpt-6\.1-sol · low\nAsked: Do pairs\.\nEU-IN pairs: Anna and Ben\./, 'its last note to its origin, not "(no result text)"');
   assert.doesNotMatch(block, /no result text|Take the EU pairs|First pair found/);
   assert.match(w.splits.results('ag_ava', { groupId, idx: 1 }), /### #1 Pairs – done · codex:gpt-6\.1-sol · low\nAsked: Do pairs\.\nEU-IN pairs: Anna and Ben\.$/);
-  // Args cut in the journal (tools/outputs.ts preview: 2,000 characters and "…" – a note may be as long): its text up to
-  // the cut, marked "…" (not the summary's first 300); a cut escape stays out; args without a text: the summary's start.
-  const cutTell = (args: string, summary: string) => w.runs.item(runId, { kind: 'tool_call', name: 'agents.split_tell', effectStatus: 'none', data: { callId: 'call_cut', args, summary } });
-  const long = `Long list: ${'row, '.repeat(500)}end.`;
-  cutTell(`${JSON.stringify({ to: 'origin', text: long }).slice(0, 2_000)}…`, `To my origin: ${long.slice(0, 280)}…`);
-  assert.ok(w.splits.results('ag_ava', { groupId, idx: 1 }).endsWith(`\n${long.slice(0, 2_000 - '{"to":"origin","text":"'.length)}…`));
-  cutTell('{"to":"origin","text":"Line one\\nLine \\"two\\…', 'To my origin: Line one Line "two');
-  assert.ok(w.splits.results('ag_ava', { groupId, idx: 1 }).endsWith('\nLine one\nLine "two…'));
-  cutTell('{"to":"orig…', 'To my origin: Long list follows');
-  assert.match(w.splits.results('ag_ava', { groupId, idx: 1 }), /\nLong list follows$/);
 });

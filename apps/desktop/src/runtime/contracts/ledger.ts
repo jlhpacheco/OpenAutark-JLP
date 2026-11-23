@@ -42,7 +42,7 @@ export interface ContextLedger {
   mark(agentId: string, conversationId: string, marks: LedgerMark[]): void;
   /**
    * Addition (KI-Runde 17.11.2026, the fold): the hand-over `runId` wrote – its checkpoint items – is pinned for good and everything of
-   * the agent's own work before it is hidden by 'fold' (the chat lines, the tasks.finish calls since the hand-over before it
+   * the agent's own work before it is hidden by 'fold' (the chat lines, the tasks.update calls that finished a task since the hand-over before it
    * and pinned items stay); returns the checkpoint's ids and how many items it hid, undefined when the run left no checkpoint
    * (nothing is marked then).
    */

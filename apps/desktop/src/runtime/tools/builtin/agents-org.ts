@@ -51,13 +51,13 @@ const BESIDE: ReadonlySet<string> = new Set(['head']);
 
 /** B-078: the line a hire result carries – the SYSTEM.md is the new agent's own, and how I start them. */
 export function startLine(name: string): string {
-  return `${name} starts from the team's standard SYSTEM.md with the "who you are" I gave under "## My role" (above: that part) and makes the file their own in their first turn (skill system-prompt). I start ${name} now with the brief for it: a first line in our 1:1 (chat.direct) with who they are for the person and what I found – the colleagues, folders and accounts of the work, an earlier piece that shows what good looks like – or a first real task there (tasks.create with to = ${name} and chatId = our 1:1). Then I read what they wrote and say what I would sharpen.`;
+  return `${name} starts from the team's standard SYSTEM.md with the "who you are" I gave under "## My role" (above: that part) and makes the file their own in their first turn (skill system-prompt). I start ${name} now with the brief for it: a first line in our 1:1 (chat.direct) with who they are for the person and what I found – the colleagues, folders and accounts of the work, an earlier piece that shows what good looks like – or a first real to-do (tasks.add for ${name}). Then I read what they wrote and say what I would sharpen.`;
 }
 
 const HIRE_PROPS = {
   name: { type: 'string', maxLength: 60, description: 'The name the hire goes by, as the person wants it: a first name ("Mara"), a role ("Firmenberater") or both. Without it the hire gets a free first name.' },
   template: { type: 'string' }, role: { type: 'string', maxLength: 120, description: 'The job.' },
-  instructions: { type: 'string', maxLength: 8000, description: 'Who the colleague is and for whom they work, a few lines under "## My role"; from there they grow it. Their first piece of work is a task of its own (tasks.create).' },
+  instructions: { type: 'string', maxLength: 8000, description: 'Who the colleague is and for whom they work, a few lines under "## My role"; from there they grow it. Their first piece of work is a to-do of its own (tasks.add).' },
   mode: { type: 'string' }, managerId: { type: 'string', description: "'' = the person." },
   spaceId: { type: 'string', description: "Default the template's or its manager's space; a private one only from inside it." },
   device: { type: 'string', minLength: 1, maxLength: 120, description: 'Its home PC, where its turns, terminal and screen work run; default this one.' },

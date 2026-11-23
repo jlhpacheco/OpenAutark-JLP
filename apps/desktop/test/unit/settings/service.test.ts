@@ -1,5 +1,5 @@
 // SettingsStore without a data folder (memory only) and its value rules: defaults, deep merge, null clears,
-// validation refuses a patch without writing, a damaged old row falls back to the defaults, copies out.
+// validation refuses a patch without writing, a damaged stored section falls back to the defaults, copies out.
 // The file side is test/unit/settings/file.test.ts.
 
 import { test } from 'node:test';
@@ -9,6 +9,7 @@ import { defaultSettings, languageOf } from '../../../src/runtime/settings/defau
 import { deepMerge } from '../../../src/runtime/settings/validate.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import { clock, memoryDb, recordingBus } from '../store/helpers.ts';
+import { storedSettings } from './stored.ts';
 
 const env = { locale: 'de-DE', timezone: 'Europe/Berlin' };
 
@@ -28,8 +29,8 @@ test('defaults cover the full Settings shape with the confirmed values', () => {
   assert.equal(s.profile.language, 'en'); // owner 18.11.2026: English on every PC
   assert.deepEqual(s.notifications.pushFor, ['todo', 'blocker', 'important']);
   assert.equal(s.preferences.sidebarWidth, 288);
-  assert.equal(s.preferences.closeToTray, true);
-  assert.deepEqual(Object.keys(s).sort(), ['day', 'devices', 'feedback', 'library', 'notifications', 'onboarding', 'preferences', 'profile', 'pwa', 'routing', 'voice']); // day: B-041 My day; library: B-078
+  assert.equal(s.preferences.enterSends, true);
+  assert.deepEqual(Object.keys(s).sort(), ['day', 'devices', 'feedback', 'library', 'notifications', 'onboarding', 'preferences', 'profile', 'pwa', 'routing', 'security', 'voice']); // day: B-041 My day; library: B-078; security: 19.11.2026
   assert.deepEqual(s.voice.vocabulary, []);
 });
 
@@ -69,14 +70,13 @@ test('null clears optional keys; arrays replace', () => {
   assert.equal(settings.get().notifications.quietHours, undefined);
 });
 
-test('null sets a key that has a default back to it, as settings.json and a restart do (profile.forEveryAgent)', () => {
+test('null sets a key that has a default back to it, as settings.json and a restart do (security.mode)', () => {
   const { settings } = setup();
-  const robot = settings.get().profile.forEveryAgent;
-  assert.ok(robot);
-  settings.update({ profile: { forEveryAgent: 'I answer in German.' } });
-  assert.equal(settings.update({ profile: { forEveryAgent: null as never } }).profile.forEveryAgent, robot, 'the default, not nothing');
-  assert.equal(settings.get().profile.forEveryAgent, robot);
-  assert.equal(settings.update({ profile: { pcAccess: null as never } }).profile.pcAccess, undefined, 'a key without a default is removed');
+  settings.update({ security: { mode: 'secure' } });
+  assert.equal(settings.update({ security: { mode: null as never } }).security?.mode, 'trust', 'the default, not nothing');
+  assert.equal(settings.get().security?.mode, 'trust');
+  settings.update({ profile: { avatarFileId: 'file_1' } });
+  assert.equal(settings.update({ profile: { avatarFileId: null as never } }).profile.avatarFileId, undefined, 'a key without a default is removed');
   assert.deepEqual(deepMerge({ a: 1, b: { c: 2 } }, { a: null, b: { c: null } }, { a: 5, b: {} }), { a: 5, b: {} });
   assert.deepEqual(deepMerge({ toString: 1 }, { toString: null }, {}), {}, 'only the defaults\' own keys');
 });
@@ -107,10 +107,10 @@ test('validation rejects out-of-range values and unknown keys without writing', 
   assert.equal(settings.get().preferences.sidebarWidth, 420);
 });
 
-test('a damaged old row falls back to the defaults instead of failing', () => {
-  const { db } = setup();
-  db.run(`INSERT INTO settings (key, value, updated_at) VALUES ('preferences', '{"sidebarWidth": 9999}', 1), ('profile', '{"name": "Ana"}', 1)`);
-  const s = new SettingsStore({ db, bus: recordingBus().bus, clock: clock(), env }).get();
+test('a damaged stored section falls back to the defaults instead of failing', (t) => {
+  const { settings, done } = storedSettings({ preferences: { sidebarWidth: 9999 }, profile: { name: 'Ana' } }, env);
+  t.after(done);
+  const s = settings.get();
   assert.equal(s.preferences.sidebarWidth, 288);
   assert.equal(s.profile.name, 'Ana');
 });
@@ -126,8 +126,7 @@ test('get returns copies; deepMerge ignores prototype keys', () => {
 
 test('a first run stopped on a card that became "About you" (team, voice) reads as about', () => {
   for (const step of ['team', 'voice']) {
-    const { db } = setup();
-    db.run(`INSERT INTO settings (key, value, updated_at) VALUES ('onboarding', ?, 1)`, [JSON.stringify({ completed: false, step })]);
-    assert.equal(new SettingsStore({ db, bus: recordingBus().bus, clock: clock(), env }).get().onboarding.step, 'about', step);
+    const { settings, done } = storedSettings({ onboarding: { completed: false, step } }, env);
+    try { assert.equal(settings.get().onboarding.step, 'about', step); } finally { done(); }
   }
 });

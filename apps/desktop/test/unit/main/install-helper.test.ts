@@ -17,7 +17,8 @@ import { INSTALL_WATCHDOG_MS } from '../../../src/main/updates/update-service.ts
 import type { Updater } from '../../../src/main/updates/update-service.ts';
 
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'wf-helper-'));
-after(() => rmSync(tmp, { recursive: true, force: true }));
+// Windows can still hold the fixture cwd briefly after the detached helper's last log line.
+after(() => rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
 const INSTALLER = 'C:\\Users\\Jürgen Ä\\AppData\\Local\\autark-updater\\pending\\autark-windows-x64.exe';
 const EXE = 'C:\\Users\\Jürgen Ä\\AppData\\Local\\Programs\\Autark\\Autark.exe';

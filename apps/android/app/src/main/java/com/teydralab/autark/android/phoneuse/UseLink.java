@@ -11,7 +11,9 @@
 // The PC's 'notify' events on the same subscription become the app's own notifications (AppNotices, B-084).
 // It also carries the to-do button's own calls (TodoButton: files.upload, tasks.quickCreate, chats.direct) – call()
 // sends one request and hands its {id, result} / {id, error:{message}} to the caller's Answer; a socket that ends fails
-// every call still waiting. The link that runs is linked() (one per paired company; the to-do button shows while one does).
+// every call still waiting; request() is the same, waited for on the caller's thread. The link that runs is linked() (one
+// per paired company; the to-do button shows while one does). The bubble's call (BubbleCall) listens to the events of
+// the chat topic it subscribed (listen(): every event frame besides the two above, and the socket's end).
 // A notice of the app sends its answer over the same link without waiting for one (the static call: CallNotice's calls.decline).
 // Reconnects with backoff (2 s … 60 s) after the socket ended or never came up; the backoff starts again at 2 s only
 // after a connection brought an attach answer.
@@ -43,6 +45,18 @@ public final class UseLink implements WebSocketClient.Listener {
         void error(String message);
     }
 
+    /** The events of a topic the bubble's call subscribed, and the socket's end – on the socket's reader thread. */
+    interface Events {
+        void event(String name, Map<String, Object> data);
+        void closed();
+    }
+
+    /** request()'s failure: the PC's message, or none when it did not answer in time (`late`). */
+    static final class Refused extends Exception {
+        final boolean late;
+        Refused(String message, boolean late) { super(message); this.late = late; }
+    }
+
     /** What a call hears when this phone has no socket to the PC right now, or the socket ended before the answer. */
     static final String UNLINKED = "Not connected to your PC right now.";
     private static volatile UseLink linked;
@@ -54,6 +68,10 @@ public final class UseLink implements WebSocketClient.Listener {
     private final String gate;
     private final String token;
     private final String deviceId;
+    /** The phone's Ed25519 device key (the pairing key): signs voice.planLogin's proof. */
+    private final byte[] seed;
+    /** The last proof's `at`: each one rises (the PC takes a proof once). */
+    private long proofAt;
     private final Pcs pcs;
     private final StepThread steps = new StepThread((line) -> android.util.Log.w("autark", line));
     /** My listener for the service turning on or off (one object, so stop() drops exactly mine). */
@@ -70,6 +88,10 @@ public final class UseLink implements WebSocketClient.Listener {
     private Thread worker;
     /** call()'s requests still waiting for their answer, by frame id. */
     private final Map<Integer, Answer> calls = new ConcurrentHashMap<>();
+    private volatile Events events;
+
+    /** The PC this link goes to (its address, no secret): what a value read from the PC belongs to. */
+    String origin() { return origin; }
 
     /** The running link of the paired company, or null (not paired, or between two companies). */
     public static UseLink linked() { return linked; }
@@ -82,9 +104,14 @@ public final class UseLink implements WebSocketClient.Listener {
         if (listener != null) listener.run();
     }
 
-    public UseLink(Context context, String origin, String gate, String token, String deviceId, Pcs pcs) {
+    public UseLink(Context context, String origin, String gate, String token, String deviceId, byte[] seed, Pcs pcs) {
         this.context = context.getApplicationContext();
-        this.origin = origin; this.gate = gate; this.token = token; this.deviceId = deviceId; this.pcs = pcs;
+        this.origin = origin; this.gate = gate; this.token = token; this.deviceId = deviceId; this.seed = seed; this.pcs = pcs;
+    }
+
+    private synchronized long nextProofAt() {
+        proofAt = Math.max(System.currentTimeMillis(), proofAt + 1);
+        return proofAt;
     }
 
     public void start() {
@@ -119,6 +146,57 @@ public final class UseLink implements WebSocketClient.Listener {
         // The socket ended meanwhile (its close may have failed the waiting calls before this one was in the map).
         if (socket != ws) { Answer left = calls.remove(id); if (left != null) left.error(UNLINKED); }
     }
+
+    /** call(), waited for on this (non-main) thread at most `ms`: the result, or Refused. */
+    Object request(String method, Map<String, Object> params, long ms) throws Refused, InterruptedException {
+        java.util.concurrent.atomic.AtomicReference<Object> result = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<String> error = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        call(method, params, new Answer() {
+            @Override public void result(Object value) { result.set(value); done.countDown(); }
+            @Override public void error(String message) { error.set(message); done.countDown(); }
+        });
+        if (!done.await(ms, java.util.concurrent.TimeUnit.MILLISECONDS)) throw new Refused(null, true);
+        if (error.get() != null) throw new Refused(error.get(), false);
+        return result.get();
+    }
+
+    /** STIMME 21.11.2026: the phone's own dictation hearing (PlanHearing) with the plan login this PC hands to this phone
+     *  (voice.planLogin, proven with the device key `seed` – only this native side has it; `fresh` after the plan refused
+     *  the copy). */
+    public PlanHearing hearing() {
+        return PlanHearing.of(new PlanHearing.Pc() {
+            @Override public Map<String, Object> login(String language, boolean fresh) throws PlanHearing.Missed, InterruptedException {
+                Map<String, Object> params = PlanHearing.loginParams(seed, deviceId, nextProofAt(), language, fresh);
+                Object answer;
+                try { answer = request("voice.planLogin", params, fresh ? PlanHearing.FRESH_MS : PlanHearing.LOGIN_MS); }
+                catch (Refused refused) { throw new PlanHearing.Missed(refused.late ? "the PC did not answer" : "the PC gives no plan login"); }
+                if (!(answer instanceof Map)) throw new PlanHearing.Missed("no login");
+                @SuppressWarnings("unchecked") Map<String, Object> map = (Map<String, Object>) answer;
+                return map;
+            }
+            @Override public String place() { return origin; }
+        });
+    }
+
+    /** Whether the PC answers within `ms` (on a non-main thread): any answer, also a refusal of an older PC, shows a living socket;
+     *  no answer, or no socket, does not. The socket has no keep-alive of its own, so one half dead after a network change says nothing. */
+    boolean alive(long ms) throws InterruptedException {
+        try { request("todos.speechLanguage", Json.map(), ms); return true; }
+        catch (Refused refused) { return Resend.provesAlive(refused.late, refused.getMessage()); }
+    }
+
+    /** Ends the current socket (a half dead one): run() connects anew within its first backoff. */
+    void reconnect() {
+        WebSocketClient ws = socket;
+        if (ws != null) ws.close();
+    }
+
+    /** `listener` hears the event frames and the socket's end from now on (one at a time: the bubble's call). */
+    void listen(Events listener) { events = listener; }
+
+    /** Stops `listener` – only while it is still the one. */
+    void unlisten(Events listener) { if (events == listener) events = null; }
 
     private void failCalls() {
         for (Integer id : new java.util.ArrayList<>(calls.keySet())) {
@@ -183,6 +261,12 @@ public final class UseLink implements WebSocketClient.Listener {
         if ("notify".equals(frame.get("event")) && frame.get("data") instanceof Map) {
             @SuppressWarnings("unchecked") Map<String, Object> note = (Map<String, Object>) frame.get("data");
             AppNotices.event(context, note);
+            return;
+        }
+        Events ear = events;
+        if (ear != null && frame.get("event") instanceof String && frame.get("data") instanceof Map) {
+            @SuppressWarnings("unchecked") Map<String, Object> data = (Map<String, Object>) frame.get("data");
+            ear.event((String) frame.get("event"), data);
             return;
         }
         Answer waiting = frame.get("id") instanceof Number ? calls.remove(((Number) frame.get("id")).intValue()) : null;
@@ -254,6 +338,8 @@ public final class UseLink implements WebSocketClient.Listener {
     @Override public void closed(String reason) {
         synchronized (lock) { closes++; socket = null; lock.notifyAll(); }
         failCalls();
+        Events ear = events;
+        if (ear != null) ear.closed();
     }
 
     private void pause(long ms) {

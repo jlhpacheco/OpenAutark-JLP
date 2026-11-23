@@ -6,7 +6,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { RunItem, RunItemKind } from '../../../src/shared/model/runs.ts';
-import { STEP_ICONS, answerOf, callStep, liveWindow, parsedArgs, shownEntry, thoughtLine, thoughtParts } from '../../../src/ui/team/step-view.ts';
+import { STEP_ICONS, answerOf, callStep, liveWindow, shownEntry, thoughtLine, thoughtParts } from '../../../src/ui/team/step-view.ts';
+import { parsedArgs } from '../../../src/shared/text/step-label.ts';
 import { runEntries } from '../../../src/ui/team/model.ts';
 
 let seq = 0;

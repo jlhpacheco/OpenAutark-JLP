@@ -7,7 +7,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { attemptCost, cachePrices, chargeOf, combineCosts, listPrice, tokenPrice } from '../../../src/runtime/models/pricing.ts';
+import { attemptCost, cachePrices, combineCosts, listPrice, tokenPrice } from '../../../src/runtime/models/pricing.ts';
+import { accountCharge } from '../../../src/shared/model/charge.ts';
 import { Priors } from '../../../src/runtime/models/priors.ts';
 import { firstUsage } from '../../../src/runtime/agents/turn-cost.ts';
 import { finishTurn } from '../../../src/runtime/agents/turn-finish.ts';
@@ -20,22 +21,23 @@ import type { Account, ModelInfo } from '../../../src/shared/model/providers.ts'
 import { account } from './harness.ts';
 import { setup } from '../agents/fixture.ts';
 
-const AA = { source: 'artificial-analysis', priceInputPerM: 2, priceOutputPerM: 8 } as const;
-const model = (id: string, scores?: ModelInfo['scores']): ModelInfo => ({
+/** A list price from the daily keyless list (models/price-feed.ts). */
+const AA = { source: 'feed', inputPerM: 2, outputPerM: 8 } as const;
+const model = (id: string, price?: Partial<NonNullable<ModelInfo['price']>>): ModelInfo => ({
   id, provider: id.split(':')[0] as ModelInfo['provider'], model: id.slice(id.indexOf(':') + 1), name: id, engine: 'compatible',
-  efforts: [], caps: {}, tier: 'strong', strengths: {}, available: true, accounts: [], ...(scores ? { scores } : {}),
+  efforts: [], caps: {}, tier: 'strong', strengths: {}, available: true, accounts: [], ...(price ? { price: price as ModelInfo['price'] } : {}),
 });
 
 test('who pays: API keys, env keys and API-key CLI logins are paid; plans and local models are not', () => {
-  assert.equal(chargeOf(account('a', 'openai')), 'paid');
-  assert.equal(chargeOf({ ...account('a', 'openrouter'), auth: 'env' as Account['auth'] }), 'paid', 'the detected environment key (PR5)');
-  assert.equal(chargeOf(account('a', 'claude', { plan: 'max' })), 'plan');
-  assert.equal(chargeOf(account('a', 'claude')), 'plan', 'a CLI login without a reported plan is a subscription');
-  assert.equal(chargeOf(account('a', 'claude', { plan: 'api' })), 'paid', 'Claude Code signed in with an API key');
-  assert.equal(chargeOf(account('a', 'codex', { plan: 'api' })), 'paid');
-  assert.equal(chargeOf(account('a', 'ollama')), 'free');
-  assert.equal(chargeOf(account('a', 'lmstudio', { auth: 'api_key' })), 'free', 'a local runtime never bills');
-  assert.equal(chargeOf(account('a', 'compatible', { auth: 'none' })), 'free', 'a server without a key bills nobody');
+  assert.equal(accountCharge(account('a', 'openai')), 'paid');
+  assert.equal(accountCharge({ ...account('a', 'openrouter'), auth: 'env' as Account['auth'] }), 'paid', 'the detected environment key (PR5)');
+  assert.equal(accountCharge(account('a', 'claude', { plan: 'max' })), 'plan');
+  assert.equal(accountCharge(account('a', 'claude')), 'plan', 'a CLI login without a reported plan is a subscription');
+  assert.equal(accountCharge(account('a', 'claude', { plan: 'api' })), 'paid', 'Claude Code signed in with an API key');
+  assert.equal(accountCharge(account('a', 'codex', { plan: 'api' })), 'paid');
+  assert.equal(accountCharge(account('a', 'ollama')), 'free');
+  assert.equal(accountCharge(account('a', 'lmstudio', { auth: 'api_key' })), 'free', 'a local runtime never bills');
+  assert.equal(accountCharge(account('a', 'compatible', { auth: 'none' })), 'free', 'a server without a key bills nobody');
 });
 
 test('prices: provider-reported → AA list price → curated prior → unpriced; never a guessed price', () => {
@@ -51,7 +53,7 @@ test('prices: provider-reported → AA list price → curated prior → unpriced
   // A list price must cover every token kind used: output tokens without an output price stay unpriced.
   assert.equal(tokenPrice(usage, { inputPerM: 2 }), undefined);
   assert.equal(tokenPrice({ inputTokens: 500, outputTokens: 0 }, { inputPerM: 2 }), 0.001, 'embeddings: input only');
-  assert.equal(listPrice(usage, model('openai:x', { source: 'artificial-analysis', priceInputPerM: 2 })), undefined);
+  assert.equal(listPrice(usage, model('openai:x', { source: 'feed', inputPerM: 2 })), undefined);
   // Plans: no charge, the reported or list price is the notional cost.
   const plan = account('a', 'claude', { plan: 'max' });
   assert.deepEqual(attemptCost({ account: plan, usage: { ...usage, costUsd: 0.4 }, model: model('claude:x', AA) }), { basis: 'plan', notionalUsd: 0.4 });
@@ -176,7 +178,7 @@ test('package C: every path discounts the cached part and prices the written par
   // The feed path knows input and output only: reads at a tenth, writes at the input price (the old code: 2.12).
   const fed = { ...model('codex:gpt-6.1-sol'), price: { source: 'feed', inputPerM: 2, outputPerM: 10 } } as unknown as ModelInfo;
   assert.deepEqual(listPrice({ inputTokens: 1_000_000, outputTokens: 10_000, cachedInputTokens: 970_000 }, fed), { usd: 0.354, basis: 'list-price' }, '30k × 2 + 970k × 0.2 + 10k × 10');
-  // The list path (a row's own price) the same way.
+  // Cache reads and writes on the list price.
   assert.deepEqual(listPrice({ inputTokens: 1_000_000, outputTokens: 0, cacheReadTokens: 500_000, cacheWriteTokens: 500_000 }, model('openai:x', AA)), { usd: 1.1, basis: 'list-price' }, '500k × 0.2 + 500k × 2');
   assert.equal(tokenPrice({ inputTokens: 100, outputTokens: 0, cacheWriteTokens: 500 }, { inputPerM: 1_000_000 }), 100, 'a write report larger than the input counts no more than the input');
 });

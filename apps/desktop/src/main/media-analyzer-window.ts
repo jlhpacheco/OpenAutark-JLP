@@ -9,7 +9,7 @@
 
 import type { BrowserWindow, BrowserWindowConstructorOptions, Session } from 'electron';
 import { ANALYZER_ORIGIN } from './media-analyzer-routes.ts';
-import type { AnalyzerWindow, Serve } from './media-analyzer.ts';
+import type { HiddenWindow, Serve } from './hidden-jobs.ts';
 
 /** No "persist:" prefix: the session lives in memory only and is never shared with the app window. */
 export const ANALYZER_PARTITION = 'wf-media-analyzer';
@@ -23,7 +23,7 @@ export interface ElectronAnalyzerDeps {
 export interface PrivateSessionConfig { partition: string; origin: string }
 
 /** `MediaAnalyzerDeps.open` for Electron; the private session is set up on the first window. */
-export function electronAnalyzerWindows(deps: ElectronAnalyzerDeps, config: PrivateSessionConfig = { partition: ANALYZER_PARTITION, origin: ANALYZER_ORIGIN }): (serve: Serve) => AnalyzerWindow {
+export function electronAnalyzerWindows(deps: ElectronAnalyzerDeps, config: PrivateSessionConfig = { partition: ANALYZER_PARTITION, origin: ANALYZER_ORIGIN }): (serve: Serve) => HiddenWindow {
   let serving: Serve = async () => new Response(null, { status: 410 });
   let prepared: Session | null = null;
   const privateSession = (): Session => {

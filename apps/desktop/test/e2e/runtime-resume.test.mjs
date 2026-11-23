@@ -31,7 +31,7 @@ test('tasks waiting on the person continue as soon as the person acts', { timeou
   const nextTurn = (taskId, since) => client.waitFor('run.upserted', (run) => run.agentId === manager.id && run.taskId === taskId && (run.startedAt ?? 0) > since, 90_000);
   /** Its owner sets the task waiting on the person (a tool call in a turn) and no turn runs on it any more. */
   const waitOnPerson = async (taskId) => {
-    const wait = { taskId, status: 'waiting', on: 'who', who: 'human', why: 'Log in first' };
+    const wait = { id: taskId, status: 'waiting', waiting: 'person: Log in first' }; // "<who>: why" – a wait on the person
     await client.call('messages.send', { conversationId: chat.id, body: `Wait for me [[tool:tasks.update ${JSON.stringify(wait)}]]` });
     await client.waitFor('task.upserted', (item) => item.id === taskId && item.status === 'waiting' && item.waitingOn?.who === 'human', 90_000);
     await sleep(QUIET_MS);
@@ -48,8 +48,9 @@ test('tasks waiting on the person continue as soon as the person acts', { timeou
 
   await t.test('the last human step done: the task works again and its owner continues', async () => {
     // Its owner asks the person (a piece of the task with a widget) and waits on them.
-    const ask = { title: 'Log in to the portal', to: 'human', parentId: task.id, widget: { type: 'confirm', instructions: 'Log in, then confirm here' } };
-    await client.call('messages.send', { conversationId: chat.id, body: `Please log in [[tool:tasks.create ${JSON.stringify(ask)}]]` });
+    // Quests round 20.11.2026: the piece is a to-do in the task's quest (tasks.add quest: the task – a lone to-do that gets one becomes a quest).
+    const ask = { title: 'Log in to the portal', for: 'person', quest: task.id, ask: { type: 'confirm', instructions: 'Log in, then confirm here' } };
+    await client.call('messages.send', { conversationId: chat.id, body: `Please log in [[tool:tasks.add ${JSON.stringify(ask)}]]` });
     const step = await client.waitFor('task.upserted', (item) => item.title === 'Log in to the portal' && item.parentId === task.id, 90_000);
     assert.equal(step.assigneeKind, 'human');
     const at = await waitOnPerson(task.id);
@@ -58,8 +59,9 @@ test('tasks waiting on the person continue as soon as the person acts', { timeou
     assert.equal(resumed.status, 'open', 'back to work, not waiting');
     assert.equal(resumed.waitingOn, undefined);
     await nextTurn(task.id, at);
-    const lines = (await client.call('messages.list', { conversationId: chat.id })).filter((message) => message.kind === 'status').map((message) => message.body);
-    assert.ok(lines.includes('Open again: Finish the portal sign-up'), 'a quiet line says it goes on');
+    // the task's lines are in its own thread (Quests round 20.11.2026)
+    const lines = (await client.call('messages.list', { conversationId: task.id })).filter((message) => message.kind === 'status').map((message) => message.body);
+    assert.ok(lines.includes('Open again: Finish the portal sign-up'), 'a quiet line in its thread says it goes on');
   });
 
   await t.test('a message of the person while it waits is a turn on that task', async () => {

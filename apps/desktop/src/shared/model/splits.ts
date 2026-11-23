@@ -24,8 +24,13 @@ export const SPLIT_TERMINAL: readonly SplitStatus[] = ['done', 'failed', 'stoppe
 export const SPLIT_LIMITS = { partsPerCall: 12, activeGroupsPerAgent: 3, runningPerAgent: 4, attempts: 2,
   resultChars: 24_000, briefChars: 12_000, titleChars: 80, goalChars: 400, returnsChars: 400 } as const;
 
+/** Halb 21.11.2026: what a fresh part's hardest step asks – the router turns it into a tier and an effort of its own pool
+ *  (routing/split-route.ts). A part stores it as its `model` word until it names a model itself (splits/validate.ts). */
+export const SPLIT_NEEDS = ['check', 'chain', 'judgment'] as const;
+export type SplitNeeds = typeof SPLIT_NEEDS[number];
+
 /** One part as the agent asks for it (agents.split input). B-083: `temperature` (0..2) like model and effort – engines that take one send it. */
-export interface SplitPartInput { title: string; brief: string; returns?: string; context?: SplitContext;
+export interface SplitPartInput { title: string; brief: string; returns?: string; context?: SplitContext; needs?: SplitNeeds;
   model?: string; effort?: Effort; temperature?: number; after?: number[]; worktree?: boolean; chat?: string }
 
 /** How a split's session was seeded (set at its first start). F26: 'ledger' – from its own copy of its parent's record, condensed by its subconscious (splits/fork.ts). */
@@ -71,6 +76,8 @@ export interface SplitTurn { splitId: string; groupId: string; idx: number; of: 
 
 /** B-083: how agents.split_tell's journaled summary starts for a part's note to its origin ("My parts" shows the last one). */
 export const TOLD_ORIGIN = 'To my origin:';
+/** B-086: how the line of what the origin asked of a part starts, beside the part's result (runtime/splits/results.ts askedLine). */
+export const ASKED = 'Asked: ';
 /** B-080: why a native fork did not fit the worker model's window (runtime/splits/fork.ts, in its run note's fellBack). */
 export const PAST_WINDOW = "the parent session exceeds the worker model's limit";
 

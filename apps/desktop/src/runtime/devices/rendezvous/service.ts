@@ -14,8 +14,9 @@
 // 0.3.x apps gets one line asking for the app update. F29 stage 1: the Android app's channel goes straight to the peer
 // listener whenever one of my addresses answers; the state names each phone's bytes direct and through the server today
 // (phone-traffic.ts), and a removed phone's direct channels end after the same drain as its pin.
-// B-084: it opens my person code (remote/code.ts – it holds my key and database) and sends my chain with my pins, so
-// the server finds me under the code as well.
+// B-084: it opens my IDs' trees (remote/code.ts – it holds my key and database). Eine-ID 22.11.2026: it sends both chains
+// (company and me) with my pins while this PC is findable, so the server finds me under the Company ID and My ID as well –
+// never before (nothing is fixed before the company exists); a found entry's chain is the one proving the ID searched.
 // Owns: the mesh hook, the request route, the relay client and its state.
 // Never: links a PC, or talks to a server the person did not configure.
 
@@ -29,7 +30,7 @@ import type { RelayState } from '../../../shared/model/relay.ts';
 import { relayAddress } from '../../../shared/model/relay.ts';
 import { WorkforceError } from '../../../shared/errors.ts';
 import { MEETING_OFF, MEETING_UNREACHABLE, type Found } from '../../remote/find.ts';
-import { openCode, watchCode, type PersonCode } from '../../remote/code.ts';
+import { openCodes, watchCode, type Chain, type CodeTree } from '../../remote/code.ts';
 import { remoteIdOf } from '../../remote/id.ts';
 import type { SocketLike } from '../channel.ts';
 import type { DeviceIdentity } from '../identity.ts';
@@ -46,11 +47,6 @@ const MAX_PEERS = 64;
 export const RELAY_PREFIX = 'relay:';
 const WHO_TIMEOUT_MS = 5_000;
 const PHONE_DRAIN_MS = 2_000;
-/**
- * The answer to the old preview app's 'phone' op (0.2.x/0.3.2 APKs, package ….android.preview): the release is a new
- * app beside it (another package and key), so it says where that app is and that the preview goes afterwards.
- */
-export const PREVIEW_APP = 'This is the old preview app. Install Autark for Android from github.com/teydra/OpenAutark/releases (a new app), pair it with this PC\'s Remote ID, then remove the preview app.';
 
 export type PostOptions = { timeoutMs: number; signal?: AbortSignal };
 
@@ -94,8 +90,8 @@ export class Meeting {
   private readonly leaving = new Map<string, string>();
   /** Lookups waiting for the server connection (woken by its state changes). */
   private readonly waiters = new Set<() => void>();
-  /** My person code (B-084): the server also finds me under it while my chain proves it. */
-  private readonly code: PersonCode;
+  /** My two IDs (B-084, Eine-ID 22.11.2026): the server also finds me under them while my chains prove them. */
+  private readonly codes: { company: CodeTree; me: CodeTree };
 
   /** 18.11.2026: PC ↔ PC over WebRTC (rendezvous/pc-rtc.ts). */
   private readonly pcRtc?: PcRtc;
@@ -111,7 +107,7 @@ export class Meeting {
       });
     }
     this.repo = new DevicesRepo(deps.db);
-    this.code = openCode(deps.db, deps.identity, () => deps.clock.now());
+    this.codes = openCodes(deps.db, deps.identity, () => deps.clock.now());
     this.relay = new RelayClient({
       identity: deps.identity, log: deps.log, timers: deps.timers, socket: deps.socket,
       events: {
@@ -281,9 +277,14 @@ export class Meeting {
     }
     let port: number | undefined;
     try { port = this.deps.port(); } catch { port = undefined; }
-    const chain = this.code.chain();
-    this.relay.setPeers(peers.slice(0, MAX_PEERS), this.findable(), port, chain.links.length ? chain : undefined);
+    const findable = this.findable();
+    this.relay.setPeers(peers.slice(0, MAX_PEERS), findable, port, findable ? this.chains() : []);
     this.changed();
+  }
+
+  /** My company chain (when I am not its root) and my me chain – read only while findable (the me tree starts on first use). */
+  private chains(): Chain[] {
+    return [this.codes.company.chain(), this.codes.me.chain()].filter((chain) => chain.links.length > 0);
   }
 
   private configure(): void {
@@ -301,7 +302,6 @@ export class Meeting {
     const message = value as { op?: unknown; body?: unknown };
     const refuse = (code: string, text: string) => ({ ok: false, error: { code, message: text } });
     if (!this.findable()) return refuse('forbidden', 'This PC does not accept connection requests.');
-    if (message?.op === 'phone') return refuse('bad_request', PREVIEW_APP);
     if (message?.op === 'wellKnown') {
       const { deviceId, name, fingerprint } = this.deps.remote.wellKnown();
       return { ok: true, deviceId, name, fingerprint };

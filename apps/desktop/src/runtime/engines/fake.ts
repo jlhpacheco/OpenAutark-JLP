@@ -18,7 +18,7 @@
 //   `[[prompt:<text>]]`      → (O8) quotes each line of the stable prompt and the live context
 //                              containing <text> as "prompt → <line>", or says that none does,
 //   "$task" in tool args     → (O8) the turn's current task id (the volatile prompt's
-//                              "## Current task" section), so a scripted handoff can finish it,
+//                              "## Current quest" / "## Current to-do"), so a scripted handoff can finish it,
 //   `[[structured:{json}]]`  → (X08) with an output schema, that JSON is the structured answer
 //                              (unparsable JSON: { ok: true }, the answer of every other schema
 //                              turn), e.g. a scripted helper answer,
@@ -27,7 +27,8 @@
 // before the answer it is new input like the rest – its [[tool:…]] directives run, the rest is echoed
 // ("Echo: <steered text>"); a turn that ends otherwise (stopped) leaves it to the next turn.
 // New input (INT-8): directives never come from history – not from a full projection's summary
-// and earlier lines (context/projection.ts), not from the agent's own messages, and not from
+// and earlier lines (context/projection.ts), not from the agent's own messages or its briefs quoted
+// back in "Split results" (the "Asked: …" line beside each part's result), and not from
 // lines its native session already received (Received below). "verify before repeating" is read
 // from the whole input.
 // A custom `script` replaces the rules entirely.
@@ -41,6 +42,7 @@ import type { Account, EngineId } from '../../shared/model/providers.ts';
 import type { AccountCheck, Engine, EngineCaps, EngineEvent, EngineModel, EngineTurnInput, EngineTurnResult } from './types.ts';
 import { outputText } from './shared.ts';
 import { HELD, OWN_LABEL, withoutHistory } from '../context/projection.ts';
+import { ASKED } from '../../shared/model/splits.ts';
 import { fakeFork } from './fake-fork.ts'; // B-057: fork() records its inputs (fork.calls) and answers fake-fork-<n>
 
 export type FakeScript = (input: EngineTurnInput) => Promise<EngineTurnResult> | EngineTurnResult;
@@ -187,12 +189,13 @@ function cutOff(signal: AbortSignal): boolean {
   return kind === 'urgent' || kind === 'shutdown';
 }
 
-/** The lines without the agent's own messages (a full projection and a catch-up list them). */
+/** The lines without the agent's own words: its messages (a full projection and a catch-up list them) and its briefs a
+ *  "Split results" block quotes back beside each part's result ("Asked: …", splits/results.ts askedLine). */
 function othersOnly(lines: string[]): string[] {
   let own = false;
   return lines.filter((line) => {
     if (ENTRY.test(line)) own = OWN_ENTRY.test(line);
-    return !own;
+    return !own && !line.startsWith(ASKED);
   });
 }
 
@@ -264,7 +267,7 @@ export function fakeModels(value: string | undefined): EngineModel[] {
 
 const SIZE = /\[\[size:([a-zA-Z0-9_.-]+)\s*(\{[\s\S]*?\})?\]\]/g;
 const PROMPT = /\[\[prompt:([^\]\n]+)\]\]/g;
-const CURRENT_TASK = /(?:^|\n)## Current task\n(\S+)/;
+const CURRENT_TASK = /(?:^|\n)## Current (?:quest|to-do)\n(\S+)/; // context/quest-text.ts: the heading, then a line that starts with the id
 
 /** `"$task"` (a whole JSON string) → the turn's current task id; unchanged when the turn has none. */
 function withTask(raw: string, input: EngineTurnInput): string {

@@ -17,7 +17,7 @@ import { BASE_CORE, CALL_TOOL, FIND_TOOL, MODE_CORE, coreNames, coreReason } fro
 import { MORE_TOOLS_HEADER, moreToolsSection, rankTools } from '../../../src/runtime/tools/builtin/tools-meta.ts';
 import { environmentSection } from '../../../src/runtime/context/environment.ts';
 import { ModeLibrary } from '../../../src/runtime/modes/service.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { agent } from '../chat/harness.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import type { ToolSpec } from '../../../src/runtime/tools/types.ts';
@@ -27,7 +27,7 @@ const PENDING = new Set<string>();
 const CODEX = { ownTools: true, via: 'native' as const };
 const HUB = { ownTools: true, via: 'mcp' as const };
 const HTTP = { ownTools: false, via: 'native' as const };
-const ALWAYS = ['model.set', 'tasks.create', 'tasks.update', 'tasks.finish', 'chat.read', 'chat.direct', 'web.fetch', 'knowledge.find', 'knowledge.open'];
+const ALWAYS = ['tasks.add', 'tasks.update', 'tasks.list', 'tasks.remind', 'chat.read', 'chat.direct', 'web.fetch', 'knowledge.find', 'knowledge.open'];
 /** Direct only for an engine without its own file and web tools (Claude Code and Codex bring theirs). */
 const OWN_ENGINE_HAS = ['files.read', 'files.search', 'web.search'];
 
@@ -91,10 +91,10 @@ test('offerFor: the engine decides the execution core (every engine reaches the 
     assert.equal(rankTools(reachable, 'save a screenshot image to a file', 1)[0]?.name, 'files.write', 'tools.find finds files.write for bytes');
     for (const query of ['run a command', 'terminal command', 'run a powershell script']) assert.equal(rankTools(reachable, query, 1)[0]?.name, 'shell.exec', query);
   }
-  assert.ok(codex.includes('schedules.remind') && !codex.includes('schedules.list') && names(registry.specsFor(tom, general, CODEX)).includes('schedules.list'), 'schedules.remind is direct, the rest reachable');
+  assert.ok(codex.includes('tasks.remind') && !codex.includes('calendar.list') && names(registry.specsFor(tom, general, CODEX)).includes('calendar.list'), 'tasks.remind is direct, the calendar reachable');
 
-  const learned = names(registry.offerFor(tom, general, CODEX, ['schedules.list', 'computer.click', 'phone.say', 'no.such']));
-  assert.ok(learned.includes('schedules.list') && learned.includes('computer.click'), 'a learned tool joins, in every mode');
+  const learned = names(registry.offerFor(tom, general, CODEX, ['calendar.list', 'computer.click', 'phone.say', 'no.such']));
+  assert.ok(learned.includes('calendar.list') && learned.includes('computer.click'), 'a learned tool joins, in every mode');
   assert.ok(!learned.includes('phone.say') && !learned.includes('no.such'), 'never one that cannot work here');
 
   const writing = names(registry.offerFor(agentIn('writing'), modes.get('writing'), CODEX));
@@ -109,8 +109,8 @@ test('tools reachable through tools.call count as offered; the prompt names each
   const general = modes.get('general');
   const usable = registry.specsFor(tom, general);
   const offered = new Set(names(usable));
-  assert.ok([...offered].some((name) => name.startsWith('schedules.')), 'schedules.* is reachable (not direct)');
-  assert.ok([...offered].some((name) => name.startsWith('todos.')));
+  assert.ok(offered.has('calendar.connect'), 'calendar.connect is reachable (not direct)');
+  assert.ok(![...offered].some((name) => name.startsWith('schedules.') || name.startsWith('todos.')), 'Quests round: the old schedule and to-do tools are gone');
   assert.ok(offered.has('decide'));
   assert.ok(!names(registry.offerFor(tom, general, CODEX)).includes('decide'), 'decide runs through tools.call');
   const direct = new Set(names(registry.offerFor(tom, general, CODEX)));

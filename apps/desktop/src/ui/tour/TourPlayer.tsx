@@ -9,7 +9,8 @@
 // Used by the replay dialog (TourDialog.tsx), opened from the palette, Settings › Feedback, the first run's choice card
 // ("Watch how it works") and once by the iPhone web app after its pairing; it starts at its poster on every opening –
 // B-090: playing at once when opened by "Set up a new company" (`autoplay`). And by the Android app's own page before
-// its pairing (phone-page.tsx): playing at once, Skip in place of ×, and a `note` on the end card.
+// its pairing (phone-page.tsx): playing at once, Skip in place of ×, and a `note` on the end card; `bubble` plays the
+// Android app's tour (timeline.ts ANDROID_TOUR: the phone's with the bubble chapter, owner 19.11.2026).
 // Owns: playback state, the controls and the scene's fit. Never: the story (timeline.ts), the drawing
 // (Scene.tsx) or what Continue leads to (the caller's onDone).
 
@@ -18,13 +19,13 @@ import { TourIcon } from './icons.tsx';
 import { fitScale, formatTime, keyAction, nextTime, stepTime, timeAt } from './player-model.ts';
 import { Scene } from './Scene.tsx';
 import type { Variant } from './scene-layout.ts';
-import { TOURS } from './timeline.ts';
+import { ANDROID_TOUR, TOURS } from './timeline.ts';
 
 export const TOUR_TITLE = 'How to send feedback';
 export const END_TEXT = 'Only the Teydra team can read your feedback – it is encrypted on your PC.';
 
-export function TourPlayer(props: { onDone: () => void; autoplay?: boolean; variant?: Variant; skip?: boolean; note?: string }) {
-  const tour = TOURS[props.variant ?? 'desktop'];
+export function TourPlayer(props: { onDone: () => void; autoplay?: boolean; variant?: Variant; skip?: boolean; note?: string; bubble?: boolean }) {
+  const tour = props.bubble ? ANDROID_TOUR : TOURS[props.variant ?? 'desktop'];
   const { duration, chapters, clamp, layout } = tour;
   const percent = (at: number) => `${((at / duration) * 100).toFixed(3)}%`;
   const [t, setT] = useState(0);

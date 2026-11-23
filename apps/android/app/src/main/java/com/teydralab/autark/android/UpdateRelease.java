@@ -14,8 +14,9 @@ final class UpdateRelease {
     /** An APK larger than this is no Autark update (the app is about 4 MB). */
     static final long MAX_APK_BYTES = 64L * 1024 * 1024;
     /** The feed is read on start and on every return to the app, at most this often: a fix reaches the phone the next time
-     * the person opens Autark, not hours later (the feed is a few hundred bytes). */
-    static final long INTERVAL_MS = 30 * 60_000L;
+     * the person opens Autark, not hours later (the feed is a few hundred bytes). Owner 19.11.2026: a release published
+     * minutes ago showed no line – every opening reads it, once a minute at most. */
+    static final long INTERVAL_MS = 60_000L;
     /** A version whose automatic try failed or was cancelled downloads by itself again only after this long; "Update" and
      * "Try again" stay at hand meanwhile. */
     static final long AUTO_RETRY_MS = 6 * 60 * 60_000L;

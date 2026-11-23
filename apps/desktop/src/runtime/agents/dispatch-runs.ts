@@ -21,13 +21,16 @@
 // a run a mail started as well (16.11.2026: it works with every tool and can split).
 // KI-Runde 17.11.2026 (the context fold, agents/context-fold.ts): a turn whose outcome calls for a fold keeps the cause on its
 // entry (RunEntry.fold) and hands the entry to the dispatcher with the freed lane; fold() starts the fold's turn on the agent's
-// main lane – a run of its own (reason 'fold') with no wakes, shown in the chat the ended turn came from and stopped by that
-// chat's Stop; a failed one is not retried (the next turn's end asks again) and a crashed one leaves no bubble.
+// main lane – a run of its own (reason 'fold') with no wakes, shown in the chat the ended turn came from (its activity row
+// says `fold`, so the live bar names it) and stopped by that chat's Stop; a failed one is not retried (the next turn's end
+// asks again) and a crashed one leaves no bubble.
 // B-059 (dispatch-settle.ts): #17 a crashed turn's streaming bubble fails and its task gets its after-turn handling;
 // #18 a main-lane turn still running RELEASE_MS after its abort is released – run closed, cut calls unknown, its wakes
 // settled as its abort said, the slot handed on; the late end of the hung work changes no bookkeeping here. B-057: a split
 // lane too – its run closed; after the person's Stop the split service is told (turnEndedEarly: stopped), after a
 // shutdown's cut it hears the hung turn's own late end.
+// Runde „Halb“ 21.11.2026: the wakes of groups riding along in a turn (TurnRequest.riders) are done only when it ended done –
+// every other end (failed, cut, skipped, crashed, released) leaves them due again, unspent, for a turn of their own.
 // Owns: the running map, RunEntry, abort kinds, settling a turn's wakes (done, released, or released for a retry),
 // closing a crashed run, live notes and the activity rows (with the route the turn reports,
 // B-048 E4.5 – B-080: also after a model switch inside the turn, setModelInTurn – and the origin, B-054; B-083: with the
@@ -86,6 +89,10 @@ export interface RunEntry {
   /** B-054: what started the run (the group's origin). */
   origin?: Origin;
   wakeIds: string[];
+  /** Runde „Halb“ 21.11.2026: the wakes of the groups riding along (TurnRequest.riders) – done once the turn ended done, else due again. */
+  riderWakeIds?: string[];
+  /** The turn ended done: its riders were seen. */
+  ridden?: boolean;
   /** B-054: the most claims any of its wakes had (WakeQueue.claim counts them) – the retry's backoff. */
   attempts: number;
   controller: AbortController;
@@ -143,6 +150,7 @@ export class RunningTurns {
         if (entry.route) Object.assign(item, { model: entry.route.model, modelName: entry.route.modelName, effort: entry.route.effort, engine: entry.route.engine }); // never the account
         if (entry.route?.temperature !== undefined) Object.assign(item, { temperature: entry.route.temperature, temperatureSent: entry.route.temperatureSent === true }); // B-083
         if (entry.boundary.inFlight) item.toolCalls = entry.boundary.inFlight;
+        if (entry.reason === 'fold') item.fold = true; // the live bar says what it is (22.11.2026)
         const split = entry.split; // B-057: a split's lane – its row reports its parent's chat (the chat's live block, F-52 views)
         if (split) item.split = { id: split.splitId, groupId: split.groupId, idx: split.idx, of: split.of, parentRunId: split.parentRunId, title: split.title };
         if (split?.parentConversationId) item.conversationId = split.parentConversationId;
@@ -162,8 +170,8 @@ export class RunningTurns {
     return this.lanes(agentId).find((entry) => entry.runId === runId);
   }
 
-  /** Starts the turn of `group` for an agent that has none running (the dispatcher checked). */
-  start(services: RuntimeServices, agent: Agent, group: WakeGroup): void {
+  /** Starts the turn of `group` for an agent that has none running (the dispatcher checked); `riders` ride along in it (dispatch-groups.ts ridersOf). */
+  start(services: RuntimeServices, agent: Agent, group: WakeGroup, riders: WakeGroup[] = []): void {
     let conversationId = group.conversationId;
     if (!mailMarker(group.origin) && !conversationId && group.taskId) {
       try { conversationId = services.tasks.get(group.taskId)?.conversationId; } catch { conversationId = undefined; }
@@ -173,11 +181,13 @@ export class RunningTurns {
       runId: newId('run', now), agentId: agent.id, lane: agent.id, conversationId, taskId: group.taskId, reason: group.reason,
       ...(group.origin ? { origin: group.origin } : {}), wakeIds: wakeIds([group]),
       attempts: Math.max(0, ...group.wakes.map((wake) => wake.attempts ?? 0)), startedAt: now,
+      ...(riders.length ? { riderWakeIds: wakeIds(riders) } : {}),
     });
     this.launch(services, entry, {
       runId: entry.runId, agentId: agent.id, conversationId: group.conversationId, taskId: group.taskId,
       reason: group.reason, ...(group.origin ? { origin: group.origin } : {}), ...(group.originNote ? { originNote: group.originNote } : {}),
       notes: notesOf(group),
+      ...(riders.length ? { riders: riders.map((rider) => ({ conversationId: rider.conversationId!, notes: notesOf(rider) })) } : {}),
     });
   }
 
@@ -224,6 +234,7 @@ export class RunningTurns {
       const outcome = await this.deps.executor.execute(request);
       // Finished work is never re-run, even when a shutdown/urgent abort arrived too late.
       if (outcome.status === 'done' || outcome.status === 'skipped') entry.settle = 'done';
+      entry.ridden = outcome.status === 'done'; // a skipped turn showed its riders nothing
       if (outcome.fold) entry.fold = outcome.fold; // its session calls for a context fold: the dispatcher starts it when nothing else is due
       if (outcome.status === 'skipped' && entry.split) turnEndedEarly(services, entry.runId, entry.split, 'skipped'); // B-057: no run, no finish
       if (outcome.status === 'failed') {
@@ -263,6 +274,10 @@ export class RunningTurns {
         if (entry.settle === 'release') services.wakes.release(entry.wakeIds);
         else if (entry.retryAt !== undefined) services.wakes.release(entry.wakeIds, entry.retryAt);
         else services.wakes.done(entry.wakeIds);
+        if (entry.riderWakeIds) { // riders: seen in a done turn, else due again as if never claimed (their own turn follows)
+          if (entry.ridden) services.wakes.done(entry.riderWakeIds);
+          else services.wakes.release(entry.riderWakeIds, undefined, true);
+        }
       } catch (error) {
         services.log.warn('wake bookkeeping failed', { agentId: entry.agentId, error: String(error) });
       }
@@ -317,7 +332,7 @@ export class RunningTurns {
 
 /** A fresh record of a turn on `lane` (the main lane is the agent id; B-057: a split's `<agentId>#<splitId>`). */
 export function runEntry(fields: Pick<RunEntry, 'runId' | 'agentId' | 'lane' | 'reason' | 'wakeIds' | 'attempts' | 'startedAt'>
-  & Partial<Pick<RunEntry, 'conversationId' | 'taskId' | 'origin' | 'split'>>): RunEntry {
+  & Partial<Pick<RunEntry, 'conversationId' | 'taskId' | 'origin' | 'split' | 'riderWakeIds'>>): RunEntry {
   const control: TurnControl = { lastSeq: 0, steeredSeq: 0 };
   return { ...fields, controller: new AbortController(), control, note: '', boundary: new ToolBoundary(), settle: 'done', finished: Promise.resolve() };
 }

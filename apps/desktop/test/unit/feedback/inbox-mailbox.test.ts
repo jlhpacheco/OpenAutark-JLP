@@ -1,21 +1,20 @@
 // Feedback 16.11.2026 (F22–F24: three morning reports were in no inbox of this PC – the first fetcher took them): every
 // team PC and company sees every letter, a letter older than LETTER_TTL_MS goes at any fetch whatever its id, a
 // removed report's tombstone keeps a letter whose mailbox delete failed from coming back (swept after TTL + 1 day),
-// recordings are stored only when their bytes are WebM/MP4 and play back through feedback.inboxAudio, and a letter's
-// new facts (client, company, device diagnostics, dictated) are checked like the rest.
+// a letter's recordings are not kept (owner 20.11.2026: a report is its words), and a letter's new facts (client, company, device diagnostics, dictated) are checked like the rest.
 // Owns: these assertions. Never: contacts Google (fake mailbox).
 
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, utimesSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { FeedbackService } from '../../../src/runtime/feedback/service.ts';
 import { GONE, RECEIVER_KEY_ID, SERVICE_ACCOUNT_ID, SETUP_KEY, TOMBSTONE_KEEP_MS } from '../../../src/runtime/feedback/inbox.ts';
-import { audioType, itemOf } from '../../../src/runtime/feedback/letter.ts';
+import { itemOf } from '../../../src/runtime/feedback/letter.ts';
 import { LETTER_TTL_MS } from '../../../src/runtime/feedback/drop.ts';
 import { generateReceiverKeys, sealReport } from '../../../src/runtime/feedback/seal.ts';
 import { register as registerInbox } from '../../../src/runtime/rpc/handlers/feedback-inbox.ts';
-import { HandlerTable, type HandlerContext } from '../../../src/runtime/rpc/table.ts';
+import { HandlerTable } from '../../../src/runtime/rpc/table.ts';
 import { INBOX_DIR } from '../../../src/shared/model/feedback-delivery.ts';
 import { KvRepo } from '../../../src/runtime/store/kv.ts';
 import { API_KEY, PROJECT, fakeMailbox, feedbackEnv, serviceAccount, type Env } from './fakes.ts';
@@ -119,52 +118,44 @@ test('a purged marked report leaves a tombstone too', async () => {
   assert.ok(existsSync(path.join(pc.dir, `${id(1)}${GONE}`)));
 });
 
-test('recordings: stored beside the report when their bytes are WebM/MP4, played by feedback.inboxAudio, deleted with the report', async () => {
+test('owner 20.11.2026: a report is its words – an older letter\'s recordings are not stored, an older inbox\'s go with their report', async () => {
   const { box, letter, pcs: [pc] } = await teamOf();
   letter(id(1), {
     text: 'Spoken report', dictated: true, client: 'Android app 0.3.15 ·\nAndroid 16 · SM-S918B', company: 'company-2', clientDiagnostics: 'java.lang.IllegalStateException',
-    audio: [
-      { mime: 'audio/webm', base64: WEBM.toString('base64') },
-      { mime: 'audio/mp4', base64: Buffer.from('<script>').toString('base64') }, // claims MP4, is not
-      { mime: 'audio/mp4', base64: MP4.toString('base64') },
-      { mime: 'video/mp4', base64: MP4.toString('base64') }, // not a recording type
-    ],
+    audio: [{ mime: 'audio/webm', base64: WEBM.toString('base64') }, { mime: 'audio/mp4', base64: MP4.toString('base64') }],
   });
   await pc.feedback.inbox.fetch();
   const [item] = pc.feedback.inbox.list();
-  assert.deepEqual(item.audio, [
-    { mime: 'audio/webm', size: WEBM.length, file: `${id(1)}.a1.webm` },
-    { mime: 'audio/mp4', size: MP4.length, file: `${id(1)}.a2.m4a` },
-  ]);
+  assert.equal(item.text, 'Spoken report');
+  assert.equal('audio' in item, false);
   assert.equal(item.client, 'Android app 0.3.15 · Android 16 · SM-S918B');
   assert.equal(item.company, 'company-2');
   assert.equal(item.dictated, true);
   assert.equal(item.clientDiagnostics, 'java.lang.IllegalStateException');
-  assert.deepEqual(readdirSync(pc.dir).sort(), [`${id(1)}.a1.webm`, `${id(1)}.a2.m4a`, `${id(1)}.json`]);
+  assert.deepEqual(readdirSync(pc.dir).sort(), [`${id(1)}.json`], 'only the words (and their facts) are kept');
+  // A report an older inbox stored with its recordings beside it: it opens without them, and they go with it.
+  writeFileSync(path.join(pc.dir, `${id(2)}.json`), JSON.stringify({
+    id: id(2), receivedAt: 5, createdAt: 5, text: 'Older', appVersion: '0.3.14', os: 'win32', audio: [{ mime: 'audio/webm', size: WEBM.length, file: `${id(2)}.a1.webm` }],
+  }));
+  writeFileSync(path.join(pc.dir, `${id(2)}.a1.webm`), WEBM);
+  writeFileSync(path.join(pc.dir, `${id(2)}.a2.m4a`), MP4);
+  const older = pc.feedback.inbox.list().find((entry) => entry.id === id(2))!;
+  assert.equal('audio' in older, false);
+  assert.equal(pc.feedback.inbox.mark(id(2), 'done').handled?.as, 'done');
+  assert.equal('audio' in JSON.parse(readFileSync(path.join(pc.dir, `${id(2)}.json`), 'utf8')), false, 'a rewrite drops the old list');
   const table = new HandlerTable();
   registerInbox(table);
-  const ctx = { extras: { feedback: pc.feedback } } as unknown as HandlerContext;
-  const call = (params: unknown) => Promise.resolve().then(() => table.get('feedback.inboxAudio')!.handler(params as never, ctx));
-  assert.deepEqual(await call({ id: id(1), index: 1 }), { mime: 'audio/mp4', dataBase64: MP4.toString('base64') });
-  await assert.rejects(call({ id: id(1), index: 2 }), /no such recording/);
-  await assert.rejects(call({ id: id(1), index: 9 }), /parameter "index"/);
-  await assert.rejects(call({ id: id(1), index: 0.5 }), /parameter "index"/);
-  await assert.rejects(call({ id: '../x', index: 0 }), /report id/);
-  pc.feedback.inbox.remove(id(1));
-  await settle(box, id(1));
-  assert.deepEqual(readdirSync(pc.dir), [`${id(1)}${GONE}`], 'the report, its recordings and only a tombstone is left');
+  assert.equal(table.get('feedback.inboxAudio'), undefined, 'no recording is served');
+  for (const n of [1, 2]) { pc.feedback.inbox.remove(id(n)); await settle(box, id(n)); }
+  assert.deepEqual(readdirSync(pc.dir).sort(), [`${id(1)}${GONE}`, `${id(2)}${GONE}`], 'every file of a report goes, only tombstones are left');
 });
 
-test('a letter\'s new facts are untrusted: bounded, a company folder only as a folder name, the audio type by its magic bytes', () => {
-  const opened = itemOf('x', { v: 1, text: 'a', client: 'c'.repeat(900), company: '../etc', clientDiagnostics: 'd'.repeat(20_000), dictated: 'yes', audio: 'nope' }, 1)!.item;
-  assert.equal(opened.client!.length, 400);
-  assert.equal(opened.company, undefined);
-  assert.equal(opened.clientDiagnostics!.length, 12_000);
-  assert.equal(opened.dictated, undefined);
-  assert.equal(opened.audio, undefined);
-  assert.equal(audioType(WEBM), 'audio/webm');
-  assert.equal(audioType(MP4), 'audio/mp4');
-  assert.equal(audioType(Buffer.from('RIFF....WAVE')), undefined);
-  const many = itemOf('x', { v: 1, text: 'a', audio: Array.from({ length: 6 }, () => ({ mime: 'audio/webm', base64: WEBM.toString('base64') })) }, 1)!;
-  assert.equal(many.audio!.length, 4, 'at most FEEDBACK_AUDIO_MAX takes');
+test('a letter\'s new facts are untrusted: bounded, a company folder only as a folder name', () => {
+  const opened = itemOf('x', { v: 1, text: 'a', client: 'c'.repeat(900), company: '../etc', clientDiagnostics: 'd'.repeat(20_000), dictated: 'yes', audio: 'nope' }, 1)!;
+  assert.equal(opened.item.client!.length, 400);
+  assert.equal(opened.item.company, undefined);
+  assert.equal(opened.item.clientDiagnostics!.length, 12_000);
+  assert.equal(opened.item.dictated, undefined);
+  assert.deepEqual(opened.images, [], 'no image sent, none kept');
+  assert.equal(opened.item.images, undefined);
 });

@@ -5,8 +5,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { groupCode, managerOptions, statusLabel } from '../../../src/ui/team/people-model.ts';
-import { ownerOf } from '../../../src/ui/tasks/model.ts';
+import { managerOptions, statusLabel } from '../../../src/ui/team/people-model.ts';
+import { ownerOf } from '../../../src/ui/tasks/work-model.ts';
 import { onForYouList } from '../../../src/shared/model/todo-later.ts';
 import type { Person } from '../../../src/shared/model/people.ts';
 import type { Agent } from '../../../src/shared/model/org.ts';
@@ -24,7 +24,6 @@ test('People: labels, manager choices, scopes and reports', () => {
   const people = [person('human', 'Mara', { title: 'CEO' }), person('per_a', 'Anna'), person('per_b', 'Ben', { status: 'revoked' })];
   const agents = [agent('ag_1', 'Research'), agent('ag_2', 'Old', { archivedAt: 1 })];
   assert.deepEqual(managerOptions('per_a', people, agents).map((option) => option.value), ['', 'human', 'ag_1']);
-  assert.equal(groupCode('482913'), '482 913');
 });
 
 test('F14: invited people are not in the org chart until they join; the owner always is', async () => {
@@ -86,18 +85,21 @@ test('F13/F14 wiring: Add › Person is a page (a pushed screen on the phone), a
   assert.match(read('lib/people.ts'), /rpc\.on\('person\.removed', \(\{ id \}\) => dropPerson\(id\)\)/);
 });
 
-test('17.11.2026 (F13 Pop-up, Mika draft 3+4): the invite is a card on the person page, no modal; without an address it says why and offers Devices', () => {
+test('17.11.2026 (F13 Pop-up, Mika draft 3+4) / 20.11.2026 (one way): "Invite a device" is a card on the person page – this PC\'s code, their request with Accept as them, a link for a browser', () => {
   const read = (file: string) => readFileSync(new URL(`../../../src/ui/${file}`, import.meta.url), 'utf8');
-  const invite = read('team/PersonInvite.tsx');
-  assert.doesNotMatch(invite, /<Dialog/, 'no modal dialog');
-  assert.match(invite, /<section ref=\{card\} class="person-invite person-invite-card"/);
-  assert.match(invite, /if \(event\.key === 'Escape'\) \{ event\.stopPropagation\(\); props\.onClose\(\); \}/);
-  assert.match(invite, /go\.settings\('devices'\)/, 'Open Devices');
-  assert.match(invite, /hasJoined\(person\) \? 'Withdraw invite' : 'Withdraw and remove'/);
-  assert.match(invite, /Right now this link only opens on this PC, because other devices can't reach it yet\./);
-  assert.doesNotMatch(read('team/person-dialogs.tsx'), /<PersonInvite/, 'not mounted as a dialog');
-  assert.match(read('team/PersonView.tsx'), /\{person && inviteOpen\(personId\) && <PersonInvite person=\{person\} /);
+  const join = read('team/PersonJoin.tsx');
+  assert.doesNotMatch(join, /<Dialog/, 'no modal dialog');
+  assert.match(join, /<section ref=\{card\} class="person-join-card"/);
+  assert.match(join, /if \(event\.key === 'Escape'\) \{ event\.stopPropagation\(\); props\.onClose\(\); \}/);
+  assert.match(join, /<CodeRow \/>/, 'this PC\'s connect code, as on Add person');
+  assert.match(join, /<IncomingRow key=\{request\.id\} request=\{request\} people=\{\[person\]\} personId=\{person\.id\}/, 'Accept makes it their device');
+  assert.match(join, /rpc\.call\('people\.invite', \{ id: person\.id \}\)/, 'the link for a browser');
+  assert.doesNotMatch(join, /invite\.code|Show code/, 'no person-scoped 6-digit code: one way');
+  assert.match(read('settings/connect-rows.tsx'), /useState\(props\.personId \?\? \(employee \? NEW_PERSON : ''\)\)/, 'a given person first; Eine-ID: a new member opens with the name field');
+  assert.doesNotMatch(read('team/person-dialogs.tsx'), /<PersonJoin/, 'not mounted as a dialog');
+  assert.match(read('team/PersonView.tsx'), /\{person && inviteOpen\(personId\) && <PersonJoin person=\{person\} /);
   assert.match(read('team/menus.ts'), /onSelect: \(\) => inviteDevice\(person\) \}/);
+  assert.doesNotMatch(read('settings/DevicesGroup.tsx'), /people\.invite|Phone for/, 'Connect a phone is this PC\'s QR only');
 });
 
 test('a task owner can be a person; For you holds only your own to-dos', () => {
@@ -106,6 +108,8 @@ test('a task owner can be a person; For you holds only your own to-dos', () => {
   assert.equal(onForYouList({ assigneeKind: 'human', status: 'open' }), true);
   assert.equal(onForYouList({ assigneeKind: 'human', assigneeId: 'per_a', status: 'open' }), false, 'a colleague\'s to-do');
   assert.equal(onForYouList({ assigneeKind: 'human', assigneeId: 'owner', status: 'open' }), false, 'the CEO\'s, seen on a person\'s device');
+  assert.equal(onForYouList({ assigneeKind: 'human', status: 'open', kind: 'quest' }), false, 'a quest of the person\'s is a goal: never on the list or the badge');
+  assert.equal(onForYouList({ assigneeKind: 'human', status: 'open', kind: 'todo' }), true);
 });
 
 test('an invite address (#join=<ticket>) is recognised; other fragments are not', async () => {

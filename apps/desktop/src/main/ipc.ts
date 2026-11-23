@@ -10,7 +10,7 @@
 // injected).
 
 import { IPC } from '../shared/api/desktop.ts';
-import type { IpcResult, PickKind, RuntimeStatus, TitleBarLayout } from '../shared/api/desktop.ts';
+import type { BubbleCall, IpcResult, PickKind, RuntimeStatus, TitleBarLayout } from '../shared/api/desktop.ts';
 import type { FileRef, UpdateState } from '../shared/model/system.ts';
 import * as args from './ipc-args.ts';
 import { externalUrl, isTrustedSender } from './security.ts';
@@ -35,7 +35,6 @@ export interface IpcDeps {
     state(): UpdateState;
     apply(): Promise<UpdateState>;
     defer(): UpdateState;
-    setAutoDownload(enabled: boolean): Promise<UpdateState>;
     setRendererReady(ready: boolean): void;
   };
   restartAck(id: number, ok: boolean): void;
@@ -55,7 +54,19 @@ export interface IpcDeps {
   titleBarDim?(dim: boolean): void;
   /** B-044: the app window's network came back (navigator 'online'); main pushes host power 'online' to the runtime. */
   online?(): void;
+  /** Owner 19.11.2026: a call, conversation or dictation of the page is live – the hidden window keeps full speed (window.ts). */
+  voiceLive?(on: boolean): void;
+  /** The page's call for the floating bubble (float-bar.ts setCall), checked here. */
+  bubbleCall?(call: BubbleCall | null): void;
   log?(line: string): void;
+}
+
+/** The page's bubble call: a chat id and a title of sane length, else none (exported for tests). */
+export function bubbleCallOf(value: unknown): BubbleCall | null {
+  if (!value || typeof value !== 'object') return null;
+  const { conversationId, title } = value as Record<string, unknown>;
+  if (typeof conversationId !== 'string' || !conversationId || conversationId.length > 200 || typeof title !== 'string') return null;
+  return { conversationId, title: title.slice(0, 120) };
 }
 
 /** Electron facts → trust decision (exported for tests). */
@@ -140,7 +151,6 @@ export function registerIpc(ipc: IpcMainLike, deps: IpcDeps): void {
   handle(IPC.updateGet, () => deps.updates.state());
   handle(IPC.updateApply, () => deps.updates.apply());
   handle(IPC.updateDefer, () => deps.updates.defer());
-  handle(IPC.updateAutoDownload, enabled => deps.updates.setAutoDownload(args.flag(enabled)));
   on(IPC.updateReady, (_event, ready) => deps.updates.setRendererReady(ready === true));
   on(IPC.prepareRestartAck, (_event, id, ok) => deps.restartAck(args.requestId(id), ok === true));
 
@@ -163,6 +173,10 @@ export function registerIpc(ipc: IpcMainLike, deps: IpcDeps): void {
   // window chrome: anything but 'compact' is the column layout
   on(IPC.titleBarLayout, (_event, layout) => deps.titleBarLayout?.(layout === 'compact' ? 'compact' : 'columns'));
   on(IPC.titleBarDim, (_event, dim) => deps.titleBarDim?.(dim === true));
+
+  // owner 19.11.2026: voice live (the window's background throttling) and the page's call for the floating bubble
+  on(IPC.voiceLive, (_event, on) => deps.voiceLive?.(on === true));
+  on(IPC.bubbleCall, (_event, call) => deps.bubbleCall?.(bubbleCallOf(call)));
 
   // B-044: network back. A hidden window that shares the preload sends it too – dropped without a refusal line.
   ipc.on(IPC.online, event => {

@@ -17,16 +17,12 @@ export type RunStatus = 'queued' | 'running' | 'done' | 'failed' | 'interrupted'
 export type WakeReason =
   | 'message' // new message for the agent
   | 'task' // task assigned/claimable/news
-  | 'schedule' // reminder/routine fired
+  | 'schedule' // a reminder fired
   | 'answer' // human answered a widget/approval
-  | 'approval' // approval decided (runs before the permission gate was removed)
-  | 'handoff' // received a handoff
   | 'child' // a delegated agent finished
   | 'retry' // ownership loop retry
   | 'review' // manager review / heartbeat
   | 'manual'
-  | 'report' // addition (T08): a manager's bundled report of its reports' finished work (org/reports.ts)
-  | 'setup' // B-044: old runs only; since B-066 the first run ends with an ordinary 'message' (onboarding/service.ts)
   | 'event' // B-054: something outside happened (a new mail, a connector or webhook push) – the origin says what
   | 'split' // B-057: the run of a split (shared/model/splits.ts) – never a queued wake
   | 'fold'; // KI-Runde 17.11.2026: the run in which an agent writes its hand-over when its context is folded (runtime/agents/context-fold.ts) – never a queued wake
@@ -103,6 +99,8 @@ export interface AgentActivity {
   toolCalls?: number;
   /** F10 (16.11.2026): the run is on another of the person's PCs (devices/sync/live.ts) – only in what windows and phones hear; absent: on this PC. */
   deviceId?: string;
+  /** 22.11.2026: the run is a context fold (agents/context-fold.ts) – the live bar says so instead of its step. */
+  fold?: true;
 }
 
 /** Addition (RT2): `Run.route.by` of a turn that the agent's own model.set request shaped (its

@@ -10,6 +10,9 @@
 // names its group; what the app keeps for itself is left out unless named (units.ts catalogUnits). The file: mode 0600,
 // by default ~/Downloads/autark-secrets-<date>.csv; a folder given gets that name inside it; a path inside the data
 // folder (synced, the agents' workspace) gets the default; a name that is taken gets " (2)" … – nothing is overwritten.
+// Sicher-Runde 19.11.2026 (REVIEW-2 1): `withoutPayment` (an agent's export in Secure mode, tools/builtin/secrets.ts) leaves
+// every payment entry out – a card, a card's field, an entry of the payment route – and counts them (`payment`), so card
+// data never reaches a file an agent writes; exportTarget names the file the security gate judges.
 // Owns: the rows and the file. Never: logs a value or returns one – the caller gets the path and the counts.
 
 import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
@@ -19,6 +22,7 @@ import type { RuntimeServices } from '../contracts.ts';
 import type { SecretExportSummary } from '../../shared/model/security.ts';
 import { hostOf } from './service.ts';
 import { catalogUnits, readUnit, type SecretUnit } from './units.ts';
+import { isPayment } from '../security/policy.ts';
 
 export const EXPORT_COLUMNS = ['name', 'url', 'username', 'password', 'note', 'totp', 'kind', 'description', 'tags', 'route', 'number', 'expiry', 'cvc', 'holder'] as const;
 type Column = typeof EXPORT_COLUMNS[number];
@@ -85,6 +89,16 @@ const inside = (dir: string | undefined, file: string) => {
   return !relative.startsWith('..') && !path.isAbsolute(relative);
 };
 
+/**
+ * The file an export with `given` writes, as the security gate judges it (a write need): the given file, or – for the
+ * default and a given folder – autark-secrets.csv in that folder (the dated free name is only chosen when it is written).
+ */
+export function exportTarget(given: string | undefined, data: string | undefined, dir = path.join(os.homedir(), 'Downloads')): string {
+  const file = given ? path.resolve(given) : undefined;
+  if (!file || inside(data, file)) return path.join(dir, 'autark-secrets.csv');
+  return existsSync(file) && statSync(file).isDirectory() ? path.join(file, 'autark-secrets.csv') : file;
+}
+
 /** The file to write: the default, a free name in a given folder, or the given file under a free name (see the header). */
 function targetFile(given: string | undefined, now: number, data: string | undefined): string {
   const file = given ? path.resolve(given) : undefined;
@@ -95,8 +109,8 @@ function targetFile(given: string | undefined, now: number, data: string | undef
 /** Writes the chosen entries (`ids`, else those of `route`, else all) into `file` (default: defaultExportFile) – see the header. */
 export async function exportSecrets(
   services: Pick<RuntimeServices, 'db' | 'host' | 'secrets' | 'clock'> & { paths?: Pick<RuntimeServices['paths'], 'data'>; settings?: Pick<RuntimeServices['settings'], 'get'> },
-  options: { ids?: readonly string[]; route?: string; file?: string } = {},
-): Promise<SecretExportSummary> {
+  options: { ids?: readonly string[]; route?: string; file?: string; withoutPayment?: boolean } = {},
+): Promise<SecretExportSummary & { payment?: number }> {
   const db = services.db;
   const routes = new Map<string, string | undefined>([ // the vault's route (one is chosen for an entry stored without)
     ...services.secrets.list().filter((info) => !info.group).map((info) => [info.id, info.route] as const), ...services.secrets.groups().map((group) => [group.id, group.route] as const),
@@ -108,15 +122,24 @@ export async function exportSecrets(
   const notFound: string[] = [];
   let count = 0;
   let skipped = 0;
+  let payment = 0;
   for (const [id, asked] of named) {
     let unit: SecretUnit | undefined;
     try { unit = await readUnit(db, (cipher) => services.host.decrypt(cipher), id); } catch { skipped++; continue; } // a value this PC cannot decrypt
     if (!unit) { notFound.push(asked); continue; }
+    if (options.withoutPayment && paymentUnit(unit, routes.get(id))) { payment++; continue; }
     const written = exportRows(unit, routes.get(id) ?? 'notes');
     if (written.length) { rows.push(...written); count++; } else skipped++;
   }
   const file = targetFile(options.file, services.clock.now(), services.paths?.data);
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, exportCsv(rows), { mode: 0o600, flag: 'wx' }); // 'wx': never over a file that appeared meanwhile
-  return { file, count, skipped, ...(notFound.length ? { notFound } : {}) };
+  return { file, count, skipped, ...(notFound.length ? { notFound } : {}), ...(payment ? { payment } : {}) };
+}
+
+/** A card, a group holding a card's field, or an entry of the payment route (policy.ts isPayment). */
+function paymentUnit(unit: SecretUnit, route: string | undefined): boolean {
+  const groupKind = unit.group ? unit.kind : undefined;
+  if (isPayment({ kind: unit.kind, groupKind, route: unit.route ?? route ?? null })) return true;
+  return (unit.fields ?? []).some((field) => isPayment({ kind: field.kind, groupKind, route: unit.route ?? route ?? null }));
 }

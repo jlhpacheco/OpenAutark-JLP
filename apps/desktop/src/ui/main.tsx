@@ -1,7 +1,7 @@
 // UI composition root (desktop window and PWA – one bundle).
 // Order matters: on desktop the runtime connector is claimed before anything else, then appearance (no flash),
-// routing/layout and the first render (boot state), then – in the browser build – pairing (it must finish before
-// the first WebSocket Hello), then event wiring, the repair watch,
+// routing/layout, then – in the browser build – this device's copy of the last data (pwa/offline-cache.ts) and pairing (it
+// must finish before the first WebSocket Hello), then the first render (the frame), event wiring, the repair watch,
 // the person's theme.css, desktop bridge glue and finally the RPC connection.
 // Owns: startup order and the few global effects (theme-color, the theme.css style). Never: view logic, data
 // shaping or anything a component could own.
@@ -18,11 +18,12 @@ import { wireEvents } from './lib/store-events.ts';
 import { startRepairWatch } from './repair/repair-state.ts';
 import { rememberLastChat } from './shell/navigation.ts';
 import { theme, watchTheme } from './blocks/host.ts';
-import { readTodoSnapshot, startPwa } from './pwa/install.ts';
+import { startPwa } from './pwa/install.ts';
+import { restoreOfflineCopy } from './pwa/offline-cache.ts';
 import { startNativePort } from './pwa/native-port.ts';
 import { startPhoneShell } from './pwa/phone-companies.ts';
 import { startDesktopBridge } from './boot/desktop.ts';
-import { App, offlineSnapshot } from './App.tsx';
+import { App } from './App.tsx';
 
 /** Keeps the browser/OS chrome color (PWA title bar, Android task switcher) on the theme. */
 function syncThemeColor(): void {
@@ -56,13 +57,14 @@ async function boot(): Promise<void> {
   startRouter();
   startNativePort(); startPhoneShell(); // the Android app's port (B-084, before any await: its hello comes at page load)
   watchLayout();
-  // The first paint shows the boot state; nothing in it calls the runtime before rpc.start().
+  if (platform === 'pwa') {
+    void restoreOfflineCopy(); // 19.11.2026: the whole app with its last data until the PC answers (pwa/offline-cache.ts)
+    await startPwa(); // #pair=<secret> → device token, service worker, push, the offline copy kept current
+  }
+  // The first paint is the frame (19.11.2026, D1) – after pairing, since a mounted view may call the PC (rpc.call starts
+  // the connection, whose Hello must carry the new token); its effects run after the wiring below.
   const root = document.getElementById('app');
   if (root) render(<App />, root);
-  if (platform === 'pwa') {
-    void readTodoSnapshot().then((snapshot) => { if (snapshot) offlineSnapshot.value = snapshot; });
-    await startPwa(); // #pair=<secret> → device token, service worker, push, offline mirror
-  }
   wireEvents(); // event deltas → store signals; loadAll() on every (re)connect
   startRepairWatch(); // desktop: repair.state on every connect – the repair screen while the runtime runs in repair mode
   applyThemeCss();

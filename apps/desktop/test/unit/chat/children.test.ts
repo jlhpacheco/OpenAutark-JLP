@@ -1,4 +1,4 @@
-// B-078 sub-chats and threads (src/runtime/chat/children.ts, shared/text/chat-sections.ts chatKind, ui/chat/list-order.ts
+// B-078 sub-chats and threads (src/runtime/chat/children.ts, ui/chat/list-order.ts
 // nestChats): a chat goes under another one level deep (never under a sub-chat, never itself, never an app chat; a chat
 // with sub-chats stays on top), back on top with null; an agent only between chats it is in; a thread is one per
 // message, made with its chat's members, and stays on its message; the list nests sub-chats under their parent and
@@ -8,7 +8,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { HUMAN_ID, SYSTEM_ID } from '../../../src/shared/ids.ts';
-import { chatKind } from '../../../src/shared/text/chat-sections.ts';
 import { childrenOf, openThread, setParent, threadOf } from '../../../src/runtime/chat/children.ts';
 import { nestChats } from '../../../src/ui/chat/list-order.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
@@ -72,18 +71,6 @@ test('a thread: one per message, the chat\'s members, named after the message, o
   assert.equal(sub.settings.parentId, h.design.id);
 });
 
-test('chatKind: thread, sub-chat, 1:1, group, internal room', () => {
-  const human = { memberId: HUMAN_ID, kind: 'human' as const };
-  const ada = { memberId: 'ag_ada', kind: 'agent' as const };
-  const kind = (settings: Record<string, unknown>, members: Array<{ memberId: string; kind: 'human' | 'agent' }>) =>
-    chatKind({ settings, members: members.map((member) => ({ ...member, conversationId: 'ch_x', role: 'member' as const, readSeq: 0, joinedAt: 0 })) });
-  assert.equal(kind({ parentId: 'ch_p', anchorId: 'msg_1' }, [human, ada]), 'thread');
-  assert.equal(kind({ parentId: 'ch_p' }, [human, ada]), 'sub');
-  assert.equal(kind({ direct: true }, [human, ada]), 'direct');
-  assert.equal(kind({}, [human, ada]), 'group');
-  assert.equal(kind({}, [ada]), 'internal');
-});
-
 test('the list nests sub-chats under their parent, one level; threads are never rows; no chat drops out', () => {
   const row = (id: string, settings: Record<string, string> = {}) => ({ id, settings });
   const nodes = nestChats([
@@ -124,7 +111,6 @@ test('a deleted chat takes its threads along and puts its sub-chats on top; a de
   const after = h.chats.get(kept.id)!;
   assert.equal(after.settings.anchorId, undefined, 'no longer a thread on a gone message');
   assert.equal(after.settings.parentId, h.copy.id, 'a sub-chat of that chat, shown in the list');
-  assert.equal(chatKind({ settings: after.settings, members: h.chats.members(kept.id) }), 'sub');
 
   // a thread on a sub-chat's message goes beside that sub-chat (one level)
   const inner = h.chats.create({ title: 'Inner', agentIds: ['ag_ada'], createdBy: HUMAN_ID });

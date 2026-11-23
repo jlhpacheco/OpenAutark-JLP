@@ -1,13 +1,13 @@
 // Electron window check of the recorder's device choice and take guard (F07) with Chromium's
 // fake capture devices (four fake cameras) and the demo engine in an isolated profile:
-//   * a video record to-do on Home › Needs you (overdue – B-041: Home lists only what needs the
-//     person now): "Start camera" shows the preview and a "Camera" select with every camera;
+//   * a video record to-do on the Tasks page (For you → its detail, the tool beside the list):
+//     "Start camera" shows the preview and a "Camera" select with every camera;
 //     picking another colour camera is remembered and the preview reopens;
-//   * Record → (time shows once the recorder really records) → Stop gives a take; expanding a second to-do keeps the recording item open, and
-//     five more urgent to-dos do not push it out of view (My day);
-//   * collapsing it asks "Discard recording?" – Cancel keeps the take;
-//   * after another view and after a reload the item offers "Resume unsent recording", which
-//     brings the take back; "Discard" in the dialog drops it for good;
+//   * Record → (time shows once the recorder really records) → Stop gives a take; five more to-dos
+//     arriving leave the detail and the take on screen (the list never moves the detail);
+//   * closing the detail asks "Discard recording?" – Cancel keeps the take;
+//   * after another to-do's detail, another view, at phone width and after a reload the to-do offers
+//     "Resume unsent recording", which brings the take back; "Discard" in the dialog drops it for good;
 //   * leaving the view while still recording keeps the part recorded so far (offered with its
 //     duration, resumable); Retake drops the stored copy.
 // Screenshots light, dark and phone width; no renderer errors.
@@ -27,6 +27,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -91,26 +92,33 @@ async function recorderCheck(run) {
   const size = (width, height) => app.evaluate(({ BrowserWindow }, [w, h]) => { const [win] = BrowserWindow.getAllWindows(); win.setSize(w, h); }, [width, height]);
   await size(1280, 860);
   const shot = async (name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   const rpc = await connect(info.port, info.token, 'cli');
   run.rpc = rpc;
-  await rpc.call('settings.update', { onboarding: { step: 'done' } }); // B-044: past the first-run layer on Home (first-run-window covers it)
+  await rpc.call('settings.update', { onboarding: { step: 'done' } }); // B-044: past the first-run layer (first-run-window covers it)
 
   const recording = await rpc.call('tasks.create', { title: 'Record the intro video for the course', widget: { type: 'record', mode: 'video', instructions: 'Record the intro video for the course' } });
   assert.equal(recording.widget?.type, 'record');
   assert.equal(recording.widget?.mode, 'video');
-  const other = await rpc.call('todos.add', { text: 'Water the plants' });
-  // Overdue: Home shows only Needs you (B-041), and an overdue to-do of the person's is one.
-  const overdue = Date.now() - 60 * 60_000;
-  for (const task of [recording, other]) await rpc.call('tasks.update', { id: task.id, patch: { dueAt: overdue } });
-  await page.evaluate(() => { location.hash = '#/home'; });
-  const item = page.locator(`.day-view .todo-item[data-task-id="${recording.id}"]`);
-  const second = page.locator(`.day-view .todo-item[data-task-id="${other.id}"]`);
+  const { task: other } = await rpc.call('tasks.quickCreate', { text: 'Water the plants' });
+  const go = (hash) => page.evaluate((target) => { location.hash = target; }, hash);
+  const tasksPage = page.locator('.tasks-page:not(.in-pane)');
+  const row = (task) => tasksPage.locator(`ul[aria-label="For you"] .todo-row[data-task-id="${task.id}"]`);
+  const detail = tasksPage.locator('.task-detail');
+  // The record widget is the detail's tool; its own buttons are looked up there (the thread below has a composer).
+  const item = detail.locator('.todo-tool');
   const playback = item.locator('video.w-record-playback');
-  await item.waitFor({ timeout: 15_000 });
+  /** Tasks › For you, then a click on the to-do's row: its detail. */
+  const open = async (task) => {
+    await go('#/tasks');
+    await row(task).waitFor({ timeout: 15_000 });
+    await row(task).locator('.todo-open').click();
+    await detail.locator('.detail-title', { hasText: task.title }).waitFor({ timeout: 15_000 });
+  };
+  const closeDetail = () => detail.locator('.detail-top').getByRole('button', { name: 'Close' }).click();
 
   // Device choice: four fake cameras → the select appears in the preview's row.
-  await item.locator('.todo-open').click();
+  await open(recording);
   await item.getByRole('button', { name: 'Start camera' }).click();
   await item.locator('.w-record-preview').waitFor({ timeout: 20_000 });
   const select = item.getByRole('combobox', { name: 'Camera' });
@@ -145,27 +153,18 @@ async function recorderCheck(run) {
   await item.getByRole('button', { name: 'Stop', exact: true }).click();
   await playback.waitFor({ timeout: 15_000 });
 
-  // Expanding another to-do keeps the recording item open.
-  await second.locator('.todo-open').click();
-  await second.locator('.todo-body').waitFor();
-  assert.equal(await item.locator('.todo-open').getAttribute('aria-expanded'), 'true');
-  assert.ok(await playback.isVisible(), 'the take stays on screen');
-
-  // Five more urgent overdue to-dos sort before it; My day still shows it.
-  const urgent = [];
-  for (let i = 1; i <= 5; i++) urgent.push(await rpc.call('tasks.create', { conversationId: recording.conversationId, title: `Check invoice ${i}`, priority: 2, dueAt: overdue }));
-  await page.locator('.day-view .todo-item', { hasText: 'Check invoice 5' }).waitFor({ timeout: 15_000 });
+  // Five more to-dos arrive in For you; the detail beside the list keeps the take on screen.
+  const more = [];
+  for (let i = 1; i <= 5; i++) more.push(await rpc.call('tasks.create', { conversationId: recording.conversationId, title: `Check invoice ${i}`, priority: 2 }));
+  await tasksPage.locator('.todo-row', { hasText: 'Check invoice 5' }).waitFor({ timeout: 15_000 });
   assert.ok(await playback.isVisible(), 'still on screen');
   await page.emulateMedia({ colorScheme: 'dark' });
   await shot('recorder-02-pinned-dark');
   await page.emulateMedia({ colorScheme: 'light' });
+  for (const task of more) await rpc.call('tasks.delete', { id: task.id });
 
-  // The hold pins a live widget. After navigation Home again shows its first three; clear these
-  // priority fixtures before checking the separate persisted-take flow below.
-  for (const task of urgent) await rpc.call('tasks.delete', { id: task.id });
-
-  // Collapsing asks first; Cancel keeps the take.
-  await item.locator('.todo-open').click();
+  // Closing the detail asks first; Cancel keeps the take.
+  await closeDetail();
   const dialog = page.locator('dialog[open]');
   await dialog.getByText('Discard recording?').waitFor({ timeout: 10_000 });
   await shot('recorder-03-discard-light');
@@ -173,43 +172,45 @@ async function recorderCheck(run) {
   await dialog.waitFor({ state: 'detached' });
   assert.ok(await playback.isVisible(), 'Cancel keeps the take');
 
-  // Another view and back: the take waits in IndexedDB.
-  await page.evaluate(() => { location.hash = '#/team'; });
-  await item.waitFor({ state: 'detached', timeout: 10_000 });
-  await page.evaluate(() => { location.hash = '#/home'; });
-  await item.waitFor({ timeout: 15_000 });
-  await item.locator('.todo-open').click();
+  // Another to-do's detail and back: the take waits in IndexedDB.
   const resume = item.getByRole('button', { name: 'Resume unsent recording' });
+  await row(other).locator('.todo-open').click();
+  await detail.locator('.detail-title', { hasText: other.title }).waitFor({ timeout: 15_000 });
+  await playback.waitFor({ state: 'detached', timeout: 10_000 });
+  await row(recording).locator('.todo-open').click();
+  await resume.waitFor({ timeout: 10_000 });
+
+  // Another view and back: the take still waits.
+  await go('#/team');
+  await item.waitFor({ state: 'detached', timeout: 10_000 });
+  await open(recording);
   await resume.waitFor({ timeout: 10_000 });
   await shot('recorder-04-resume-light');
 
-  // Phone width (its own layout, so the item mounts again): the offer is still there and fits.
+  // Phone width (one column: the detail in the list's place, mounted again): the offer is still there and fits.
   await size(420, 860);
-  const phoneItem = page.locator(`.todo-item[data-task-id="${recording.id}"]`).first();
-  await phoneItem.waitFor({ timeout: 15_000 });
-  if ((await phoneItem.locator('.todo-open').getAttribute('aria-expanded')) !== 'true') await phoneItem.locator('.todo-open').click();
-  await phoneItem.getByRole('button', { name: 'Resume unsent recording' }).waitFor({ timeout: 10_000 });
+  await page.locator('.mobile-shell .tasks-page .task-detail').waitFor({ timeout: 15_000 });
+  await resume.waitFor({ timeout: 10_000 });
+  assert.ok(await resume.evaluate((el) => el.getBoundingClientRect().right <= innerWidth + 1), 'the offer fits the phone width');
   await shot('recorder-05-phone');
   await size(1280, 860);
 
   // A reload keeps it too; Resume brings the take back.
   await page.reload();
   await page.waitForSelector('.shell', { timeout: 60_000 });
-  await page.evaluate(() => { location.hash = '#/home'; });
-  await item.waitFor({ timeout: 15_000 });
-  await item.locator('.todo-open').click();
+  await open(recording);
   await resume.waitFor({ timeout: 10_000 });
   await resume.click();
   await playback.waitFor({ timeout: 10_000 });
 
   // Discard in the dialog drops it for good.
-  await item.locator('.todo-open').click();
+  await closeDetail();
   await dialog.getByText('Discard recording?').waitFor({ timeout: 10_000 });
   await dialog.locator('.dialog-actions button', { hasText: 'Discard' }).click();
   await dialog.waitFor({ state: 'detached' });
   await playback.waitFor({ state: 'detached', timeout: 10_000 });
-  assert.equal(await item.locator('.todo-open').getAttribute('aria-expanded'), 'false', 'the item collapsed');
-  await item.locator('.todo-open').click();
+  await detail.waitFor({ state: 'detached', timeout: 10_000 }); // the detail closed: the calendar again
+  await open(recording);
   await item.getByRole('button', { name: 'Start camera' }).waitFor({ timeout: 10_000 });
   assert.equal(await resume.count(), 0, 'nothing is left to resume');
 
@@ -219,11 +220,9 @@ async function recorderCheck(run) {
   await item.getByRole('button', { name: 'Stop', exact: true }).waitFor({ timeout: 10_000 });
   await recordingTime.waitFor({ timeout: 20_000 });
   await page.waitForTimeout(2200);
-  await page.evaluate(() => { location.hash = '#/team'; });
+  await go('#/team');
   await item.waitFor({ state: 'detached', timeout: 10_000 });
-  await page.evaluate(() => { location.hash = '#/home'; });
-  await item.waitFor({ timeout: 15_000 });
-  await item.locator('.todo-open').click();
+  await open(recording);
   await resume.waitFor({ timeout: 10_000 });
   const unsent = (await item.locator('.w-record-resume').textContent()).trim();
   assert.match(unsent, /^Unsent recording · \d+:\d\d$/);
@@ -233,11 +232,9 @@ async function recorderCheck(run) {
   await item.getByRole('button', { name: 'Retake' }).click();
   await item.getByRole('button', { name: 'Record', exact: true }).waitFor({ timeout: 20_000 });
   await item.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.evaluate(() => { location.hash = '#/team'; });
+  await go('#/team');
   await item.waitFor({ state: 'detached', timeout: 10_000 });
-  await page.evaluate(() => { location.hash = '#/home'; });
-  await item.waitFor({ timeout: 15_000 });
-  await item.locator('.todo-open').click();
+  await open(recording);
   await item.getByRole('button', { name: 'Start camera' }).waitFor({ timeout: 10_000 });
   assert.equal(await resume.count(), 0, 'Retake dropped the stored take');
 

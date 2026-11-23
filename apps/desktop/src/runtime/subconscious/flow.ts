@@ -1,6 +1,5 @@
 // The subconscious's loop – the main AI's own call (service.ts ask; since v1, 14.11.2026, its only run): one cheap model (the
-// Decisions use) answers each step with exactly one tool call (tools.ts; a tool that needs an embedding model only while a chosen
-// one can serve) and reads its result in the next step. Its
+// Decisions use) answers each step with exactly one tool call (tools.ts) and reads its result in the next step. Its
 // instructions: resources/prompts/subconscious.md (an own <data>/prompts version replaces it) with the tool list generated
 // from the tools, then the agent's card (thoughts.ts agentCard: who it is, the person's standing words, what it works on now –
 // in place of the main AI's whole stable prompt), the same for every step of a run, so its steps share a cached prefix. Each
@@ -79,7 +78,6 @@ const NOTICED = 'Noticed, to tell the person when I answer:';
 const ASKED_TOKENS = 5500;
 /** An answer as one tool output (tools/outputs.ts: beyond its limit the model sees only the head). */
 const ANSWER_CHARS = 23_000;
-const WORD_SCHEMA = { type: 'object', additionalProperties: false, required: ['text'], properties: { text: { type: 'string' } } };
 
 /** The answer every step must have: strict enough for every engine's structured output; args as JSON text. */
 function callSchema(tools: readonly FlowTool[]): Record<string, unknown> {
@@ -183,8 +181,7 @@ function debug(services: RuntimeServices, message: string, data: Record<string, 
 }
 
 /** Runs one flow. Never throws: a failure ends the run with what it has so far. */
-export async function runFlow(services: RuntimeServices, runner: StructuredRunner | undefined, input: FlowInput, given: readonly FlowTool[] = FLOW_TOOLS): Promise<FlowResult> {
-  const tools = given.filter((tool) => tool.requires !== 'embeddings' || services.vectors?.available()); // a tool that cannot work is not listed
+export async function runFlow(services: RuntimeServices, runner: StructuredRunner | undefined, input: FlowInput, tools: readonly FlowTool[] = FLOW_TOOLS): Promise<FlowResult> {
   const shown: TraceCall[] = [];
   const steps: Step[] = [];
   const stop = input.budgetMs ?? DEFAULT_BUDGET_MS;
@@ -210,13 +207,6 @@ export async function runFlow(services: RuntimeServices, runner: StructuredRunne
   const run: FlowRun = {
     services, agent: input.agent, conversationId: input.conversationId, thread: input.thread, taskId: input.taskId, signal,
     hits: new Map(), searches: [], tally,
-    word: async (wordSystem, prompt) => {
-      sent += wordSystem.length + prompt.length;
-      if (!runner || sent > SENT_CHARS) return undefined;
-      const reply = await call(wordSystem, redact(prompt), WORD_SCHEMA);
-      const text = (reply.structured as { text?: unknown } | null | undefined)?.text;
-      return typeof text === 'string' ? text : reply.text;
-    },
     saw: () => lastPrompt,
     show: (call) => { shown.push(call); },
     finish: (result) => { ended = result; },

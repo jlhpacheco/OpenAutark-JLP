@@ -1,9 +1,11 @@
 // Agent page, working setup: the model – B-083 (owner 08.11.2026): row "Now" says what it really runs on (its live
 // run's model · where it runs (F05: "Opus 5.5 · Claude Code") · effort and temperature – "T 0.3", "T ≈0.3" with a title
 // where the model samples at its own setting – from
-// the activity feed, else its last turn's from agents.runs, read once; a run that ends while
+// the activity feed, else its last turn's from agents.runs, read when shown and after every reconnect (lib/use-load.ts,
+// like the agent's folder below); a run that ends while
 // the page is open leaves its live values there), row "Start model" sets the model it starts its turns on ("Auto" =
-// chosen per task; chat models only, in catalog order) – a start value it changes itself when the work needs another,
+// chosen per task; chat models only, in catalog order – the catalog comes with the shell's load, store.loadAll) – a
+// start value it changes itself when the work needs another,
 // and the runtime tells it who set it (models.setPolicy stores pinBy). Then the agent's two files that open in
 // the pane's file tab (SYSTEM.md, last-prompt.md; B-081: a missing SYSTEM.md opens in the editor, a missing
 // last-prompt.md on the not-found page), the agent folder with its skills (the agent and the AI write
@@ -28,7 +30,8 @@ import type { Schedule } from '../../shared/model/tasks.ts';
 import { Icon, Select } from '../lib/ui.tsx';
 import type { SelectOption } from '../lib/ui.tsx';
 import { useContextMenu } from '../lib/context-menu.tsx';
-import { loadModels, models } from '../lib/store.ts';
+import { models } from '../lib/store.ts';
+import { useLoad } from '../lib/use-load.ts';
 import { platform } from '../lib/platform.ts';
 import { isChatModel } from '../lib/model-fit.ts';
 import { modelShortName, nameWithSource } from '../lib/model-name.ts';
@@ -69,14 +72,18 @@ function NowRow(props: { agentId: string }) {
   const { agentId } = props;
   const live = liveByAgent.value.get(agentId);
   const [last, setLast] = useState<Route | undefined>();
-  useEffect(() => {
+  useEffect(() => setLast(undefined), [agentId]); // another agent: never the last one's turn
+  useLoad(() => {
     let alive = true;
-    setLast(undefined);
     if (!can('agents.runs')) return; // a device without the runs: the live run only
     rpc.call('agents.runs', { id: agentId, limit: 5 })
       .then((runs) => {
         const run = runs.find((entry) => entry.model);
-        if (alive && run) setLast((seen) => seen ?? { model: run.model, effort: run.effort, temperature: run.route?.temperature, temperatureSent: run.route?.temperatureSent });
+        if (!alive || !run) return;
+        const route: Route = { model: run.model, effort: run.effort, temperature: run.route?.temperature, temperatureSent: run.route?.temperatureSent };
+        // while a live run shows, its route (the effect below) stays the newer one; otherwise the answer replaces it, so a
+        // turn run while this page was disconnected shows after the reconnect
+        setLast((seen) => (liveByAgent.peek().get(agentId)?.model ? seen ?? route : route));
       })
       .catch(() => undefined);
     return () => { alive = false; };
@@ -104,7 +111,6 @@ const AUTO_OPTION = `${AUTO} – chosen per task`;
 function ModelSection(props: { agent: Agent; readOnly: boolean }) {
   const [pin, setPin] = useState(props.agent.modelPolicy?.pin ?? '');
   useEffect(() => setPin(props.agent.modelPolicy?.pin ?? ''), [props.agent.modelPolicy?.pin]);
-  useEffect(() => { if (!models.value.length) void loadModels().catch(() => undefined); }, []);
   const save = async (next: string) => {
     const before = pin;
     setPin(next);
@@ -151,7 +157,7 @@ function HumanSection(props: { agentId: string; text: string; readOnly: boolean 
     <Section title="From you">
       <textarea class="input agent-human" rows={4} maxLength={MAX_HUMAN_MD} value={draft} readOnly={props.readOnly} aria-label="From you"
         placeholder="What this agent should always know from you" onInput={(event) => setDraft(event.currentTarget.value)} onBlur={() => void save()} />
-      <small class="agent-row-hint">Near the end of its instructions; your lines for every agent (Settings › Security) come last. Updates never change it.</small>
+      <small class="agent-human-hint">Near the end of its instructions; your lines for every agent (Settings › Security) come last. Updates never change it.</small>
     </Section>
   );
 }
@@ -159,7 +165,7 @@ function HumanSection(props: { agentId: string; text: string; readOnly: boolean 
 function FolderSection(props: { agent: Agent }) {
   const { agent } = props;
   const [info, setInfo] = useState<AgentCoreInfo | null>(null);
-  useEffect(() => {
+  useLoad(() => {
     let alive = true;
     const load = () => { rpc.call('agents.core', { agentId: agent.id }).then((core) => { if (alive) setInfo(core); }).catch(() => undefined); };
     load();

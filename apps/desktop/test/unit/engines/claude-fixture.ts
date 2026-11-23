@@ -7,7 +7,7 @@
 import { ClaudeEngine } from '../../../src/runtime/engines/claude/engine.ts';
 import { account, fakeFinder, fakeSpawn, memoryFiles, testSupervisor, tick, type SpawnCall } from './fakes.ts';
 
-export type CallKind = 'status' | 'probe' | 'turn';
+export type CallKind = 'status' | 'probe' | 'help' | 'turn';
 
 export interface ClaudeScript {
   /** `claude auth status --json` (default: signed in through claude.ai). */
@@ -22,10 +22,13 @@ export interface ClaudeScript {
   exit?: boolean;
   /** B-049: a turn process whose arguments this accepts exits at once with code 1 and no line (a CLI refusing a flag). */
   refuse?: (args: string[]) => boolean;
+  /** Runde "Halb": the CLI version a turn's system/init names (default none) and what `claude --help` prints (default: no --autocompact). */
+  version?: string;
+  help?: string;
 }
 
 /** Only the probe runs in safe mode (helper turns also pass --no-session-persistence, X08). */
-export const kindOf = (args: string[]): CallKind => (args.includes('auth') ? 'status' : args.includes('--safe-mode') ? 'probe' : 'turn');
+export const kindOf = (args: string[]): CallKind => (args.includes('auth') ? 'status' : args.includes('--safe-mode') ? 'probe' : args.includes('--help') ? 'help' : 'turn');
 
 const valueAfter = (args: string[], flag: string): string | undefined => (args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined);
 
@@ -51,6 +54,7 @@ export function claudeCli(script: ClaudeScript = {}) {
       };
       return;
     }
+    if (kind === 'help') { setImmediate(() => { child.stdout.write(script.help ?? 'Usage: claude [options]\n'); setImmediate(() => child.exit(0)); }); return; }
     if (script.refuse?.(call.args)) { setImmediate(() => child.exit(1)); return; }
     const session = valueAfter(call.args, '--resume') ?? valueAfter(call.args, '--session-id') ?? '';
     let started = false;
@@ -62,7 +66,7 @@ export function claudeCli(script: ClaudeScript = {}) {
       }
       if (message?.type !== 'user' || started) return;
       started = true;
-      child.send({ type: 'system', subtype: 'init', session_id: session });
+      child.send({ type: 'system', subtype: 'init', session_id: session, ...(script.version ? { claude_code_version: script.version } : {}) });
       const lines = script.turn?.(call, session) ?? [{ type: 'result', subtype: 'success', is_error: false, result: 'Done.', session_id: session }];
       for (const line of lines) child.send(line);
       if (script.exit !== false) setImmediate(() => child.exit(0));
@@ -81,7 +85,7 @@ export const claudeAccount = (patch: Record<string, unknown> = {}) => {
 };
 
 /** Engine over the scripted CLI with in-memory files; `clock` drives the probe throttle. */
-export function claudeSetup(script: ClaudeScript = {}, options: { installed?: boolean } = {}) {
+export function claudeSetup(script: ClaudeScript = {}, options: { installed?: boolean; security?: ConstructorParameters<typeof ClaudeEngine>[0]['security'] } = {}) {
   const cli = claudeCli(script);
   const memory = memoryFiles();
   const clock = { now: 1_800_000_000_000 };
@@ -90,6 +94,7 @@ export function claudeSetup(script: ClaudeScript = {}, options: { installed?: bo
     supervisor: testSupervisor(cli.spawn), finder: fakeFinder({ claude: options.installed === false ? null : '/fake-bin/claude' }),
     tempDir: TEMP, files: memory.files, env: BASE_ENV, now: () => clock.now,
     uuid: () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`,
+    ...(options.security ? { security: options.security } : {}), // Sicher-Runde 19.11.2026
   });
   return { engine, cli, clock, ...memory };
 }

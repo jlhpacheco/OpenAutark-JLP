@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { WorkforceError } from '../../../src/shared/errors.ts';
-import { serveUpdate, UPDATE_METHOD, updateOn } from '../../../src/runtime/devices/sync/update.ts';
+import { answerOf, serveUpdate, UPDATE_METHOD, updateOn } from '../../../src/runtime/devices/sync/update.ts';
 import { link, makePc, Net, type Pc } from './sync-net.ts';
 
 const code = (wanted: string) => (error: unknown) => error instanceof WorkforceError && error.code === wanted;
@@ -56,4 +56,17 @@ test('system.update: offline says so and sends nothing; no CEO link is neither a
 
   (a.h.services as { host: { update?: unknown } }).host.update = undefined;
   await assert.rejects(updateOn(a.h.services, undefined), code('unavailable'));
+});
+
+// Sicher-Runde 19.11.2026 (E4): the answer is what that PC's updater said – over the mesh too; junk is dropped.
+test('system.update answers the updater\'s verdict, here and from a linked own PC', async () => {
+  const net = new Net();
+  const a = makePc(net, 'dev_a');
+  const b = makePc(net, 'dev_b');
+  link(a, b);
+  (a.h.services as { host: { update?: () => Promise<unknown> } }).host.update = async () => ({ ok: true, status: 'current', version: '0.3.5', key: 'x', message: 7 });
+  a.handlers.set(UPDATE_METHOD, (_params, from) => serveUpdate(a.h.services, from));
+  assert.deepEqual(await updateOn(b.h.services, a.id), { ok: true, status: 'current', version: '0.3.5' });
+  assert.deepEqual(answerOf({ ok: true, status: 'exploded', automaticInstall: false }), { ok: true, automaticInstall: false });
+  assert.deepEqual(answerOf(undefined), { ok: true }, 'an older main answers nothing');
 });

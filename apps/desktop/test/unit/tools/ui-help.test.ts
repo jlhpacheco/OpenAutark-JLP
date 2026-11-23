@@ -16,7 +16,7 @@ import { builtinTools, registerBuiltinTools } from '../../../src/runtime/tools/b
 import { UI_HELP_TOOL, uiTools } from '../../../src/runtime/tools/builtin/ui.ts';
 import { blockOptions } from '../../../src/runtime/context/prompt-stable.ts';
 import { ModeLibrary } from '../../../src/runtime/modes/service.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { toWireName } from '../../../src/runtime/engines/shared.ts';
 import { mcpWireName } from '../../../src/runtime/mcp/names.ts';
 import { blockHelp } from '../../../src/shared/blocks/prompt.ts';

@@ -41,7 +41,7 @@ test('their attention is the scarcest thing: what they made and what I reach –
     assert.ok(text.includes('Their attention is the scarcest thing here'), name);
     assert.ok(text.includes('first look for in what they already made and in what'), name);
     assert.ok(text.includes('their linked phone among it'), name);
-    assert.match(text, /a task for them comes after (my|our) own way was tried, with what (I|we) tried in it, and takes them seconds/, name);
+    assert.match(text, /a to-do for them comes after (my|our) own way was tried, with what (I|we) tried in it, and takes them seconds/, name);
     assert.ok(!text.includes("I plan it into Alexandra's day"), `${name}: a task for them is no first way`);
   }
   const handoff = skill('human-minimal-handoff');
@@ -107,10 +107,10 @@ test("a lead's text is its own frame: Leading first; its turns carry the brief, 
   const leading = part(LEAD, '## Leading', '## Judgment');
   for (const kept of ['I lead through the brief.', 'What my brief states as fact I have seen', 'what I assume I mark as mine',
     'My hands are for what takes less doing than explaining', 'A look-up or check my next step needs I hand to a part and go on with its answer inside my turn.',
-    "A model is chosen where a context starts – a part, a new colleague –: the smallest that does the piece's hardest step as well as the strongest would.",
+    "A model is chosen where a context starts – a part, a new colleague –: the smallest that does the piece's hardest step as well as the strongest would; for a part I name what that step asks (its needs), and its model follows from that.",
     'A model I set for a colleague runs from its next context and stays until it, I or the person names another.',
     'Proof belongs to the one who did the work', 'A result I take the way its audience meets it', 'a good result I close without a line',
-    "goes into that colleague's task in their words, with chat and number", 'A decision in my area is mine']) {
+    "becomes that colleague's to-do in their words – their line stays with it –", "Every ask in Alexandra's line that I do not finish this turn becomes its own to-do in their words – one I finish and answer at once needs none", 'A decision in my area is mine']) {
     assert.ok(leading.includes(kept), `leading: ${kept}`);
   }
   assert.ok(LEAD.includes('How freely I act toward people follows how well I know the matter'), 'the bullet stays in both standards');
@@ -121,8 +121,8 @@ test("a lead's text is its own frame: Leading first; its turns carry the brief, 
 });
 
 test("the task's result is the report; a line to a colleague wakes them for a whole turn (managers-konrad P5, managers-clara 7.3, managers-lukas-paula B)", () => {
-  assert.ok(AGENT.includes("A task's result is my report to whoever gave it; a line beside it is for what they have to decide."));
-  assert.ok(LEAD.includes("A task's result is my colleague's report to me; a line beside it is for what I have to decide."));
+  assert.ok(AGENT.includes("A to-do's result is my report to whoever gave it; a line beside it is for what they have to decide."));
+  assert.ok(LEAD.includes("A to-do's result is my colleague's report to me; a line beside it is for what I have to decide."));
   for (const [name, text] of BOTH) assert.ok(text.includes('A line to a colleague wakes them for a whole turn, so it changes what they do; thanks rides inside such a line.'), name);
   assert.doesNotMatch(skill('team-coordination'), /Who to report to|short thanks is enough|I report back with the result|thank for what someone did/);
   assert.match(skill('team-coordination'), /\*\*How they check it\*\* themselves/);
@@ -131,7 +131,7 @@ test("the task's result is the report; a line to a colleague wakes them for a wh
   assert.match(skill('task-ownership'), /Their line wakes me with the task and I move it on/, "a person's line no longer reopens a waiting task (contract 5.8)");
 });
 
-test('the reminder is one clause; the model is settled and a part can answer inside my turn (research-harness F5; contract 3; CONTRACT-2 10)', () => {
+test('the reminder is one clause; the model is settled; a part pays for time or for cost (research-harness F5; contract 3; CONTRACT-2 10; Halb 21.11.2026)', () => {
   for (const [name, text] of BOTH) {
     assert.equal(text.split('system reminder').length, 2, `${name}: the reminder stands once`);
     assert.ok(text.includes('a system reminder that someone has not heard from me means my run log, which shows my steps by itself'), name);
@@ -139,8 +139,13 @@ test('the reminder is one clause; the model is settled and a part can answer ins
   }
   assert.ok(AGENT.includes('My model is settled for my kind of work – another one would read my whole context again – and the effort follows each turn'));
   assert.ok(LEAD.includes('Mine is settled for leading; when my work outgrows it, I say so.'));
-  assert.ok(AGENT.includes('or answer inside my turn what my next step needs'));
-  assert.ok(AGENT.includes('so it runs on the model its piece needs, chosen where it starts'));
+  // Halb 21.11.2026: the two reasons for a part, time and cost, as facts – and the piece that stays with me
+  assert.ok(AGENT.includes('Two things make a piece worth a part. Time: it moves on without my next thought, so it runs beside me.'));
+  assert.ok(AGENT.includes('everything I read lands in my context and is read again on each of my later steps, on my model'));
+  assert.ok(AGENT.includes('So a piece whose bulk I will not need afterwards – what it reads, clicks through or tries on the way – goes to a part, and I say what its hardest step asks.'));
+  assert.ok(AGENT.includes('A piece that takes less doing than explaining, or hangs on what I am learning right now, stays with me: a part costs a start and a brief.'));
+  assert.match(skill('splitting'), /\*\*Cost\.\*\* Everything I read lands in my context/, 'the skill says the same reasons');
+  assert.match(skill('briefing'), /For a fresh part I say that step as its `needs`/);
   assert.match(skill('splitting'), /with `wait: true`, the parts start at once and the call comes back with each part's closing words/);
   assert.doesNotMatch(skill('app-guide'), /Routing picks model, effort and account per turn|A mode switch hands over a short checkpoint/);
   assert.doesNotMatch(read('modes/general.md'), /another mode's tools/);
@@ -154,11 +159,11 @@ test('own voice, the person by name, abilities instead of tools – and not long
     assert.doesNotMatch(text, /always runs through|agents\.split|human\.ask|model\.set|schedules\.|wf send/, name);
     assert.ok(!text.includes('{{'), `${name}: {{user_name}} only`);
   }
-  assert.ok(AGENT.length <= 10_972, `standard-agent "# How I work": ${AGENT.length} (17.11.: 10,732; 18.11. with "a line exists only as a block": 10,972)`);
+  assert.ok(AGENT.length <= 11_590, `standard-agent "# How I work": ${AGENT.length} (17.11.: 10,732; 18.11. with "a line exists only as a block": 10,972; 20.11. with "a full path I write … opens with one tap": 11,072; 20.11. Quests: every ask its own to-do in a quest, waits on something real, a to-do's thread: 11,310; 21.11. Halb: a part pays for time or for cost – the owner's Ultra bullet: 11,587)`);
   assert.ok(LEAD.length <= 14_125, `standard-manager "# How I work": ${LEAD.length} (17.11.: 13,885; 18.11.: 14,125)`);
   const files = ['prompts/standard-agent.md', 'prompts/standard-manager.md', 'modes/general.md', 'agents/manager.md', 'agents/head.md', 'agents/content-creator.md', 'agents/video-editor.md',
     ...['app-guide', 'briefing', 'chats', 'head-of-staff', 'human-minimal-handoff', 'leading-coding', 'money', 'org-setup-onboarding', 'splitting', 'system-prompt', 'task-ownership', 'team-coordination']
       .map((name) => `skills/${name}/SKILL.md`)];
   const total = files.reduce((sum, file) => sum + clean(read(file)).length, 0);
-  assert.ok(total <= 96_576, `the nineteen changed texts as a model reads them: ${total} characters (17.11.: 95,729; 18.11. with "a line exists only as a block" in both standards and the chats skill: 96,576)`);
+  assert.ok(total <= 97_500, `the nineteen changed texts as a model reads them: ${total} characters (17.11.: 95,729; 18.11. with "a line exists only as a block" in both standards and the chats skill: 96,576; 20.11. Quests – the asks paragraph in both standards, the quest skills: 96,860; 21.11. Halb – time and cost of a part in the standards, splitting and briefing, needs)`);
 });

@@ -127,13 +127,6 @@ export class TokenService {
     return { kind: 'device', deviceId: row.device_id, capabilities: capabilitiesOf(row.scope) };
   }
 
-  /** Device ids whose active tokens were all issued before B-078 (their scope lacks 'permissions'). */
-  olderDevices(): string[] {
-    const rows = this.db.all<TokenRow>(`SELECT * FROM tokens WHERE kind = 'device' AND revoked_at IS NULL AND device_id IS NOT NULL`);
-    const newer = new Set(rows.filter((row) => capabilitiesOf(row.scope).includes('permissions')).map((row) => row.device_id!));
-    return [...new Set(rows.map((row) => row.device_id!))].filter((id) => !newer.has(id));
-  }
-
   revokeDevice(deviceId: string): number {
     return this.db.run('UPDATE tokens SET revoked_at = ? WHERE device_id = ? AND revoked_at IS NULL', [this.clock.now(), deviceId]).changes;
   }

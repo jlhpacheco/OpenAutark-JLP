@@ -11,7 +11,7 @@ import { AccountMonitor, REFRESH_MS, isStale, usageSummaries } from '../../../sr
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
 import { Bus } from '../../../src/runtime/bus.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import type { AccountCheck, Engine } from '../../../src/runtime/engines/types.ts';
 import type { Account, AccountLimits, EngineId, ProviderId, UsageSummary } from '../../../src/shared/model/providers.ts';
 import type { Run } from '../../../src/shared/model/runs.ts';
@@ -53,7 +53,7 @@ function harness() {
       flight.max = Math.max(flight.max, ++flight.now);
       try {
         await (holds.get(account.id) ?? tick());
-        const answer = answers.get(account.id) ?? { state: 'ok', plan: 'max', email: 'person@example.test', limits: reading(clock.now(), 40) };
+        const answer = answers.get(account.id) ?? { state: 'ok', plan: 'max', email: `${account.id}@example.test`, limits: reading(clock.now(), 40) };
         if (answer instanceof Error) throw answer;
         return answer;
       } finally { flight.now--; }
@@ -61,7 +61,7 @@ function harness() {
     run: async () => { throw new Error('not used in this test'); },
     dispose: async () => {},
   });
-  const engines = { get: engine, all: () => [], disposeIdle: async () => {} };
+  const engines = { get: engine, all: () => [] };
   // Detection runs `claude --version` and `claude auth status --json`; app-servers stay up until exit().
   const login = { claude: true };
   const servers: FakeChild[] = [];

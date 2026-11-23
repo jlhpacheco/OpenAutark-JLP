@@ -1,9 +1,12 @@
 // Time formatting for the live part of the prompt and rendered chat lines, in the person's time zone.
 // Owns: validated time zones, the one profile-zone read (`profileZone`: the prompt's Now line and every
 // "saved"/"indexed" day of retrieved knowledge, knowledge/age.ts), cached Intl formatters and the few
-// fixed formats agents see ("14:05", "18 Oct", "Mon 16 Nov 07:00", "Sat 18 Oct 2026, 14:05"). English month/day names.
+// fixed formats agents see ("14:05", "18 Oct", "Mon 16 Nov 07:00", "Sat 18 Oct 2026, 14:05", a day-only to-do's "Mon 16 Nov,
+// no time"). English month/day names.
 // Never: used for the stable prompt section (times there would break prompt caching).
 
+import { isDayOnly } from '../../shared/model/day-settings.ts';
+import { wallOf } from '../../shared/text/when.ts';
 import type { RuntimeServices } from '../contracts.ts';
 
 const cache = new Map<string, Intl.DateTimeFormat>();
@@ -53,10 +56,9 @@ export function clockText(ms: number, zone: string | undefined): string {
   return `${p.hour}:${p.minute}`;
 }
 
-/** "2026-10-18"-like key to compare calendar days in the zone. */
+/** "2026-10-18": the calendar day in the zone (the app's one zone math, shared/text/when.ts), to compare days. */
 export function dayKey(ms: number, zone: string | undefined): string {
-  const p = parts(ms, zone);
-  return `${p.year}-${p.month}-${p.day}`;
+  return wallOf(ms, zone).date;
 }
 
 /** "18 Oct" (with the year when it differs from `now`). */
@@ -87,4 +89,10 @@ export function dayName(ms: number, zone: string | undefined, now: number): stri
 /** A time in the live part: "Mon 16 Nov 07:00" (the year only when it is not `now`'s) – absolute, never "today" or "overdue". */
 export function dueText(ms: number, zone: string | undefined, now: number): string {
   return `${dayName(ms, zone, now)} ${clockText(ms, zone)}`;
+}
+
+/** A to-do's "when" in the live part: its time ("Mon 16 Nov 07:00"), or only its day for a day without a time
+ *  ("Mon 16 Nov, no time" – shared/model/day-settings.ts isDayOnly), so midnight never reads as a time. */
+export function todoWhen(task: { at: number; minutes?: number }, zone: string | undefined, now: number): string {
+  return isDayOnly(task, zone) ? `${dayName(task.at, zone, now)}, no time` : dueText(task.at, zone, now);
 }

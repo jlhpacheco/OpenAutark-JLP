@@ -2,7 +2,7 @@
 // ops 'busy' (busy and fixed spans), 'list' (the entries) and 'add' (one appointment), always for that PC's own
 // 'human'. The person's zone, working hours and buffer come with every answer. Who asks decides what comes back:
 // one of my own PCs ('ceo' link) or the company PC of this employee's PC ('employer' link – the CEO sees the
-// employees' calendars) gets the entries, a to-do block of an "Only me" to-do as "Busy"; an employee's PC asking the
+// employees' calendars) gets the entries, a to-do block by its to-do's title ("Only me" too); an employee's PC asking the
 // company ('employee' link) gets busy spans only. An 'add' goes through this PC's own calendar rules (never over an
 // appointment or a block the person set) and names the asking PC in its notes; it is never retried. Asking an
 // offline PC answers "<name> is offline" at once; an older PC without the method answers that it cannot yet.
@@ -72,7 +72,7 @@ export async function serveAsk(s: AskServices, params: unknown, from: string): P
     if (row.kind === 'todo') {
       let task;
       try { task = row.taskId ? s.tasks.get(row.taskId) : undefined; } catch { task = undefined; }
-      title = task && !task.private ? task.title : 'Busy';
+      title = task ? task.title : 'Busy';
     }
     return { title: excerpt(title || 'Busy', 120), startAt: row.startAt, endAt: row.endAt, kind: row.kind === 'todo' ? 'to-do' : 'event', ...(row.allDay ? { allDay: true as const } : {}) };
   });

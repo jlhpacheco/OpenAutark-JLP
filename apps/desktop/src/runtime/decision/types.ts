@@ -20,7 +20,7 @@ export interface DecisionBackend {
  * and headless setups can replace it.
  */
 export type StructuredRunner = (input: {
-  purpose: string; // 'decision' | 'verify' | 'subconscious' | 'widget' | …
+  purpose: string; // 'decision' | 'verify' | 'subconscious' | …
   system: string;
   prompt: string;
   schema?: Record<string, unknown>;

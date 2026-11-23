@@ -3,9 +3,10 @@
 // store.loadAll() first on every (re)connect – before the snapshots, which ask only for what
 // `can()` allows. Views gate their controls with `can(method)` instead of guessing from the
 // platform; controls a device may not use are hidden, or shown read-only with one calm note.
-// Until the first answer (and when it fails) the desktop window counts as the owner and a
-// phone/browser as allowed nothing, so the desktop view never changes and a phone never shows a
-// control that would be refused.
+// Until the first answer the desktop window counts as the owner and a phone/browser as allowed nothing, so the
+// desktop view never changes and a phone never shows a control that would be refused. Sicher-Runde 19.11.2026 (D2): a
+// failed `session.info` (the socket opened, then died – a flaky tunnel) keeps the last answer – only an answer replaces
+// it – so the phone's tabs and controls stay; the offline copy (pwa/offline-cache.ts) brings it back after a restart.
 // X02: browser methods need HTTPS for 'todo' devices too.
 // Owns: the session signal, can()/secure and the gating notes.
 // Never: grants anything (the runtime checks every call) or reaches the transport itself –
@@ -15,8 +16,9 @@ import { computed, signal } from '@preact/signals';
 import type { MethodName, SessionInfo } from '../../shared/api/methods.ts';
 import type { DeviceCapability } from '../../shared/api/protocol.ts';
 import { platform } from './platform.ts';
+import { RpcError } from './rpc-error.ts';
 
-/** The last `session.info` answer of this connection; null before it (or when it failed). */
+/** The last `session.info` answer (kept over a failed one); null before the first. */
 export const session = signal<SessionInfo | null>(null);
 
 const allowed = computed(() => new Set<string>(session.value?.allowedMethods ?? []));
@@ -31,16 +33,19 @@ function isSessionInfo(value: unknown): value is SessionInfo {
 }
 
 /**
- * Asks the runtime who this connection is. A failure (or an answer that is not a session) leaves
- * the conservative default (null).
+ * Asks the runtime who this connection is. An answer that is not a session – an error answer too – sets the conservative
+ * default (null); a call the connection lost ('unavailable') keeps the last answer and rejects (store.loadAll then records
+ * the error and keeps its data).
  */
 export async function loadSession(call: (method: 'session.info') => Promise<SessionInfo>): Promise<SessionInfo | null> {
+  let info: unknown;
   try {
-    const info: unknown = await call('session.info');
-    session.value = isSessionInfo(info) ? info : null;
-  } catch {
-    session.value = null;
+    info = await call('session.info');
+  } catch (error) {
+    if (!(error instanceof RpcError) || error.code === 'unavailable') throw error;
+    info = null;
   }
+  session.value = isSessionInfo(info) ? info : null;
   return session.value;
 }
 
@@ -103,7 +108,7 @@ const SECURE_METHODS: ReadonlyMap<MethodName, DeviceCapability> = new Map<Method
   ...(['accounts.list', 'accounts.detect', 'accounts.add', 'accounts.update', 'accounts.login', 'accounts.loginCode', 'accounts.logout', 'accounts.remove',
     'accounts.install', 'accounts.try', 'accounts.useReset', 'accounts.test', 'accounts.useFound', 'accounts.declineFound'] as const).map((method) => [method, 'settings'] as const),
   // B-084 (D6): Settings › Devices and the Models page's uses and downloads from the phone, the same way
-  ...(['remote.state', 'remote.decide', 'remote.connect', 'remote.nearby', 'remote.cancel', 'remote.relay', 'devices.list', 'devices.rename',
+  ...(['remote.state', 'remote.decide', 'remote.connect', 'remote.name', 'remote.confirm', 'remote.nearby', 'remote.cancel', 'remote.relay', 'devices.list', 'devices.rename',
     'devices.revoke', 'phone.pairLink', 'people.invite', 'people.closeInvite', 'voice.pullLocal', 'models.uses'] as const).map((method) => [method, 'settings'] as const),
 ]);
 

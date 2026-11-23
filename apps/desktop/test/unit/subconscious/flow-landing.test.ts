@@ -50,7 +50,10 @@ function world() {
         return { hits: [{ path: 'memory/company/billing.md', chunk: 0, snippet: 'Invoices go out by post only.', score: 0.9 }], searched: { places: input.in, embeddedFiles: 1 } };
       },
     },
-    knowledge: { memoryWrite: (input: { title: string; text: string; folder?: string }) => { written.push(input); return { path: 'x.md', outcome: 'created' }; } },
+    knowledge: {
+      memoryWrite: (input: { title: string; text: string; folder?: string }) => { written.push(input); return { path: 'x.md', outcome: 'created' }; },
+      search: async () => [{ item: { id: 'company:billing.md', title: 'Billing', body: 'Invoices go out by post only.' }, score: 0.9, why: '' }],
+    },
   } as unknown as Partial<RuntimeServices>);
   return { f, searches, written };
 }
@@ -72,7 +75,7 @@ test('the same call after something changed is no repeat', async () => {
   const t = world();
   let n = 0;
   (t.f.services.vectors as unknown as { search: () => Promise<unknown> }).search = async () => ({ hits: [], searched: { places: [], embeddedFiles: 1 }, note: `${++n} files changed.` });
-  const search = { tool: 'vector.search', args: { query: 'Rechnungen', in: ['memory'] } };
+  const search = { tool: 'vector.search', args: { query: 'Rechnungen', in: ['C:/work'] } };
   const decision = brain([search, search, { tool: 'done' }]);
   const result = await flow(t, decision.runner);
   assert.equal(result.end, 'done');
@@ -112,28 +115,12 @@ test('two stuck calls end the run as failed, with what it did', async () => {
   assert.equal(result.trace.calls.length, 1);
 });
 
-test('a helper call that hangs inside a condensation: what is condensed so far stays and the brain hears the rest', async () => {
-  const t = ledgerSetup();
-  try {
-    await fourTurns(t);
-    let words = 0;
-    const run = {
-      services: t.services, agent: t.tom, conversationId: t.chat.id, thread: 'main', signal: new AbortController().signal, hits: new Map(), searches: [],
-      word: async () => { if (++words > 1) throw new Error('structured runner: The turn was stopped.'); return 'build 1 finished in 401 seconds'; }, show: () => {}, finish: () => {},
-    } as unknown as FlowRun;
-    const said = String(await contextTools.find((tool) => tool.name === 'context.condense')!.run({ ids: ['t1', 't2'] }, run));
-    assert.match(said, /condensed t1/);
-    assert.match(said, /t2 not condensed: structured runner/);
-    assert.equal(t.ledger.items(t.tom.id, 'main').find((item) => item.itemId === 't1')?.state, 'condensed');
-  } finally { t.cleanup(); }
-});
-
 test('what the run noticed travels with the hit it shows, first, so a cut keeps it', async () => {
   const t = world();
   // past what an asked answer may cost (flow.ts ASKED_TOKENS)
-  const hits = Array.from({ length: 60 }, (_, chunk) => ({ path: 'memory/company/billing.md', chunk, snippet: 'Rechnungen nur per Post. '.repeat(20), score: 0.9 }));
+  const hits = Array.from({ length: 50 }, (_, chunk) => ({ path: 'C:/work/kunden/rechnungen/versandregeln/billing-und-post.md', chunk, lines: [chunk * 10 + 1, chunk * 10 + 10] as [number, number], snippet: 'Rechnungen nur per Post. '.repeat(20), score: 0.9 }));
   t.f.services.vectors.search = async (input: VectorSearchInput) => ({ hits, searched: { places: input.in, embeddedFiles: 1 } });
-  const decision = brain([{ tool: 'vector.search', args: { query: 'Versand', in: ['memory'] } }, { tool: 'done', args: { show: hits.map((_, index) => `h${index + 1}`), note: 'Gewünscht ist E-Mail, die Regel sagt Post.' } }]);
+  const decision = brain([{ tool: 'vector.search', args: { query: 'Versand', in: ['C:/work'], k: 50 } }, { tool: 'done', args: { show: hits.map((_, index) => `h${index + 1}`), note: 'Gewünscht ist E-Mail, die Regel sagt Post.' } }]);
   const result = await flow(t, decision.runner);
   assert.equal(result.trace.calls[0].tool, 'vector.search');
   assert.ok(result.trace.calls[0].output.startsWith('Noticed, to tell the person when I answer: Gewünscht ist E-Mail, die Regel sagt Post.\n'), result.trace.calls[0].output.slice(0, 120));
@@ -171,7 +158,7 @@ test('what a tool returned counts as known, and a short text is no case for the 
   const t = world();
   t.f.services.vectors.search = async (input: VectorSearchInput) => ({ hits: [{ path: 'memory/company/billing.md', chunk: 0, snippet: 'Frankfurter Niederlassung übernimmt Abrechnung sämtlicher Lieferanten künftig zentral', score: 0.9 }], searched: { places: input.in, embeddedFiles: 1 } });
   const decision = brain([
-    { tool: 'vector.search', args: { query: 'Abrechnung', in: ['memory'] } },
+    { tool: 'vector.search', args: { query: 'Abrechnung', in: ['C:/work'] } },
     { tool: 'memory.write', args: { title: 'Abrechnung', text: 'Frankfurter Niederlassung übernimmt Abrechnung sämtlicher Lieferanten zentral.' } },
     { tool: 'memory.write', args: { title: 'Kurz', text: 'Etwas ganz anderes.' } },
   ]);
@@ -211,14 +198,12 @@ test('a tidy run: the view is compact and shows only what is left, the mark says
     await fourTurns(t);
     t.services.prompts = new PromptTemplates(() => path.join(RESOURCES, 'prompts'));
     const decision = brain([{ tool: 'context.list', args: { minTokens: WORTH_TOKENS } }, { tool: 'context.condense', args: { ids: ['t1'] } }, { tool: 'context.hide', args: { ids: ['t2'] } }, { tool: 'done', args: { answer: 'Aufgeräumt.' } }], { inputTokens: 1000, outputTokens: 50 });
-    const wording: StructuredRunner = async () => ({ text: '', structured: { text: 'build 1 finished in 401 seconds' }, by: 'fake', usage: { inputTokens: 700, outputTokens: 20 } });
-    const model: StructuredRunner = async (input) => (input.schema && 'properties' in input.schema && (input.schema as { properties: Record<string, unknown> }).properties.text ? wording(input) : decision.runner(input));
-    const result = await runFlow(t.services, model, { agent: t.tom, conversationId: t.chat.id, thread: 'main' });
+    const result = await runFlow(t.services, decision.runner, { agent: t.tom, conversationId: t.chat.id, thread: 'main' });
     assert.equal(result.end, 'done');
     assert.match(decision.prompts[1], /context\.list \{"minTokens":500\}\n\d+ older items in full/);
     assert.match(decision.prompts[2], /condensed t1: about \d+ tokens saved at the main AI's next turn\nStill big: t2 \d+t, t3 \d+t\./);
     assert.match(decision.prompts[3], /hidden: t2\nStill big: t3 \d+t\./);
-    assert.equal(result.used, 4 * 1050 + 720);
+    assert.equal(result.used, 4 * 1050, 'the condensation is built by code: no model call of its own');
     assert.ok(result.saved > 2 * WORTH_TOKENS, String(result.saved));
     // q-r2c (03.11.2026): a tidy run's list holds what could still come off – with the marked items in it, the cheap model hid them all and
     // condensed the hidden ones back, turn after turn.

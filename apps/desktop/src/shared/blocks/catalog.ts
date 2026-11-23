@@ -205,7 +205,7 @@ export const LIMITS = {
 
 /**
  * Props only the host sets on a to-do widget – a device's access request `accessRequestId` (runtime/remote/todo.ts).
- * validateBlock and tasks.create drop them from everything an agent writes.
+ * validateBlock and tasks.add drop them from everything an agent writes.
  */
 export const HOST_ONLY_PROPS: readonly string[] = ['accessRequestId'];
 

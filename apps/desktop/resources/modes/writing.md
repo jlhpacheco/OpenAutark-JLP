@@ -14,7 +14,6 @@ tools:
   - "tasks.*"
   - "chat.*"
   - "skills.*"
-  - "schedules.*"
   - "web.*"
 category: writing
 workspace: docs

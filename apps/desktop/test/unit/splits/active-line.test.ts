@@ -37,7 +37,7 @@ test('My parts: per group its counts, per part its status, model · effort, resu
   const [a, b] = w.lanes.started;
   assert.deepEqual(w.splits.activeOn('ag_ava', CHAT), [{ id: groupId, goal: 'Review the release', thread: CHAT, conversationId: CHAT, status: 'running', parts: 3, done: 0, running: 3, waiting: 0, ended: 0 }]);
   assert.equal(activeSplitsLine(w.services, 'ag_ava', CHAT),
-    `${ACTIVE_HEADER}\nGroup ${groupId} "Review the release" – 0 of 3 done, 3 running:\n- #1 A – working\n- #2 B – working\n- #3 C – working\n${TAIL}`);
+    `${ACTIVE_HEADER}\nGroup ${groupId} "Review the release" – 0 of 3 done, 3 running:\n- #1 A – working · chain\n- #2 B – working · chain\n- #3 C – working · chain\n${TAIL}`); // Halb 21.11.2026: not routed yet – the needs it asked for
   w.lanes.end(a, 'done', { answer: 'A is clean.\nDetails follow.' });
   w.lanes.end(b, 'failed', { error: 'The part failed.' });
   assert.equal(activeSplitsLine(w.services, 'ag_ava', CHAT), [
@@ -45,7 +45,7 @@ test('My parts: per group its counts, per part its status, model · effort, resu
     `Group ${groupId} "Review the release" – 1 of 3 done, 1 running, 1 did not finish:`,
     '- #1 A – done · codex:gpt-6.1-sol · low · result: A is clean.',
     '- #2 B – failed (The part failed.) · codex:gpt-6.1-sol · low',
-    '- #3 C – working',
+    '- #3 C – working · chain',
     TAIL,
   ].join('\n'));
 
@@ -57,7 +57,7 @@ test('My parts: per group its counts, per part its status, model · effort, resu
     `Group ${pending.id} "Check the docs" – 2 parts, not started yet (they start when the turn that split them ends):`,
     `Group ${groupId} "Review the release" – 1 of 3 done, 1 running, 1 did not finish:`,
   ]);
-  assert.match(line, /\n- #1 D – not started yet\n- #2 E – waits for #1 · high · temperature 0\.3/);
+  assert.match(line, /\n- #1 D – not started yet · chain\n- #2 E – waits for #1 · chain · high · temperature 0\.3/);
   assert.equal(w.splits.activeOn('ag_ava', CHAT, 1).length, 1, 'bounded');
 
   // Not there: other agents, a part's own thread.
@@ -75,8 +75,8 @@ test('B-083: a working part\'s last step and its last note to me', () => {
   w.runs.item(runId, { kind: 'tool_call', name: 'agents.split_tell', data: { summary: `${TOLD_ORIGIN} the API changed in v2 – #2 should check v2` }, effectStatus: 'none' });
   w.runs.item(runId, { kind: 'tool_call', name: 'shell.exec', data: { summary: 'npm test -- api' }, effectStatus: 'none' });
   const line = activeSplitsLine(w.services, 'ag_ava', CHAT);
-  assert.match(line, /\n- #1 Search – working · last steps: shell\.exec npm test -- api · told me: "the API changed in v2 – #2 should check v2"\n/);
-  assert.match(line, /\n- #2 Check – working\n/);
+  assert.match(line, /\n- #1 Search – working · chain · last steps: shell\.exec npm test -- api · told me: "the API changed in v2 – #2 should check v2"\n/);
+  assert.match(line, /\n- #2 Check – working · chain\n/);
 });
 
 test('review 08.11.: a working part shows what its turn runs on now (its activity row) – a run\'s model is written only when it ends', () => {
@@ -85,7 +85,7 @@ test('review 08.11.: a working part shows what its turn runs on now (its activit
   const [a] = w.lanes.started;
   const row = { agentId: 'ag_ava', runId: w.lanes.lanes.get(a)!.runId, note: '', startedAt: 0, model: 'claude:claude-opus-5-5', modelName: 'Claude Opus 5.5', effort: 'medium', temperature: 0.3, split: { id: a } };
   const services = { ...w.services, dispatcher: { activity: () => [row] } } as unknown as RuntimeServices;
-  assert.match(activeSplitsLine(services, 'ag_ava', CHAT), /\n- #1 A – working · Claude Opus 5\.5 · medium · temperature 0\.3\n- #2 B – working · high\n/, 'not routed yet: what it was asked for');
+  assert.match(activeSplitsLine(services, 'ag_ava', CHAT), /\n- #1 A – working · Claude Opus 5\.5 · medium · temperature 0\.3\n- #2 B – working · chain · high\n/, 'not routed yet: what it was asked for');
 });
 
 test('B-080: a group split in another chat stands in the section of a turn there, named by its chat, this thread\'s groups first', () => {
@@ -123,7 +123,7 @@ test('B-080: parts beyond the agent\'s four running ones are named as not starte
   assert.equal(w.splits.activeOn('ag_ava', CHAT)[0].waiting, 2);
   const line = activeSplitsLine(w.services, 'ag_ava', CHAT);
   assert.deepEqual(heads(line), [`Group ${groupId} "Review the release" – 0 of 6 done, 4 running, 2 not started yet:`]);
-  assert.match(line, /\n- #5 P5 – waiting to start\n- #6 P6 – waiting to start\n/);
+  assert.match(line, /\n- #5 P5 – waiting to start · chain\n- #6 P6 – waiting to start · chain\n/);
   w.lanes.end(w.lanes.started[0], 'done', { answer: 'P1' });
   assert.deepEqual(heads(activeSplitsLine(w.services, 'ag_ava', CHAT)), [`Group ${groupId} "Review the release" – 1 of 6 done, 4 running, 1 not started yet:`]);
 });
@@ -153,7 +153,7 @@ test('Ultra is my own call, never a rule: How I work names my parts once, a shor
   const how = readFileSync(path.join(RESOURCES, 'prompts', 'standard-agent.md'), 'utf8');
   const line = how.split('\n').find((text) => text.startsWith('- I can work on several things at once and stay one (people call this Ultra): parts of me'))!;
   assert.ok(line, 'one bullet in How I work, the same in every mode');
-  assert.match(line, /each comes back into me when it ends/);
+  assert.match(line, /come back into me when they end/);
   assert.equal(ultraNote({ authorKind: 'human', meta: { ultra: true } }), ` ${ULTRA_NOTE}`);
   assert.equal(ULTRA_NOTE, '(the person thought splitting could help)');
   assert.equal(ultraNote({ authorKind: 'human', meta: {} }), '');

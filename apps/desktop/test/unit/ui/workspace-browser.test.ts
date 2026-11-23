@@ -24,9 +24,9 @@ test('a tab is named by its title, else its host, else New tab', () => {
 });
 
 test('a space to and from side-tabs.json: websites by id, panels with what they show, a blank tab stays in the window', () => {
-  const tabs = [{ id: 'web-a', kind: 'website' as const }, { id: 'web-new', kind: 'new' as const }, { id: 'notes:ch_1', kind: 'notes' as const, conversationId: 'ch_1' }, { id: 'day', kind: 'day' as const }];
+  const tabs = [{ id: 'web-a', kind: 'website' as const }, { id: 'web-new', kind: 'new' as const }, { id: 'notes:ch_1', kind: 'notes' as const, conversationId: 'ch_1' }, { id: 'tasks', kind: 'tasks' as const }];
   const space = toSideSpace(tabs, 'notes:ch_1');
-  assert.deepEqual(space, { shown: 'notes:ch_1', tabs: [{ id: 'web-a' }, { id: 'notes:ch_1', conversationId: 'ch_1', panel: 'notes' }, { id: 'day', panel: 'day' }] });
+  assert.deepEqual(space, { shown: 'notes:ch_1', tabs: [{ id: 'web-a' }, { id: 'notes:ch_1', conversationId: 'ch_1', panel: 'notes' }, { id: 'tasks', panel: 'tasks' }] });
   assert.deepEqual(fromSideSpace(space), tabs.filter((tab) => tab.kind !== 'new'));
   assert.equal(toSideSpace(tabs, 'web-new').shown, undefined, 'a blank tab is shown only here');
   assert.deepEqual(fromSideSpace({ tabs: [{ id: 'x', panel: 'unknown' }, { id: 'notes:other', panel: 'notes', conversationId: 'ch_1' }] }), [], 'a malformed panel is left out');
@@ -60,12 +60,14 @@ test('an app tab is named by its kind and what it shows; only well-formed stored
   assert.deepEqual(appTabsOf('not a list'), []);
 });
 
-test('panels are tabs: My day and Work once each, one tab per agent\'s browser; only well-formed ones come back', () => {
-  assert.deepEqual([appTabId({ kind: 'day' }), appTabId({ kind: 'work' }), appTabId({ kind: 'agent', agentId: 'ag_1' })], ['day', 'work', 'agent:ag_1']);
+test('panels are tabs: Tasks once, one tab per agent\'s browser; only well-formed ones come back (a My day or Work tab from before opens as Tasks)', () => {
+  assert.deepEqual([appTabId({ kind: 'tasks' }), appTabId({ kind: 'agent', agentId: 'ag_1' })], ['tasks', 'agent:ag_1']);
   assert.deepEqual(appTabsOf([
-    { id: 'day', kind: 'day' }, { id: 'work', kind: 'work' }, { id: 'agent:ag_1', kind: 'agent', agentId: 'ag_1' },
-    { id: 'other', kind: 'day' }, { id: 'agent:x', kind: 'agent', agentId: 'ag_1' }, { id: 'agent:', kind: 'agent' },
-  ]).map((tab) => tab.id), ['day', 'work', 'agent:ag_1']);
+    { id: 'tasks', kind: 'tasks' }, { id: 'day', kind: 'day' }, { id: 'work', kind: 'work' }, { id: 'agent:ag_1', kind: 'agent', agentId: 'ag_1' },
+    { id: 'other', kind: 'tasks' }, { id: 'agent:x', kind: 'agent', agentId: 'ag_1' }, { id: 'agent:', kind: 'agent' },
+  ]).map((tab) => tab.id), ['tasks', 'agent:ag_1']);
+  assert.deepEqual(appTabsOf([{ id: 'day', kind: 'day' }, { id: 'agent:ag_1', kind: 'agent', agentId: 'ag_1' }, { id: 'work', kind: 'work' }]),
+    [{ id: 'tasks', kind: 'tasks' }, { id: 'agent:ag_1', kind: 'agent', agentId: 'ag_1' }], 'bridge 0.3.16: the stored My day and Work tabs are one Tasks tab where the first stood');
   const [info] = tabInfos([{ id: 'agent:ag_1', kind: 'agent', agentId: 'ag_1' }], [], () => 'Ada\'s browser');
   assert.equal(info.agentId, 'ag_1', 'its avatar on the tab');
   assert.equal(tabName(info), 'Ada\'s browser');
@@ -278,9 +280,9 @@ test('spaces: a chat\'s area has its own tabs and shown tab, the global pane onl
   assert.equal(pages.shownOf('chat:ch_1'), 'notes:ch_1');
   assert.ok(!ids('global').includes('notes:ch_1'), 'not in global');
   assert.deepEqual(opened, ['chat:ch_1']);
-  pages.openPanel({ kind: 'day' }, blank.id);
-  assert.deepEqual(ids('chat:ch_1'), ['web-chat', 'day', 'notes:ch_1'], 'My day took the blank tab\'s place in the chat\'s area');
-  assert.ok(!ids('global').includes('day'));
+  pages.openPanel({ kind: 'tasks' }, blank.id);
+  assert.deepEqual(ids('chat:ch_1'), ['web-chat', 'tasks', 'notes:ch_1'], 'Tasks took the blank tab\'s place in the chat\'s area');
+  assert.ok(!ids('global').includes('tasks'));
 
   // browser.show (an agent's page, not in the background) is its space's shown tab and opens that surface.
   opened.length = 0;
@@ -299,24 +301,24 @@ test('spaces: a chat\'s area has its own tabs and shown tab, the global pane onl
   assert.ok(!ids('chat:ch_9').includes(own!), 'the global tab stays in global');
 
   // Closing in one space leaves the other.
-  await pages.closePage('day', 'chat:ch_1');
+  await pages.closePage('tasks', 'chat:ch_1');
   assert.deepEqual(ids('chat:ch_1'), ['web-chat', 'notes:ch_1']);
   assert.ok(ids('global').includes(own!));
 
   // Someone edits the file: the panels and the shown tab follow; a blank tab stays.
-  outside({ ...lastLayout()!, 'chat:ch_2': { shown: 'day', tabs: [{ id: 'day', panel: 'day' }] } });
-  assert.deepEqual(pages.tabsOf('chat:ch_2').map((entry) => entry.kind), ['day', 'new']);
-  assert.equal(pages.shownOf('chat:ch_2'), 'day');
+  outside({ ...lastLayout()!, 'chat:ch_2': { shown: 'tasks', tabs: [{ id: 'tasks', panel: 'tasks' }] } });
+  assert.deepEqual(pages.tabsOf('chat:ch_2').map((entry) => entry.kind), ['tasks', 'new']);
+  assert.equal(pages.shownOf('chat:ch_2'), 'tasks');
   assert.deepEqual(ids('chat:ch_1'), ['web-chat', 'notes:ch_1'], 'the other spaces stay');
 
   // The same app tab in two spaces: a panel asked from it alone lands where it is shown, whatever the order of the spaces.
-  pages.openPanel({ kind: 'day' });
+  pages.openPanel({ kind: 'tasks' });
   pages.selectPage(own!, 'global');
-  assert.equal(Object.keys(lastLayout()!)[0], 'global', 'the pane holds My day first');
+  assert.equal(Object.keys(lastLayout()!)[0], 'global', 'the pane holds Tasks first');
   opened.length = 0;
-  pages.openPanel({ kind: 'folder', path: 'C:\\data' }, 'day');
-  assert.deepEqual(pages.tabsOf('chat:ch_2').map((entry) => entry.kind), ['folder', 'new'], 'the area that shows My day');
-  assert.ok(ids('global').includes('day'), 'the pane\'s My day stays');
+  pages.openPanel({ kind: 'folder', path: 'C:\\data' }, 'tasks');
+  assert.deepEqual(pages.tabsOf('chat:ch_2').map((entry) => entry.kind), ['folder', 'new'], 'the area that shows Tasks');
+  assert.ok(ids('global').includes('tasks'), 'the pane\'s Tasks stays');
   assert.deepEqual(opened, ['chat:ch_2']);
 
   // Where the frame has no global pane (the phone layout), a way in that names no space lands in the open chat's area.

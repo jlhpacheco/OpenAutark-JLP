@@ -10,8 +10,7 @@ import '../../../shared/api/methods-tabs.ts';
 import type { TabPosition } from '../../../shared/api/methods-tabs.ts';
 import { WorkforceError } from '../../../shared/errors.ts';
 import type { RuntimeServices } from '../../contracts.ts';
-import { DevicesRepo } from '../repo.ts';
-import { linkOf, links, selfId } from './home.ts';
+import { isCeoPc, links, selfId } from './home.ts';
 import { localId, sharedId } from './tabs-map.ts';
 
 export const POSITIONS_MAX = 200;
@@ -51,7 +50,7 @@ export class TabPositions {
 
   /** 'tabs.position' from a CEO PC: kept and told here under this PC's id. */
   async receive(params: unknown, from: string): Promise<{ ok: true }> {
-    if (linkOf(new DevicesRepo(this.s.db).get(from))?.kind !== 'ceo') throw new WorkforceError('forbidden', 'Tab positions come only from the CEO\'s own PCs.');
+    if (!isCeoPc(this.s.db, from)) throw new WorkforceError('forbidden', 'Tab positions come only from the CEO\'s own PCs.');
     const position = positionOf(params);
     if (position) this.keep({ ...position, tab: localId(position.tab, selfId(this.s.db)) });
     return { ok: true };

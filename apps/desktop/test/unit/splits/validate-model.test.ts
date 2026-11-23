@@ -34,7 +34,7 @@ function refused(model: string): { code?: string; message: string } {
 test('an id is stored as that id; the words stay words; an unknown or unusable model is refused with the lookup\'s answer', () => {
   assert.equal(stored('codex:gpt-6-luna'), 'codex:gpt-6-luna');
   assert.equal(stored('Cheap'), 'cheap');
-  assert.equal(stored('same'), undefined);
+  assert.equal(stored('same'), 'chain', "'same' names none: the fresh part's needs (the fixture's chain) decides");
   assert.match(refused('gpt-9-ultra').message, /^Part #1: .*gpt-9-ultra.* It also takes same, cheap or strong\.$/);
   assert.match(refused('claude:claude-opus-5-5').message, /^Part #1: .*Claude Opus 5\.5.* It also takes same, cheap or strong\.$/);
 });

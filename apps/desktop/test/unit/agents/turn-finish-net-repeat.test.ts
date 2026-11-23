@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { finishTurn } from '../../../src/runtime/agents/turn-finish.ts';
 import { answeredAlready, MIMICKED_NOTE, wordOverlap } from '../../../src/runtime/agents/net-repeat.ts';
 import { planTurn } from '../../../src/runtime/agents/turn-prepare.ts';
-import type { ManualClock } from '../../../src/runtime/system/clock.ts';
+import type { ManualClock } from '../fakes.ts';
 import { HUMAN_ID } from '../../../src/shared/ids.ts';
 import { setup } from './fixture.ts';
 

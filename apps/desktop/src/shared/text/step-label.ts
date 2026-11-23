@@ -109,7 +109,13 @@ function urlText(value: string | undefined): string {
   return oneLine(value.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, ''), 100);
 }
 
-/** "tasks.create" → "Tasks create", "mcp__github__create_issue" → "github · create issue". */
+/** Journaled args are a JSON preview (a string, maybe cut): the object when it still parses – what stepLabel reads. */
+export function parsedArgs(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  try { return JSON.parse(value); } catch { return {}; }
+}
+
+/** "tasks.add" → "Tasks add", "mcp__github__create_issue" → "github · create issue". */
 function plainName(name: string): string {
   const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
   if (mcp) return `${mcp[1]} · ${mcp[2].replace(/_/g, ' ')}`;
@@ -128,7 +134,7 @@ const LIST = new Set(['ls', 'list', 'files.list', 'list_directory']);
 const WEB_SEARCH = new Set(['web_search', 'websearch', 'web.search', 'google_web_search']);
 const WEB_OPEN = new Set(['web_fetch', 'webfetch', 'web.fetch', 'fetch']);
 const PLAN = new Set(['todowrite', 'update_plan', 'exitplanmode']);
-const AGENT = new Set(['task', 'agent', 'tasks.give']);
+const AGENT = new Set(['task', 'agent']);
 
 /** A tool's own words for a call that names no target: [past, present, object] ("Ran" / "Running" "a
  *  command"). Names as engines report them: dotted, underscored or spaced ("browser.show", "Browser show"). */

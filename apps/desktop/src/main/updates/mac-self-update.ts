@@ -5,7 +5,7 @@
 // restores the old one if the swap fails, and starts the result. electron-updater still does the feed check.
 // Where it cannot work (macCapability: read-only place, a translocated app, a disk image, or it failed for this version
 // before) the plain updater stays and with it the manual download; a failure here says so at once ('manual-only').
-// Once the new version ran stable, settleMacUpdate trashes the previous bundle and an old-named leftover.
+// Once the new version ran stable, settleMacUpdate trashes the previous bundle.
 // F25 (review 16.11.2026): every company updates itself, so the helper starts the company that pressed Update again –
 // `open -n <app> --args --updated --company=<id>`, a new instance beside a running first company (a plain `open` would
 // only bring that one to the front); the first company starts with a plain `open` as before.
@@ -282,9 +282,6 @@ export interface SettleDeps {
   version: string;
   dataDir: string; // boot.json: the runtime's own record of a good start
   cacheDir: string;
-  /** Bundles under an older product name that may remain beside this one. */
-  leftovers: readonly string[];
-  bundleId(bundle: string): Promise<string | null>;
   trash(target: string): Promise<void>;
   log?(line: string): void;
 }
@@ -297,18 +294,12 @@ export async function settleMacUpdate(deps: SettleDeps): Promise<void> {
   if (boot.phase !== 'stable' || boot.version !== deps.version) return;
   const failed = readFailedVersion(deps.cacheDir);
   if (failed && failed !== deps.version) rmSync(path.join(deps.cacheDir, FAILED_FILE), { force: true }); // a new version gets a new try
-  const own = await deps.bundleId(deps.bundle);
-  const targets = [path.join(path.dirname(deps.bundle), PREVIOUS_BUNDLE)];
-  for (const leftover of deps.leftovers) {
-    if (leftover !== deps.bundle && existsSync(leftover) && own && await deps.bundleId(leftover) === own) targets.push(leftover);
-  }
-  for (const target of targets) {
-    if (!existsSync(target)) continue;
-    try {
-      await deps.trash(target);
-      deps.log?.(`mac update settled: moved ${path.basename(target)} to the trash`);
-    } catch (error) {
-      deps.log?.(`mac update not settled: ${(error as Error)?.message ?? 'error'}`);
-    }
+  const previous = path.join(path.dirname(deps.bundle), PREVIOUS_BUNDLE);
+  if (!existsSync(previous)) return;
+  try {
+    await deps.trash(previous);
+    deps.log?.(`mac update settled: moved ${PREVIOUS_BUNDLE} to the trash`);
+  } catch (error) {
+    deps.log?.(`mac update not settled: ${(error as Error)?.message ?? 'error'}`);
   }
 }

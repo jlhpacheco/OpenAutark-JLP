@@ -1,47 +1,31 @@
 // The first run's Connect card (opened from the choice card, ChoiceCard.tsx in FirstRun.tsx, or at once for a company started from the
-// company menu's "+"): this PC's Remote ID, a PC asking here, the PCs on this network and the connect row by the other
-// PC's Remote ID – the rows of Settings › Devices (settings/connect-rows.tsx). `role` 'ceo' is my other device (a full
-// mirror, no role to pick), 'employee' joins someone else's company as one person's PC. Both screens show the same code;
-// the person accepts on the PC that was asked. Linked as my other device (either way round), or accepted as the employee
-// this card was opened for, this PC skips the rest of the first run (onboarding done). Back returns to the choice card.
-// Owns: this card. Never: copies data from the other PC or says it will.
+// company menu's "+ › Connect with an ID"): the PCs on this network and "Connect with an ID" – the rows of Settings › Devices
+// (settings/connect-rows.tsx). Owner 21.11.2026: no ID of its own here – a company that is still being set up has none yet
+// (Eine-ID addendum 22.11.2026: nor does it take requests). Eine-ID: no role to pick – a company's ID makes this PC a new
+// member there, a person's own ID one of that person's devices; the PC asked decides. Both screens show the same code;
+// the person accepts on the PC that was asked. Once the link stands the runtime ends the first run (onboarding step
+// 'done'); this card closes with it. Back returns to the choice card.
+// Owns: this card. Never: copies data from the other PC or says it will, or ends the first run itself.
 
 import { useEffect, useState } from 'preact/hooks';
-import type { JoinRole } from '../../shared/model/remote.ts';
-import { errorText } from '../lib/rpc.ts';
 import { can } from '../lib/session.ts';
+import { settings } from '../lib/store.ts';
 import { Button } from '../lib/ui.tsx';
-import { ConnectRow, IncomingRow, NearbyRows, RemoteIdRow, useConnectState, usePeople } from '../settings/connect-rows.tsx';
-import { linkedAsCeo } from './first-run-model.ts';
-import { goStep } from './first-run.ts';
-import { Card, StatusLine } from './parts.tsx';
+import { ConnectRow, NearbyRows, useConnectState } from '../settings/connect-rows.tsx';
+import { Card } from './parts.tsx';
 
-/** `onClose`: back to the choice card (Back), or after the first run ended here. */
-export function ConnectCard(props: { role?: JoinRole; onClose: () => void }) {
-  const role = props.role ?? 'ceo';
-  const people = usePeople();
-  const { remote, relay } = useConnectState();
+/** `onClose`: back to the choice card (Back), or once the first run ended (the link stands). */
+export function ConnectCard(props: { onClose: () => void }) {
+  const { remote } = useConnectState();
   const [error, setError] = useState<string | null>(null);
-  const [failed, setFailed] = useState<string | undefined>(undefined);
-  const finish = () => {
-    setFailed(undefined);
-    goStep('done', { onboarding: { completed: true } }).then(props.onClose, (cause: unknown) => setFailed(errorText(cause)));
-  };
-  const out = remote.data?.outgoing;
-  // Linked as my other device, or – for a company started to join one – as its employee: that company is set up already.
-  useEffect(() => { if (linkedAsCeo(out) || (role === 'employee' && out?.status === 'accepted' && out.role === 'employee')) finish(); }, [out?.id, out?.status]);
-  const title = role === 'employee' ? 'Join a company as employee' : 'Connect to my other device';
+  const done = settings.value?.onboarding.step === 'done';
+  useEffect(() => { if (done) props.onClose(); }, [done]);
   return (
-    <Card id="first-run-connect" title={title} actions={<Button variant="secondary" onClick={props.onClose}>Back</Button>}>
+    <Card id="first-run-connect" title="Connect with an ID" actions={<Button variant="secondary" onClick={props.onClose}>Back</Button>}>
       <div class="first-run-rows">
-        {can('remote.state') && <RemoteIdRow remote={remote.data} relay={relay.data} />}
-        {(remote.data?.incoming ?? []).map((request) => (
-          <IncomingRow key={request.id} request={request} people={people} onDecided={(accepted) => { if (accepted && request.role === 'ceo') finish(); }} />
-        ))}
-        {can('remote.nearby') && <NearbyRows role={role} onError={setError} />}
-        {can('remote.connect') && <ConnectRow remote={remote.data} role={role} error={error} onError={setError} />}
+        {can('remote.nearby') && <NearbyRows onError={setError} />}
+        {can('remote.connect') && <ConnectRow remote={remote.data} error={error} onError={setError} />}
       </div>
-      <StatusLine text={failed} tone="error" />
     </Card>
   );
 }

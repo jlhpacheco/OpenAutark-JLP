@@ -1,16 +1,18 @@
 // Pane tab › Media without a file: the stored media as one list with a search over names, descriptions and tags (media.list
-// with `text`), newest first and fresh through media.upserted. A row opens that file in a tab of its own in this
-// surface's space (space.ts). B-084: one fixed "Add files" button at the end of the search row stores picked files
-// (media-add.ts; tagged 'from phone' inside a phone app); while it works a spinner takes the same box.
+// with `text`), newest first and fresh through media.upserted and every reconnect (lib/use-load.ts). A row opens that
+// file in a tab of its own in this surface's space (space.ts). B-084: one fixed "Add files" button at the end of the
+// search row stores picked files (media-add.ts; tagged 'from phone' inside a phone app); while it works a spinner takes
+// the same box.
 // Owns: the search field, a short debounce, the list and the add button. Never: edits or deletes files (an agent does
 // that on request).
 
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useRef, useState } from 'preact/hooks';
 import type { MediaInfo } from '../../shared/model/media.ts';
 import { uploadRef } from '../lib/files.ts';
 import { errorText, rpc } from '../lib/rpc.ts';
 import { toastError } from '../lib/toasts.ts';
 import { EmptyState, Icon, Spinner, type IconName } from '../lib/ui.tsx';
+import { useLoad } from '../lib/use-load.ts';
 import { isPhoneApp } from '../pwa/native.ts';
 import { addFiles } from './media-add.ts';
 import { mediaFacts } from './media-facts.ts';
@@ -26,7 +28,7 @@ export function MediaLibrary() {
   const [text, setText] = useState('');
   const [files, setFiles] = useState<MediaInfo[] | null>(null);
   const [failed, setFailed] = useState('');
-  useEffect(() => {
+  useLoad(() => {
     let alive = true;
     const words = text.trim();
     const load = () => rpc.call('media.list', { limit: 100, ...(words ? { text: words } : {}) })

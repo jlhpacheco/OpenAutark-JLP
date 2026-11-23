@@ -33,23 +33,26 @@ Settings live in `settings.json` (skill `app-settings`); the app applies a chang
 ## Phone use (Android): I operate the person's phone
 - `phone.devices` lists the app phone (serial = its device id, "Autark app") next to ADB phones; `phone.ui_tree`,
   `phone.tap`, `phone.swipe`, `phone.type`, `phone.key`, `phone.open` and `phone.screenshot` work the same on it – no
-  ADB, no cable – and a step without `serial` goes to it first. Swipes through the app follow a light, slightly
-  jittered curve like a finger. `phone.type` shows what the field reads afterwards, so a word beside mine shows at once.
+  ADB, no cable – and a step without `serial` goes to it first. A tap is a finger's press, and swipes follow a light,
+  slightly jittered curve like a finger. `phone.open` with `app` opens an app by the name under its icon, without its
+  package. `phone.type` shows what the field reads afterwards, so a word beside mine shows at once.
 - It works while the app's connection lives, also with the app in the background. The service reads nothing until I
   ask, so it costs next to no battery.
 - The first time, the step fails with "phone use is off": the phone shows the person a notification "Let the AI use this
   phone"; one tap opens Android's Accessibility settings (Autark › Use this phone). A sideloaded app on Android 13+
   first needs App info › ⋮ › Allow restricted settings – I tell the person that in one line.
 - While I act, a small bubble at the top of the phone names me ("<my name> is using this phone") with Pause and ✕.
-  The person's touch pauses me until 5 s after their last touch, so their help costs me only a moment: a step that met
-  the touch did not run or stopped part-way, and I repeat it from a fresh look. Their Pause holds until they tap
+  The phone stays theirs to use while I work: their taps and typing change the screen, my next look shows it, and I
+  carry on from there. Their Pause holds until they tap
   Continue; their ✕ ends this task's phone use, and I finish the task another way or tell them in the chat what is left
-  on the phone.
+  on the phone. When my task ends, the bubble goes with it.
 - `phone.say` puts my line in the bubble – what I am doing there – so the person sees it without opening the app,
-  which would take the phone out of my hands. With `ask: true` it is a question with ✓ and ✕: yes gives me the phone
-  for this task (also after their Pause or ✕), no means not now, none means no tap within 60 s. When the phone is in
-  use and my steps can wait, I ask; otherwise I go straight ahead. The line and the question need the app 0.3.15 or
-  newer – an older app says so, and my other steps work as before.
+  which would take the phone out of my hands. The person reads it at a glance: keywords or one short sentence. With
+  `ask: true` it is a question with ✓ and ✕: yes gives me the phone for this task (also after their Pause or ✕), no
+  means not now, none means no tap within 60 s. With `buttons` the question carries my own short answers – "Send it",
+  "Later", "Draft first" – and I get the one they tapped; ✕ is always there. When the phone is in use and my steps can
+  wait, I wait for a free moment or say in the bubble that I need it for a minute; otherwise I go straight ahead. The line and the question need the app 0.3.15 or newer – an older app
+  says so, and my other steps work as before; an app before my own buttons shows ✓ and ✕ for them.
 - I read `phone.ui_tree` before each next step; nothing I do there is verified until I looked.
 
 ## iPhone: the web app, paired by Remote ID (the normal way)
@@ -70,8 +73,9 @@ Another way, without the meeting server: the PC's own web app over HTTPS on the 
 (not installed: `winget install Tailscale.Tailscale` on Windows; the person signs in once in its window and needs the
 Tailscale app on the iPhone with the same account), serve the app on its own port so an existing `/` mapping stays
 (`tailscale serve --bg --https=8443 http://127.0.0.1:47811`; `tailscale serve status` shows the address; `"pwa":
-{ "bind": "localhost" }` stays), and `pwa.link` gives a one-time link with its QR code and a 6-digit code (10 minutes)
-for the Home Screen app to type. `tailscale serve --https=8443 off` undoes it. In the same network a browser also works
+{ "bind": "localhost" }` stays). The device itself the person adds: a link that makes a new device or person is
+always their own step, never one I make, so I tell them where – Settings › Devices › Add a device.
+`tailscale serve --https=8443 off` undoes it. In the same network a browser also works
 with `"pwa": { "bind": "lan" }`; without HTTPS it gets no secrets, plans, notifications or microphone. A fixed IP or
 forwarded port only with HTTPS in front (a reverse proxy such as Caddy); I tell the person what is then reachable from
 the internet.

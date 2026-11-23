@@ -14,7 +14,7 @@ import type { TabDownload } from '../shared/api/workspace-browser.ts';
 import { uniqueDownload } from './workspace-downloads.ts';
 
 /** What a page's own site may use. */
-const ALLOWED: ReadonlySet<string> = new Set(['media', 'notifications', 'fullscreen', 'clipboard-sanitized-write']);
+const ALLOWED: ReadonlySet<string> = new Set(['media', 'display-capture', 'notifications', 'fullscreen', 'clipboard-sanitized-write']);
 
 interface Download extends TabDownload { file: string }
 

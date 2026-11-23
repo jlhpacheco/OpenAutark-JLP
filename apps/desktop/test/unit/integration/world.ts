@@ -10,7 +10,7 @@
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
 import { Bus } from '../../../src/runtime/bus.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { ChatServiceImpl } from '../../../src/runtime/chat/service.ts';
 import { DeliveryServiceImpl } from '../../../src/runtime/chat/delivery.ts';
 import { TaskServiceImpl } from '../../../src/runtime/tasks/service.ts';
@@ -24,7 +24,6 @@ import { FakeEngine } from '../../../src/runtime/engines/fake.ts';
 import { outputText } from '../../../src/runtime/engines/shared.ts';
 import { GENERAL_MODE } from '../../../src/runtime/modes/service.ts';
 import { taskTools } from '../../../src/runtime/tools/builtin/tasks.ts';
-import { scheduleTools } from '../../../src/runtime/tools/builtin/schedule.ts';
 import { verifyResult } from '../../../src/runtime/subconscious/verify.ts';
 import type { NotificationService, RuntimeServices } from '../../../src/runtime/contracts.ts';
 import type { EngineTurnInput } from '../../../src/runtime/engines/types.ts';
@@ -63,7 +62,7 @@ class LiveOrg extends FakeOrg {
   }
 }
 
-const TOOLS = new Map<string, ToolDef>([...taskTools, ...scheduleTools].map((tool) => [tool.name, tool]));
+const TOOLS = new Map<string, ToolDef>(taskTools.map((tool) => [tool.name, tool]));
 const quiet = { debug() {}, info() {}, warn() {}, error() {} };
 
 export function boot(options: { agents: Agent[]; db?: Db; clock?: ManualClock; brain: Brain }) {
@@ -127,7 +126,6 @@ export function boot(options: { agents: Agent[]; db?: Db; clock?: ManualClock; b
     secrets: { redact: (value: string) => value },
     mcp: { lease: () => ({ url: 'http://127.0.0.1:1/mcp', token: 'lease', release: () => {} }) },
     subconscious: {
-      widgetFor: async () => ({ type: 'confirm' }),
       verify: (task: Parameters<typeof verifyResult>[1], result: Parameters<typeof verifyResult>[2]) => verifyResult(services, task, result),
     },
     context: {

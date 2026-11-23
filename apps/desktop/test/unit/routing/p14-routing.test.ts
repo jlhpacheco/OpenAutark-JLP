@@ -79,7 +79,7 @@ test('the catalog merges the bare listing with the shipped priors (names, tiers,
   assert.deepEqual([h.catalog.get(HAIKU)!.name, h.catalog.get(HAIKU)!.tier], ['Claude Haiku 5.5', 'small']);
 });
 
-test('coding → GPT-6.1 Sol; a Remotion animation after it → still Sol at high, in the live session and at a boundary: Sol fits the kind\'s tier, its weak prior for video moves nothing', async () => {
+test('coding → GPT-6.1 Sol; a Remotion animation after it → still Sol, at medium (Runde „Halb“: no category default), in the live session and at a boundary: Sol fits the kind\'s tier, its weak prior for video moves nothing', async () => {
   const h = await demo();
   const coding = await h.route({ text: CODING });
   assert.deepEqual([coding.modelId, coding.effort, coding.category, coding.by], [SOL, 'medium', 'coding', 'rules']);
@@ -87,10 +87,10 @@ test('coding → GPT-6.1 Sol; a Remotion animation after it → still Sol at hig
   const previous = returnChoice([run({ model: SOL, effort: coding.effort, route: { reason: coding.reason, by: coding.by, category: coding.category } })], undefined);
   // 17.11.2026: minutes later in the same session (the E2E) the model stays – another one would write the whole context again.
   const live = await h.route({ text: REMOTION, previous, boundary: false });
-  assert.deepEqual([live.modelId, live.effort, live.category, live.by, live.reason], [SOL, 'high', 'video-animation', 'previous', 'continues on my model · video animation']);
+  assert.deepEqual([live.modelId, live.effort, live.category, live.by, live.reason], [SOL, 'medium', 'video-animation', 'previous', 'continues on my model · video animation · not weighed · effort medium']);
   const remotion = await h.route({ text: REMOTION, previous, boundary: true });
   // review 17.11.2026: the old "weak for this turn's work" test flipped agents between models by one keyword
-  assert.deepEqual([remotion.modelId, remotion.effort, remotion.category, remotion.by, remotion.reason], [SOL, 'high', 'video-animation', 'previous', 'continues on my model · video animation']);
+  assert.deepEqual([remotion.modelId, remotion.effort, remotion.category, remotion.by, remotion.reason], [SOL, 'medium', 'video-animation', 'previous', 'continues on my model · video animation · not weighed · effort medium']);
 });
 
 test('model.set {effort: max} holds for the next turn only; then the previous effort returns', async () => {

@@ -2,12 +2,16 @@
 // - the layer import rules from docs/ARCHITECTURE.md §2:
 //   shared → nothing outside shared · runtime → shared (+ node) · main/preload → shared (+ electron)
 //   ui → shared (+ browser libs). Nobody imports ui except the ui build;
-// - oversized files (soft limit 300 lines, hard limit 450) so modules stay small;
+// - oversized files (soft limit 300 lines, hard limit 450) so modules stay small (a *.generated.ts is written by a
+//   script and read by nobody: no size limit);
 // - the wf terminal client's own rules (C7) and shared code without platform globals (SM10);
 // - F08: modules nothing imports (orphans – unreachable from ENTRIES, stylesheets through their
 //   @import chain; relative imports that point at no module fail too), stylesheets without a
 //   single rule, and source files whose leading comment has no "Owns:" line (db/migrations are
-//   SQL text and exempt). Imports are statements: import-like text in strings or comments is none.
+//   SQL text and exempt). Imports are statements: import-like text in strings or comments is none;
+// - bridges (src/runtime/bridge/*, one-time conversions of older data): each names the release it ships in
+//   ("bridge 0.3.16" in its leading comment) and is due two releases later – a warning names one that is due, counted
+//   from the newer of package.json's version and the newest bridge, and one that names no release.
 // The checkers work on an in-memory tree { 'src/…' posix path → text } and are exported for
 // test/unit/scripts/check-boundaries.test.ts; run as a script it checks this package's src/.
 // Owns: these structure rules, ENTRIES and KNOWN_ORPHANS. Never: changes or deletes a file.
@@ -45,6 +49,7 @@ export const ENTRIES = [
   'src/ui/preview/page.ts', // 17.11.2026: the video preview window's page with mediabunny inside (app/media-preview-page.js, main/media-preview.ts)
   'src/ui/hosted/shell.ts', // the iPhone web app's shell (apps/website/src/app/shell.js, scripts/hosted-bundle.mjs)
   'src/ui/hosted/sw.ts', // its service worker (apps/website/src/app/sw.js)
+  'src/runtime/devices/sleeper-main.ts', // 19.11.2026: the wake helper (app/sleeper.mjs, main/sleeper.ts)
   'src/ui/tour/phone-page.tsx', // the Android app's feedback video page (assets/tour.html, scripts/tour-page.mjs)
   'src/ui/tour/phone-page.css', // its stylesheet, bundled into the same page
 ];
@@ -156,7 +161,7 @@ export function layerProblems(files) {
   for (const [file, text] of files) {
     const layer = file.split('/')[1];
     if (!file.startsWith('src/') || !layers.includes(layer) || !/\.(?:ts|tsx|mjs)$/.test(file)) continue;
-    const lines = text.split('\n').length;
+    const lines = file.endsWith('.generated.ts') ? 0 : text.split('\n').length;
     if (lines > 450) problems.push(`${file}: ${lines} lines (hard limit 450 – split it)`);
     else if (lines > 300) warnings.push(`${file}: ${lines} lines (soft limit 300)`);
     const inCli = file.startsWith(cliDir);
@@ -183,11 +188,31 @@ export function layerProblems(files) {
   return { problems, warnings };
 }
 
+const BRIDGE_DIR = 'src/runtime/bridge/';
+const BRIDGE_RELEASE = /\bbridge (\d+)\.(\d+)\.(\d+)\b/i;
+const releaseOf = (text) => text?.match(/^(\d+)\.(\d+)\.(\d+)/)?.slice(1, 4).map(Number);
+const newer = (a, b) => (a[0] - b[0]) || (a[1] - b[1]) || (a[2] - b[2]);
+
+/** Bridges two releases past the one they ship in (or naming none); `version`: this package's (package.json). */
+export function bridgeWarnings(files, version) {
+  const bridges = [...files].filter(([file]) => file.startsWith(BRIDGE_DIR) && isModule(file))
+    .map(([file, text]) => ({ file, release: leadingComment(text).match(BRIDGE_RELEASE)?.slice(1, 4).map(Number) }));
+  const now = [releaseOf(version), ...bridges.map((bridge) => bridge.release)].filter(Boolean).sort(newer).at(-1);
+  const warnings = [];
+  for (const { file, release } of bridges.sort((a, b) => (a.file < b.file ? -1 : 1))) {
+    if (!release) { warnings.push(`${file}: names no release (write "bridge <version>" in its leading comment)`); continue; }
+    const due = release[0] === now[0] && release[1] === now[1] ? now[2] - release[2] >= 2 : newer(now, release) > 0;
+    if (due) warnings.push(`${file}: bridge ${release.join('.')} – two releases past it (${now.join('.')}), delete it with its calls`);
+  }
+  return warnings;
+}
+
 /** All checks over one tree: problems fail the run, warnings are printed. */
 export function checkTree(files, options = {}) {
   const entries = options.entries ?? ENTRIES;
   const known = options.knownOrphans ?? KNOWN_ORPHANS;
   const { problems, warnings } = layerProblems(files);
+  warnings.push(...bridgeWarnings(files, options.version));
   for (const entry of entries) if (!files.has(entry)) problems.push(`${entry}: entry not found (update ENTRIES in scripts/check-boundaries.mjs)`);
   const orphans = orphanModules(files, entries);
   for (const file of orphans) {
@@ -216,7 +241,9 @@ export async function readTree(root) {
 
 // Run as a script (node ≥ 24 sets import.meta.main); importing it for the tests checks nothing.
 if (import.meta.main) {
-  const { problems, warnings } = checkTree(await readTree(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')));
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const { version } = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+  const { problems, warnings } = checkTree(await readTree(root), { version });
   for (const warning of warnings) console.warn('warn ', warning);
   if (problems.length) {
     for (const problem of problems) console.error('error', problem);

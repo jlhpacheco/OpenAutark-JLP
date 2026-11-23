@@ -36,7 +36,7 @@ const WIRE = '([A-Za-z0-9_-]{1,64})';
 const HUB_TITLES = [new RegExp(`^mcp__${HUB}__${WIRE}$`), new RegExp(`^${HUB}__${WIRE}$`), new RegExp(`^${HUB}[/:]${WIRE}$`), new RegExp(`^${WIRE} \\(${HUB} MCP Server\\)$`)];
 const MAX_FILES = 20;
 
-/** Our dotted name for a hub wire name ("tasks__create" → "tasks.create"; see mcp/names.ts). */
+/** Our dotted name for a hub wire name ("tasks__add" → "tasks.add"; see mcp/names.ts). */
 export function hubToolName(wire: string): string {
   return wire.replace(/__/g, '.');
 }
@@ -157,8 +157,8 @@ export function applyUpdate(state: AcpTurnState, update: Record<string, unknown>
   }
 }
 
-/** The files an own tool call names (its locations and path keys). */
-function pathsOf(toolCall: Record<string, unknown>, raw: Record<string, unknown>): string[] {
+/** The files an own tool call names (its locations and path keys); also what a Secure-mode permission request is about (permissions.ts). */
+export function pathsOf(toolCall: Record<string, unknown>, raw: Record<string, unknown>): string[] {
   const out = (Array.isArray(toolCall.locations) ? toolCall.locations : []).flatMap((loc) => (isRecord(loc) && typeof loc.path === 'string' ? [loc.path] : []));
   for (const key of ['path', 'file_path', 'abs_path']) if (typeof raw[key] === 'string' && !out.includes(raw[key] as string)) out.push(raw[key] as string);
   return out.slice(0, 50);

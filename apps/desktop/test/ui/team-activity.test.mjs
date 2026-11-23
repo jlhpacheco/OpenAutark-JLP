@@ -1,5 +1,5 @@
 // Electron window check of "Team activity" (C1) with the demo engine in an isolated test profile:
-//   * the Manager opens a room without the human (chat.create) and finishes a task there; the human
+//   * the Manager opens a room without the human (chat.create) and adds a to-do of its own (tasks.add), finished; the human
 //     leaves another chat; a to-do creates the hidden To-do chat;
 //   * after a window reload the collapsed "Team activity" section still lists both rooms (they are
 //     not in the main list) and the To-do chat appears in no list;
@@ -16,6 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -46,7 +47,7 @@ test('Team activity: agent rooms stay listed after a reload; the To-do chat is i
   const go = (hash) => page.evaluate((target) => { location.hash = target; }, hash);
   const shot = async (name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
 
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('settings.update', { onboarding: { step: 'done' } }); // B-044: past the first-run layer on Home (first-run-window covers it)
   await rpc.call('events.subscribe', { topics: ['chats', 'tasks'] });
@@ -57,16 +58,17 @@ test('Team activity: agent rooms stay listed after a reload; the To-do chat is i
   // The Manager opens a room without the human and finishes a task there.
   await rpc.call('messages.send', { conversationId: first.id, body: `Open a room [[tool:chat.create {"title":"Launch research","members":["${manager.id}"]}]]` });
   const room = await rpc.waitFor('conversation.upserted', (chat) => chat.title === 'Launch research', 90_000);
-  await rpc.call('messages.send', { conversationId: first.id, body: `Plan it [[tool:tasks.create {"title":"Compare venues","chatId":"${room.id}","doneWhen":"Three venues compared"}]]` });
+  // Quests round 20.11.2026: an agent's to-do (tasks.add) belongs to no chat it names – it is the Manager's own.
+  await rpc.call('messages.send', { conversationId: first.id, body: 'Plan it [[tool:tasks.add {"title":"Compare venues","doneWhen":"Three venues compared"}]]' });
   const task = await rpc.waitFor('task.upserted', (item) => item.title === 'Compare venues', 90_000);
-  assert.equal(task.conversationId, room.id);
+  assert.equal(task.assigneeId, manager.id, 'the Manager\'s own to-do');
   await rpc.call('tasks.finish', { id: task.id });
 
   // The human leaves another chat; a to-do creates the To-do chat.
   const left = await rpc.call('chats.create', { title: 'Old project', agentIds: [manager.id] });
   await rpc.call('messages.send', { conversationId: left.id, body: 'Notes about the quarterly offsite' });
   await rpc.call('chats.members', { id: left.id, remove: ['human'] });
-  await rpc.call('todos.add', { text: 'Sign the delivery note' });
+  await rpc.call('tasks.quickCreate', { text: 'Sign the delivery note' });
 
   // A reload loads the chat snapshot afresh (no conversation.upserted from this connection).
   await page.reload();

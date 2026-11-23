@@ -1,9 +1,10 @@
 // Pure rules for the custom protocols app://, wf-sandbox:// and wf-file://.
-// Owns: CSP strings, URL → file mapping with traversal protection, the turn detector's fixed files (B-082), blob id validation,
-// MIME guessing, HTTP Range parsing and the sandbox document wrapper of ```app blocks.
+// Owns: CSP strings, URL → file mapping with traversal protection, the turn detector's fixed files (B-082), blob id validation
+// and the sandbox document wrapper of ```app blocks (content types and HTTP Range: shared/files, one rule with the runtime).
 // Never: touches Electron or the filesystem (handlers.ts does that), so it is unit-tested.
 
 import path from 'node:path';
+import { blobParts } from '../../shared/files/serving.ts';
 import { TURN_ROUTE, turnFile } from '../../shared/model/local-speech-models.ts';
 
 /** CSP of the app shell (desktop window). Generative UI never relaxes it; it lives in wf-sandbox frames. */
@@ -37,31 +38,6 @@ export const SANDBOX_CSP = [
 export const PAGE_CSP = "default-src * data: blob: 'unsafe-inline' 'unsafe-eval' wf-sandbox:; form-action *; base-uri *";
 
 export const SANDBOX_LIB = 'wf-sandbox://lib/wf.js';
-
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.webmanifest': 'application/manifest+json',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-  '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
-  '.woff': 'font/woff',
-  '.map': 'application/json',
-  '.txt': 'text/plain; charset=utf-8',
-  '.wasm': 'application/wasm',
-};
-
-export function mimeForPath(file: string): string {
-  return MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream';
-}
 
 /**
  * Maps a URL pathname to a file below `root`; null when it escapes the root or is malformed.
@@ -144,47 +120,9 @@ export function isBlobId(value: string): boolean {
   return /^[0-9a-f]{64}$/.test(value);
 }
 
-/** Content-addressed layout shared with the runtime: <blobs>/ab/cd/<sha256>. */
+/** A blob's file: the store's layout (shared/files/serving.ts blobParts) under <blobs>. */
 export function blobPath(blobsDir: string, id: string): string {
-  return path.join(blobsDir, id.slice(0, 2), id.slice(2, 4), id);
-}
-
-/** Guesses a blob's MIME type from its first bytes (the metadata lives in the runtime DB). */
-export function sniffMime(head: Uint8Array): string {
-  const at = (offset: number, ...bytes: number[]) => bytes.every((byte, i) => head[offset + i] === byte);
-  const ascii = (offset: number, text: string) => at(offset, ...Array.from(text, ch => ch.charCodeAt(0)));
-  if (at(0, 0x89, 0x50, 0x4e, 0x47)) return 'image/png';
-  if (at(0, 0xff, 0xd8, 0xff)) return 'image/jpeg';
-  if (ascii(0, 'GIF8')) return 'image/gif';
-  if (ascii(0, 'RIFF') && ascii(8, 'WEBP')) return 'image/webp';
-  if (ascii(0, 'RIFF') && ascii(8, 'WAVE')) return 'audio/wav';
-  if (ascii(0, '%PDF-')) return 'application/pdf';
-  if (ascii(0, 'OggS')) return 'audio/ogg';
-  if (at(0, 0x1a, 0x45, 0xdf, 0xa3)) return 'video/webm'; // EBML (webm/mkv; audio-only webm plays too)
-  if (ascii(4, 'ftyp')) return ascii(8, 'M4A ') ? 'audio/mp4' : 'video/mp4';
-  if (ascii(0, 'ID3') || at(0, 0xff, 0xfb)) return 'audio/mpeg';
-  if (ascii(0, '<svg') || ascii(0, '<?xml')) return 'image/svg+xml';
-  return 'application/octet-stream';
-}
-
-/** Parses a single-range `Range: bytes=a-b` header against a file size; null = serve whole file. */
-export function parseRange(header: string | null | undefined, size: number): { start: number; end: number } | 'invalid' | null {
-  if (!header) return null;
-  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
-  if (!match || (match[1] === '' && match[2] === '')) return 'invalid';
-  let start: number;
-  let end: number;
-  if (match[1] === '') { // suffix: last N bytes
-    const length = Number(match[2]);
-    if (length === 0) return 'invalid';
-    start = Math.max(0, size - length);
-    end = size - 1;
-  } else {
-    start = Number(match[1]);
-    end = match[2] === '' ? size - 1 : Math.min(Number(match[2]), size - 1);
-  }
-  if (start > end || start >= size) return 'invalid';
-  return { start, end };
+  return path.join(blobsDir, ...blobParts(id));
 }
 
 /**

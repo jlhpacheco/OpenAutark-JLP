@@ -42,7 +42,7 @@ test('team rooms persist across a restart; a to-do opens no chat', { timeout: 24
 
   // B-054: a to-do typed into the list is chat-free – it creates no chat.
   const chatsBefore = (await live.client.call('chats.list', { includeHidden: true })).length;
-  const typed = await live.client.call('todos.add', { text: 'Sign the delivery note' });
+  const { task: typed } = await live.client.call('tasks.quickCreate', { text: 'Sign the delivery note' });
   assert.equal(typed.conversationId, undefined, 'the to-do needs no chat');
   assert.equal((await live.client.call('chats.list', { includeHidden: true })).length, chatsBefore, 'no To-do chat is made');
 

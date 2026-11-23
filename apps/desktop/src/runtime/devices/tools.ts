@@ -1,7 +1,10 @@
 // Device tools for agents (computer.*, browser.*, phone.*, devices.list, devices.send_file, and devices.connect where
 // connecting PCs is wired) and the peer handlers that let a linked PC run them here: 'tools.call' (remote tool execution – the tool registry forwards a
-// call whose `device` or the agent's home device names another PC), 'files.put' (a sent file: send-file.ts)
-// and 'computer.preview' (the live screen image). A call from a linked PC runs like a call of this PC's own agent (one log line);
+// call whose `device` or the agent's home device names another PC), 'files.put' (a sent file or folder: receive-file.ts)
+// 'security.answer' (Umzug 21.11.2026: an approval request answered on another of my PCs, security/answer-relay.ts)
+// and 'computer.preview' (the live screen image). A call from a linked PC runs like a call of this PC's own agent (one log line),
+// after this PC's security gate for that agent (Sicher-Runde 19.11.2026: security/tool-gate.ts gateForwarded) – and
+// before it, this PC's `security.otherPcs` (Umzug 21.11.2026: yes / ask / no, other-pcs.ts);
 // computer.* tools show in the activity pill and end at the person's Stop (computer/activity.ts). localCaps: what this PC
 // offers, with the app version it runs (F25).
 // Owns: the device tool list and the executor side of a remote call. Never: executes a tool that is
@@ -26,7 +29,12 @@ import { detectChannel } from '../browser/channel.ts';
 import { bindComputerActivity, type ComputerActivity } from '../computer/activity.ts';
 import { devicesConnect, type DeviceLink } from './connect-tool.ts';
 import { devicesList } from './list-tool.ts';
-import { receivePiece, sendFile } from './send-file.ts';
+import { sendFile } from './send-file.ts';
+import { receivePiece } from './receive-file.ts';
+import { gateForwarded, needFingerprint } from '../security/tool-gate.ts'; // Sicher-Runde 19.11.2026
+import { gateOtherPcs } from './other-pcs.ts';
+import { ANSWER_METHOD, serveAnswer } from '../security/answer-relay.ts';
+import type { LinkKind } from './mesh.ts';
 
 export interface DeviceToolDeps {
   computer: ComputerService;
@@ -118,6 +126,13 @@ export async function runRemoteTool(services: RuntimeServices, params: unknown, 
   };
   remoteCaller.set(ctx, from);
   services.log.info('remote tool call', { from: fromDeviceId, tool: call.name, agentId: call.agentId, runId: call.runId });
+  let summary = tool.name;
+  try { summary = tool.describe?.(call.args, ctx).summary || summary; } catch { /* the name says what it is */ }
+  await gateOtherPcs(services, { // Umzug: what calls from agents on my other PCs get here
+    agentId: call.agentId, agentName: agent.name, summary, fingerprint: needFingerprint(tool.name, { capability: 'otherPcs' }, call.args),
+    chatId: call.conversationId, taskId: call.taskId, signal,
+  }, from);
+  await gateForwarded(tool, call.args, ctx); // Sicher-Runde: this PC's gate for the calling agent; a refusal travels back
   return redactOutput(services, normalizeOutput(await tool.run(call.args, ctx)));
 }
 
@@ -146,10 +161,11 @@ function redactOutput(services: RuntimeServices, output: ToolOutput): ToolOutput
 }
 
 /** Registers the device peer handlers on the mesh once at startup. */
-export function registerDeviceHandlers(mesh: { register(method: string, handler: PeerHandler): void }, deps: { services: () => RuntimeServices; computer: ComputerService }): void {
+export function registerDeviceHandlers(mesh: { register(method: string, handler: PeerHandler, kinds?: readonly LinkKind[]): void }, deps: { services: () => RuntimeServices; computer: ComputerService }): void {
   try { bindComputerActivity(deps.services(), deps.computer.activity); } catch { /* bound when ComputerService saw the services */ }
   mesh.register('tools.call', (params, fromDeviceId, signal) => runRemoteTool(deps.services(), params, fromDeviceId, signal));
-  mesh.register('files.put', (params, fromDeviceId) => receivePiece(deps.services(), params, fromDeviceId));
+  mesh.register('files.put', (params, fromDeviceId, signal) => receivePiece(deps.services(), params, fromDeviceId, signal));
+  mesh.register(ANSWER_METHOD, (params, fromDeviceId) => serveAnswer(deps.services(), params, fromDeviceId), ['ceo']); // Umzug H2: an approval answered on another of my PCs
   mesh.register('computer.preview', async (params) => {
     const p = (params ?? {}) as { display?: unknown };
     const display = typeof p.display === 'number' && Number.isInteger(p.display) && p.display >= 0 && p.display <= 16 ? p.display : undefined;

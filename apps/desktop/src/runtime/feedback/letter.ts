@@ -1,14 +1,15 @@
 // One opened team letter as an inbox item (B-055 Q2; split from inbox.ts 16.11.2026): a letter is untrusted input,
-// so every field is checked and bounded again, images and recordings must be what their type says (magic bytes), and
-// whatever does not fit is dropped – never the whole report for a bad attachment.
+// so every field is checked and bounded again, each image must be what its type says (magic bytes), and whatever
+// does not fit is dropped – never the whole report for a bad attachment. Owner 21.11.2026: a letter carries `images`
+// (at most FEEDBACK_IMAGES_MAX are read); an older sender's one `screenshot` is read as its one image.
 // 16.11.2026: also where it was written (`client`), the sending company's folder (`company`), the writing device's own
-// diagnostics, whether the text was dictated, and up to FEEDBACK_AUDIO_MAX recorded takes (WebM / MP4).
-// Owns: that check and the file name of a recorded take. Never: reads or writes files, opens a letter.
+// diagnostics and whether the text was dictated. Owner 20.11.2026: a report is its words – a recording an older sender
+// put into its letter is not read.
+// Owns: that check. Never: reads or writes files, opens a letter.
 
 import type { FeedbackKind } from '../../shared/model/system.ts';
 import {
-  FEEDBACK_AUDIO_EXT, FEEDBACK_AUDIO_MAX, FEEDBACK_AUDIO_TYPES, FEEDBACK_CLIENT_DIAGNOSTICS_MAX, FEEDBACK_CLIENT_MAX, FEEDBACK_IMAGE_TYPES,
-  type FeedbackAudioType, type FeedbackImageType, type FeedbackInboxItem,
+  FEEDBACK_CLIENT_DIAGNOSTICS_MAX, FEEDBACK_CLIENT_MAX, FEEDBACK_IMAGE_TYPES, FEEDBACK_IMAGES_MAX, type FeedbackImageType, type FeedbackInboxItem,
 } from '../../shared/model/feedback-delivery.ts';
 
 const KINDS: readonly FeedbackKind[] = ['bug', 'idea', 'change', 'praise'];
@@ -20,20 +21,18 @@ export function imageMatches(mime: FeedbackImageType, bytes: Buffer): boolean {
   return bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP';
 }
 
-/** The recording's container by its magic bytes: EBML (WebM) or an ISO box 'ftyp' (MP4); undefined for anything else. */
-export function audioType(bytes: Uint8Array): FeedbackAudioType | undefined {
-  if (bytes.length > 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) return 'audio/webm';
-  if (bytes.length > 12 && Buffer.from(bytes.subarray(4, 8)).toString('latin1') === 'ftyp') return 'audio/mp4';
-  return undefined;
-}
-
-/** Take `n` (1-based) of report `id` beside its JSON. */
-export const audioFile = (id: string, n: number, mime: FeedbackAudioType): string => `${id}.a${n}.${FEEDBACK_AUDIO_EXT[mime]}`;
-
 const str = (value: unknown, max: number): string | undefined => (typeof value === 'string' && value.trim() ? value.slice(0, max) : undefined);
 
-/** An opened letter as an inbox item, its screenshot and recordings apart; undefined when it is no v1 report. */
-export function itemOf(id: string, value: unknown, receivedAt: number): { item: FeedbackInboxItem; image?: Buffer; audio?: Buffer[] } | undefined {
+/** One image of a letter: a known type whose bytes are what it says; undefined otherwise. */
+function imageOf(value: unknown): { mime: FeedbackImageType; bytes: Buffer } | undefined {
+  const image = value as { mime?: unknown; base64?: unknown } | null | undefined;
+  if (!image || !(FEEDBACK_IMAGE_TYPES as readonly unknown[]).includes(image.mime) || typeof image.base64 !== 'string') return undefined;
+  const bytes = Buffer.from(image.base64, 'base64');
+  return bytes.length && imageMatches(image.mime as FeedbackImageType, bytes) ? { mime: image.mime as FeedbackImageType, bytes } : undefined;
+}
+
+/** An opened letter as an inbox item, its images apart (same order as `item.images`); undefined when it is no v1 report. */
+export function itemOf(id: string, value: unknown, receivedAt: number): { item: FeedbackInboxItem; images: Buffer[] } | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const o = value as Record<string, unknown>;
   const text = str(o.text, 20_000);
@@ -56,26 +55,8 @@ export function itemOf(id: string, value: unknown, receivedAt: number): { item: 
   if (diagnostics) item.diagnostics = diagnostics;
   const clientDiagnostics = str(o.clientDiagnostics, FEEDBACK_CLIENT_DIAGNOSTICS_MAX);
   if (clientDiagnostics) item.clientDiagnostics = clientDiagnostics;
-  const opened: { item: FeedbackInboxItem; image?: Buffer; audio?: Buffer[] } = { item };
-  const shot = o.screenshot as { mime?: unknown; base64?: unknown } | undefined;
-  if (shot && (FEEDBACK_IMAGE_TYPES as readonly unknown[]).includes(shot.mime) && typeof shot.base64 === 'string') {
-    const image = Buffer.from(shot.base64, 'base64');
-    if (image.length && imageMatches(shot.mime as FeedbackImageType, image)) {
-      item.screenshot = { mime: shot.mime as FeedbackImageType, size: image.length };
-      opened.image = image;
-    }
-  }
-  const takes = Array.isArray(o.audio) ? o.audio.slice(0, FEEDBACK_AUDIO_MAX) as Array<{ mime?: unknown; base64?: unknown } | null> : [];
-  const audio: Buffer[] = [];
-  const stored: NonNullable<FeedbackInboxItem['audio']> = [];
-  for (const take of takes) {
-    if (!take || !(FEEDBACK_AUDIO_TYPES as readonly unknown[]).includes(take.mime) || typeof take.base64 !== 'string') continue;
-    const bytes = Buffer.from(take.base64, 'base64');
-    if (audioType(bytes) !== take.mime) continue; // the bytes must be the container the letter claims
-    const mime = take.mime as FeedbackAudioType;
-    audio.push(bytes);
-    stored.push({ mime, size: bytes.length, file: audioFile(id, audio.length, mime) });
-  }
-  if (audio.length) { item.audio = stored; opened.audio = audio; }
-  return opened;
+  const sent = Array.isArray(o.images) ? o.images.slice(0, FEEDBACK_IMAGES_MAX) : [o.screenshot];
+  const images = sent.map(imageOf).filter((image) => image !== undefined);
+  if (images.length) item.images = images.map(({ mime, bytes }) => ({ mime, size: bytes.length }));
+  return { item, images: images.map(({ bytes }) => bytes) };
 }

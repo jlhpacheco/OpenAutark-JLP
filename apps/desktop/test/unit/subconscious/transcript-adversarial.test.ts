@@ -1,13 +1,13 @@
 // The subconscious and the transcript under attack: the person's still open instruction survives a bare "ja bitte"; a stamp never
 // promises a way back that is gone; a trace stays in the history of a stateless engine, bounded, following the marks; a paid
-// brain's cost reaches the spend journal, each call's on the agent it ran for (a widget fill's on the subconscious).
+// brain's cost reaches the spend journal, each call's on the agent it ran for.
 // Owns: these assertions only. Never: real models or network.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { contextTools } from '../../../src/runtime/subconscious/context-tools.ts';
-import { SUBCONSCIOUS_ID, type FlowRun } from '../../../src/runtime/subconscious/tools.ts';
+import type { FlowRun } from '../../../src/runtime/subconscious/tools.ts';
 import type { TraceCall } from '../../../src/shared/model/subconscious.ts';
 import { traceCallId } from '../../../src/shared/model/subconscious.ts';
 import { carriedCalls, marksOf, CARRIED_TOKENS } from '../../../src/runtime/context/ledger/marks.ts';
@@ -169,7 +169,7 @@ test("the subconscious's cost on a paid account reaches the spend journal; on a 
   }
 });
 
-test('each call books its use on the agent it works for: a routing call in flight and another agent\'s ask stay apart; a widget fill books on the subconscious', async () => {
+test('each call books its use on the agent it works for: a routing call in flight and another agent\'s ask stay apart', async () => {
   const booked: Array<Record<string, unknown>> = [];
   const f = fixture();
   f.services.prompts = new PromptTemplates(() => path.join(RESOURCES, 'prompts'));
@@ -182,7 +182,7 @@ test('each call books its use on the agent it works for: a routing call in fligh
       const call = ++calls;
       if (call === 1) await gate; // the first agent's routing call stays in flight while the other agent asks
       const structured = call === 1 ? { hardest: 'x', misread: false, decide: false, model: 'M', effort: 'low', why: 'a status' }
-        : call === 2 ? { tool: 'done', args: '{"answer":"Nichts."}' } : { options: ['The park', 'Our home'], multi: null };
+        : { tool: 'done', args: '{"answer":"Nichts."}' };
       return { text: JSON.stringify(structured), structured, stop: 'done', usage: { inputTokens: 100, outputTokens: 10, costUsd: call / 100 } };
     },
   } as unknown as Engine;
@@ -199,13 +199,13 @@ test('each call books its use on the agent it works for: a routing call in fligh
   routable(f.services, [work]);
   const subconscious = new SubconsciousImpl({ services: () => f.services });
   const routing = subconscious.beforeTurn({ agent: f.vid, thread: 'main', said: 'Bitte prüf den Vertrag für Müller, er unterschreibt morgen.' });
-  for (let tick = 0; tick < 100 && calls < 1; tick++) await new Promise<void>((resolve) => setImmediate(resolve));
+  // the word search reads files before the call starts (its reach reads the memory tree's top too): wait for the call, not a tick count
+  for (let tick = 0; tick < 5000 && calls < 1; tick++) await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(calls, 1, 'the routing call is in flight');
   assert.equal(await subconscious.ask({ agent: f.manager, ask: 'Was weißt du?', context: 'none' }), 'Nichts.\n\n(This answer used no tool, only the text it was given.)');
   release();
   await routing;
-  await subconscious.fillWidget({ type: 'choice', question: 'Pick a venue', options: ['Yes', 'No'] }, 'Pick a venue for the party – maybe the park, maybe our home');
-  assert.deepEqual(booked.map((entry) => [entry.agentId, entry.amount]), [[f.manager.id, 0.02], [f.vid.id, 0.01], [SUBCONSCIOUS_ID, 0.03]]);
+  assert.deepEqual(booked.map((entry) => [entry.agentId, entry.amount]), [[f.manager.id, 0.02], [f.vid.id, 0.01]]);
 });
 
 test('a brain on an engine runner reports what each attempt used', async () => {

@@ -2,8 +2,7 @@
 // run journal with a recording Codex-like engine (native sessions + dynamic tools): a changed key no longer renews – the
 // agent's own mode switch general → computer, a changed tool offer and an edited SYSTEM.md keep the session on the system
 // text and tools it started with, the "My mode is now" note and the changed stable lines (was / now) come once in the live
-// block (again after a failed turn), and a session that starts anew takes the current prompt; a row from before SES2
-// (migration 8 adds the columns as NULL) is accepted once, and a chat has no mode of its own (13.11.2026: chats.update
+// block (again after a failed turn), and a session that starts anew takes the current prompt, and a chat has no mode of its own (13.11.2026: chats.update
 // After the review (18.11.2026): a session bound before the start record, whose key differs, gets every current section
 // once; the record is written only where a binding is saved, so a turn that ends without a session leaves it; a note no
 // engine read waits for the next turn.
@@ -20,8 +19,6 @@ import { TurnExecutor } from '../../../src/runtime/agents/turn.ts';
 import { SessionStore } from '../../../src/runtime/agents/sessions.ts';
 import { SESSION_START_NS, promptKey } from '../../../src/runtime/agents/session-key.ts';
 import { saveOutputNotes } from '../../../src/runtime/media/outputs.ts';
-import { SCHEMA_VERSION } from '../../../src/runtime/db/migrate.ts';
-import { sql as sessionPromptKey } from '../../../src/runtime/db/migrations/008-session-prompt-key.ts';
 import { GENERAL_MODE } from '../../../src/runtime/modes/service.ts';
 import type { Engine, EngineCaps, EngineTurnInput, EngineTurnResult } from '../../../src/runtime/engines/types.ts';
 import type { ToolSpec } from '../../../src/runtime/tools/types.ts';
@@ -218,47 +215,6 @@ test('B-089: a catalog relist, a new price and an account that cools keep the st
   h.send('Thanks');
   await h.turn();
   assert.ok(!h.calls[2].system.volatile.includes('Models I can use ('), 'unchanged: not sent again');
-});
-
-test('a session row from before SES2 is reused once (stamped on acceptance) and keeps going on a mode switch', async () => {
-  const h = setup();
-  assert.ok(SCHEMA_VERSION >= 8);
-  h.send('Hello');
-  await h.turn();
-
-  // The database of an earlier version: migration 8 adds the columns, existing rows keep NULL.
-  h.db.exec('ALTER TABLE engine_sessions DROP COLUMN prompt_key; ALTER TABLE engine_sessions DROP COLUMN mode;');
-  h.db.exec(sessionPromptKey);
-  assert.equal(h.binding()?.promptKey, undefined);
-  assert.equal(h.binding()?.mode, undefined);
-
-  // Accepted although its prompt is unknown – and stamped before the engine runs, so a turn that
-  // ends without saving the session cannot make it legacy again.
-  h.setMode('computer');
-  h.state.reply = () => ({ text: '', stop: 'error', error: { code: 'internal', message: 'The engine crashed.' }, session: undefined });
-  h.send('Open the settings');
-  assert.equal((await h.turn()).status, 'failed');
-  assert.equal(h.calls[1].session?.ref, 'codex-s1', 'the legacy row is accepted once');
-  assert.deepEqual(h.notes('run_2'), []);
-  assert.equal(h.binding()?.promptKey, keyOf(h.calls[1]), 'stamped with the accepting turn\'s key');
-  assert.equal(h.binding()?.mode, 'computer');
-
-  // S2: back to general keeps the session too. The accepting turn ended without a session, so no start is recorded for it
-  // (the record is written where a binding is saved): what the session holds is unknown, and its stamped key differs from
-  // today's – it gets the current text and every current stable section once.
-  h.state.reply = undefined;
-  h.setMode('general');
-  h.send('Thanks');
-  await h.turn();
-  assert.equal(h.calls[2].session?.ref, 'codex-s1', 'no renewal');
-  assert.match(h.calls[2].system.stable, /## Mode: General\n/, 'the current text');
-  assert.match(h.calls[2].system.volatile, /Parts of my standing text changed since this session began\.[\s\S]*## Mode: General\nnow: ## Mode: General/, 'every section, once');
-  assert.deepEqual(h.notes('run_3'), []);
-  assert.match(textOf(h.calls[2]), /My mode is now General \(was Computer\)\./);
-  h.send('On');
-  await h.turn();
-  assert.equal(h.calls[3].system.stable, h.calls[2].system.stable, 'that turn is its start now');
-  assert.ok(!h.calls[3].system.volatile.includes('standing text changed'));
 });
 
 test('S2 fix: a session bound before the start record, whose prompt changed since, gets every current stable section once', async () => {

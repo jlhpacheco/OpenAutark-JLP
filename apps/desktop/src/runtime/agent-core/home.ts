@@ -6,8 +6,7 @@
 // The agent sets it itself (agents.update home), the person with agents.setHome or in the file. A folder that is not
 // there (also after a restore on another PC) is 'missing', a file or a network path 'refused'; then turns start in the
 // workspace. An edit of agent.json on disk reaches the agent view at once (watch.ts -> reread -> 'agentCore.changed').
-// Also here: the root a native write of the agent counts in (writeRoot - a home outside the workspace counts like the
-// workspace) and the home's skills (skills/discover.ts, authority 'external': untrusted, bounded HOME_DISCOVERY,
+// Also here: the home's skills (skills/discover.ts, authority 'external': untrusted, bounded HOME_DISCOVERY,
 // cached TTL_MS per folder, no timer) and, B-078, its instruction files in every vendor convention (skills/project-files.ts,
 // cached the same way).
 // Owns: these rules, reading the agent.json field and the skill cache. Never: writes into the home folder, follows a
@@ -200,15 +199,4 @@ export class AgentHomes {
     this.reads.set(agentId, entry);
     return entry;
   }
-}
-
-/**
- * The root a write of this agent at `resource` counts in: its usable home when the resource lies inside a home
- * outside the workspace, else the workspace.
- */
-export function writeRoot(homes: Pick<AgentHomes, 'usable'> | undefined, agentId: string, resource: string | undefined, workspace: string): string {
-  if (!homes || !resource) return workspace;
-  let home: string | undefined;
-  try { home = homes.usable(agentId); } catch { return workspace; }
-  return home && !insideWorkspace(home, workspace) && insideWorkspace(resource, home) ? home : workspace;
 }

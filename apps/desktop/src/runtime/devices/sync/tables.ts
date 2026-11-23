@@ -1,7 +1,7 @@
 // The tables linked PCs share, row by row (rows.ts moves them): stored files' metadata (their bytes: blobs.ts),
 // spaces, people, chats with their members, agents, tasks, schedules, accounts (metadata; a plan's login: logins.ts),
-// messages (a streaming answer too, with its live values), the chats' shared notes and the knowledge rows (chat
-// observations, old versions of memory files; no embeddings) – in this order, so what a row points at arrives before
+// messages (a streaming answer too, with its live values), the chats' shared notes and the knowledge rows (old
+// versions of memory files; no embeddings) – in this order, so what a row points at arrives before
 // it. Per table: its key (`key`, default id), what never leaves this PC (`skip`: per-PC counters, cursors, live
 // state), what travels but is no change on its own (`soft`: updated_at), the row as it
 // leaves (`view`), how an incoming one is written – through the repositories that keep the full-text indexes
@@ -31,10 +31,14 @@ import { SpaceRepo } from '../../store/spaces.ts';
 import { ScheduleRepo } from '../../schedules/repo.ts';
 import { deleteRows, getRow, toItem } from '../../knowledge/rows.ts';
 import { ownHomes, sharedHome } from '../../accounts/cli-homes.ts';
-import type { ProviderId } from '../../../shared/model/providers.ts';
+import type { Account, ProviderId } from '../../../shared/model/providers.ts';
 import { KvRepo } from '../../store/kv.ts';
-import { firesHere } from './home.ts';
+import { firesHere, selfId } from './home.ts';
+import { planFrom } from './employee.ts';
+import { personPlan } from './plan-peers.ts';
+import { olderRow, olderSchedule } from '../../bridge/quests-2011.ts';
 import '../../contracts/people.ts';
+import { SYSTEM_ID } from '../../../shared/ids.ts';
 
 /** A row as it travels: column → JSON value. */
 export type Wire = Record<string, unknown>;
@@ -195,22 +199,33 @@ const agents: Table = {
     const status = row.status === 'paused' ? 'paused' : local && local !== 'paused' ? local : 'idle';
     const manager = row.manager_id && !exists(s.db, 'agents', row.manager_id);
     const space = row.space_id && !exists(s.db, 'spaces', row.space_id);
-    upsert(s.db, 'agents', { ...row, status, ...(manager ? { manager_id: null } : {}), ...(space ? { space_id: null } : {}) });
+    // Umzug 21.11.2026: one spelling for "this PC" – a row naming this PC's own id is stored without one (NULL = this PC).
+    const here = row.device_id !== null && row.device_id !== undefined && row.device_id === selfId(s.db);
+    upsert(s.db, 'agents', { ...row, status, ...(manager ? { manager_id: null } : {}), ...(space ? { space_id: null } : {}), ...(here ? { device_id: null } : {}) });
     return Boolean(manager || space);
   },
   drop: () => {}, // agents are archived, never deleted
   emit: (id, { s }) => { const agent = s.org.get(id); if (agent) s.bus.emit('agent.upserted', agent); },
+  // Owner 21.11.2026 ("natürlich sieht man alle anderen Agenten"): an employee's PC knows every agent of the company –
+  // its chats name them and the person can start one with any; what an agent tells whom is the agent's own judgment.
+  // Its setup stays here (employee.ts asPerson): it runs only on its own PC.
+  employee: () => true,
 };
 
+/** Umzug 21.11.2026 (PCSEC H2): a security request's to-do keeps its client id apr:<id> on every PC, so an answer there finds it. */
+const approvalClient = (row: Wire): string | undefined => (typeof row.client_id === 'string' && row.client_id.startsWith('apr:') && row.created_by === SYSTEM_ID ? row.client_id : undefined);
+
 const tasks: Table = {
-  name: 'tasks', skip: ['client_id'], soft: ['updated_at'],
-  write: (row, { s }) => {
+  name: 'tasks', soft: ['updated_at', 'client_id'], // client_id: no change on its own (a PC before this one never sends it)
+  view: (row) => { if (!approvalClient(row)) delete row.client_id; return row; }, // every other client id stays here
+  write: (sent, { s }) => {
     const repo = new TaskRepo(s.db);
+    const row = olderRow(s.db, sent); // bridge 0.3.x: an older PC's row (its time, its piece's quest)
     const chat = row.conversation_id && !exists(s.db, 'conversations', row.conversation_id);
     const parent = row.parent_id && !exists(s.db, 'tasks', row.parent_id);
     const task = toTask({ ...row, ...(chat ? { conversation_id: null } : {}), ...(parent ? { parent_id: null } : {}) });
     const current = repo.get(task.id);
-    if (current) repo.save(task, current.rev); else repo.insert(task);
+    if (current) repo.save(task, current.rev); else repo.insert(task, approvalClient(sent));
     return Boolean(chat || parent);
   },
   drop: (id, { s }) => {
@@ -246,7 +261,9 @@ export function placeSchedules(s: RuntimeServices, ownerId?: string): void {
 const schedules: Table = {
   name: 'schedules', skip: ['next_at', 'last_at', 'runs', 'lease'],
   // One PC fires a schedule; every other PC keeps its copy without a due time (placeSchedules).
-  write: (row, { s }, existed) => {
+  write: (sent, { s }, existed) => {
+    const row = olderSchedule(s, sent); // bridge 0.3.x: an older PC's routine or timer, as migration 110 makes it
+    if (!row) return;
     const spec = existed ? s.db.get<{ spec: string }>('SELECT spec FROM schedules WHERE id = ?', [sqlValue(row.id)])?.spec : undefined;
     upsert(s.db, 'schedules', row);
     if (!row.active || spec !== row.spec) s.db.run('UPDATE schedules SET next_at = NULL WHERE id = ?', [sqlValue(row.id)]);
@@ -288,6 +305,10 @@ const accounts: Table = {
     void s.accounts.remove(id).then(() => removeLoginFiles(files)).catch((error: unknown) => s.log.warn('synced account not removed', { id, error: String(error) }));
   },
   emit: (id, { s }) => { const account = s.accounts.get(id); if (account) s.bus.emit('account.upserted', account); },
+  // 22.11.2026 (owner: plans "für alle in der Firma aktiviert … auf jedem PC"): a plan on all PCs of this company goes to every
+  // employee's PC too – a CLI plan with a login home of its own (one kept on this PC never leaves, view); one that came from
+  // another company stays (plan-peers.ts)
+  employee: (row, _personId, db) => personPlan({ provider: row.provider as ProviderId, auth: row.auth as Account['auth'] }) && planFrom(db, String(row.id)) === undefined,
 };
 
 // A streaming answer travels like any message (its live values in meta). One that ends here after other lines came –
@@ -358,7 +379,7 @@ const notes: Table = {
   },
 };
 
-// Knowledge rows (chat observations, old versions of memory files – those files travel in files.ts); how often a row
+// Knowledge rows (old versions of memory files – those files travel in files.ts); how often a row
 // was used and its embedding are this PC's.
 const knowledge: Table = {
   name: 'knowledge', skip: ['uses', 'last_used_at', 'embedding', 'embedding_profile'],

@@ -208,7 +208,9 @@ test('devices.list names this PC, the PC the agent works on and the linked PCs (
   assert.deepEqual(listed.devices.map((device) => device.name), ['Laptop', 'Tower', 'Studio', 'Twin', 'Twin']);
   for (const device of listed.devices) assert.equal('role' in device || 'kind' in device, false);
   assert.deepEqual(listed.devices[0], { id: 'dev_self', name: 'Laptop', thisPc: true, online: true, caps: { computerUse: true } });
-  assert.deepEqual(listed.devices[1], { id: 'dev_tower', name: 'Tower', online: true, caps: { computerUse: true }, lastSeen: '2026-10-20T08:00:00.000Z' });
+  const { link: towerLink, ...tower } = listed.devices[1];
+  assert.deepEqual(tower, { id: 'dev_tower', name: 'Tower', online: true, caps: { computerUse: true }, lastSeen: '2026-10-20T08:00:00.000Z' });
+  assert.equal(typeof (towerLink as { rttMs?: unknown }).rttMs, 'number', 'G: its ping was timed – the connection now (devices/link-quality.ts)');
   assert.equal(listed.devices[2].status, 'pairing');
   assert.deepEqual([listed.devices[3].online, listed.devices[3].status], [false, 'offline'], 'no answer: not online');
   const plain = (await registry.call('devices.list', {}, base(), 'call_2')).structured as { homeDevice?: string };
@@ -272,9 +274,11 @@ test('B-080: on the PC that receives it, files.read, files.list and devices.send
     assert.equal(textOf(await call('files.list', { path: path.dirname(outside) })), 'file note.txt');
     const sent = await call('devices.send_file', { to: 'Laptop', path: outside });
     assert.equal(sent.isError, undefined, textOf(sent));
-    assert.deepEqual(forwarded.map((item) => [item.deviceId, item.method]), [['dev_self', 'files.put']]);
-    const piece = forwarded[0].params as unknown as { name: string; dataBase64: string; last: boolean };
-    assert.deepEqual([piece.name, Buffer.from(piece.dataBase64, 'base64').toString(), piece.last], ['note.txt', 'from the notebook', true]);
+    assert.deepEqual(forwarded.map((item) => [item.deviceId, item.method]), [['dev_self', 'files.put'], ['dev_self', 'files.put']], 'Umzug 21.11.: begin, then the piece');
+    const begin = (forwarded[0].params as unknown as { begin: { name: string; folder: boolean; from: string; agentId: string } }).begin;
+    assert.deepEqual([begin.name, begin.folder, begin.agentId], ['note.txt', false, 'ag_1']);
+    const piece = forwarded[1].params as unknown as { dataBase64: string; last: boolean };
+    assert.deepEqual([Buffer.from(piece.dataBase64, 'base64').toString(), piece.last], ['from the notebook', true]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

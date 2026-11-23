@@ -4,15 +4,17 @@
 // session of its own ('wf-float'): wf-file://float/ serves the page and /act the actions; every other request is
 // cancelled; the only permission is the microphone (audio only) for dictation. No preload, no node, no devtools, no
 // popups, no navigation. The dot and the tab show without taking focus; the panel takes the keyboard.
-// startFloatBar is desktop.ts's one call (the screen, the capture, the place file float-bar.json).
+// startFloatBar is desktop.ts's one call (the screen, the capture, the place file float-bar.json). Owner 19.11.2026: a
+// right-click (the page's 'menu') pops a native menu at the pointer; a hidden bubble is a hidden window.
 // Owns: the window, its session and the shortcut. Never: imports electron values (desktop.ts injects them) or decides
 // anything about the post.
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import type { BrowserWindow, BrowserWindowConstructorOptions, NativeImage, Session } from 'electron';
-import type { NavigateRequest } from '../shared/api/desktop.ts';
+import type { BrowserWindow, BrowserWindowConstructorOptions, MenuItemConstructorOptions, NativeImage, Session } from 'electron';
+import { IPC, type NavigateRequest } from '../shared/api/desktop.ts';
 import type { Capture } from './capture.ts';
-import { FLOAT_KEYS, FloatBar, type FloatAction, type FloatDeps, type FloatLook, type FloatPlace, type FloatWindow, type Rect } from './float-bar.ts';
+import { FLOAT_KEYS, FloatBar, type FloatAction, type FloatDeps, type FloatPlace, type FloatWindow } from './float-bar.ts';
+import type { FloatLook, Rect } from './float-bar-place.ts';
 import { floatPage } from './float-bar-page.ts';
 
 export const FLOAT_PARTITION = 'wf-float';
@@ -24,9 +26,10 @@ export interface FloatElectron {
   fromPartition(partition: string, options: { cache: boolean }): Session;
   screen: { getDisplayNearestPoint(point: { x: number; y: number }): { workArea: Rect } };
   globalShortcut: { register(accelerator: string, callback: () => void): boolean; unregister(accelerator: string): void };
+  Menu: { buildFromTemplate(template: MenuItemConstructorOptions[]): { popup(options: { window: BrowserWindow }): void } };
 }
 
-const ACTS = new Set(['view', 'open', 'close', 'fold', 'unfold', 'shot', 'drop', 'move', 'moved', 'text', 'hear', 'send', 'hold', 'quick']);
+const ACTS = new Set(['view', 'open', 'close', 'fold', 'unfold', 'shot', 'drop', 'move', 'moved', 'text', 'hear', 'unhear', 'send', 'hold', 'quick', 'menu', 'hide', 'app', 'hangup']);
 
 /** The page's JSON as an action, or null (anything else is refused). */
 export function readAction(value: unknown): FloatAction | null {
@@ -75,16 +78,28 @@ export function openFloatBar(electron: FloatElectron, deps: FloatDeps): { close(
 
   let loaded = false;
   let look: FloatLook = 'dot';
+  let hidden = false;
+  const render = () => { void contents.executeJavaScript(`window.render && window.render(${JSON.stringify(bar.view())})`).catch(() => undefined); };
   const window: FloatWindow = {
     bounds: () => win.getBounds(),
     setBounds: (rect) => { if (!win.isDestroyed()) win.setBounds(rect); },
     workArea: (point) => electron.screen.getDisplayNearestPoint({ x: Math.round(point.x), y: Math.round(point.y) }).workArea,
     show: (next, focus) => {
       look = next;
+      hidden = false;
       if (win.isDestroyed() || !loaded) return;
       win.setFocusable(next === 'panel');
       if (focus) { win.show(); win.focus(); } else win.showInactive();
-      void contents.executeJavaScript(`window.render && window.render(${JSON.stringify(bar.view())})`).catch(() => undefined);
+      render();
+    },
+    hide: () => {
+      hidden = true;
+      if (!win.isDestroyed()) win.hide();
+    },
+    redraw: () => { if (!win.isDestroyed() && loaded) render(); },
+    menu: (items) => {
+      if (win.isDestroyed()) return;
+      electron.Menu.buildFromTemplate(items.map((item) => ({ label: item.label, click: () => item.run() }))).popup({ window: win });
     },
   };
   const bar = new FloatBar(deps, window);
@@ -109,7 +124,8 @@ export function openFloatBar(electron: FloatElectron, deps: FloatDeps): { close(
 
   contents.once('did-finish-load', () => {
     loaded = true;
-    window.show(look, false);
+    if (hidden) render(); // drawn for later, not shown
+    else window.show(look, false);
   });
   win.loadURL(`${FLOAT_ORIGIN}/`).catch((error: unknown) => deps.log(`float bar page not loaded: ${error instanceof Error ? error.message : 'error'}`));
   const keyed = electron.globalShortcut.register(FLOAT_KEYS, () => { void bar.toggle(); });
@@ -125,7 +141,12 @@ export function openFloatBar(electron: FloatElectron, deps: FloatDeps): { close(
 
 interface DisplayAt { id: number; workArea: Rect }
 
-/** desktop.ts's one call: the button with this PC's screen, capture, RPC and its place file. */
+/**
+ * desktop.ts's one call: the button with this PC's screen, capture, RPC and its place file. Open shows the app window at
+ * the chat or task; Call loads the app's page without showing the window and starts the call there (IPC navigate with
+ * call); End goes to the page as IPC bubbleEnd (queued while the page loads, after its navigate); the page gone ends the
+ * pill; the tray's Show/Hide entry follows the bubble.
+ */
 export function startFloatBar(
   electron: {
     BrowserWindow: FloatElectron['BrowserWindow'];
@@ -133,11 +154,19 @@ export function startFloatBar(
     screen: { getDisplayNearestPoint(point: { x: number; y: number }): DisplayAt; getAllDisplays(): Array<{ id: number }>; getPrimaryDisplay(): DisplayAt };
     globalShortcut: FloatElectron['globalShortcut'];
     nativeImage: { createFromBuffer(buffer: Buffer): NativeImage };
+    Menu: FloatElectron['Menu'];
   },
-  deps: { rpc: FloatDeps['rpc']; capture: Pick<Capture, 'screenshot'>; file: string; open(request: NavigateRequest): void; log(line: string): void },
-): { close(): void } {
+  deps: {
+    rpc: FloatDeps['rpc']; capture: Pick<Capture, 'screenshot'>; file: string; log(line: string): void;
+    window: { show(): void; load(): void; onPageGone(listener: () => void): void };
+    renderer: { send(channel: string, ...args: unknown[]): void; sendWhenLoaded(channel: string, ...args: unknown[]): void };
+    tray: { setBubble(shown: boolean | null): void };
+  },
+): { close(): void; bar: FloatBar } {
+  const { window, renderer } = deps;
   const { screen } = electron;
-  return openFloatBar({ BrowserWindow: electron.BrowserWindow, fromPartition: (name, options) => electron.session.fromPartition(name, options), screen, globalShortcut: electron.globalShortcut }, {
+  const { BrowserWindow, globalShortcut, Menu } = electron;
+  const opened = openFloatBar({ BrowserWindow, fromPartition: (name, options) => electron.session.fromPartition(name, options), screen, globalShortcut, Menu }, {
     rpc: deps.rpc,
     shot: async (point) => {
       const near = screen.getDisplayNearestPoint({ x: Math.round(point.x), y: Math.round(point.y) }).id;
@@ -148,8 +177,13 @@ export function startFloatBar(
     },
     load: () => { try { return JSON.parse(readFileSync(deps.file, 'utf8')) as FloatPlace; } catch { return null; } },
     save: (place) => writeFileSync(deps.file, JSON.stringify(place)),
-    open: deps.open,
+    open: (request: NavigateRequest) => { window.show(); renderer.sendWhenLoaded(IPC.navigate, request); },
+    call: (conversationId) => { window.load(); renderer.sendWhenLoaded(IPC.navigate, { conversationId, call: true } satisfies NavigateRequest); },
+    endCall: (conversationId) => renderer.sendWhenLoaded(IPC.bubbleEnd, conversationId), // after a navigate still queued for a loading page
+    shownChanged: (shown) => deps.tray.setBubble(shown),
     primaryArea: () => screen.getPrimaryDisplay().workArea,
     log: deps.log,
   });
+  window.onPageGone(() => opened.bar.pageGone()); // the window closed or its renderer died: the call it held is over
+  return opened;
 }

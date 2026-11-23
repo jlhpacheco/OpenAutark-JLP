@@ -9,7 +9,8 @@
 // browser vendor's push service (isPushServiceEndpoint – never a LAN or other host) and a device keeps
 // at most PERSON_SUBSCRIPTIONS_PER_DEVICE of them (subscribeKeeping replaces the oldest).
 // The id travels in the payload; ui/pwa/sw.ts deduplicates within one origin, not between subscriptions to different PCs.
-// Owns: subscription validation/storage, recipients, request building, cleanup of gone subscriptions.
+// Owns: subscription validation/storage, recipients, the one push request (pushOne – also for the subscriptions held
+// from my other PCs, devices/sync/held-push.ts), cleanup of gone subscriptions.
 // Never: sends secrets or message bodies beyond the short title/body it is given.
 
 import type { Clock, Logger } from '../contracts.ts';
@@ -21,7 +22,7 @@ import type { VapidKeys } from './vapid.ts';
 import { encryptPayload } from './webpush-crypto.ts';
 
 /** The part of fetch used for delivery (tests pass a fake). */
-export type FetchFn = (url: string, init: { method: string; headers: Record<string, string>; body: Uint8Array }) => Promise<{ ok: boolean; status: number }>;
+export type PushFetch = (url: string, init: { method: string; headers: Record<string, string>; body: Uint8Array }) => Promise<{ ok: boolean; status: number }>;
 
 export interface PushSubscriptionData {
   endpoint: string;
@@ -96,19 +97,35 @@ export function ownerSubscriptions(db: Db, now: number): number {
   )?.n ?? 0);
 }
 
+/**
+ * One push to one subscription: `payload` encrypted for it, signed with `authorization` (the VAPID key it was made
+ * under), sent. 'gone': the push service no longer knows it (404/410); else delivered, or the status it was refused with.
+ */
+export async function pushOne(fetch: PushFetch, sub: PushSubscriptionData, payload: Uint8Array, options: { authorization: string; urgent?: boolean; ttl?: number }): Promise<'delivered' | 'gone' | number> {
+  const response = await fetch(sub.endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Encoding': 'aes128gcm', 'Content-Type': 'application/octet-stream', TTL: String(options.ttl ?? 86400),
+      Urgency: options.urgent ? 'high' : 'normal', Authorization: options.authorization,
+    },
+    body: encryptPayload(payload, Buffer.from(sub.keys.p256dh, 'base64url'), Buffer.from(sub.keys.auth, 'base64url')),
+  });
+  return response.status === 404 || response.status === 410 ? 'gone' : response.ok ? 'delivered' : response.status;
+}
+
 export class PushService {
   private readonly db: Db;
   private readonly clock: Clock;
   private readonly log: Logger;
   private readonly vapid: () => Promise<VapidKeys>;
-  private readonly fetch: FetchFn;
+  private readonly fetch: PushFetch;
 
-  constructor(deps: { db: Db; clock: Clock; log: Logger; vapid: () => Promise<VapidKeys>; fetch?: FetchFn }) {
+  constructor(deps: { db: Db; clock: Clock; log: Logger; vapid: () => Promise<VapidKeys>; fetch?: PushFetch }) {
     this.db = deps.db;
     this.clock = deps.clock;
     this.log = deps.log;
     this.vapid = deps.vapid;
-    this.fetch = deps.fetch ?? (globalThis.fetch as unknown as FetchFn);
+    this.fetch = deps.fetch ?? (globalThis.fetch as unknown as PushFetch);
   }
 
   subscribe(subscription: unknown, deviceId?: string): void {
@@ -220,21 +237,10 @@ export class PushService {
       const sub = json<PushSubscriptionData | undefined>(row.data, undefined);
       if (!sub) return;
       try {
-        const body = encryptPayload(payload(chat), Buffer.from(sub.keys.p256dh, 'base64url'), Buffer.from(sub.keys.auth, 'base64url'));
-        const response = await this.fetch(sub.endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Encoding': 'aes128gcm',
-            'Content-Type': 'application/octet-stream',
-            TTL: '86400',
-            Urgency: URGENT.has(message.kind) ? 'high' : 'normal',
-            Authorization: vapid.authorization(sub.endpoint, this.clock.now()),
-          },
-          body,
-        });
-        if (response.status === 404 || response.status === 410) this.db.run('DELETE FROM push_subscriptions WHERE id = ?', [row.id]);
-        else if (response.ok) delivered++;
-        else this.log.warn('push rejected', { status: response.status });
+        const sent = await pushOne(this.fetch, sub, payload(chat), { authorization: vapid.authorization(sub.endpoint, this.clock.now()), urgent: URGENT.has(message.kind) });
+        if (sent === 'gone') this.db.run('DELETE FROM push_subscriptions WHERE id = ?', [row.id]);
+        else if (sent === 'delivered') delivered++;
+        else this.log.warn('push rejected', { status: sent });
       } catch (error) {
         this.log.warn('push failed', { error: String((error as Error)?.message ?? error) });
       }

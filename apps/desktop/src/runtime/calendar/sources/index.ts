@@ -8,7 +8,7 @@
 // again; one sync per source runs at a time, later callers share it. Status: 'syncing' while it runs (memory only),
 // 'ok', 'error' with a user-safe sentence, 'reconnect' when Google's sign-in expired.
 // Built by compose/calendar.ts with the late-bound services record. B-078: an ICS calendar can belong to a room
-// (owner room:<slug>; its rows are that room's, the head of staff books it with calendar.add who).
+// (owner room:<slug>; its rows are that room's – calendar.list with who reads its busy times).
 // Owns: the sources and their sync. Never: a secret value outside the vault, an address or token in a log, or a
 // periodic timer.
 
@@ -25,8 +25,9 @@ import { GoogleMirror } from './google-mirror.ts';
 import { GoogleCalendar, type SyncWindow } from './google.ts';
 import { globalFetch, HttpFailure, type FetchFn } from './http.ts';
 import { fetchIcs, icsAddress, readIcs } from './ics.ts';
-import { addDays, isZone, localWall, wallToUtc } from './ics-time.ts';
-import type { LoopbackServerFactory } from './oauth-loopback.ts';
+import { isZone } from './ics-time.ts';
+import { addDays, wallOf, wallTime } from '../../../shared/text/when.ts';
+import type { LoopbackServerFactory } from '../../apps/oauth/loopback.ts';
 import { publicSource, SourcesRepo, type SourceRecord } from './repo.ts';
 
 export type SourcesDeps = Pick<RuntimeServices, 'db' | 'bus' | 'clock' | 'settings' | 'secrets'> & Partial<Pick<RuntimeServices, 'log' | 'host' | 'calendar' | 'devices' | 'tasks'>>;
@@ -251,8 +252,8 @@ export class CalendarSourcesImpl implements CalendarSources {
   /** −7 … +60 days around today, from local midnight to local midnight (stable within a day). */
   private window(): SyncWindow {
     const zone = this.zone();
-    const today = localWall(this.s.clock.now(), zone).date;
-    return { from: wallToUtc(addDays(today, -BEFORE_DAYS), 0, zone), to: wallToUtc(addDays(today, AFTER_DAYS + 1), 0, zone) };
+    const today = wallOf(this.s.clock.now(), zone).date;
+    return { from: wallTime(addDays(today, -BEFORE_DAYS), 0, zone), to: wallTime(addDays(today, AFTER_DAYS + 1), 0, zone) };
   }
 }
 

@@ -2,10 +2,11 @@
 // status "Connecting…", "Listening · 1:23", "Speaking · 1:23", "Working… · 1:23", "On hold · 1:23" and the newest line of the call as its
 // caption. The call's row in the chat (CallTranscript.tsx): "Call from Ava" (B-081 ring) or "Call with Ava and Ben"
 // (the agents of the call and those heard in it, else the chat's name), "21:24 · 3 lines", and on the right "Ringing",
-// "Missed", "Declined", "Running" or how long it ran.
+// "Missed", "Declined", "Running" or how long it ran. Owner 19.11.2026: a running call with devices joined beside its holder
+// names them after its lines ("21:24 · 3 lines · Pixel and laptop").
 // Owns: these words. Never: reads stores, the clock or the DOM (callers pass `now` and names).
 
-import { callLength, callRecord, callState, type CallLine, type CallRecord } from '../../../shared/model/call.ts';
+import { callDeviceNames, callLength, callRecord, callState, type CallLine, type CallRecord } from '../../../shared/model/call.ts';
 import type { Message } from '../../../shared/model/chat.ts';
 import { listTime, plainPreview, time } from '../../lib/format.ts';
 
@@ -73,13 +74,14 @@ export function callHeading(call: Pick<CallRecord, 'ring' | 'agents' | 'lines'>,
   return who ? `Call with ${who}` : 'Call';
 }
 
-/** "21:24 · 3 lines"; an older call "Yesterday, 21:24 · Nothing said". */
-export function callMeta(call: Pick<CallRecord, 'startedAt' | 'lines'>, now: number): string {
+/** "21:24 · 3 lines"; an older call "Yesterday, 21:24 · Nothing said"; a running one with joined devices "… · Pixel and laptop". */
+export function callMeta(call: Pick<CallRecord, 'startedAt' | 'lines'> & Partial<Pick<CallRecord, 'name' | 'joined' | 'endedAt'>>, now: number): string {
   const clock = time(call.startedAt);
   const day = listTime(call.startedAt, now);
   const count = call.lines.length;
   const said = count === 0 ? 'Nothing said' : count === 1 ? '1 line' : `${count} lines`;
-  return `${day === clock ? clock : `${day}, ${clock}`} · ${said}`;
+  const devices = call.joined?.length && call.endedAt === undefined ? ` · ${callDeviceNames({ name: call.name ?? '', joined: call.joined })}` : '';
+  return `${day === clock ? clock : `${day}, ${clock}`} · ${said}${devices}`;
 }
 
 /** The right end of the row: "Ringing", "Missed", "Declined", "Running", or how long it ran ("4:42"). */

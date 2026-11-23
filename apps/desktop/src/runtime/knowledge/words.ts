@@ -3,7 +3,7 @@
 // 95 turns, the shipped MiniLM in 7 and the two word searches before it in 9 and 2 – with no model, no download, milliseconds.
 // One SQLite FTS5 table in memory per corpus: title, description and body folded (ä→ae …, normalize.ts foldText), bm25 weighted
 // 10 / 4 / 1. The query: up to QUERY_WORDS salient words of the text (subconscious/text.ts queryTokens), each a prefix and a long one
-// light-stemmed (query-rewrite.ts stem), a long compound also by its two parts where the index holds both, and the small DE/EN
+// light-stemmed (the app's one stem, shared/text/normalize.ts), a long compound also by its two parts where the index holds both, and the small DE/EN
 // vocabulary (query-rewrite.ts expandQuery), joined by OR. sync() makes the table hold exactly the given texts and rewrites only the
 // ones whose version changed, so a caller passes what it reads anyway and the index follows without a watcher of its own.
 // Owns: the table, the query and the ranking (score = bm25 relative to the best kept hit, 0..1). Never: decides which texts a caller
@@ -11,7 +11,8 @@
 
 import { Db } from '../db/database.ts';
 import { foldText } from './normalize.ts';
-import { expandQuery, stem } from './query-rewrite.ts';
+import { expandQuery } from './query-rewrite.ts';
+import { stem } from '../../shared/text/normalize.ts';
 import { queryTokens } from '../subconscious/text.ts';
 
 /** Words of a query at most (the bench: 48; the catalog's long German texts need them). */

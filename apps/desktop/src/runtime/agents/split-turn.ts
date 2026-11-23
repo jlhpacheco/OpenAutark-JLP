@@ -3,7 +3,9 @@
 //   plan   – its own thread `split:<id>`, no task or member cursor (its run carries the chat its work is for – the
 //            part's `chat`), in the parent's mode at the split while it still exists;
 //   route  – S10 (routing/split-route.ts): a part names its model where its context starts – a catalog model id = that
-//            model; 'cheap' = the router's 'cheaper' need from the parent's model; 'strong' = the strong tier or above.
+//            model; 'cheap' = the router's 'cheaper' need from the parent's model; 'strong' = the strong tier or above;
+//            Halb 21.11.2026: a needs word (check | chain | judgment – a fresh part's own) = the kind default in the cost
+//            mode and at the effort it asks for (RouteRequest.split.needs, routing/split-route.ts SPLIT_NEED).
 //            17.11.2026 (measured: 12 of 56 parts named none and ran on their origin's model, 9 of them on the frontier
 //            tier, with the reason "requested by the agent"): a part that names none starts on its origin's model – a fresh
 //            one (from its brief) on the executing default when its origin is above it (RouteRequest.split.fresh,
@@ -40,6 +42,7 @@ import { effectsKnown } from '../context/recent-actions.ts';
 import { seedSplitSession, type SeedResult } from '../splits/fork.ts';
 import { SHUTDOWN_CUT } from '../splits/reconcile.ts';
 import { resultOf } from '../splits/results.ts';
+import { SPLIT_NEED, needsOfModel } from '../routing/split-route.ts';
 import { boundaryOf } from './boundary.ts';
 import { SessionStore, type SessionBinding } from './sessions.ts';
 import { recordStart, startOf, type SessionStart, type ToolOffer } from './session-key.ts';
@@ -84,14 +87,17 @@ export function splitPrevious(services: Pick<RuntimeServices, 'runs' | 'log'>, s
   const effort = split.effort;
   const base = parent?.effort ?? 'medium';
   const choice = split.model?.trim();
-  /** Where the part is – its session's model, else `start` – with an effort it names as its request. */
-  const where = (start: string | undefined): Previous | undefined => {
+  /** Where the part is – its session's model, else `start` – with an effort it names (or its needs asks for) as its request. */
+  const where = (start: string | undefined, asked = effort): Previous | undefined => {
     const modelId = on ?? start ?? '';
-    if (effort) return { modelId, effort, explicit: true, asked: 'effort' };
+    if (asked) return { modelId, effort: asked, explicit: true, asked: 'effort' };
     return modelId ? { modelId, effort: base } : undefined;
   };
   if (!choice || choice === 'same') return where(from); // none named: its origin's model, with the origin's effort
   if (choice === 'strong') return where(undefined); // needs.tier (splitRoute) – the executing default inside it
+  // Halb 21.11.2026: its needs – the kind default in the cost mode they ask for (split.needs, routing/split-route.ts), at their effort
+  const needs = needsOfModel(choice);
+  if (needs) return where(undefined, effort ?? SPLIT_NEED[needs].effort);
   // B-083 D1: `from` – the model the part is on (its origin's before its first turn); it stays there while the one it asks for cannot run.
   const stay = on ?? from;
   if (choice === 'cheap') {
@@ -106,14 +112,20 @@ export function splitPrevious(services: Pick<RuntimeServices, 'runs' | 'log'>, s
 
 /**
  * The split fields of a RouteRequest (routeRequest in turn-prepare.ts): the split marker – `fresh` on the first turn of a part
- * that starts from its brief and names no model – and 'strong' as the tier floor.
+ * that starts from its brief and names no model, `needs` for a part that says what its hardest step asks – and the tier
+ * floor of 'strong' or of its needs.
  */
 export function splitRoute(plan: Pick<TurnPlan, 'split'>): Partial<Pick<RouteRequest, 'split' | 'needs'>> {
   const split = plan.split;
   if (!split) return {};
   const model = split.model?.trim();
   const fresh = split.firstTurn && split.context === 'brief' && (!model || model === 'same');
-  return { split: { splitId: split.splitId, ...(fresh ? { fresh: true as const } : {}) }, ...(model === 'strong' ? { needs: { tier: 'strong' } } : {}) };
+  const needs = needsOfModel(model);
+  const floor = model === 'strong' ? 'strong' : needs ? SPLIT_NEED[needs].floor : undefined;
+  return {
+    split: { splitId: split.splitId, ...(fresh ? { fresh: true as const } : {}), ...(needs ? { needs } : {}) },
+    ...(floor ? { needs: { tier: floor } } : {}),
+  };
 }
 
 /** A split's folder: its own (a worktree) or its group's (the parent's at the split); undefined = the usual folder. */
@@ -124,12 +136,6 @@ export function splitCwd(services: Pick<RuntimeServices, 'splits' | 'log'>, spli
     services.log.warn('reading the split group failed; the split runs in the usual folder', { splitId: split.splitId, error: String(error) });
     return undefined;
   }
-}
-
-/** S12: a split's turn on a Codex app-server that already runs for the account needs no heavy supervisor slot. */
-export function warmSplit(plan: Pick<TurnPlan, 'split'>, turn: Pick<RoutedTurn, 'engine' | 'account'>): boolean {
-  if (!plan.split || turn.engine.id !== 'codex') return false;
-  try { return turn.engine.warm?.(turn.account) === true; } catch { return false; }
 }
 
 /** What seeding needs besides the plan (turn-prepare.ts buildTurn's rebuild context). */

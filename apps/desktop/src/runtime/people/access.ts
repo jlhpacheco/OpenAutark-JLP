@@ -3,7 +3,7 @@
 //  * chats: only chats where the person is an active member; messages from the time they joined,
 //    unless the chat shares its whole history (settings.history 'full');
 //  * tasks: assigned to them, created or assigned by them, or in a chat they belong to – there, like
-//    messages, only tasks made from their join on unless the chat shares its whole history;
+//    messages, only tasks made from their join on unless the chat shares its whole history ("Only me" hides nothing);
 //  * files: attached to a message they may read, the image avatars of active agents and people, and
 //    the files they uploaded themselves (person_uploads);
 //  * agents: to work with (add to chats, give tasks): active agents of the spaces their scopes name
@@ -60,7 +60,7 @@ const OWNER_IN = `EXISTS (SELECT 1 FROM members o WHERE o.conversation_id = c.id
 
 /**
  * F13: a company chat (alias c) – not app-owned; not people's own (marked, or without the owner and with a member who is
- * no CEO, as shared/model/chat-rank.ts peoplesOwnChat); not the owner's own (his marked default 1:1, or one he is in with
+ * no CEO); not the owner's own (his marked default 1:1, or one he is in with
  * at most one other). A bridged outside contact ('ext:…') is the chat's channel, not a partner (chat/members-change.ts).
  */
 const COMPANY_CHAT = `json_extract(c.settings, '$.system') IS NULL AND COALESCE(json_extract(c.settings, '$.peopleChat'), 0) = 0

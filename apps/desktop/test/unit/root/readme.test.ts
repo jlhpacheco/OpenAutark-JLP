@@ -36,9 +36,10 @@ test('the root map names every entry, the app-managed ones, the workspace and ho
   assert.ok(text.includes('standard-agent.md and standard-manager.md (the standard SYSTEM.md a new agent starts from') && text.includes('the comment at its end is the team') && !text.includes('cannot be replaced'), 'every shipped prompt can be replaced, the standards included');
   assert.match(text, /runtime\.json \(port and owner token of the running app\)/);
   assert.match(text, /boot\.json .*run-state\.json, next-due\.json and launcher\.json/);
-  for (const name of ['git-no-hooks/', 'window-state.json', 'before-restore-<time>/', 'restore-result.json', 'settings.v7-backup.json']) assert.ok(text.includes(name), name);
+  for (const name of ['git-no-hooks/', 'window-state.json', 'before-restore-<time>/', 'restore-result.json', 'keyring-name']) assert.ok(text.includes(name), name);
   assert.match(text, /avatar\.png or avatar\.jpg \(a copy of its picture\)/);
-  assert.match(text, /HUMAN\.md \(the person's lines to that agent, near the end of its prompt – only the lines for every agent, settings\.json profile\.forEveryAgent, come after them; the person and the agent change it, no update does\)/); // owner 16.11.2026
+  assert.match(text, /HUMAN\.md \(the person's lines to that agent, last in its prompt; the person and the agent change it, no update does\)/); // owner 16.11.2026
+  assert.match(text, /\| security\/ \| The texts the team reads about security, one file per topic: trust\/<topic>\.md [^|]*\| In Trust AI mode [^|]*In Secure mode the app puts an edit of these files back/); // 19.11.2026
   assert.match(text, /\/home\/ada\/Workforce – projects/);
   assert.match(text, /wf call <method>/);
   assert.match(text, /POST http:\/\/127\.0\.0\.1:<port>\/rpc with the header "Authorization: Bearer <token>"/);

@@ -4,7 +4,7 @@
 //  - save with the id of a forgotten item is refused (not_found) – an edit of a stale row never
 //    writes the forgotten text back (service and RPC);
 //  - pin() moves a file into its pinned/ subfolder (no new version; the id follows the path);
-//  - list() narrows to several kinds (the browser hides observations);
+//  - list() narrows to several kinds;
 //  - RPC knowledge.forget is owner-only and refused without confirm: true; knowledge.pin has
 //    the 'chat' tier like knowledge.save; knowledge.list takes `kinds`.
 
@@ -13,8 +13,9 @@ import assert from 'node:assert/strict';
 import { Bus } from '../../../src/runtime/bus.ts';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { KnowledgeStore } from '../../../src/runtime/knowledge/service.ts';
+import { insertItem } from '../../../src/runtime/knowledge/rows.ts';
 import { HandlerTable, allowedScope, type HandlerContext } from '../../../src/runtime/rpc/table.ts';
 import { register } from '../../../src/runtime/rpc/handlers/knowledge.ts';
 import type { ClientScope, DeviceCapability } from '../../../src/shared/api/protocol.ts';
@@ -77,15 +78,17 @@ test('forget deletes the file and every old version, by the id of any version; t
   assert.throws(() => store.forget(first.id, 'human'), /not found/);
 });
 
-test('an observation row keeps its chain: forget(middle version) deletes every version', () => {
-  const { clock, store, removed } = setup();
-  const first = store.save({ title: 'Chat observations up to #1', body: 'one', scope: 'conversation', scopeId: 'ch_1', kind: 'observation', createdBy: 'ag_a' });
-  clock.advance(1000);
-  const second = store.correct(first.id, { body: 'two' }, 'ag_a');
-  clock.advance(1000);
-  const third = store.correct(second.id, { body: 'three' }, 'ag_a');
-  assert.deepEqual(new Set(store.forget(second.id, 'human').ids), new Set([first.id, second.id, third.id]));
-  assert.equal(store.get(third.id), undefined);
+test('a row chain without a file (old rows from before the tree): forget(middle version) deletes every version', () => {
+  const { db, store, removed } = setup();
+  const row = (id: string, recordedAt: number, more: Partial<KnowledgeItem>) => insertItem(db, {
+    id, scope: 'conversation', scopeId: 'ch_1', kind: 'note', title: 'Old note', body: id, tags: [], source: { kind: 'agent', trusted: true },
+    confidence: 0.7, pinned: false, recordedAt, createdBy: 'ag_a', uses: 0, ...more,
+  });
+  row('kn_1', 1, { expiredAt: 2 });
+  row('kn_2', 2, { supersedes: 'kn_1', expiredAt: 3 });
+  row('kn_3', 3, { supersedes: 'kn_2' });
+  assert.deepEqual(new Set(store.forget('kn_2', 'human').ids), new Set(['kn_1', 'kn_2', 'kn_3']));
+  assert.equal(store.get('kn_3'), undefined);
   assert.equal(removed.length, 1);
 });
 
@@ -113,14 +116,14 @@ test('pin moves the file into its pinned folder – no new version – and back'
   assert.throws(() => store.pin('kn_missing', true, 'human'), /not found/);
 });
 
-test('list narrows to several kinds (observations hidden in the browser)', async () => {
+test('list narrows to several kinds', async () => {
   const { clock, store } = setup();
-  for (const kind of ['fact', 'plan', 'observation', 'note'] as const) {
+  for (const kind of ['fact', 'plan', 'preference', 'note'] as const) {
     clock.advance(1);
     store.save({ title: `A ${kind}`, body: 'Body', scope: 'conversation', scopeId: 'ch_1', kind, createdBy: 'human' });
   }
   assert.deepEqual((await store.list({ kinds: ['fact', 'plan', 'note'] })).map((item) => item.kind), ['note', 'plan', 'fact']);
-  assert.deepEqual((await store.list({ scope: 'conversation', kinds: ['observation'] })).map((item) => item.kind), ['observation']);
+  assert.deepEqual((await store.list({ scope: 'conversation', kinds: ['preference'] })).map((item) => item.kind), ['preference']);
   assert.equal((await store.list({})).length, 4);
 });
 

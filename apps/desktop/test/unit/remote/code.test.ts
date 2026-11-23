@@ -1,6 +1,7 @@
-// B-084 person code (remote/code.ts): the fixed test vector of .local/b084/notes/W4-format.md (Android's CodeChain.java
-// checks the same one), signing and verifying, a lone PC adopting the code of the PC that accepted it, two codes
-// converging to the smaller root, the 8-link cap, foreign and forged chains refused, a removed signer re-signed.
+// B-084 person code, since Eine-ID 22.11.2026 the company tree (remote/code.ts): the fixed test vector of
+// .local/b084/notes/W4-format.md (Android's CodeChain.java checks the same one), signing and verifying, a lone PC adopting
+// the code of the PC that accepted it, two codes converging to the smaller root, the 8-link cap, foreign and forged
+// chains refused, a removed signer re-signed.
 // Owns: these assertions only. Never: a network.
 
 import { test } from 'node:test';
@@ -8,7 +9,7 @@ import assert from 'node:assert/strict';
 import { createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import { b64url, fingerprintOf } from '../../../src/runtime/devices/keys.ts';
 import { DevicesRepo } from '../../../src/runtime/devices/repo.ts';
-import { belongs, chainEnd, codeFor, openCode, parseTree, type CodeKey, type Tree } from '../../../src/runtime/remote/code.ts';
+import { belongs, chainEnd, codeFor, openCodes, parseTree, type CodeKey, type Tree } from '../../../src/runtime/remote/code.ts';
 import { remoteIdOf } from '../../../src/runtime/remote/id.ts';
 import { memoryDb } from '../devices/fakes.ts';
 
@@ -19,7 +20,7 @@ function keyOf(seed: number): CodeKey & { pub: string } {
   return { publicKey, fingerprint: fingerprintOf(publicKey), pub: b64url(publicKey), sign: (data) => sign(null, data, privateKey) };
 }
 const link = (by: CodeKey, member: { pub: string; fingerprint: string }) => ({ pub: member.pub, sig: b64url(by.sign(Buffer.from(`wf-code-v1|${member.fingerprint}`, 'utf8'))) });
-const open = (key: CodeKey) => openCode(memoryDb(), key, () => 1);
+const open = (key: CodeKey) => openCodes(memoryDb(), key, () => 1).company;
 
 const ROOT = keyOf(1);
 const A = keyOf(2);
@@ -122,7 +123,7 @@ test('a forged member entry drops out, a removed signer drops its members, and m
 
   // My root removed A: B's entry (signed by A) drops; B is my own PC, so I sign it again.
   const repo = new DevicesRepo(db);
-  const mine = openCode(db, ROOT, () => 1);
+  const mine = openCodes(db, ROOT, () => 1).company;
   mine.sign(A.pub);
   mine.take(a.tree(), A.pub);
   assert.equal(mine.tree().links.length, 2);

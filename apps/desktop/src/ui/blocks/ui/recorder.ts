@@ -13,10 +13,13 @@
 // device changes are handled only while a preview is open. A take counts from the recorder's
 // 'start' event (Chromium fires it with the first written data, which can lag Record by a second
 // or more while the encoder starts): until then the widget says "Starting…", not a running time.
-// Owns: streams, the recorder, elapsed time, cleanup and the stored copy of the take.
+// Owner 19.11.2026: `recordingLive` (every take recording now) counts as the page's voice live; stopRecordings is the
+// Android app's End for them (boot/desktop.ts stopAllVoice).
+// Owns: streams, the recorder, elapsed time, cleanup and the stored copy of the take, and which takes record now.
 // Never: uploads (the widget does) or keeps devices open longer than needed (tracks stop after
 // each take and on unmount).
 
+import { signal } from '@preact/signals';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { bridge, platform } from '../../lib/platform.ts';
 import { dropTake as dropStored, loadTake, saveTake } from '../../pwa/idb.ts';
@@ -103,6 +106,20 @@ export function mediaDuration(url: string, kind: 'audio' | 'video'): Promise<num
   });
 }
 
+/** Owner 19.11.2026: the takes recording now – part of the page's "voice live" (boot/voice-live.ts), so a recording goes
+ *  on while the app is in the background; the Android app's End (voice.stop) stops them like Stop (the take is kept). */
+const takes = new Set<RecorderLike>();
+export const recordingLive = signal(false);
+function recording(recorder: RecorderLike, on: boolean): void {
+  if (on) takes.add(recorder); else takes.delete(recorder);
+  recordingLive.value = takes.size > 0;
+}
+
+/** Stops every take recording now, as its Stop does: each is kept (its onEnd runs). */
+export function stopRecordings(): void {
+  for (const recorder of [...takes]) if (recorder.state !== 'inactive') recorder.stop(); else recording(recorder, false);
+}
+
 /** The part of MediaRecorder a take uses (a fake in tests). */
 export interface RecorderLike {
   readonly state: string;
@@ -122,6 +139,7 @@ export interface RecorderLike {
  * seconds count from that 'start' event.
  */
 export function recordTake(recorder: RecorderLike, options: { key?: string; type: string; now?: () => number; onStart?(): void; onEnd(blob: Blob, mime: string, seconds: number): void }): Promise<void> {
+  recording(recorder, true);
   const now = options.now ?? Date.now;
   let startedAt = now();
   let started = false;
@@ -131,6 +149,7 @@ export function recordTake(recorder: RecorderLike, options: { key?: string; type
   recorder.ondataavailable = (event) => { if (!event.data.size) return; chunks.push(event.data); begin(startedAt); };
   return new Promise<void>((stored) => {
     recorder.onstop = () => {
+      recording(recorder, false);
       const mime = recorder.mimeType || options.type;
       const blob = new Blob(chunks, { type: mime });
       const seconds = Math.max(0, (now() - startedAt) / 1000);
@@ -163,6 +182,7 @@ export async function unsentTake(key: string): Promise<StoredTake | undefined> {
 
 /** "Discard recording?" mid-take: the recorder stops and nothing of it is kept or stored. */
 export function endUnsaved(recorder: RecorderLike): void {
+  recording(recorder, false);
   recorder.ondataavailable = null;
   recorder.onstop = null;
   recorder.onstart = null;

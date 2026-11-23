@@ -2,8 +2,8 @@
 // spinner while it runs), "#3 title" (ellipsis), the model · effort in a fixed slot at the right (what it runs on – the
 // live activity's while it runs; a narrow row shows the effort alone, splits.css) and the duration in a
 // fixed slot after it; a row click opens that split's own steps right below it (team/run-items.tsx, the parent
-// agent's run stream). Used by the parent's step line "Split · 3 of 5 done" (SplitStep, in run item lists), by the
-// working popover's group row; the agent's activity log (Team › agent) shows the same step line, open
+// agent's run stream). Used by the parent's step line "Split · 3 of 5 done" (SplitStep, in run item lists), by a split
+// part's line in a chat's live bar (SplitGroupRows, LiveBarMore.tsx); the agent's activity log (Team › agent) shows the same step line, open
 // from the start and as columns – one per running part (SplitColumns, SplitLanes.tsx).
 // Rows open below fixed rows only; nothing above them moves.
 // Owns: this markup and which rows are open. Never: polls, or shows a step the runtime did not journal.
@@ -18,7 +18,7 @@ import { activity, agentName } from '../lib/store.ts';
 import { useContextMenu } from '../lib/context-menu.tsx';
 import { modelShortName } from '../lib/model-name.ts';
 import { RunItemList, useRunItems } from '../team/run-items.tsx';
-import { ensureModelNames, groupsOfRun, watchSplits } from './split-model.ts';
+import { groupsOfRun, splitGroups, watchSplits } from './split-model.ts';
 import { SplitLanes } from './SplitLanes.tsx';
 import { splitMenu } from './split-menu.ts';
 import {
@@ -86,20 +86,27 @@ function SplitSteps(props: { runId: string; agentId: string; live: boolean; quie
 }
 
 /** A group's rows in part order; each opens on its own. */
-export function SplitList(props: { group: SplitGroupView }) {
+function SplitList(props: { group: SplitGroupView }) {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const toggle = (id: string) => {
     const next = new Set(open);
     if (next.has(id)) next.delete(id); else next.add(id);
     setOpen(next);
   };
-  useEffect(ensureModelNames, []);
   const splits = props.group.splits.slice().sort((a, b) => a.idx - b.idx);
   return (
     <ul class="split-rows" aria-label={`Splits of ${agentName(props.group.agentId)}`}>
       {splits.map((split) => <SplitRow key={split.id} split={split} agentId={props.group.agentId} open={open.has(split.id)} onToggle={() => toggle(split.id)} />)}
     </ul>
   );
+}
+
+/** A split part's line in a chat's live bar, opened (chat/LiveBarMore.tsx): its group's rows; a group only the live run named is read. */
+export function SplitGroupRows(props: { groupId: string }) {
+  const group = splitGroups.value.get(props.groupId);
+  const known = Boolean(group);
+  useEffect(() => (known ? undefined : watchSplits({ groupId: props.groupId })), [props.groupId, known]);
+  return group ? <SplitList group={group} /> : <span class="split-row-loading"><Spinner size={14} /></span>;
 }
 
 /** The words of a tool result (its preview) – a group id named there picks the group; undefined while the call runs. */

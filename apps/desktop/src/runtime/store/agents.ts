@@ -4,6 +4,7 @@
 // F-52: an agent's manager may be a person of the organisation – stored in person_manager_id
 // (migration 42; manager_id references agents), both read as Agent.managerId.
 // F14: the list with archived agents leaves out those that left no trace (listWithArchived).
+// Umzug 21.11.2026: `homes` (migration 113, a JSON list of PC ids, default '[]') reads as Agent.homes – absent when empty.
 // Never: validation, org rules or events (org/service.ts).
 
 import { json, toJson, type Db, type Row } from '../db/database.ts';
@@ -26,6 +27,7 @@ function toAgent(row: Row): Agent {
     skills: json<string[]>(row.skills, []),
     modelPolicy: json<Agent['modelPolicy']>(row.model_policy, {}),
     deviceId: opt<string>(row.device_id),
+    homes: homesOf(row.homes),
     status: row.status as Agent['status'],
     statusNote: opt<string>(row.status_note),
     template: opt<string>(row.template),
@@ -38,7 +40,14 @@ function toAgent(row: Row): Agent {
 }
 
 const COLUMNS = `id, name, role, avatar, space_id, manager_id, team, instructions, mode, skills, model_policy,
-  device_id, status, status_note, template, created_by, created_at, updated_at, archived_at, voice`;
+  device_id, status, status_note, template, created_by, created_at, updated_at, archived_at, voice, homes`;
+
+/** The stored list of PC ids; undefined when it is empty or unreadable. */
+function homesOf(value: unknown): string[] | undefined {
+  const list = json<unknown>(value, []);
+  const ids = Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string' && id.length > 0) : [];
+  return ids.length ? ids : undefined;
+}
 
 export class AgentRepo {
   private readonly db: Db;
@@ -99,19 +108,19 @@ export class AgentRepo {
 
   private saveRow(agent: Agent): void {
     this.db.run(
-      `INSERT INTO agents (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO agents (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET name = excluded.name, role = excluded.role, avatar = excluded.avatar,
          space_id = excluded.space_id, manager_id = excluded.manager_id, team = excluded.team,
          instructions = excluded.instructions, mode = excluded.mode, skills = excluded.skills,
          model_policy = excluded.model_policy,
          device_id = excluded.device_id, status = excluded.status, status_note = excluded.status_note,
          template = excluded.template, updated_at = excluded.updated_at, archived_at = excluded.archived_at,
-         voice = excluded.voice`,
+         voice = excluded.voice, homes = excluded.homes`,
       [
         agent.id, agent.name, agent.role, toJson(agent.avatar), nul(agent.spaceId), nul(agent.managerId), nul(agent.team),
         agent.instructions, agent.mode, toJson(agent.skills), toJson(agent.modelPolicy),
         nul(agent.deviceId), agent.status, nul(agent.statusNote), nul(agent.template),
-        agent.createdBy, agent.createdAt, agent.updatedAt, nul(agent.archivedAt), nul(agent.voice),
+        agent.createdBy, agent.createdAt, agent.updatedAt, nul(agent.archivedAt), nul(agent.voice), toJson(agent.homes ?? []),
       ],
     );
   }

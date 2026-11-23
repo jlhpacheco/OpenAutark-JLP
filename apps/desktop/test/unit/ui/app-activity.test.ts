@@ -118,7 +118,7 @@ test('the Activity line is quiet at the frame\'s right edge; its list opens alon
   const css = readFileSync(new URL('../../../src/ui/styles/blocks.css', import.meta.url), 'utf8');
   assert.match(activity, /placement="bottom-end" width=\{340\} class="app-activity"/);
   assert.match(css, /\.app-frame-foot \{ display: flex; justify-content: flex-end; \}/);
-  assert.match(css, /\.app-frame-foot \.text-button \{ padding: 4px 0 0; font-size: 12px; color: var\(--muted\); \}/);
+  assert.match(css, /\.app-frame-foot \.text-button \{ padding: 4px 0 0; font-size: calc\(12px \* var\(--ui-text, 1\)\); color: var\(--muted\); \}/);
   assert.match(css, /\.app-frame-foot \.text-button:hover, \.app-frame-foot \.text-button\[aria-expanded=true\] \{ color: var\(--secondary\); \}/);
   // One class more than base.css's '.menu-item:hover:not(:disabled)', so the informative rows stay calm.
   assert.match(css, /\.app-activity \.menu-item:hover:not\(:disabled\) \{ background: none; \}/);

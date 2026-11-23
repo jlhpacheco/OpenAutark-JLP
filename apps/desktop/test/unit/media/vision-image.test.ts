@@ -13,7 +13,7 @@ import { WorkforceError } from '../../../src/shared/errors.ts';
 import { decodePng, pngSize } from '../../../src/runtime/computer/png.ts';
 import { Blobs } from '../../../src/runtime/files/store.ts';
 import type { HostMedia } from '../../../src/runtime/host.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { fitsAsIs, pngHere, VISION_LIMITS, visionImage, visionInputs, visionMime, type VisionServices } from '../../../src/runtime/media/vision-image.ts';
 import { harness } from '../chat/harness.ts';
 import { tempDir } from '../store/helpers.ts';

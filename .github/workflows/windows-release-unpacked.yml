@@ -32,6 +32,7 @@ jobs:
           foreach ($name in 'WIN_CSC_LINK','CSC_LINK','WIN_CSC_KEY_PASSWORD','CSC_KEY_PASSWORD','AUTARK_WINDOWS_SIGNING') {
             if ([Environment]::GetEnvironmentVariable($name)) { throw "Unexpected signing setting: $name" }
           }
+          node scripts/update-note.mjs --check
           npm ci --no-fund --no-audit
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File resources/broker/build.ps1
           if ($LASTEXITCODE -ne 0) { throw "Desktop broker compilation failed" }

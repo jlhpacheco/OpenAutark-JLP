@@ -14,7 +14,8 @@
 
 import { createHash, hkdfSync, randomBytes, type KeyObject } from 'node:crypto';
 import { b64url, fromB64url, generateX25519, rawPublic, verifyEd25519, x25519Shared } from '../devices/keys.ts';
-import { stable, type PeerInfo } from '../devices/pair-proof.ts';
+import type { PeerInfo } from '../devices/pair-proof.ts';
+import { stable } from '../../shared/text/stable-json.ts';
 import type { JoinRole } from '../../shared/model/remote.ts';
 
 export const REMOTE_PROTOCOL = 1;

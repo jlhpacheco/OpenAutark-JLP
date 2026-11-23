@@ -7,14 +7,15 @@ import { Bus } from '../../../src/runtime/bus.ts';
 import { RpcServer } from '../../../src/runtime/rpc/server.ts';
 import { HandlerTable } from '../../../src/runtime/rpc/table.ts';
 import type { HandlerContext } from '../../../src/runtime/rpc/table.ts';
-import { memoryConnection, portConnection } from '../../../src/runtime/rpc/connection.ts';
+import { portConnection } from '../../../src/runtime/rpc/connection.ts';
+import { memoryConnection } from './memory-connection.ts';
 import type { RpcConnection } from '../../../src/runtime/rpc/connection.ts';
 import type { RpcExtras } from '../../../src/runtime/rpc/extras.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import type { Message } from '../../../src/shared/model/chat.ts';
 import type { Run, RunItem } from '../../../src/shared/model/runs.ts';
-import { nullLogger } from '../../../src/runtime/system/log.ts';
+import { nullLogger } from '../fakes.ts';
 import { register as system } from '../../../src/runtime/rpc/handlers/system.ts';
 import { OWNER, PHONE, TODO_ONLY, TestClient, fakeExtras, settle } from './s1-helpers.ts';
 

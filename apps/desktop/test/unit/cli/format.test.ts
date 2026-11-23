@@ -64,10 +64,10 @@ test('to-dos, tasks and agents: one line each with the id last', () => {
   assert.deepEqual(formatTodos([], AT), ['Nothing needs you right now.']);
   assert.deepEqual(formatTasks([
     task({ id: 'task_b', title: 'Draft plan', status: 'open', assigneeKind: 'agent', assigneeId: manager.id, progress: { done: 1, total: 3 }, running: true }),
-    task({ id: 'task_c', title: 'Buy domain', status: 'open', assigneeKind: 'human', dueAt: AT }),
+    task({ id: 'task_c', title: 'Buy domain', status: 'open', assigneeKind: 'human', at: AT }),
   ], name, AT), [
-    'open  Draft plan · Manager · Launch · 1/3 steps · running · task_b',
-    'open  Buy domain · You · Launch · due 14:02 · task_c',
+    'open  Draft plan · Manager · Launch · 1/3 to-dos · running · task_b',
+    'open  Buy domain · You · Launch · at 14:02 · task_c',
   ]);
   assert.deepEqual(formatAgents([manager, editor, agent({ id: 'ag_old', name: 'Old', archivedAt: AT })], name), [
     'Manager · idle · reports to You · ag_manager0001',

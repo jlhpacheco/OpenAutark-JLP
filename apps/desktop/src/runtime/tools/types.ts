@@ -11,7 +11,7 @@ import type { SplitTurn } from '../../shared/model/splits.ts'; // B-057
 export type JsonSchema = Record<string, unknown>;
 
 export interface ToolSpec {
-  name: string; // dotted lowercase, e.g. "tasks.create", "computer.click"
+  name: string; // dotted lowercase, e.g. "tasks.add", "computer.click"
   description: string; // first sentence verb-first, standing alone (≤ 90 chars, the More tools line); then first person
   inputSchema: JsonSchema;
 }
@@ -46,10 +46,10 @@ export const SEQ_PROPERTY: JsonSchema = Object.freeze({ type: 'integer', minimum
 export const FILE_ID_PROPERTY: JsonSchema = Object.freeze({ type: 'string', minLength: 64, maxLength: 1000, description: 'The 64-character name at the end of the file\'s "stored at" path.' });
 /** A task by its id; the task tools that take it default to this turn's task. */
 export const TASK_ID_PROPERTY: JsonSchema = Object.freeze({ type: 'string', description: "Default this turn's task." });
-/** A time as the task tools read it (dueAt, until). */
+/** A time as the task tools read it (tools/builtin/util.ts parseWhen – words through the app's one finder, shared/text/when.ts). */
 export const WHEN_PROPERTY: JsonSchema = Object.freeze({
   type: 'string',
-  description: 'An ISO time ("2026-11-16T07:00", this PC\'s zone without one), a date ("2026-11-16", 00:00 here), a duration ("PT2H") or "+3h" / "in 2d"; "" clears it.',
+  description: 'An ISO time ("2026-11-16T07:00", this PC\'s zone without one), a date ("2026-11-16", 00:00 here), a duration ("PT2H"), "+3h" / "in 2d" or one time in words ("tomorrow 9:00", "Fr 15 Uhr"); "" clears it.',
 });
 /**
  * The model of work whose context starts here (agents.create – a new colleague). 17.11.2026 (measured: described as "cheaper
@@ -60,7 +60,7 @@ export const MODEL_PROPERTY: JsonSchema = Object.freeze({
   type: 'string', minLength: 1, maxLength: 200,
   description: 'An id from models.list: the smallest model that does the hardest step of this work as well as the strongest would.',
 });
-/** The effort of work from its first turn on (tasks.create, tasks.give, agents.create). */
+/** The effort of work from its first turn on (tasks.add, tasks.update for, agents.create). */
 export const EFFORT_PROPERTY: JsonSchema = Object.freeze({ type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max'] });
 
 export interface ToolContext {
@@ -116,9 +116,8 @@ export interface ActionDescription {
   external: boolean;
 }
 
-/** 'device': only modes that work on a computer or browser (or name the tool). 'embeddings': only while an embedding model a
- *  person chose can serve (services.vectors.available(), models/embeddings.ts) – without one the tool could not work. */
-export type ToolRequirement = 'device' | 'embeddings';
+/** 'device': only modes that work on a computer or browser (or name the tool). */
+export type ToolRequirement = 'device';
 
 export interface ToolDef<A = Record<string, unknown>> extends ToolSpec {
   category: ActionCategory;

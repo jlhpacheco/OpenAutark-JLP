@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 import { tellTool } from '../../../src/runtime/tools/builtin/agents-split-tell.ts';
 import { splitTools } from '../../../src/runtime/tools/builtin/agents-split.ts';
 import { SELF_STOPPED } from '../../../src/runtime/splits/runner.ts';
+import { TOLD_ITEM } from '../../../src/runtime/splits/results.ts';
 import type { ToolContext, ToolDef } from '../../../src/runtime/tools/types.ts';
 import type { AgentActivity } from '../../../src/shared/model/runs.ts';
 import type { SplitTurn } from '../../../src/shared/model/splits.ts';
@@ -60,6 +61,7 @@ test('a part tells its origin: into the origin\'s running turn on the group\'s t
   const [a, b] = w.lanes.started;
   const r = rig(w);
   r.state.activity = [{ agentId: 'ag_ava', runId: 'run_origin', conversationId: CHAT, note: '', startedAt: 0 }];
+  w.runs.start({ id: 'run_part', agentId: 'ag_ava', trigger: 'split' }); // the parts' turn the calls come from
   const folded = await r.tell({ to: 'origin', text: 'The API changed in v2.' }, r.turnOf(a));
   assert.deepEqual(folded.data, { ok: true, to: 'origin', note: 'my origin reads it at its next step' });
   assert.deepEqual(r.told, [{ runId: 'run_origin', text: `My part #1 “A” (group ${groupId}) tells me: The API changed in v2.` }]);
@@ -68,6 +70,8 @@ test('a part tells its origin: into the origin\'s running turn on the group\'s t
   r.state.activity = []; // 13.11.2026: no turn of mine at work (any running main turn is my one context and takes it)
   assert.equal((await r.tell({ to: 'origin', text: 'Found the cause.' }, r.turnOf(a))).data?.note, 'it wakes my origin');
   await r.tell({ to: 'origin', text: 'Half of the files are done.' }, r.turnOf(b));
+  assert.deepEqual(w.runs.items('run_part').filter((item) => item.name === TOLD_ITEM).map((item) => item.data.text),
+    ['The API changed in v2.', 'Found the cause.', 'Half of the files are done.'], 'each note journaled whole on the run of the part (its result when it ends without last words)');
   const wakes = w.wakes.list('ag_ava');
   assert.equal(wakes.length, 1, 'notes not yet read join one wake');
   assert.equal(wakes[0].reason, 'child');

@@ -8,6 +8,7 @@
 // Owns: these primitives and the ordering queue. Never: stores keys, sockets, or logs key material.
 
 import { b64url, concat, fromB64url, hex, own, utf8, type Bytes } from './bytes.ts';
+import { luhnDigit } from '../../shared/model/remote.ts';
 
 const subtle = (): SubtleCrypto => {
   if (!globalThis.crypto?.subtle) throw new Error('This browser has no WebCrypto (iOS 17 or newer is needed).');
@@ -153,16 +154,6 @@ export async function toBox(box: Uint8Array, info: string): Promise<{ e: string;
 /** The device fingerprint: sha256 (hex) of the raw Ed25519 public key. */
 export const fingerprint = async (pub: Uint8Array): Promise<string> => hex(await sha256(own(pub)));
 
-export function luhnDigit(payload: string): string {
-  let sum = 0;
-  for (let index = 0; index < payload.length; index++) {
-    let digit = Number(payload[payload.length - 1 - index]);
-    if (index % 2 === 0) { digit *= 2; if (digit > 9) digit -= 9; }
-    sum += digit;
-  }
-  return String((10 - (sum % 10)) % 10);
-}
-
 /** The 9-digit Remote ID of a fingerprint (remote/id.ts): 8 digits from a hash plus a Luhn check digit. */
 export async function remoteIdOf(fp: string): Promise<string> {
   const digest = await sha256(utf8(`wf-remote-id-v1|${fp.toLowerCase()}`));
@@ -170,8 +161,6 @@ export async function remoteIdOf(fp: string): Promise<string> {
   const payload = String(high * 4 + (digest[4] & 3)).padStart(10, '0').slice(-8);
   return payload + luhnDigit(payload);
 }
-
-export const validRemoteId = (digits: string): boolean => /^\d{9}$/.test(digits) && luhnDigit(digits.slice(0, 8)) === digits[8];
 
 /**
  * B-084: true when the key `fp` may answer for `remoteId` – its own Remote ID, or a person code chain {root, links:[{pub,

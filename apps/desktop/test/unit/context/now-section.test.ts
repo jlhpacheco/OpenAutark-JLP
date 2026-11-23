@@ -2,13 +2,14 @@
 // samples at its own setting, as my stance for the step) –, and my start model and who set it (ModelPolicy.pinBy); the
 // person's suggestion in a chat stands on their line, not here (13.11.2026). Without any of them it stays the one line it
 // was. B-083 (live 09.11.): a stance names where a temperature reaches; owner 09.11.: Claude keeps its thinking, so there
-// it is a stance.
+// it is a stance. Halb 21.11.2026: how big my context is, from my session's own count.
 // Owns: these assertions only. Never: real engines.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { agent } from '../chat/harness.ts';
 import { fixture, route, VIDEO_MODE } from './fixture.ts';
+import { SessionStore } from '../../../src/runtime/agents/sessions.ts';
 import type { RouteDecision } from '../../../src/shared/model/providers.ts';
 
 const DAY = 86_400_000;
@@ -57,6 +58,22 @@ test('my start model names who set it and when – the person on my page, a mana
   assert.ok(nowOf(f, { agentId: 'ag_ole' }).includes('My start model: GPT-6.1 Sol (I set it myself, Fri 16 Oct).'));
   assert.ok(nowOf(f, { agentId: 'ag_old' }).includes('My start model: Luna.'));
   assert.ok(!nowOf(f, {}).includes('start model'), 'no start model: no line');
+});
+
+test("Halb 21.11.2026: my context's size from my session's own count, rounded to 5k – none below 20k and none for a part", () => {
+  const f = fixture();
+  const engine = route().engine;
+  const sizeOf = (tokens: number | undefined, thread = 'main'): string => {
+    new SessionStore(f.db).save({ agentId: f.vid.id, conversationId: thread, engine, ref: 'thr_1', generation: 1, cursorSeq: 0, ...(tokens !== undefined ? { contextTokens: tokens } : {}), updatedAt: 0 });
+    const { volatile } = f.context.prompt({ agent: f.vid, mode: VIDEO_MODE, route: route(), thread });
+    const start = volatile.indexOf('## Now');
+    return volatile.slice(start, volatile.indexOf('\n\n', start) < 0 ? undefined : volatile.indexOf('\n\n', start));
+  };
+  assert.ok(sizeOf(152_400).endsWith('\nMy context holds about 150k tokens; each step of mine reads it again.'), sizeOf(152_400));
+  assert.ok(sizeOf(22_600).includes('My context holds about 25k tokens;'));
+  assert.ok(!sizeOf(19_000).includes('My context'), 'below 20k: nothing to say');
+  assert.ok(!sizeOf(undefined).includes('My context'), 'no count yet');
+  assert.ok(!sizeOf(300_000, 'split:spl_1').includes('My context'), 'a part starts small and ends');
 });
 
 test("13.11.2026: the person's suggestion in this chat is not in \"## Now\" – it stands on their line (context/render.ts)", () => {

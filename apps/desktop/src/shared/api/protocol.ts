@@ -6,6 +6,13 @@ import type { WorkforceErrorData } from '../errors.ts';
 
 export const PROTOCOL_VERSION = 1;
 
+/**
+ * Fest round 22.11.2026: a page's socket hears a frame from the PC at least every 15 s (its beat, runtime/http/keepalive.ts),
+ * so an open socket that heard nothing this long lost its way without an end (ui/lib/rpc.ts; the iPhone tunnel's
+ * ui/hosted/ws.ts waits as long).
+ */
+export const SILENT_MS = 60_000;
+
 export interface RpcRequest {
   id: number;
   method: string;
@@ -23,8 +30,6 @@ export interface RpcEvent {
   event: string; // see EventMap keys
   data: unknown;
 }
-
-export type RpcFrame = RpcRequest | RpcResponse | RpcEvent;
 
 export function isRequest(frame: unknown): frame is RpcRequest {
   return typeof frame === 'object' && frame !== null && 'method' in frame && 'id' in frame;
@@ -70,10 +75,12 @@ export type ClientScope =
   /**
    * Desktop window / local CLI with the launch token: full access. `main` marks Electron main's own port (entry-electron).
    * B-085: `agentId` – an agent's own `wf` (Hello `agent`, checked by http/ws.ts): its chat lines are that agent's.
-   * 16.11.2026: `window` marks the desktop window's own port (entry-electron) – the person at the PC, where the launch
-   * token alone (a `wf` outside an agent's turn, a script) names nobody (settings/security-log.ts).
+   * Sicher-Runde 19.11.2026 (FX1): `person` marks the person themselves – the desktop window's and main's own ports
+   * (entry-electron) and the person token, which lives only in memory (headless CLI: its stdout; never a file). The
+   * launch token of `<data>/runtime.json` – what `wf` and any shell on this PC can read – is owner scope without
+   * `person`: it names nobody, and the person's own methods refuse it (security/rpc-guard.ts).
    */
-  | { kind: 'owner'; main?: true; window?: true; agentId?: string }
+  | { kind: 'owner'; main?: true; person?: true; agentId?: string }
   /**
    * PWA / phone. `secure` is set by the transport: true for loopback (incl. the local
    * `tailscale serve` https proxy) and tailnet peers that reached this PC's tailnet address;
@@ -99,7 +106,11 @@ export interface Hello {
   deviceName?: string;
   /** B-085: the agent an owner-token client runs for (its AGENT_ENV); http/ws.ts takes it only for a live agent. */
   agent?: string;
+  /** Sicher-Runde 19.11.2026: that agent's proof (its AGENT_PROOF_ENV, runtime/security/agent-proof.ts); without it no agent. */
+  proof?: string;
 }
 
 /** B-085: the env variable that names the agent whose process it is (engines/wf-shim.ts sets it, wf-cli/discover.ts reads it). */
 export const AGENT_ENV = 'AUTARK_AGENT';
+/** Sicher-Runde 19.11.2026: the env variable beside AGENT_ENV with the runtime's proof for that agent. */
+export const AGENT_PROOF_ENV = 'AUTARK_AGENT_PROOF';

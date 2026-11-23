@@ -6,16 +6,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, randomBytes, sign as nodeSign } from 'node:crypto';
-import { b64url, fromB64url, fromHex, hex, utf8 } from '../../../src/ui/hosted/bytes.ts';
-import { CounterCipher, fingerprint, hkdf, remoteIdOf, toBox, validRemoteId, verify, x25519, newDeviceKey, sign } from '../../../src/ui/hosted/crypto.ts';
-import { commitment, lpHash, mac, matchCode, signedBytes, stable, transcript } from '../../../src/ui/hosted/sas.ts';
+import { b64url, fromB64url, hex, utf8 } from '../../../src/ui/hosted/bytes.ts';
+import { CounterCipher, fingerprint, hkdf, remoteIdOf, toBox, verify, x25519, newDeviceKey, sign } from '../../../src/ui/hosted/crypto.ts';
+import { commitment, lpHash, mac, matchCode, signedBytes, transcript } from '../../../src/ui/hosted/sas.ts';
+import { stable } from '../../../src/shared/text/stable-json.ts';
+import { validRemoteId } from '../../../src/shared/model/remote.ts';
 import * as runtimeSas from '../../../src/runtime/remote/sas.ts';
-import { mac as runtimeMac, stable as runtimeStable } from '../../../src/runtime/devices/pair-proof.ts';
-import { remoteIdOf as runtimeRemoteId, validRemoteId as runtimeValid } from '../../../src/runtime/remote/id.ts';
+import { mac as runtimeMac } from '../../../src/runtime/devices/pair-proof.ts';
+import { remoteIdOf as runtimeRemoteId } from '../../../src/runtime/remote/id.ts';
 import { fromSender, newBox, TUNNEL_INFO } from '../../../src/runtime/devices/rendezvous/seal.ts';
 import { verifyEd25519 } from '../../../src/runtime/devices/keys.ts';
 
 const fill = (n: number, value: number) => new Uint8Array(n).fill(value);
+const fromHex = (text: string): Uint8Array<ArrayBuffer> => Uint8Array.from(Buffer.from(text, 'hex'));
 
 test('RFC vectors: Ed25519 verify (8032 test 1), X25519 (7748 §6.1), HKDF-SHA256 (5869 case 1)', async () => {
   const pub = fromHex('d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a');
@@ -49,12 +52,11 @@ test('the connect request vectors shared with Android (RemotePairTest.java)', as
   assert.equal(hex(signedBytes('B', t)).slice(0, 40), '77662d72656d6f74652d763120427c1db4ffb7d7');
 });
 
-test('equal to the runtime on random inputs: stable, hash, commitment, transcript, code, MAC, Remote ID', async () => {
+test('equal to the runtime on random inputs: hash, commitment, transcript, code, MAC, Remote ID', async () => {
   for (let round = 0; round < 25; round++) {
     const name = String.fromCharCode(...Array.from(randomBytes(12), (x) => 32 + (x % 0x2fd0)));
     const a = { id: `dev_${randomBytes(6).toString('hex')}`, name, role: 'home', pub: b64url(randomBytes(32)), addresses: [`http://10.0.0.${round}:47812`] };
     const b = { id: `dev_${randomBytes(6).toString('hex')}`, name: name.split('').reverse().join(''), role: 'client', pub: b64url(randomBytes(32)), addresses: [] };
-    assert.equal(stable(a), runtimeStable(a));
     const [ephA, ephB, na, nb, key] = [randomBytes(32), randomBytes(32), randomBytes(16), randomBytes(16), randomBytes(32)];
     const commit = await commitment(new Uint8Array(ephA), new Uint8Array(ephB), new Uint8Array(na));
     assert.equal(commit, runtimeSas.commitment(ephA, ephB, na));
@@ -65,7 +67,6 @@ test('equal to the runtime on random inputs: stable, hash, commitment, transcrip
     const fp = createHash('sha256').update(randomBytes(32)).digest('hex');
     const id = await remoteIdOf(fp);
     assert.equal(id, runtimeRemoteId(fp));
-    assert.equal(validRemoteId(id), runtimeValid(id));
     assert.equal(validRemoteId(id.slice(0, 8) + String((Number(id[8]) + 1) % 10)), false);
     assert.equal(hex(await lpHash('x', new Uint8Array(na))), createHash('sha256').update('1:x16:').update(na).digest('hex'));
   }

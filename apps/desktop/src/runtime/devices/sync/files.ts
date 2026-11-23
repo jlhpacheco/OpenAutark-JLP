@@ -1,14 +1,19 @@
 // Files between the CEO's own PCs (mesh method 'sync.file'): whole files by sha256 – from <data> theme.css, prompts/,
 // modes/, agents/** (SYSTEM.md, Main Skills, agent.json, images; not the generated agents/README.md), memory/**,
-// connectors/mcp.json and mail.json, and the workspace's skills/**. A manifest (kv ns 'sync.files': path → sha, size,
-// mtime, at; sha '' = removed) says what this PC has; a scan finds changes by size and mtime, then by hash. A link-up
-// sends the entries stored after that PC's cursor (all the first time; what is left when its link goes, the next one),
-// a change seen later goes at once ('have': the data folder watcher's tap when it has one, else the owners' events).
+// connectors/mcp.json and mail.json, security/<mode>/<topic>.md (19.11.2026: the security texts; a pulled one is
+// accepted by runtime/security/topics.ts before it is put in place, so Secure mode never puts it back as an edit; FX1 H5:
+// one goes out only while its text is the one the app accepted – an edit about to be put back never travels; REVIEW-2 12:
+// its entry is the hash of exactly the text that was checked, and 'get' checks the text again before it serves it), and
+// the workspace's skills/**. A manifest (kv ns 'sync.files': path → sha, size,
+// mtime, at; sha '' = removed) says what this PC has; a scan finds changes by size and mtime, then by hash. A catch-up
+// (service.ts: at link-up and in rhythm) sends the settings and the entries stored after that PC's 'files' cursor (all
+// the first time; what is left when its link goes, the next one) – the scan of every root first only at link-up – and a
+// change seen later goes at once ('have': the data folder watcher's tap when it has one, else the owners' events).
 // The other PC pulls what is newer (`at`:
 // the file's mtime, a removal's time) in pieces of at most 1 MiB like send-file.ts into a *.tmp file (the watcher
 // ignores those) and puts it in place (file-io.ts: a rename, a copy where Windows refuses it) – so the file's owner
-// (agent core, memory, theme …) takes it like an edit. A pull that failed leaves the link-up incomplete, so the
-// next one offers it again; while that PC stays linked it is tried again after 2, 10 and 60 s. A file that changed
+// (agent core, memory, theme …) takes it like an edit. A pull that failed leaves the catch-up incomplete: the cursor
+// moves only up to the page it was in, and the next one – at most REFRESH_MS later, with a rescan – offers it again. A file that changed
 // here while its pull ran stays (the pull is dropped). What a 'have' finds changed here and does not replace goes out
 // at once, to its sender too; a look that a pull overtook leaves the entry to the pull. B-087 for agents/<id>/SYSTEM.md,
 // whose text also travels in the agents row: one that came before its row is taken over at once as the echo of that
@@ -18,8 +23,8 @@
 // Owns: the manifest, scans, pulls and which paths may be written. Never: writes outside these roots, follows a
 // link, or talks to a PC that is no 'ceo' link.
 
-import { randomUUID } from 'node:crypto';
-import { lstatSync, type Stats } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { lstatSync, readFileSync, type Stats } from 'node:fs';
 import { lstat, mkdir, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import type { RuntimeServices } from '../../contracts.ts';
@@ -28,24 +33,22 @@ import { KvRepo } from '../../store/kv.ts';
 import { DevicesRepo } from '../repo.ts';
 import { blobPiece } from './blobs.ts';
 import { hashFile, pullPieces, readPiece, replaceWithSync } from './file-io.ts';
-import { linkOf, links } from './home.ts';
+import { isCeoPc, linkOf, links } from './home.ts';
 import { SettingsSync, type SettingsMessage } from './settings.ts';
 import { wins, type Stamps } from './stamps.ts';
+import { SECURITY_DIR } from '../../../shared/model/security-settings.ts';
+import { securityTopics, topicOfRel } from '../../security/topics.ts';
 
-const DATA_ROOTS = ['theme.css', 'prompts', 'modes', 'agents', 'memory', 'connectors/mcp.json', 'connectors/mail.json'];
+const DATA_ROOTS = ['theme.css', 'prompts', 'modes', 'agents', 'memory', 'connectors/mcp.json', 'connectors/mail.json', SECURITY_DIR];
 const WORKSPACE_ROOTS = ['skills'];
 const NEVER: ReadonlySet<string> = new Set(['agents/README.md']);
 const NS = 'sync.files';
 const PAGE = 500;
 const MAX_FILES = 200_000;
-/** Waits before each new try of a pull that failed while its PC stays linked. */
-const RETRY_MS: readonly number[] = [2_000, 10_000, 60_000];
 const SYSTEM_MD = /^agents\/([^/]+)\/SYSTEM\.md$/;
 
 interface Entry { sha: string; size: number; mtime: number; at: number }
 interface Have { rel: string; sha: string; at: number }
-/** A planned new try of a failed pull: the newest offer for its path, from which PC; `fired`: it ran. */
-interface Retry { step: number; fired: boolean; have: Have; from: string; joined: boolean; timer: ReturnType<typeof setTimeout> }
 
 /** An owner's watcher tap (RootWatcher.tap when it exists): `name` the data folder entry, `parts` below it. */
 export type WatcherTap = (listener: (name: string, parts?: readonly string[]) => void) => () => void;
@@ -59,12 +62,8 @@ export class FileSync {
   readonly settings: SettingsSync;
   private readonly roots = new Set<string>();
   private timer?: ReturnType<typeof setTimeout>;
-  /** Pulls that failed, by path: the next try while their PC stays linked. */
-  private readonly retries = new Map<string, Retry>();
   /** The rename that puts a pulled file in place (tests make it refuse; default file-io.ts's). */
   move?: (from: string, to: string) => void;
-  /** The waits before each new try of a failed pull (tests shorten them). */
-  retryMs: readonly number[] = RETRY_MS;
 
   constructor(s: RuntimeServices, stamps: Stamps) {
     this.s = s;
@@ -88,7 +87,6 @@ export class FileSync {
     return () => {
       for (const off of offs) off();
       if (this.timer) clearTimeout(this.timer);
-      for (const rel of [...this.retries.keys()]) this.retried(rel);
     };
   }
 
@@ -116,6 +114,7 @@ export class FileSync {
     const parts = rel.split('/');
     if (parts.some((part) => !part || part === '.' || part === '..' || part.startsWith('.') || /[\\:\u0000]/.test(part)) || NEVER.has(rel)) return false;
     if (/\.(tmp|part)$/i.test(rel)) return false;
+    if (parts[0] === SECURITY_DIR && parts.length > 2 && !topicOfRel(rel)) return false; // only the topic files, never a rejected copy
     return [...DATA_ROOTS, ...WORKSPACE_ROOTS].some((root) => rel === root || rel.startsWith(`${root}/`) || (prefix && root.startsWith(`${rel}/`)));
   }
 
@@ -140,6 +139,9 @@ export class FileSync {
     // entry, a newer state than an older look stored goes on top.
     const moved = () => JSON.stringify(this.kv.get<Entry>(NS, rel)) !== JSON.stringify(old);
     const info = await lstat(file).catch(() => undefined);
+    // FX1 H5: a topic file only with the app's text – read once, and that very text is what its entry hashes (REVIEW-2 12)
+    const accepted = topicOfRel(rel) ? this.topicBytes(rel, file, info?.isFile() === true) : undefined;
+    if (accepted === false) return undefined;
     const now = this.s.clock.now();
     if (!info?.isFile()) {
       if (!old?.sha) return undefined;
@@ -149,13 +151,23 @@ export class FileSync {
       return { rel, sha: '', at: gone.at };
     }
     if (old?.sha && old.size === info.size && old.mtime === info.mtimeMs) return undefined;
-    const sha = await hashFile(file);
+    const sha = accepted ? createHash('sha256').update(accepted).digest('hex') : await hashFile(file);
     if (moved()) return this.check(rel);
     const rewritten = old?.sha === sha && SYSTEM_MD.test(rel) && Math.floor(info.mtimeMs) > old.at; // a save back to what SYSTEM.md says
     if (old?.sha === sha && !rewritten) { this.s.db.run('UPDATE kv SET value = ? WHERE ns = ? AND key = ?', [JSON.stringify({ ...old, size: info.size, mtime: info.mtimeMs }), NS, rel]); return undefined; }
     const entry: Entry = { sha, size: info.size, mtime: info.mtimeMs, at: Math.max(Math.floor(info.mtimeMs), (old?.at ?? 0) + 1) };
     this.kv.set(NS, rel, entry, now);
     return { rel, sha, at: entry.at };
+  }
+
+  /**
+   * A security topic file's bytes when they say what the app accepted (topics.ts isAccepted), undefined for a missing file
+   * the app has none of either; false when it is not the app's text (yet) or cannot be read.
+   */
+  private topicBytes(rel: string, file: string, exists: boolean): Buffer | undefined | false {
+    let bytes: Buffer | undefined;
+    if (exists) { try { bytes = readFileSync(file); } catch { return false; } }
+    return securityTopics(this.s).isAccepted(rel, bytes ? bytes.toString('utf8') : null) ? bytes : false;
   }
 
   /** Every file under `root` (a synced root, a folder in one, or one file) plus the removed ones it had. */
@@ -201,18 +213,24 @@ export class FileSync {
     }
   }
 
-  /** What the link-up owes a CEO PC: the settings, then the manifest entries stored after `since` (all the first time); false when not all arrived. */
-  async catchUp(peer: string, since: number | undefined): Promise<boolean> {
-    if (linkOf(new DevicesRepo(this.s.db).get(peer))?.kind !== 'ceo') return true;
-    let ok = await this.post(peer, { op: 'settings', ...this.settings.current() });
-    for (const root of [...DATA_ROOTS, ...WORKSPACE_ROOTS]) await this.scan(root);
-    const rows = this.s.db.all<{ key: string; value: string }>('SELECT key, value FROM kv WHERE ns = ? AND updated_at > ? ORDER BY updated_at, key', [NS, since ?? -1]);
+  /**
+   * What a catch-up owes a CEO PC: the settings, then the manifest entries stored after `since` (all the first time);
+   * `scan`: every root is looked at first (a link-up, or the round after one that did not complete; else a round sends
+   * what the live changes stored). True when all arrived; else the time before which every entry arrived (up to the
+   * first page that did not – the 'files' cursor may move there), or false.
+   */
+  async catchUp(peer: string, since: number | undefined, { scan = true }: { scan?: boolean } = {}): Promise<boolean | number> {
+    if (!isCeoPc(this.s.db, peer)) return true;
+    const settled = await this.post(peer, { op: 'settings', ...this.settings.current() });
+    if (scan) for (const root of [...DATA_ROOTS, ...WORKSPACE_ROOTS]) await this.scan(root);
+    const rows = this.s.db.all<{ key: string; value: string; updated_at: number }>('SELECT key, value, updated_at FROM kv WHERE ns = ? AND updated_at > ? ORDER BY updated_at, key', [NS, since ?? -1]);
+    let upTo: number | undefined;
     for (let index = 0; index < rows.length; index += PAGE) {
-      if (!this.s.devices.online(peer)) { ok = false; break; } // B-087: the link is gone – no dial per page; the next link-up offers the rest
+      if (!this.s.devices.online(peer)) { upTo ??= Number(rows[index].updated_at) - 1; break; } // B-087: the link is gone – no dial per page; the next catch-up offers the rest
       const entries = rows.slice(index, index + PAGE).map((row) => { const entry = JSON.parse(row.value) as Entry; return { rel: row.key, sha: entry.sha, at: entry.at }; });
-      ok = (await this.post(peer, { op: 'have', entries })) && ok;
+      if (!(await this.post(peer, { op: 'have', entries }))) upTo ??= Number(rows[index].updated_at) - 1;
     }
-    return ok;
+    return upTo ?? settled;
   }
 
   // ---------------------------------------------------------------- receiving
@@ -228,6 +246,7 @@ export class FileSync {
       throw new WorkforceError('bad_request', 'Unknown file sync request.');
     }
     const file = p.op === 'get' ? this.abs(p.rel as string) : undefined;
+    if (file && topicOfRel(p.rel as string) && !this.topicBytes(p.rel as string, file, true)) throw new WorkforceError('not_found', 'That file is not here.'); // REVIEW-2 12: only the accepted text goes out
     const piece = p.op === 'blob' ? await blobPiece(this.s, p.id as string, p.offset) : file ? await readPiece(file, p.offset) : undefined;
     if (!piece) throw new WorkforceError('not_found', 'That file is not here.');
     return piece;
@@ -247,24 +266,22 @@ export class FileSync {
         const mine = this.kv.get<Entry>(NS, have.rel);
         if (mine?.sha === have.sha) this.later(have.rel, have.at);
         if (mine?.sha === have.sha || !wins({ at: have.at, h: have.sha }, mine && { at: mine.at, h: mine.sha }, joined)) {
-          this.retried(have.rel);
           if (changed) own.push(changed);
           continue;
         }
         if (have.sha) {
           const got = await this.pull(from, have, mine);
-          if (got === false) { failed++; this.retryLater(from, have, joined); continue; }
-          if (got === undefined) { this.retried(have.rel); continue; } // an overlapping pull put it in place and passed it on
+          if (got === false) { failed++; continue; } // the sender's next catch-up offers it again
+          if (got === undefined) continue; // an overlapping pull put it in place and passed it on
         } else {
+          if (topicOfRel(have.rel)) securityTopics(this.s).acceptSynced(have.rel, null);
           await rm(this.abs(have.rel)!, { force: true });
           this.kv.set(NS, have.rel, { sha: '', size: 0, mtime: 0, at: have.at }, this.s.clock.now());
         }
-        this.retried(have.rel);
         taken.push(have);
       } catch (error) {
         failed++;
         this.s.log.info('synced file not taken', { rel: have.rel, error: errorText(error) });
-        this.retryLater(from, have, joined);
       }
     }
     if (taken.length) void this.toCeo({ op: 'have', entries: taken }, from);
@@ -272,35 +289,10 @@ export class FileSync {
     return { taken: taken.length, failed };
   }
 
-  /** The next try of a pull that failed, while its PC stays linked (the next link-up offers it anyway); a try already planned stays and takes the newest offer. */
-  private retryLater(from: string, have: Have, joined: boolean): void {
-    const planned = this.retries.get(have.rel);
-    if (planned && !planned.fired) {
-      if (wins({ at: have.at, h: have.sha }, { at: planned.have.at, h: planned.have.sha }, joined)) Object.assign(planned, { have, from, joined });
-      return;
-    }
-    const step = (planned?.step ?? -1) + 1;
-    this.retried(have.rel);
-    if (step >= this.retryMs.length) return;
-    const retry = { step, fired: false, have, from, joined } as Retry;
-    retry.timer = setTimeout(() => {
-      retry.fired = true;
-      if (this.s.devices.online(retry.from)) void this.have([retry.have], retry.from, retry.joined); else this.retried(retry.have.rel);
-    }, this.retryMs[step]);
-    (retry.timer as { unref?: () => void }).unref?.();
-    this.retries.set(have.rel, retry);
-  }
-
   /** The same bytes came with a later time: kept, so a later change here still counts as newer (also after a clock skew). */
   private later(rel: string, at: number): void {
     const entry = this.kv.get<Entry>(NS, rel);
     if (entry?.sha && at > entry.at) this.kv.set(NS, rel, { ...entry, at }, this.s.clock.now());
-  }
-
-  private retried(rel: string): void {
-    const retry = this.retries.get(rel);
-    if (retry) clearTimeout(retry.timer);
-    this.retries.delete(rel);
   }
 
   /** `mine`: this PC's entry when the pull was decided – a file changed here since stays; undefined: an overlapping pull put this version in place. */
@@ -316,6 +308,7 @@ export class FileSync {
       if (this.changedHere(have.rel, file, mine)) throw new Error('it changed here meanwhile');
       const agentId = SYSTEM_MD.exec(have.rel)?.[1];
       const ahead = agentId !== undefined && this.s.agentCore?.rowAhead(agentId) === true;
+      if (topicOfRel(have.rel)) securityTopics(this.s).acceptSynced(have.rel, readFileSync(temp, 'utf8')); // not put back as an edit (Secure mode)
       replaceWithSync(temp, file, this.move);
       const info = lstatSync(file);
       this.kv.set(NS, have.rel, { sha: have.sha, size: info.size, mtime: info.mtimeMs, at: have.at }, this.s.clock.now());

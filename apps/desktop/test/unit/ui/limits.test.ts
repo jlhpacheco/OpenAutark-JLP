@@ -87,6 +87,8 @@ test('B-078 rail: the short wait to the 5-hour reset and the 5-hour ring only wh
   assert.equal(shortWait(NOW + 3 * HOUR, NOW), '3h');
   assert.equal(shortWait(NOW + 20_000, NOW), '<1m');
   assert.equal(shortWait(NOW - MIN, NOW), undefined);
+  assert.equal(shortWait(NOW + 3 * 24 * HOUR + 4 * HOUR, NOW), '3d 4h', 'a weekly reset');
+  assert.equal(shortWait(NOW + 2 * 24 * HOUR, NOW), '2d');
   const weeklyOnly: AccountLimits = { windows: [{ name: 'weekly', windowMinutes: 10_080, usedPercent: 30, resetsAt: NOW + 3 * DAY }], readAt: NOW };
   assert.equal(fiveHourOf(weeklyOnly, NOW), undefined, 'no 5-hour window: no ring');
   assert.equal(fiveHourOf(undefined, NOW), undefined);

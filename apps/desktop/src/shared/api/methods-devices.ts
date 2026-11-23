@@ -1,4 +1,4 @@
-// RPC contract part: linked devices (list, rename, remove), the phone/browser app (the QR link,
+// RPC contract part: linked devices (list, rename, remove; 19.11.2026 bye and wake), the phone/browser app (the QR link,
 // push), computer use on this PC (the live preview, the activity pill and the person's simple
 // Stop / Resume), and the session. Handlers: runtime/rpc/handlers/devices.ts (session.info:
 // session.ts; the tokenless pwa.exchange: rpc/tokenless.ts). Connecting PCs: shared/model/remote.ts.
@@ -6,7 +6,7 @@
 // Owns: these method shapes and their result types (SessionInfo – re-exported by methods.ts).
 // Never: behaviour.
 
-import type { Device, PushConfig, PwaState } from '../model/devices.ts';
+import type { AwayReason, Device, PushConfig, PwaState } from '../model/devices.ts';
 import type { Settings } from '../model/system.ts';
 import type { ComputerActivityState } from '../model/computer.ts';
 import type { DeviceCapability } from './protocol.ts';
@@ -19,6 +19,13 @@ declare module '../api/methods.ts' {
     'devices.rename': { params: { id: string; name: string }; result: Device };
     /** Removes a linked PC (the link ends on both sides) or a phone/browser (its token ends). */
     'devices.revoke': { params: { id: string }; result: { ok: true } };
+    /**
+     * Sicher-Runde 19.11.2026: main's own link only, right before a deliberate stop – this PC tells its linked PCs why it goes
+     * (device.bye) and, on the person's quit, writes the wake helper's file; `sleeper`: main starts the helper after the stop.
+     */
+    'devices.bye': { params: { reason: AwayReason }; result: { ok: true; sleeper: boolean } };
+    /** Wakes my own linked PC whose app is closed: a signed wake through the meeting server to its wake helper (runtime/devices/wake.ts). */
+    'devices.wake': { params: { id: string }; result: { ok: true } };
     'pwa.state': { params: void; result: PwaState };
     'pwa.enable': { params: { enabled: boolean; bind?: Settings['pwa']['bind'] }; result: PwaState };
     /** The phone QR code: a one-time link (10 minutes) the phone camera opens, and its 6-digit `code` for an installed app – one pairing with either, until `expiresAt`; `route` (#/…) opens after pairing. */

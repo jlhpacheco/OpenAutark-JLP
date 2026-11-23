@@ -1,5 +1,6 @@
 // Settings skills and memory. Skill rows open the exact-copy editor where its named API is available;
-// legacy file tabs, memory folders and desktop-only deletion stay on their existing capabilities.
+// legacy file tabs, memory folders and desktop-only deletion stay on their existing capabilities. What it reads comes
+// again after every reconnect (useAsync, lib/use-load.ts).
 // Owns: rows and editor selection. Never: resolves a skill by name for editing.
 
 import { useEffect, useState } from 'preact/hooks';
@@ -12,6 +13,7 @@ import { agentName, agents } from '../lib/store.ts';
 import { skillTitle } from '../team/agent-core-model.ts';
 import { openFileTab, openWithSystem, pathMenu } from '../workspace/file-tabs.ts';
 import { confirm } from '../lib/ui.tsx';
+import { useLoad } from '../lib/use-load.ts';
 import { act, Group, Note, Row, useAsync } from './controls.tsx';
 import { MemoryTree } from './MemoryTree.tsx';
 import { joined, openInTab } from './open-file.ts';
@@ -46,7 +48,7 @@ export function SkillsPage() {
   const [selected, setSelected] = useState<SkillInfo>();
   const list = useAsync(() => editor ? rpc.call('skills.catalog') : rpc.call('skills.list', { every: open }), [open, editor]);
   const [memory, setMemory] = useState('');
-  useEffect(() => { if (open) void rpc.call('system.root').then((root) => setMemory(joined(root.path, 'memory'))).catch(() => undefined); }, [open]);
+  useLoad(() => { if (open) void rpc.call('system.root').then((root) => setMemory(joined(root.path, 'memory'))).catch(() => undefined); }, [open]);
   useEffect(() => rpc.on('skills.changed', () => void list.reload()), [list.reload]);
   const skills = skillRows(list.data ?? []);
   const remove = async (skill: SkillInfo) => {

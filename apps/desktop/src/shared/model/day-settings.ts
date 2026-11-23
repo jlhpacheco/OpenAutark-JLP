@@ -1,22 +1,29 @@
-// Settings sections `day` and `calendar` (B-041, the My day concept §4): working hours,
-// the planning buffer and the morning plan, My day's "AI helps" switch, keeping the PC awake for queued agent
-// work after hours and the agents' lane in the calendar; plus the Google OAuth client the person connects
+// Settings sections `day` and `calendar` (B-041; Quests round 20.11.2026: what still has a reader): working hours, the
+// free minutes kept around appointments when a free time is looked for, the end of the night (planAt), the Tasks line's
+// "AI helps" (each line is the person's to-do at once, sorted by their assistant; off: every line is "Only me" – sorted
+// too, never handed to an agent; tasks/quick.ts), keeping the PC awake for queued agent work after hours;
+// plus the Google OAuth client the person connects
 // (the client secret lives in the vault – settings hold only its id). They join Settings by module
-// augmentation. All day math uses settings.profile.timezone. lastEvening is the one "since
-// last evening" rule of the runtime (day/briefing.ts, day/handed-off.ts).
-// Owns: these shapes, their defaults, DAY_BOUNDARY_HOUR and lastEvening. Never: reads, validates or stores
-// settings (runtime/settings/*), or a secret value.
+// augmentation. All day math uses settings.profile.timezone; DAY_BOUNDARY_HOUR says until when a night still belongs
+// to the day before (the time finder's "morgen", the UI's day).
+// Quests round 20.11.2026 – a to-do for a day without a time ("morgen", the person's "Fr"): ONE representation, read
+// the same everywhere (isDayOnly): `at` is the start of that day (local midnight in the person's zone) and `minutes` is
+// absent. A timed to-do always has its clock time in `at`; one at exactly 00:00 carries `minutes`. Such a day rings at
+// the start of the working day (ringAt: workStart), the calendar shows it in the day's strip, not at 00:00, and the
+// Google mirror writes it as an all-day event (runtime/calendar/repo.ts todoRow).
+// Owns: these shapes, their defaults, DAY_BOUNDARY_HOUR and the day-only rule. Never: reads, validates or
+// stores settings (runtime/settings/*), a secret value, or zone math of its own (shared/text/when.ts has the one).
+
+import { addDays, wallOf, wallTime } from '../text/when.ts';
 
 /** Settings › day. */
 export interface DaySettings {
   workStart: string; // 'HH:MM', default '08:00'
   workEnd: string; // default '20:00'
-  bufferMin: number; // 0–60, default 10
-  autoPlan: boolean; // morning plan, default true
-  planAt: string; // default '06:00'
-  aiHelps: boolean; // My day input switch "AI helps" (tidy, sort, assistant prep), default true
+  bufferMin: number; // 0–60, default 10: kept free around appointments when a free time is looked for (calendar/rules.ts)
+  planAt: string; // default '06:00': the night window for queued agent work ends then (day/keep-awake.ts)
+  aiHelps: boolean; // the Tasks line: each line stands at once as the person's to-do and their assistant sorts it (false: each is "Only me" – sorted too, never handed to an agent), default true
   keepAwake: boolean; // B-078: the screen stays on while agents work; also keeps the PC awake while queued agent work exists after workEnd, default true
-  agentLane: boolean; // show agents' schedule runs in My day's calendar, default false
 }
 
 /**
@@ -27,11 +34,11 @@ export const SCREEN_ON_REASON = 'Agents are working – the screen stays on';
 
 /** Before 04:00 "tomorrow" means the coming day; one constant for parser, planner, Timer. */
 export const DAY_BOUNDARY_HOUR = 4;
-/** Upper bound of day.bufferMin (minutes between planned blocks). */
+/** Upper bound of day.bufferMin (minutes kept free around appointments). */
 export const MAX_BUFFER_MIN = 60;
 
 export const DEFAULT_DAY_SETTINGS: Readonly<DaySettings> = Object.freeze({
-  workStart: '08:00', workEnd: '20:00', bufferMin: 10, autoPlan: true, planAt: '06:00', aiHelps: true, keepAwake: true, agentLane: false,
+  workStart: '08:00', workEnd: '20:00', bufferMin: 10, planAt: '06:00', aiHelps: true, keepAwake: true,
 });
 
 /** Settings › calendar: the person's own Google OAuth client (Desktop app type). */
@@ -51,49 +58,23 @@ export function clockMinutes(value: string): number | undefined {
   return match ? Number(match[1]) * 60 + Number(match[2]) : undefined;
 }
 
-/**
- * "Since last evening": the end of the working hours (`workEnd` 'HH:MM', else 20:00) of the evening before the
- * person's day in `tz` – before DAY_BOUNDARY_HOUR the day that just ended is still the person's day (01:00 on the
- * 25th reads from the evening of the 23rd). DST-correct to the minute.
- */
-export function lastEvening(now: number, tz: string, workEnd?: string): number {
-  const wall = wallOf(now, tz);
-  const day = wall.minutes < DAY_BOUNDARY_HOUR * 60 ? plusDays(wall.date, -1) : wall.date;
-  return wallInstant(plusDays(day, -1), clockMinutes(workEnd ?? '') ?? 20 * 60, tz);
+/** A to-do for a day without a time (see the header): `at` at local midnight in `zone`, no `minutes`. */
+export function isDayOnly(task: { at?: number; minutes?: number }, zone?: string): boolean {
+  return task.at !== undefined && task.minutes === undefined && wallOf(task.at, zone).minutes === 0;
 }
 
-const MIN = 60_000;
-const formats = new Map<string, Intl.DateTimeFormat>();
-
-/** The local date and minutes after midnight of `at` in `tz`. */
-function wallOf(at: number, tz: string): { date: string; minutes: number } {
-  let format = formats.get(tz);
-  if (!format) {
-    format = new Intl.DateTimeFormat('en-CA', {
-      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-    });
-    formats.set(tz, format);
-  }
-  const parts = Object.fromEntries(format.formatToParts(at).map((part) => [part.type, part.value]));
-  return { date: `${parts.year}-${parts.month}-${parts.day}`, minutes: (Number(parts.hour) % 24) * 60 + Number(parts.minute) };
+/** When a person's to-do rings: its `at` – a day-only one at the start of the working day (`workStart`, else 08:00) of its day. */
+export function ringAt(task: { at?: number; minutes?: number }, zone?: string, workStart?: string): number | undefined {
+  if (task.at === undefined || !isDayOnly(task, zone)) return task.at;
+  return wallTime(wallOf(task.at, zone).date, clockMinutes(workStart ?? '') ?? 8 * 60, zone);
 }
 
-/** Epoch ms of the wall time `minutes` after local midnight of `date` in `tz`. */
-function wallInstant(date: string, minutes: number, tz: string): number {
-  const [y, m, d] = date.split('-').map(Number);
-  const wall = Date.UTC(y, m - 1, d) + minutes * MIN;
-  const offset = (ms: number) => {
-    const local = wallOf(ms, tz);
-    const [ly, lm, ld] = local.date.split('-').map(Number);
-    return Date.UTC(ly, lm - 1, ld) + local.minutes * MIN - Math.floor(ms / MIN) * MIN;
-  };
-  return wall - offset(wall - offset(wall));
-}
-
-/** `date` (YYYY-MM-DD) plus `days` calendar days. */
-function plusDays(date: string, days: number): string {
-  const [y, m, d] = date.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+/** The next start of the working day after `now` (a day-only to-do may ring then). */
+export function nextWorkStart(now: number, zone?: string, workStart?: string): number {
+  const wall = wallOf(now, zone);
+  const minutes = clockMinutes(workStart ?? '') ?? 8 * 60;
+  const today = wallTime(wall.date, minutes, zone);
+  return today > now ? today : wallTime(addDays(wall.date, 1), minutes, zone);
 }
 
 declare module './system.ts' {

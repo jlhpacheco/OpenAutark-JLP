@@ -37,11 +37,6 @@ export function managerOptions(selfId: string | undefined, people: readonly Pers
   return out;
 }
 
-/** "482 913". */
-export function groupCode(code: string): string {
-  return code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
-}
-
 /** F14: the people of the org chart (the owner and everyone who joined) and those invited who never joined yet. */
 export function splitInvited<T extends Pick<Person, 'owner' | 'joinedAt' | 'status'>>(people: readonly T[]): { members: T[]; invited: T[] } {
   const members: T[] = [];

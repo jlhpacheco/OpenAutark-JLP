@@ -8,10 +8,12 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CELL_TIP, RIPPLE_MS, SENT_LINE, SWITCHES, TOURS, WORDS, type Tour } from '../../../src/ui/tour/timeline.ts';
-import { DESKTOP, PEN, PHONE, center, dockTop, inside, type Layout, type Rect, type Variant } from '../../../src/ui/tour/scene-layout.ts';
+import { ANDROID_TOUR, CELL_TIP, RIPPLE_MS, SENT_LINE, TOURS, WORDS, type Tour } from '../../../src/ui/tour/timeline.ts';
+import { DESKTOP, PEN, PHONE, center, inside, type Layout, type Rect, type Variant } from '../../../src/ui/tour/scene-layout.ts';
 import type { Point } from '../../../src/shared/model/pointer-motion.ts';
 
+/** Where the dock's top is while its field holds one line (it grows upward from there). */
+const dockTop = (layout: Layout) => layout.send.y + layout.send.h - 38 - 8 - layout.dock.row - layout.dock.padTop - 1;
 const FRAME = 1000 / 60;
 const VARIANTS: Variant[] = ['desktop', 'phone'];
 const frames = (tour: Tour, from = 0, to = tour.duration) => { const out: number[] = []; for (let t = from; t <= to; t += FRAME) out.push(t); return out; };
@@ -29,7 +31,6 @@ for (const variant of VARIANTS) {
     for (let i = 1; i < tour.captions.length; i += 1) assert.ok(tour.captions[i]!.at >= tour.captions[i - 1]!.at);
     for (const caption of tour.captions) assert.ok(caption.text.length <= 60 && !/[äöüß]/i.test(caption.text), `short English caption: ${caption.text}`);
     assert.equal(tour.captions.at(-1)!.text, '', 'the end card speaks for itself');
-    assert.match(tour.heard, /^0:0[2-5]$/, 'the talk is a few seconds long (the Recording row says so)');
   });
 
   test(`${variant}: time is clamped and monotonic; stateAt is deterministic and order-free (seekable)`, () => {
@@ -49,7 +50,7 @@ for (const variant of VARIANTS) {
   test(`${variant}: the poster – the pointer rests in the chat, nothing on, nothing painted`, () => {
     const s = tour.stateAt(0);
     assert.deepEqual(s.pointer, layout.start);
-    for (const name of SWITCHES) assert.equal(s[name].on, false, name);
+    for (const [name, value] of Object.entries(s)) if (value && typeof value === 'object' && 'on' in value) assert.equal(value.on, false, name);
     assert.equal(s.words, 0);
     assert.equal(s.paint, 0);
     assert.equal(s.pressed, false);
@@ -192,4 +193,33 @@ test('each layout: the cell in its top row, the dock\'s targets at its foot side
   assert.equal(PHONE.tip, null);
   assert.ok(PHONE.dock.x === 0 && PHONE.dock.w === PHONE.w && PHONE.dock.bottom === 0, 'the phone\'s dock is the bottom edge');
   assert.ok(PHONE.mic.w >= 30 && PHONE.send.h >= 38, 'finger-sized targets as the live dock\'s');
+});
+
+test('the Android tour: the phone\'s story, then the bubble chapter – the top row\'s round icon pulled out becomes the bubble', () => {
+  const tour = ANDROID_TOUR;
+  const { layout } = tour;
+  assert.deepEqual(tour.chapters.map((chapter) => chapter.title), ['Press to freeze', 'Paint', 'Talk or type', 'Send', 'Bubble']);
+  assert.ok(tour.duration > TOURS.phone.duration && tour.duration <= 45_000, `duration ${tour.duration} ms`);
+  for (const caption of tour.captions) assert.ok(caption.text.length <= 60 && !/[äöüß]/i.test(caption.text), `short English caption: ${caption.text}`);
+  assert.equal(TOURS.phone.firstOn('handle'), -1, 'the iPhone web app\'s tour has no bubble');
+  assert.equal(TOURS.desktop.firstOn('out'), -1);
+  const handle = tour.firstOn('handle');
+  const out = tour.firstOn('out');
+  assert.ok(handle > tour.firstOn('sent') && out > handle && out < tour.firstOn('end'), 'after Send, before the end card');
+  assert.equal(tour.stateAt(out - 1).bubble, null, 'no bubble before the pull');
+  const grab = frames(tour, handle, out).find((t) => tour.stateAt(t).pressed)!;
+  assert.ok(inside(tour.stateAt(grab).pointer, layout.handle!), 'the finger grabs the round icon');
+  assert.ok(tour.stateAt(out - 1).pressed, 'and pulls it a little away before the bubble comes');
+  let previous = tour.stateAt(out).bubble!;
+  for (const t of frames(tour, out, tour.duration)) {
+    const s = tour.stateAt(t);
+    assert.ok(s.bubble, `the bubble stays out (${Math.round(t)})`);
+    if (s.pressed) assert.deepEqual(s.bubble, s.pointer, 'it follows the finger while pulled');
+    assert.ok(Math.hypot(s.bubble.x - previous.x, s.bubble.y - previous.y) < 40, 'it never jumps');
+    previous = s.bubble;
+  }
+  const end = tour.stateAt(tour.duration);
+  assert.deepEqual(end.bubble, layout.drop, 'it stays where it was dropped');
+  assert.equal(end.handle.on && end.out.on, true, 'the icon stays in the row, faint');
+  assert.ok(layout.drop!.y > layout.header && layout.drop!.y < layout.h, 'dropped on the screen');
 });

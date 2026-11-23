@@ -18,7 +18,7 @@ test('a removed task takes the wakes and schedules of its steps and delegated wo
   const todo = h.tasks.create({ conversationId: chat.id, parentId: child.id, title: 'Pick a track', assigneeKind: 'human', createdBy: 'ag_ivy' });
   const other = h.tasks.create({ conversationId: chat.id, title: 'Write the post', assigneeId: 'ag_ivy', createdBy: 'human' });
   h.wakes.wake({ agentId: 'ag_ivy', reason: 'task', conversationId: chat.id, taskId: child.id, coalesceKey: `task:${child.id}` });
-  h.scheduler.create({ ownerId: HUMAN_ID, conversationId: chat.id, taskId: todo.id, kind: 'timer', title: todo.title, spec: { at: h.clock.now() + 3_600_000 }, payload: {} });
+  h.scheduler.create({ ownerId: 'ag_ivy', conversationId: chat.id, taskId: todo.id, kind: 'reminder', title: todo.title, spec: { at: h.clock.now() + 3_600_000 }, payload: { note: 'Look at the track' } });
   h.wakes.wake({ agentId: 'ag_ivy', reason: 'task', conversationId: chat.id, taskId: other.id, coalesceKey: `task:${other.id}` });
   assert.ok(h.wakeRows().some((row) => row.task_id === child.id));
   assert.equal(h.scheduler.list({ taskId: todo.id }).length, 1);
@@ -26,6 +26,6 @@ test('a removed task takes the wakes and schedules of its steps and delegated wo
   h.tasks.remove(parent.id, HUMAN_ID);
   assert.equal(h.tasks.get(child.id), undefined, 'the delegated work went with its task');
   assert.deepEqual(h.wakeRows().filter((row) => row.task_id === child.id || row.task_id === todo.id), [], 'no wake for a part');
-  assert.deepEqual(h.scheduler.list({ taskId: todo.id }), [], "the part's timer is gone");
+  assert.deepEqual(h.scheduler.list({ taskId: todo.id }), [], "the part's reminder is gone");
   assert.ok(h.wakeRows().some((row) => row.task_id === other.id), 'other tasks keep their wakes');
 });

@@ -66,7 +66,7 @@ test('device scope rules follow the capability matrix', () => {
   const device = (capabilities: DeviceCapability[]): ClientScope => ({ kind: 'device', deviceId: 'dev_x', capabilities, secure: true });
   const may = (method: string, scope: ClientScope) => allowedScope(table.get(method)!.scope, scope);
   const todo = device(['todo']);
-  for (const method of ['todos.list', 'todos.add', 'todos.changeWidget', 'tasks.finish', 'blocks.answer', 'blocks.state', 'blocks.event',
+  for (const method of ['todos.list', 'tasks.quickCreate', 'todos.changeWidget', 'tasks.finish', 'blocks.answer', 'blocks.state', 'blocks.event',
     'files.upload', 'files.uploadChunk', 'files.get', 'files.read', 'events.subscribe', 'events.unsubscribe', 'system.info', 'settings.get', 'agents.list', 'ui.state']) {
     assert.ok(may(method, todo), `${method} for 'todo'`);
   }

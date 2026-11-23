@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { phoneTools } from '../../../src/runtime/phone/tools.ts';
 import { movingKey } from '../../../src/runtime/phone/adb-args.ts';
 import { AdbPhone, type ExecResult } from '../../../src/runtime/phone/adb.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import type { ToolContext } from '../../../src/runtime/tools/types.ts';
 import { fakeAdb, out } from './fakes.ts';
 
@@ -38,20 +38,24 @@ test('reversible claims: only looking, listing, disconnecting and moving keys', 
 
 // Feedback 16.11.2026 F16: phone.say names the agent, and each answer reads as a fact with what I do next.
 test('phone.say passes the agent and the run, and each answer of a question reads as its own fact', async () => {
-  const calls: Array<{ text: string; ask: boolean; job?: string; by?: string }> = [];
-  let answer: 'yes' | 'no' | 'none' = 'yes';
-  const driver = { say: async (_serial: string | undefined, text: string, ask: boolean, step?: { job?: string; by?: string }) => { calls.push({ text, ask, job: step?.job, by: step?.by }); return { serial: 'dev_phone', ...(ask ? { answer } : {}) }; } };
+  const calls: Array<{ text: string; buttons?: string[]; job?: string; by?: string }> = [];
+  let answer = 'yes';
+  const driver = { say: async (_serial: string | undefined, text: string, buttons: string[] | undefined, step?: { job?: string; by?: string }) => { calls.push({ text, buttons, job: step?.job, by: step?.by }); return { serial: 'dev_phone', ...(buttons ? { answer } : {}) }; } };
   const say = phoneTools(driver as never).find((tool) => tool.name === 'phone.say')!;
   const run = { ...ctx, runId: 'run_1', agent: { name: 'Felix' } } as unknown as ToolContext;
   const text = (output: unknown) => (output as { content: Array<{ text: string }> }).content[0].text;
   assert.match(text(await say.run({ text: 'Sending Anna the photo' }, run)), /bubble shows my line/);
-  assert.deepEqual(calls[0], { text: 'Sending Anna the photo', ask: false, job: 'run_1', by: 'Felix' });
+  assert.deepEqual(calls[0], { text: 'Sending Anna the photo', buttons: undefined, job: 'run_1', by: 'Felix' });
   assert.match(text(await say.run({ text: 'May I?', ask: true }, run)), /answered ✓: the phone is mine/);
   answer = 'no';
   assert.match(text(await say.run({ text: 'May I?', ask: true }, run)), /answered ✕ – not now/);
   answer = 'none';
   assert.match(text(await say.run({ text: 'May I?', ask: true }, run)), /No answer within 60 s/);
-  assert.equal(calls[1].ask, true);
+  assert.deepEqual(calls[1].buttons, ['✓']);
+  answer = 'Later';
+  const tapped = await say.run({ text: 'Send now?', buttons: ['Send now', 'Later'] }, run);
+  assert.match(text(tapped), /tapped "Later"/);
+  assert.deepEqual(calls[4].buttons, ['Send now', 'Later']);
   assert.ok(say.description.length < 500);
 });
 

@@ -1,7 +1,7 @@
 // Owns: the screen as an agent reads it – the accessibility tree flattened in document order into the node rows the PC's
 // phone tools render (apps/desktop/src/runtime/phone/uiautomator.ts PhoneNode: depth, parent, text, desc, id, cls, pkg,
 // bounds, clickable, scrollable, checkable, checked, enabled, focused, selected, password), invisible nodes left out,
-// at most MAX nodes; and which element a tap at a point means (the smallest clickable one around it). Pure Java over a
+// at most MAX nodes (a tap is a finger's press, UseService). Pure Java over a
 // small Node view, so it runs in host tests (test/phoneuse/ScreenTreeTest.java). Never: reads a password field's text.
 package com.teydralab.autark.android.phoneuse;
 
@@ -98,32 +98,4 @@ public final class ScreenTree {
     }
 
     private static void flag(Map<String, Object> row, String key, boolean value) { if (value) row.put(key, true); }
-
-    /** Whether the row sits inside a WebView: a page's elements take a real touch (Chromium's ACTION_CLICK reports
-     *  success on Autark's own page while nothing happens), so a tap there is always a gesture. */
-    public static boolean insideWeb(List<Map<String, Object>> rows, int index) {
-        for (int i = index; i >= 0 && i < rows.size(); i = (Integer) rows.get(i).get("parent")) {
-            if ("WebView".equals(rows.get(i).get("cls"))) return true;
-        }
-        return false;
-    }
-
-    /** The row index of the smallest clickable element around (x, y), -1 when none: a tap then clicks it instead of a gesture. */
-    @SuppressWarnings("unchecked")
-    public static int clickableAt(List<Map<String, Object>> rows, int x, int y) {
-        int best = -1;
-        long bestArea = Long.MAX_VALUE;
-        for (int i = 0; i < rows.size(); i++) {
-            Map<String, Object> row = rows.get(i);
-            if (!Boolean.TRUE.equals(row.get("clickable")) || Boolean.FALSE.equals(row.get("enabled"))) continue;
-            Object bounds = row.get("bounds");
-            if (!(bounds instanceof List)) continue;
-            List<Object> b = (List<Object>) bounds;
-            int l = (Integer) b.get(0), t = (Integer) b.get(1), r = (Integer) b.get(2), btm = (Integer) b.get(3);
-            if (x < l || x >= r || y < t || y >= btm) continue;
-            long area = (long) (r - l) * (btm - t);
-            if (area < bestArea) { bestArea = area; best = i; }
-        }
-        return best;
-    }
 }

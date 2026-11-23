@@ -1,7 +1,7 @@
 // PWA page-side helpers: pairing (#pair=<secret>[&to=<route>] or the PC's 6-digit code → device token, then the route),
 // the tokenless `POST /rpc` call (pairing, an employee's join: pwa/join.ts),
-// service worker registration, install prompt, Web Push subscription, the offline "For you"
-// snapshot, SW navigation and the socket check on every push ('wf.wake'), and Back layer by layer (back.ts).
+// service worker registration, install prompt, Web Push subscription, this device's copy of the last data (offline-cache.ts),
+// SW navigation and the socket check on every push ('wf.wake'), and Back layer by layer (back.ts).
 // Inside the iPhone web app (pwa/hosted.ts): the shell's worker instead of /sw.js, /rpc under the shell's base, and the
 // notices of read chats and calls closed while the app is in front (Apple gets no clear pushes).
 // Owns: everything the browser/phone build needs beyond the shared UI.
@@ -13,12 +13,11 @@ import type { MethodName, ParamsOf, ResultOf } from '../../shared/api/methods.ts
 import { isPhoneRoute } from '../../shared/api/phone-route.ts';
 import { PROTOCOL_VERSION } from '../../shared/api/protocol.ts';
 import type { RpcResponse } from '../../shared/api/protocol.ts';
-import type { TaskView } from '../../shared/model/tasks.ts';
 import { platform } from '../lib/platform.ts';
 import { RpcError, checkAlive, rpc } from '../lib/rpc.ts';
-import { conversations, loaded, todos } from '../lib/store.ts';
+import { cachedAt, conversations, loaded } from '../lib/store.ts';
 import { parseRoute, route } from '../lib/router.ts';
-import { idbGet, idbSet, TODO_SNAPSHOT_KEY } from './idb.ts';
+import { watchOfflineCopy } from './offline-cache.ts';
 import { watchPersonMark } from './person-access.ts';
 import { startBack } from './back.ts';
 import { hostedPath, hostedShell } from './hosted.ts';
@@ -104,6 +103,9 @@ export function hasDeviceToken(): boolean {
 
 let registration: ServiceWorkerRegistration | null = null;
 
+/** Live data is shown – not this device's copy (offline-cache.ts), whose unread counts may be old. */
+const live = (): boolean => loaded.peek() && cachedAt.peek() === null;
+
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (platform === 'desktop' || !('serviceWorker' in navigator) || !isSecureContext) return null;
   try {
@@ -121,7 +123,7 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
       }
     });
     const refreshNotices = () => {
-      if (loaded.peek() && document.visibilityState === 'visible') void closeReadNotices();
+      if (live() && document.visibilityState === 'visible') void closeReadNotices();
       else requestBadgeSync(registration);
     };
     navigator.serviceWorker.addEventListener('controllerchange', refreshNotices);
@@ -270,56 +272,8 @@ export async function closeReadNotices(reg: Pick<ServiceWorkerRegistration, 'get
 
 function watchReadNotices(): void {
   const visible = () => document.visibilityState === 'visible';
-  document.addEventListener('visibilitychange', () => { if (visible() && loaded.peek()) void closeReadNotices(); });
-  effect(() => { void conversations.value; if (loaded.value && visible()) void closeReadNotices(); });
-}
-
-// ------------------------------------------------------------------ offline snapshot
-
-/** Every to-do of the list, the "Later" ones too: App.tsx splits them at the time it shows the copy (F04). */
-export interface TodoSnapshot { at: number; items: TaskView[] }
-
-/**
- * The last "For you" list this page knew – what App.tsx shows read-only while the PC is away or
- * refuses this phone. Kept current by watchTodoSnapshot on every change (not debounced, so a
- * refusal right after a change still shows it); main.tsx seeds it from IndexedDB at boot. Null on desktop.
- */
-export const offlineSnapshot = signal<TodoSnapshot | null>(null);
-
-/** The newest stored snapshot: IndexedDB's, unless this page already holds a newer one. */
-export function readTodoSnapshot(): Promise<TodoSnapshot | undefined> {
-  return idbGet<TodoSnapshot>(TODO_SNAPSHOT_KEY).catch(() => undefined).then((stored) => {
-    const current = offlineSnapshot.peek();
-    return current && (!stored || current.at >= stored.at) ? current : stored;
-  });
-}
-
-function writeTodoSnapshot(snapshot: TodoSnapshot): Promise<void> {
-  return idbSet(TODO_SNAPSHOT_KEY, snapshot);
-}
-
-/**
- * Mirrors the live "For you" list into `offlineSnapshot` (at once) and IndexedDB (debounced) so
- * it opens offline. Only after the first successful load: before it – and while a reload fails,
- * which leaves the list untouched – `todos` is not the person's list, and an empty boot list must
- * never replace the snapshot. Every later change (a reload, an event delta, an answer) is mirrored.
- * Returns a stop function (tests; the app keeps it for the page's lifetime).
- */
-export function watchTodoSnapshot(write: (snapshot: TodoSnapshot) => Promise<void> = writeTodoSnapshot, delayMs = 1500): () => void {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const stop = effect(() => {
-    const items = todos.value;
-    if (!loaded.value) return;
-    const snapshot: TodoSnapshot = { at: Date.now(), items };
-    offlineSnapshot.value = snapshot;
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => { timer = null; void write(snapshot).catch(() => undefined); }, delayMs);
-  });
-  return () => {
-    stop();
-    if (timer) clearTimeout(timer);
-    timer = null;
-  };
+  document.addEventListener('visibilitychange', () => { if (visible() && live()) void closeReadNotices(); });
+  effect(() => { void conversations.value; void cachedAt.value; if (loaded.value && live() && visible()) void closeReadNotices(); });
 }
 
 /**
@@ -331,7 +285,7 @@ export async function startPwa(): Promise<void> {
   await pairFromFragment();
   watchInstallPrompt();
   void registerServiceWorker();
-  watchTodoSnapshot();
+  watchOfflineCopy(); // 19.11.2026: the whole app opens without the PC, with its last data
   watchPersonMark(); // F-52: a person's token – a removed person sees their own screen (AccessRequest.tsx)
   startBack(); // B-078: one Back layer by layer (the Android app calls window.autarkBack, the iPhone app an edge swipe)
   watchReadNotices();

@@ -93,16 +93,19 @@ test('a person finishes work an agent gave them: the agent hears how it ended', 
   assert.ok(r.wakeRows().some((row) => row.agent_id === 'ag_research' && /"Pick the colours", which I gave Anna Berg, is done/.test(row.note ?? '')), 'the giver hears it');
 });
 
-test('the to-do button on a colleague\'s phone: a screenshot, a quick task to an agent they work with, their own to-do', async (t) => {
+test('the to-do button on a colleague\'s phone: a screenshot, the line as their own to-do (their assistant sorts it), a quick task to an agent they work with', async (t) => {
   const r = peopleRig({ modules: [registerPersonVoice] });
   t.after(() => r.cleanup());
   const anna = await r.join('Anna Berg', { scopes: { spaces: ['sp_company'], startChats: true, assignAgents: true } });
   const ben = await r.join('Ben Vogt', { scopes: { spaces: ['sp_company'], startChats: false, assignAgents: false } });
   const shot = await anna.client.call<{ id: string }>('files.upload', { name: 'screen-1.jpg', mime: 'image/jpeg', dataBase64: Buffer.from('jpeg bytes').toString('base64') });
   const { task } = await anna.client.call<{ task: TaskView }>('tasks.quickCreate', { text: 'The header looks broken', attachments: [{ fileId: shot.id, name: 'screen-1.jpg' }], clientId: 'c1' });
-  assert.equal(task.assigneeKind, 'agent');
-  assert.notEqual(task.assigneeId, 'ag_secret', 'never an agent of another space');
+  // Quests round 20.11.2026 (one intake): the line stands at once as the person's own to-do; their assistant sorts it.
+  assert.equal(task.assigneeKind, 'human');
+  assert.equal(r.tasks.get(task.id)!.assigneeId, anna.person.id);
   assert.equal(r.tasks.get(task.id)!.createdBy, anna.person.id);
+  const given = await anna.client.call<{ task: TaskView }>('tasks.quickCreate', { text: 'Fix the header', target: { kind: 'agent', id: 'ag_research' } });
+  assert.equal(given.task.assigneeId, 'ag_research', 'an agent they work with takes a line given to it');
   assert.deepEqual(r.tasks.get(task.id)!.files?.map((file) => file.name), ['screen-1.jpg']);
   const again = await anna.client.call<{ task: TaskView }>('tasks.quickCreate', { text: 'The header looks broken', attachments: [{ fileId: shot.id }], clientId: 'c1' });
   assert.equal(again.task.id, task.id, 'a retry is the same task');
@@ -113,4 +116,24 @@ test('the to-do button on a colleague\'s phone: a screenshot, a quick task to an
   const kept = await ben.client.call<{ task: TaskView }>('tasks.quickCreate', { text: 'Order paper' });
   assert.equal(r.tasks.get(kept.task.id)!.assigneeId, ben.person.id, 'without agents of theirs a colleague keeps it');
   await assert.rejects(anna.client.call('files.upload', { name: 'x.exe', mime: 'application/octet-stream', dataBase64: 'AA==' }), /speech and screenshots/);
+});
+
+test('a colleague\'s Tasks page: "+ quest", a line into it at a slot\'s time and length, "Only me", moving and timing a to-do', async (t) => {
+  const r = peopleRig();
+  t.after(() => r.cleanup());
+  const anna = await r.join('Anna Berg', { scopes: { spaces: ['sp_company'], startChats: true, assignAgents: true } });
+  const quest = await anna.client.call<TaskView>('tasks.create', { kind: 'quest', title: 'Trade fair' });
+  assert.equal(r.tasks.get(quest.id)!.kind, 'quest');
+  const at = r.services.clock.now() + 3_600_000;
+  const { task } = await anna.client.call<{ task: TaskView }>('tasks.quickCreate', { text: 'Book the booth', quest: quest.id, at, minutes: 30, private: true });
+  const stored = r.tasks.get(task.id)!;
+  assert.deepEqual([stored.parentId, stored.at, stored.minutes, stored.private], [quest.id, at, 30, true]);
+  const loose = await anna.client.call<{ task: TaskView }>('tasks.quickCreate', { text: 'Print the flyers' });
+  await anna.client.call('tasks.update', { id: loose.task.id, patch: { parentId: quest.id, at, minutes: 45 } });
+  assert.deepEqual([r.tasks.get(loose.task.id)!.parentId, r.tasks.get(loose.task.id)!.minutes], [quest.id, 45]);
+  const done = await anna.client.call<{ file?: { id: string } }>('files.uploadChunk', { uploadId: 'up_plan0001', index: 0, dataBase64: Buffer.from('Booth plan').toString('base64'), final: true, name: 'plan.txt' });
+  const filed = await anna.client.call<{ task: TaskView }>('tasks.quickCreate', { text: 'Check the plan', attachments: [{ fileId: done.file!.id }], private: false });
+  assert.deepEqual(r.tasks.get(filed.task.id)!.files?.map((file) => file.name), ['plan.txt'], 'Files… without a chat: their own upload goes with the to-do');
+  const other = r.tasks.create({ kind: 'quest', title: 'Not hers', assigneeKind: 'agent', assigneeId: 'ag_secret', createdBy: 'ag_secret' });
+  await assert.rejects(anna.client.call('tasks.quickCreate', { text: 'x', quest: other.id }), /not found/i, 'only a quest they read');
 });

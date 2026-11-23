@@ -3,31 +3,33 @@
 // now (date, time and zone, the model the turn runs on), the split's own facts (B-057), "My environment now"
 // (environment.ts), who works nearby (work-presence), the models line, "## My chats" (chat-overview.ts), my split groups
 // still at work, my home project and its skills (agent-core/prompt.ts), "## Pinned" – always-skills and pinned notes
-// with the day they were saved under one cap (knowledge/always.ts) –, the current task, "## My tasks" each with its next
-// look, "## Given by me" (work I gave that others own) and my own schedules. A section says real news only: no counters, no previews of my own lines, times absolute in the person's
-// zone (context/time.ts). One agent, one context: every section reads the agent's own mode (the turn's mode is its own);
-// only the current task depends on what woke the turn. A split's turn (thread `split:<id>`) drops its main self's
+// with the day they were saved under one cap (knowledge/always.ts) –, "## My quests" (Quests round 20.11.2026: one line per
+// open quest of mine, no cap, then my lone to-dos – context/quest-text.ts), the turn's own quest or to-do as it stands, and
+// "## Related open work" when a person's new line is about the work of others. A section says real news only: no counters,
+// no previews of my own lines, times absolute in the person's zone (context/time.ts). One agent, one context: every section
+// reads the agent's own mode (the turn's mode is its own); only the current work and the related work depend on what woke
+// the turn. A split's turn (thread `split:<id>`) drops its main self's
 // sections.
 // B-083: "## Now" says what I run on – model · effort and the turn's temperature (route.temperature; where the model
 // samples at its own setting, my stance for the step with TEMPERATURE_FACT) – and my start model and who set it.
 // Owner 15.11.2026: "## Now" also names the engine the turn runs in ("in Claude Code"; environment.ts engineName) – the
 // engines the system has stand in "My environment now".
+// Halb 21.11.2026: "## Now" also says how big my context is (my session's own count, rounded to 5k, from 20k on, not in a part).
 // B-089: the models line is its own section, so a price refresh or a catalog relist re-sends only that section.
+// Runde „Halb“ 21.11.2026: last, "## From my memory" – the lines my subconscious gave this turn for the entries it picked from
+// the word search, each with how it opens (subconscious/hints.ts); none when it gave none, so the section leaves again.
 // Owns: those renderings and their caps. A failing source is skipped (logged), never fatal.
 // Never: state reconstructed from memory similarity - tasks and schedules come from their services; any list of what
-// memory holds, or a hint of the subconscious (it shows real tool calls, agents/turn-prepare.ts).
+// memory holds beyond my subconscious's picks for this turn.
 
 import type { RuntimeServices } from '../contracts.ts';
 import type { Agent } from '../../shared/model/org.ts';
 import type { ModeInfo } from '../../shared/model/knowledge.ts';
 import type { RouteDecision } from '../../shared/model/providers.ts';
-import type { Schedule } from '../../shared/model/tasks.ts';
-import { excerpt } from '../../shared/text/chat-names.ts';
 import { temperatureText } from '../../shared/model/runs.ts';
-import { dayName, dueText, fullDateTime, profileZone } from './time.ts';
+import { dayName, fullDateTime, profileZone } from './time.ts';
 import { TEMPERATURE_FACT, takesTemperature } from '../engines/http/temperature.ts'; // B-083
-import { currentTaskSection, taskLine } from './task-text.ts';
-import { namesFor } from '../tasks/next.ts';
+import { currentWorkSection, myQuestsSection, relatedSection } from './quest-text.ts'; // Quests round 20.11.2026
 import { chatOverview } from './chat-overview.ts'; // 13.11.2026: "## My chats"
 import { modelsFactsLine } from './setup-facts.ts';
 import { SPLIT_SKIP, activeSplitsLine, splitFacts, splitSection } from './split-section.ts'; // B-057
@@ -35,11 +37,13 @@ import { ALWAYS_CHARS, alwaysLines, alwaysSet } from '../knowledge/always.ts';
 import { homeSection } from '../agent-core/prompt.ts'; // B-044: the home project and its skills (names + descriptions)
 import { engineName, environmentNow, ownFileTools } from './environment.ts'; // disk, companies and PCs, sign-ins, connected apps
 import { workNearbySection } from '../work-presence/context-line.ts'; // B-055 G (Q11): who else is changing files near this agent's work
+import { hintsSection, turnHints } from '../subconscious/hints.ts'; // Runde „Halb“ 21.11.2026: "## From my memory"
+import { MAIN_THREAD } from '../../shared/model/origin.ts';
+import { SessionStore } from '../agents/sessions.ts'; // Halb 21.11.2026: my context's size in "## Now"
+import { isSplitThread } from '../../shared/model/splits.ts';
 
 /** The one cap of what always stands in the prompt (knowledge/always.ts). */
 export const PINNED_CAP = ALWAYS_CHARS;
-const MAX_TASKS = 10;
-const MAX_SCHEDULES = 10;
 
 export interface VolatileInput {
   agent: Agent;
@@ -55,8 +59,23 @@ export interface VolatileInput {
 function nowSection(services: RuntimeServices, input: VolatileInput, zone: string): string {
   const { route } = input;
   const now = services.clock.now();
-  return [`## Now`, `${fullDateTime(now, zone)} (${zone})`, runsOnLine(services, route), startModelLine(services, input.agent, zone, now)]
+  return [`## Now`, `${fullDateTime(now, zone)} (${zone})`, runsOnLine(services, route), startModelLine(services, input.agent, zone, now), contextLine(services, input)]
     .filter(Boolean).join('\n');
+}
+
+/** Below this my context is small enough to say nothing about it. */
+export const CONTEXT_LINE_MIN = 20_000;
+
+/**
+ * Halb 21.11.2026: how big my context is – the engine's own count on my session of this thread (SessionBinding.contextTokens,
+ * as of my last step), rounded to 5k; none below CONTEXT_LINE_MIN and none for a part (it starts small and ends).
+ */
+function contextLine(services: RuntimeServices, input: VolatileInput): string {
+  if (!input.route.engine || (input.thread && isSplitThread(input.thread))) return '';
+  let tokens: number | undefined;
+  try { tokens = new SessionStore(services.db).get(input.agent.id, input.thread ?? MAIN_THREAD, input.route.engine)?.contextTokens; } catch { tokens = undefined; }
+  if (!tokens || tokens < CONTEXT_LINE_MIN) return '';
+  return `My context holds about ${Math.round(tokens / 5_000) * 5}k tokens; each step of mine reads it again.`;
 }
 
 /** A model's catalog name, else its id without the provider prefix. */
@@ -95,50 +114,6 @@ function ownerName(services: RuntimeServices): string {
   try { return services.settings.get().profile.name?.trim() || 'the person'; } catch { return 'the person'; }
 }
 
-/**
- * "## My tasks": my unfinished tasks but the current one (a piece of a listed task stands with it), each with its next
- * look; one more line for planned wakes that carry no task – or "Nothing is planned for me." when there is nothing.
- */
-function myTasksSection(services: RuntimeServices, agent: Agent, currentTaskId: string | undefined, zone: string): string {
-  const open = services.tasks.openFor(agent.id);
-  const ids = new Set(open.map((task) => task.id));
-  const top = open.filter((task) => task.id !== currentTaskId && !(task.parentId && (ids.has(task.parentId) || task.parentId === currentTaskId)));
-  const now = services.clock.now();
-  const names = namesFor(services, zone);
-  const lines = top.slice(0, MAX_TASKS).map((task) => taskLine(task, names, now));
-  if (top.length > MAX_TASKS) lines.push(`(+${top.length - MAX_TASKS} more – tasks.list)`);
-  const planned = services.wakes.list(agent.id).filter((wake) => wake.claimedAt === undefined && !wake.taskId && wake.dueAt > now);
-  if (planned.length) lines.push(`- ${planned.length} more look${planned.length === 1 ? '' : 's'} planned without a task, the next ${dueText(Math.min(...planned.map((wake) => wake.dueAt)), zone, now)}`);
-  if (!lines.length && currentTaskId) return '';
-  return ['## My tasks', ...(lines.length ? lines : ['Nothing is planned for me.'])].join('\n');
-}
-
-/** "## Given by me": unfinished work I gave that someone else owns, newest first, with its state – it stays my business. */
-function givenSection(services: RuntimeServices, agent: Agent, zone: string): string {
-  const given = services.tasks.list({ givenBy: agent.id, includeSteps: true, limit: MAX_TASKS + 1 });
-  if (!given.length) return '';
-  const now = services.clock.now();
-  const names = namesFor(services, zone);
-  const lines = given.slice(0, MAX_TASKS).map((task) => taskLine(task, names, now, { owner: true, mine: agent.id }));
-  if (given.length > MAX_TASKS) lines.push('(more – tasks.list whose "given")');
-  return ['## Given by me', ...lines].join('\n');
-}
-
-function scheduleLine(schedule: Schedule, zone: string, now: number): string {
-  const when = schedule.nextAt ? `next ${dueText(schedule.nextAt, zone, now)}` : 'no next run';
-  const repeat = schedule.spec.cron ? ` · cron "${schedule.spec.cron}"` : schedule.spec.everyMs ? ` · every ${Math.round(schedule.spec.everyMs / 60_000)} min` : schedule.spec.times ? ` · daily at ${schedule.spec.times.join(', ')}` : '';
-  return `- ${schedule.id} · ${schedule.kind} · ${excerpt(schedule.title, 100)} · ${when}${repeat}`;
-}
-
-function schedulesSection(services: RuntimeServices, agent: Agent, zone: string): string {
-  const own = services.scheduler.list({ ownerId: agent.id }).filter((schedule) => schedule.active);
-  if (!own.length) return '';
-  const now = services.clock.now();
-  const lines = own.slice(0, MAX_SCHEDULES).map((schedule) => scheduleLine(schedule, zone, now));
-  if (own.length > MAX_SCHEDULES) lines.push(`(+${own.length - MAX_SCHEDULES} more – schedules.list)`);
-  return ['## My schedules', ...lines].join('\n');
-}
-
 /** The agent's own mode (the turn's mode when given); undefined when the mode library does not know it. */
 function ownMode(services: RuntimeServices, input: VolatileInput): ModeInfo | undefined {
   if (input.mode) return input.mode;
@@ -174,10 +149,10 @@ export function volatileSections(services: RuntimeServices, input: VolatileInput
     ['splits', () => (split ? '' : activeSplitsLine(services, agent.id, input.thread, conversationId))], // B-057 R1-4: its split groups still at work (B-080: from every chat, this thread's first)
     ['home', () => homeSection(services, agent, mode?.key, ownFileTools(services, input.route?.engine))], // B-044: the home project turns start in and the skills found there
     ['pinned', () => pinnedSection(services, agent, zone, reach, mode)],
-    ['task', () => (taskId ? currentTaskSection(services, taskId, zone) : '')],
-    ['tasks', () => myTasksSection(services, agent, taskId, zone)],
-    ['given', () => givenSection(services, agent, zone)],
-    ['schedules', () => schedulesSection(services, agent, zone)],
+    ['quests', () => myQuestsSection(services, agent.id, zone)],
+    ['task', () => (taskId ? currentWorkSection(services, taskId, agent.id, zone) : '')],
+    ['related', () => relatedSection(services, agent.id, conversationId, zone)],
+    ['memory', () => (split ? '' : hintsSection(turnHints(services, agent.id, input.thread ?? MAIN_THREAD)))], // Runde „Halb“: my subconscious's hints for this turn
   ];
   const out: VolatileSection[] = [];
   for (const [name, build] of sections) {

@@ -18,7 +18,10 @@ test('desktop: visible, pageshow, online and a push leave the runtime port alone
   globals.window = {
     workforce: {
       platform: 'win32',
-      connect: () => { connects += 1; return Promise.resolve(channel.port1); },
+      // the preload's main-world wrapper: the UI boot claims its one connector (ui/main.tsx, lib/runtime-port.ts); the
+      // public connect() then belongs to nobody
+      connect: () => Promise.reject(new Error('The runtime connection belongs to the app window.')),
+      claimConnector: () => (done: (port: MessagePort) => void) => { connects += 1; done(channel.port1); },
       onRuntime: () => () => undefined,
     },
     addEventListener: (type: string, fn: () => void) => { windowListeners.set(type, fn); },
@@ -37,7 +40,9 @@ test('desktop: visible, pageshow, online and a push leave the runtime port alone
 
   const { platform } = await import('../../../src/ui/lib/platform.ts');
   const { rpc, checkAlive } = await import('../../../src/ui/lib/rpc.ts');
+  const { claimConnector } = await import('../../../src/ui/lib/runtime-port.ts');
   assert.equal(platform, 'desktop');
+  assert.equal(claimConnector((globals.window as { workforce: unknown }).workforce), true);
   rpc.start();
   for (let i = 0; i < 3 && rpc.status.value !== 'open'; i++) await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(rpc.status.value, 'open');

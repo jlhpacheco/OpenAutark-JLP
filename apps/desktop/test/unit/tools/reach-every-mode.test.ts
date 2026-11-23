@@ -137,7 +137,6 @@ test('E.3: phone.* is offered where adb is installed on this PC or an app phone 
 test('why a tool cannot work here names the reason the registry judged by', () => {
   assert.match(cannotWork('phone.say'), /^phone\.say needs a linked phone/);
   assert.match(cannotWork('phone.say'), /needs a linked phone or adb on this PC.*adb is set up by an agent in computer mode \(skill phone-adb\)/, 'the ADB way names where it is set up');
-  assert.equal(cannotWork('library.find', { requires: 'embeddings' }), 'library.find needs an embedding model, and none that can serve is chosen in Settings.');
   assert.equal(cannotWork('calls.join', { modes: ['computer', 'browser'] }), 'calls.join works in mode computer or browser.');
   assert.equal(cannotWork('files.read'), 'files.read cannot work here right now.');
 });
@@ -192,7 +191,7 @@ test('"My environment now" names the linked phone, its phone use and the PC it h
 });
 
 test('the core set holds the tools every agent looked up by name; the More-tools list opens with how a name is called', () => {
-  for (const name of ['tasks.get', 'shell.exec', 'schedules.remind', 'memory.write', 'agents.split', 'agents.split_tell']) {
+  for (const name of ['tasks.list', 'shell.exec', 'tasks.remind', 'memory.write', 'agents.split', 'agents.split_tell']) {
     assert.ok(Object.hasOwn(BASE_CORE, name), name);
     assert.ok(coreNames({ key: 'writing', tools: ['files.*'] }).has(name), `${name} in writing mode`);
   }

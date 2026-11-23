@@ -2,6 +2,7 @@
 // goes into its stdin, its stream is read until the result or its end. A steered line goes into the same stdin (the turn ends
 // once each was answered or the CLI ended); B-080: set_model switches the model of its next request (ranOn: once one ran on it);
 // a Stop is an interrupt request and the turn returns after 3 s at the latest. Split from engine.ts, which builds the command.
+// Sicher-Runde 19.11.2026: in Secure mode the CLI's can_use_tool requests are answered on the same stdin (permissions.ts hostRequests).
 // Owns: the running turns (lease, steered lines, live state), their stdin and stdout. Never: starts while the account's
 // histories are purged, hard-kills a CLI (the supervisor's grace kills its tree only after), or keeps the lines a CLI prints after its turn returned.
 
@@ -12,6 +13,7 @@ import { CLAUDE_EXIT_GRACE_MS } from '../../accounts/cli.ts';
 import { ClaudeStreamParser, type ClaudeTurnState } from './stream.ts';
 import { cliModel } from './models.ts';
 import { isRecord, readJsonLines } from '../shared.ts';
+import { hostRequests, type ClaudeSecure } from './permissions.ts';
 
 /** One CLI process of a turn; `model`: the one it ended on (B-080 setModel). */
 export interface Attempt { parser: ClaudeStreamParser; broken: boolean; interrupted: boolean; model: string; started: boolean }
@@ -95,7 +97,7 @@ export class ClaudeTurns {
   }
 
   /** One CLI process of a turn: the user message, then its stream until the result or its end; `fresh`: the new session it announces (B-080). */
-  async attempt(command: string, args: string[], env: NodeJS.ProcessEnv, input: EngineTurnInput, content: Array<Record<string, unknown>>, fresh?: { ref: string; generation: number }): Promise<Attempt> {
+  async attempt(command: string, args: string[], env: NodeJS.ProcessEnv, input: EngineTurnInput, content: Array<Record<string, unknown>>, fresh?: { ref: string; generation: number }, secure?: ClaudeSecure): Promise<Attempt> {
     // Wave 2: never while this account's histories are being purged (nothing awaits between here and the spawn).
     for (let purge = this.purging.get(input.account.id); purge; purge = this.purging.get(input.account.id)) await purge.catch(() => undefined);
     // Stopped while the turn was being prepared (a look before it, a purge): no CLI and no model call after the Stop, as on Codex (codex/turn.ts).
@@ -106,6 +108,9 @@ export class ClaudeTurns {
     const parser = new ClaudeStreamParser(emit, this.now);
     const turn: LiveTurn = { emit, model: input.model, effort: input.effort, state: parser.state };
     this.live.set(input.runId, turn);
+    // Sicher-Runde 19.11.2026: Secure mode – the CLI's permission prompts are answered here through the gate (permissions.ts).
+    const stdin = lease.child.stdin;
+    const host = secure && stdin ? hostRequests((line) => !stdin.destroyed && !stdin.writableEnded && stdin.write(line), secure, input.signal) : undefined;
     let broken = false;
     let lines = 0;
     let open = true; // the turn has not returned yet; afterwards the lines of a CLI ending by itself are not part of it
@@ -119,6 +124,7 @@ export class ClaudeTurns {
         lines++;
         lease.touch();
         if (isRecord(message) && message.type === 'control_response') this.answered(input.runId, message); // B-080: set_model
+        if (host?.(message)) return;
         parser.push(message);
         this.ranOn(turn); // FIXES-3 C1
         if (fresh && parser.state.sessionId) { emit({ type: 'session', ref: parser.state.sessionId, generation: fresh.generation }); fresh = undefined; } // B-080: bound at once

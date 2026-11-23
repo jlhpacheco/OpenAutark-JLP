@@ -14,7 +14,7 @@ import { rankTools } from '../../../src/runtime/tools/builtin/tools-meta.ts';
 import { BASE_CORE, coreReason } from '../../../src/runtime/tools/core-sets.ts';
 import { readFileSync } from 'node:fs';
 import { ModeLibrary } from '../../../src/runtime/modes/service.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { agent } from '../chat/harness.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 

@@ -38,16 +38,15 @@ const HUB_PREFIX = 'mcp__workforce__';
 /** The engine that names our tools under HUB_PREFIX (engines/claude/engine.ts id). */
 const CLAUDE_ENGINE = 'claude';
 
-/** A short keyword index: a family prefix ('schedules.') or a full name → words people use for that work. */
+/** A short keyword index: a family prefix ('calendar.') or a full name → words people use for that work. */
 const KEYWORDS: Readonly<Record<string, string>> = {
-  'schedules.': 'schedule later remind reminder recurring routine repeat daily weekly timer follow-up',
-  'calendar.': 'calendar appointment meeting event free slot day block agenda move reschedule remove',
-  'todos.': 'todo to-do prepare errand',
+  'calendar.': 'calendar appointment meeting event free slot gap day agenda busy connect ics google',
   'agents.': 'agent colleague team hire staff org role',
   'agents.split': 'split parallel fork worker subtask fan-out pipeline verify ultra', // B-057
   'chat.': 'chat message conversation post channel notes members invite direct dm edit delete archive reply',
   'people.': 'people person colleague employee human staff directory coworker',
-  'tasks.': 'task work give delegate handoff hand over assign ask person question wait done finish drop status owner',
+  'tasks.': 'task quest to-do todo work give delegate handoff hand over assign ask person question wait done finish drop status owner thread prepare errand',
+  'tasks.remind': 'schedule later remind reminder note recurring routine repeat daily weekly timer follow-up look again',
   'knowledge.': 'memory recall note fact preference source document skill procedure instructions how-to reference style example wrote person voice tone library open load',
   'memory.': 'memory remember note fact preference pin pinned forget',
   'skills.': 'skill procedure instructions how-to save write',
@@ -76,7 +75,7 @@ const KEYWORDS: Readonly<Record<string, string>> = {
   decide: 'choose choice pick option decision',
   'chat.call': 'call ring phone talk voice speak', // B-081
   'ui.help': 'rich answer block chart table mini-app widget',
-  'feedback.report': 'bug idea problem report',
+  'feedback.report': 'bug idea problem report maker developer feedback screen',
 };
 
 const STOP: ReadonlySet<string> = new Set(['a', 'an', 'the', 'to', 'of', 'for', 'and', 'or', 'in', 'on', 'at', 'by', 'with', 'from', 'my', 'me', 'i', 'it', 'is', 'do', 'how', 'what', 'which', 'tool', 'tools', 'want', 'need', 'can', 'this', 'that', 'some', 'find', 'use', 'get', 'make']);
@@ -117,12 +116,11 @@ export function calledTool(name: string, args: unknown): { name: string; args: u
 export const PHONE_FAMILY = 'phone.';
 
 /** Why a registered tool is not offered here, with the reason the registry judged by (`tool`: the registered definition). */
-export function cannotWork(name: string, tool?: Pick<ToolDef, 'modes' | 'requires'>): string {
+export function cannotWork(name: string, tool?: Pick<ToolDef, 'modes'>): string {
   if (name.startsWith(PHONE_FAMILY)) {
     return `${name} needs a linked phone or adb on this PC, and neither is here: the person links theirs with the Autark app (skill phone-access); adb is set up by an agent in computer mode (skill phone-adb).`;
   }
   if (tool?.modes?.length) return `${name} works in mode ${tool.modes.join(' or ')}.`;
-  if (tool?.requires === 'embeddings') return `${name} needs an embedding model, and none that can serve is chosen in Settings.`;
   return `${name} cannot work here right now.`;
 }
 

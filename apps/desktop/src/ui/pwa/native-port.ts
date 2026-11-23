@@ -2,14 +2,21 @@
 // (NativePort.java) posts the string 'autark-port' with ONE MessagePort to this page's origin (WebView.postWebMessage);
 // messages are JSON strings `{t: <type>, ...}` both ways. No addJavascriptInterface: an agent's sandboxed iframe can
 // neither receive this port (opaque origin) nor hand the page a fake one (only a message from the top window counts).
-// App → page types: companies, status, share, speechDone, saved, resume, shot, crash, feedback; page → app: colors, card,
-// switch, add, forget, pcs, speak, stopSpeech, download, haptic, shot. The last 'companies', 'status' and 'crash' are
+// App → page types: companies, status, share, speechDone, saved, resume, shot, crash, feedback, woken, voice.stop; page → app:
+// colors, card, switch, add, forget, pcs, speak, stopSpeech, download, haptic, shot, wake (W 19.11.: settings/device-wake.ts),
+// voice.live {on, kind} (19.11.: boot/voice-live.ts – the app keeps voice running in the background; voice.stop ends it all,
+// boot/desktop.ts stopAllVoice). Owner 19.11.2026 (the to-do bubble's way back, pwa/bubble-handle.tsx): page → app
+// bubble.pull {x?, y?}, bubble.move {x, y}, bubble.drop {x, y} (CSS px of the viewport); app → page bubble.state
+// {available, out}. The last 'companies', 'status', 'crash' and 'bubble.state' are
 // replayed to a late subscriber, and the local type 'port' tells a subscriber that a (new) port arrived – right away when
 // one is already here. Feedback 16.11.2026: {t:'shot'} asks the app (0.3.15+) for a picture of its own window
 // (PixelCopy) and requestNativeShot waits at most SHOT_WAIT_MS for {t:'shot', data} – a JPEG data URL – or {t:'shot',
 // error}; the app sends {t:'crash', text} once the person tapped "Report" on its crash screen (the feedback form takes
 // it), and {t:'feedback', down} for its quick way in – volume up and volume down pressed together go down (true) and are
 // let go (false); feedbackKeySteps reads it, the feedback cell answers it as its own press (FeedbackButton.tsx).
+// STIMME 21.11.2026: page → app {t:'hear', id, data, mime, language?} – a dictation piece (base64) the app (0.3.18+, its
+// 'status' says hear:true – nativeCan('hear')) posts to the person's ChatGPT plan itself; app → page {t:'heard', id, text}
+// or {t:'heard', id, error} (lib/dictation-direct.ts).
 // Owns: the port, parsing and dispatch. Never: what a message means (phone-companies.ts, share.ts, … decide).
 
 type NativeMessage = Record<string, unknown>;
@@ -19,11 +26,16 @@ let port: MessagePort | null = null;
 let started = false;
 const handlers = new Map<string, Set<Handler>>();
 const last = new Map<string, NativeMessage>();
-const REPLAYED = new Set(['companies', 'status', 'crash']);
+const REPLAYED = new Set(['companies', 'status', 'crash', 'bubble.state']);
 
 /** True once the app handed the page its port. */
 export function hasNativePort(): boolean {
   return port !== null;
+}
+
+/** Whether the app's latest 'status' names `feature` (e.g. 'hear'; 'wake') while its port is here. */
+export function nativeCan(feature: string): boolean {
+  return port !== null && last.get('status')?.[feature] === true;
 }
 
 /** Sends one message to the app; false when there is no port (a browser, the iPhone web app, before the app's hello). */

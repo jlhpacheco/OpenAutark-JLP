@@ -14,6 +14,7 @@ import { runCommand } from '../../../src/runtime/tools/builtin/command.ts';
 import { AGENT_ENV } from '../../../src/shared/api/protocol.ts';
 import { fakeFinder, fakeSpawn, testSupervisor, turnInput } from './fakes.ts';
 import { claudeAccount, claudeSetup } from './claude-fixture.ts';
+import { agentIdentity } from '../../../src/runtime/security/agent-proof.ts';
 
 test('asAgent, withShim and agentEnv drop an inherited AUTARK_AGENT and set the given one', () => {
   assert.equal(AGENT_ENV, 'AUTARK_AGENT');
@@ -21,7 +22,7 @@ test('asAgent, withShim and agentEnv drop an inherited AUTARK_AGENT and set the 
   assert.equal(asAgent(inherited, undefined, 'linux').AUTARK_AGENT, undefined);
   assert.equal(asAgent(inherited, 'ag_1', 'linux').AUTARK_AGENT, 'ag_1');
   assert.equal(inherited.AUTARK_AGENT, 'ag_parent', 'the input stays as it was');
-  assert.deepEqual(Object.keys(asAgent({ autark_agent: 'x' }, 'ag_1', 'win32')), ['AUTARK_AGENT'], 'Windows: any spelling is replaced');
+  assert.deepEqual(Object.keys(asAgent({ autark_agent: 'x' }, 'ag_1', 'win32')), ['AUTARK_AGENT', 'AUTARK_AGENT_PROOF'], 'Windows: any spelling is replaced; the proof rides along (FX3)');
   assert.equal(withShim(inherited, '/data', undefined, 'linux').AUTARK_AGENT, undefined, 'the shared engine env carries none');
   assert.equal(withShim(inherited, '/data', undefined, 'linux', 'ag_2').AUTARK_AGENT, 'ag_2');
   const none = agentEnv('/data', { env: inherited, platform: 'linux', entry: '/nowhere/wf.mjs' });
@@ -31,7 +32,7 @@ test('asAgent, withShim and agentEnv drop an inherited AUTARK_AGENT and set the 
 });
 
 test("a Codex thread's shells get its agent's id (start and resume); none without an agent", async () => {
-  assert.deepEqual(threadIsolation(['/a'], { GIT_PAGER: 'cat' }, 'ag_1').config.shell_environment_policy, { set: { GIT_PAGER: 'cat', AUTARK_AGENT: 'ag_1' } });
+  assert.deepEqual(threadIsolation(['/a'], { GIT_PAGER: 'cat' }, 'ag_1').config.shell_environment_policy, { set: { GIT_PAGER: 'cat', ...agentIdentity('ag_1') } });
   assert.deepEqual(threadIsolation(['/a']).config.shell_environment_policy, { set: {} });
   const requests: any[] = [];
   const fake = fakeSpawn(({ child }) => {
@@ -55,8 +56,8 @@ test("a Codex thread's shells get its agent's id (start and resume); none withou
     assert.equal((await engine.run(turnInput({ cwd: '/home/w', agentId: 'ag_ava' }).input)).stop, 'done');
     assert.equal((await engine.run(turnInput({ cwd: '/home/w', agentId: 'ag_bo', session: { ref: 'thr_9', generation: 1 } }).input)).stop, 'done');
     const set = (method: string) => requests.find((r) => r.method === method)?.params.config.shell_environment_policy.set;
-    assert.deepEqual(set('thread/start'), { GIT_PAGER: 'cat', AUTARK_AGENT: 'ag_ava' });
-    assert.deepEqual(set('thread/resume'), { GIT_PAGER: 'cat', AUTARK_AGENT: 'ag_bo' });
+    assert.deepEqual(set('thread/start'), { GIT_PAGER: 'cat', ...agentIdentity('ag_ava') });
+    assert.deepEqual(set('thread/resume'), { GIT_PAGER: 'cat', ...agentIdentity('ag_bo') });
     assert.equal(fake.calls[0]!.options.env?.AUTARK_AGENT, undefined, 'the shared app-server carries none');
   } finally {
     await engine.dispose();

@@ -17,7 +17,7 @@ const finalFrom = (chatId, agentId, pattern) => (message) =>
   message.conversationId === chatId && message.authorId === agentId && message.state === 'final' && pattern.test(message.body);
 
 test('the first Manager turn sees the live setup facts', { timeout: 240_000 }, async (t) => {
-  const runtime = await startRuntime();
+  const runtime = await startRuntime({ firstRun: true });
   t.after(() => runtime.stop());
   const { client } = runtime;
   const manager = (await client.call('agents.list')).find((agent) => agent.template === 'manager');
@@ -43,7 +43,7 @@ test('the first Manager turn sees the live setup facts', { timeout: 240_000 }, a
 });
 
 test("B-044: onboarding.start posts the start text in the Manager's first chat and it answers", { timeout: 240_000 }, async (t) => {
-  const runtime = await startRuntime();
+  const runtime = await startRuntime({ firstRun: true });
   t.after(() => runtime.stop());
   const { client } = runtime;
   const manager = (await client.call('agents.list')).find((agent) => agent.template === 'manager');

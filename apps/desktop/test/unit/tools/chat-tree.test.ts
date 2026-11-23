@@ -1,5 +1,5 @@
-// B-078 agent tools for sub-chats and threads (tools/builtin/chat-tree.ts, chat-rooms.ts chat.create parent): an agent
-// puts a chat it is in under another one and back on top, opens the thread on a #seq or a message id (one per message),
+// B-078 agent tools for sub-chats and threads (chat.update parentId, tools/builtin/chat-tree.ts, chat-rooms.ts chat.create
+// parent): an agent puts a chat it is in under another one and back on top, opens the thread on a #seq or a message id (one per message),
 // gets a first-person refusal it can act on, and chat.create takes a parent; the tool texts speak as the agent.
 // Owns: these assertions only. Never: real engines, timers or network.
 
@@ -8,11 +8,12 @@ import assert from 'node:assert/strict';
 import { HUMAN_ID } from '../../../src/shared/ids.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import { chatTreeTools } from '../../../src/runtime/tools/builtin/chat-tree.ts';
+import { chatUpdateTools } from '../../../src/runtime/tools/builtin/chat-update.ts';
 import { chatRoomTools } from '../../../src/runtime/tools/builtin/chat-rooms.ts';
 import type { ToolContext, ToolDef } from '../../../src/runtime/tools/types.ts';
 import { agent, harness } from '../chat/harness.ts';
 
-const TOOLS: ToolDef[] = [...chatTreeTools, ...chatRoomTools];
+const TOOLS: ToolDef[] = [...chatTreeTools, ...chatUpdateTools, ...chatRoomTools];
 
 function setup() {
   const h = harness();
@@ -33,18 +34,18 @@ function setup() {
   return { ...h, ctx, run };
 }
 
-test('chat.set_parent: under a chat I am in and back on top; refusals in my words', async () => {
+test('chat.update parentId: under a chat I am in and back on top; refusals in my words', async () => {
   const h = setup();
   const main = h.chats.create({ title: 'Launch', agentIds: ['ag_ava', 'ag_ben'], createdBy: HUMAN_ID });
   const side = h.chats.create({ title: 'Venue', agentIds: ['ag_ava'], createdBy: HUMAN_ID });
-  const out = await h.run('chat.set_parent', { chatId: side.id, parentId: main.id });
+  const out = await h.run('chat.update', { chatId: side.id, parentId: main.id });
   assert.equal(out.failed, false, out.text);
   assert.equal(h.chats.get(side.id)!.settings.parentId, main.id);
-  const deeper = await h.run('chat.set_parent', { chatId: h.chats.create({ title: 'X', agentIds: ['ag_ava'], createdBy: HUMAN_ID }).id, parentId: side.id });
+  const deeper = await h.run('chat.update', { chatId: h.chats.create({ title: 'X', agentIds: ['ag_ava'], createdBy: HUMAN_ID }).id, parentId: side.id });
   assert.match(deeper.text, /^Nothing was changed\. That chat is itself a sub-chat; I put this one under its top chat instead/);
-  assert.equal((await h.run('chat.set_parent', { chatId: side.id })).data.parentId, null, 'without parentId: back on top');
+  assert.equal((await h.run('chat.update', { chatId: side.id, parentId: '' })).data.parentId, null, 'parentId "": back on top');
   assert.equal(h.chats.get(side.id)!.settings.parentId, undefined);
-  assert.equal((await h.run('chat.set_parent', { chatId: main.id, parentId: side.id }, h.ctx('ag_ben'))).failed, true, 'Ben is not in Venue');
+  assert.equal((await h.run('chat.update', { chatId: main.id, parentId: side.id }, h.ctx('ag_ben'))).failed, true, 'Ben is not in Venue');
 });
 
 test('chat.thread: on a #seq or a message id, one per message; chat.create takes a parent', async () => {
@@ -66,7 +67,7 @@ test('chat.thread: on a #seq or a message id, one per message; chat.create takes
 });
 
 test('the tool texts speak as the agent and say what each chat kind is for', () => {
-  for (const name of ['chat.set_parent', 'chat.thread', 'chat.create', 'chat.direct']) {
+  for (const name of ['chat.update', 'chat.thread', 'chat.create', 'chat.direct']) {
     const description = TOOLS.find((item) => item.name === name)!.description;
     assert.match(description, /\bI\b|\bMy\b/, `${name} speaks as me`);
     assert.doesNotMatch(description, /\b(may|allowed|only if|must)\b/i, `${name}: no permission language`);

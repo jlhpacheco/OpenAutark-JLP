@@ -13,7 +13,7 @@
 import { signal } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
 import type { FeedbackReport } from '../../shared/model/system.ts';
-import { reportNumber } from '../../shared/model/feedback-delivery.ts';
+import { FEEDBACK_IMAGES_MAX, reportNumber } from '../../shared/model/feedback-delivery.ts';
 import { bridge } from '../lib/platform.ts';
 import { errorText, RpcError, rpc } from '../lib/rpc.ts';
 import { session } from '../lib/session.ts';
@@ -39,16 +39,15 @@ function remembered(): boolean | undefined {
 const sendsItself = !bridge && builtInReceiver() !== null;
 export const feedbackSending = signal<boolean | undefined>(sendsItself ? true : remembered());
 let asking: Promise<void> | undefined;
-let answered = false;
 
-/** The current answer (undefined while unknown); asked on first use and again when the session changes until it answered. */
+/** The current answer (undefined while unknown); asked each time a panel opens and when the session changes – a
+ *  receiver set up while the app runs (`wf feedback setup`) says Send at the next open. */
 export function useFeedbackSending(): boolean | undefined {
   const info = session.value;
   useEffect(() => {
-    if (answered || sendsItself) return;
+    if (sendsItself) return;
     asking ??= rpc.call('feedback.status')
       .then((status) => {
-        answered = true;
         feedbackSending.value = status.sending === true;
         try { storage()?.setItem(SENDING_KEY, status.sending === true ? '1' : '0'); } catch { /* storage blocked */ }
       })
@@ -114,21 +113,12 @@ export function sendAgainLabel(busy: boolean): string {
 export const SHOT_LABEL = 'Screenshot';
 export const SHOT_HINT = 'Paint over anything private.';
 export const SHOT_MISSING = 'The window could not be captured.';
-/** Without a window capture (the iPhone web app, a browser): the person adds a screenshot or photo. */
+export const SHOT_NO_ROOM = `A report carries at most ${FEEDBACK_IMAGES_MAX} images – remove a photo to send the screenshot.`;
+/** The form's + (everywhere): the person adds a screenshot or photo instead of the window's. */
 export const PHOTO_ADD = 'Add photo';
 export const PHOTO_HINT = 'A screenshot or a photo.';
-/** The recording row: the dictation's voice goes along while it is checked. */
-export const RECORDING_LABEL = 'Recording';
-export const RECORDING_HINT = 'Dictating keeps your voice with the words.';
 /** The crash row (an Android crash report the app handed over). */
 export const CRASH_LABEL = 'Crash report attached';
-
-/** The recording row's line: what was recorded and whether it goes (`length`: "1:23", recording.ts recordingLength). */
-export function recordingText(takes: number, length: string, on: boolean): string {
-  if (!takes) return RECORDING_HINT;
-  const what = takes > 1 ? `${takes} takes · ${length}` : length;
-  return on ? `${what} – goes with the words.` : `${what} – only the words go.`;
-}
 
 /**
  * The result line after Send/Save: a confirmed send with its short report number (the team inbox shows the same),

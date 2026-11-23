@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { SecretVault } from '../../../src/runtime/secrets/service.ts';
 import { phoneTools } from '../../../src/runtime/phone/tools.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
@@ -77,7 +77,7 @@ test('phone.open opens a stored private link by its handle and never returns the
   const saved = await f.vault.save({ label: 'Private link', kind: 'token', value: LINK });
   const out = await f.tools.get('phone.open')!.run({ url: `secret://${saved.id}` } as never, f.ctx);
   assert.equal(out.isError ?? false, false, text(out));
-  assert.deepEqual(f.sent, [{ op: 'open', value: { url: LINK, package: undefined } }]);
+  assert.deepEqual(f.sent, [{ op: 'open', value: { url: LINK, package: undefined, app: undefined } }]);
   assert.ok(!text(out).includes(LINK), text(out));
   assert.match(text(out), new RegExp(`secret://${saved.id}`));
 });

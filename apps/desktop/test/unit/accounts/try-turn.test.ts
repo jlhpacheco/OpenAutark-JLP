@@ -10,7 +10,7 @@ import * as path from 'node:path';
 import { lightEffort, limitMessage, tryAccount, TRY_INPUT, TRY_SYSTEM, type TryDeps } from '../../../src/runtime/accounts/try-turn.ts';
 import { CLAUDE_FREE_PLAN } from '../../../src/runtime/accounts/cli.ts';
 import { postJson, turnError } from '../../../src/runtime/engines/http/common.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import type { Account, AccountLimits, EngineId, ModelInfo } from '../../../src/shared/model/providers.ts';
 import type { EngineModel, EngineTurnInput, EngineTurnResult } from '../../../src/runtime/engines/types.ts';
 

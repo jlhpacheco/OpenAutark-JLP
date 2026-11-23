@@ -1,14 +1,15 @@
-// Owns: the small see-through pill at the screen's top edge while the AI uses the phone (an accessibility overlay: no
-// extra permission, shown above every app). Four fixed cells – the Autark mark, one line, a button of fixed width and ✕ –
-// in a pill of fixed width, so nothing in it moves when its line changes. Looks: active – "<agent> is using this phone"
-// (or the AI's own short status line, phone.say) with Pause and ✕; paused by a touch – "Paused · goes on in a moment"
-// with Pause (which holds) and ✕, back to active by itself when the service says so; paused by the person – "Paused ·
-// the phone is yours" with Continue and ✕; the AI's question (phone.say ask) – its text with ✓ and ✕, answered once.
-// Its window watches touches outside itself (FLAG_WATCH_OUTSIDE_TOUCH) without taking them: they reach the app as
-// before, and the service hears that the person touched the screen. For the AI's screenshot it is invisible for one
+// Owns: the small see-through bubble at the screen's top edge while the AI uses the phone (an accessibility overlay: no
+// extra permission, shown above every app). A pill of fixed width – the Autark mark, the line, then the cells on the
+// right – and, under it, the AI's bigger buttons as bubbles of their own (owner 19.11.2026). Looks: active – "<agent> is
+// using this phone" (or the AI's own short status line, phone.say) with Pause and ✕; paused by the person's Pause –
+// "Paused · the phone is yours" with Continue and ✕; the AI's question (phone.say with ask or buttons) – its
+// text, its small buttons in the row (SayChoices.row) and ✕, its bigger ones under the pill, answered once. The line
+// takes up to three lines, so the pill grows downwards when the AI writes more; Pause and ✕ keep their place.
+// Touches outside it reach the app as before and change nothing for the AI (owner 20.11.2026: the person keeps using
+// the phone while the AI works; there is no touch-pause). For the AI's screenshot it is invisible for one
 // frame (hideForShot), and while the AI's own gesture runs touches pass through it (passThrough: FLAG_NOT_TOUCHABLE),
-// so the AI neither sees nor presses it. It stays HIDE_AFTER_MS (the session, UseState.SESSION_MS) after the last step,
-// so the touch watch lasts the whole session. Never: stays after ✕ (it closes at once), hides while paused, or treats the
+// so the AI neither sees nor presses it. It goes HIDE_AFTER_MS after the last step, and at once when the PC says the
+// AI's run is over (finished). Never: stays after ✕ (it closes at once), hides while paused or asking, or treats the
 // AI's text as anything but text.
 package com.teydralab.autark.android.phoneuse;
 
@@ -20,30 +21,31 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
 import android.view.Gravity;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import com.teydralab.autark.android.R;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 final class UseBubble {
-    /** What the person did with the bubble or the screen (called on the main thread). */
+    /** What the person did with the bubble (called on the main thread). */
     interface Person {
         void pause();
         void resume();
         void end();
-        void touched();
     }
 
-    private enum Look { ACTIVE, TOUCH, HELD }
+    private enum Look { ACTIVE, HELD }
 
-    private static final long HIDE_AFTER_MS = UseState.SESSION_MS;
+    /** Without a step this long the AI is thinking or done elsewhere: the bubble goes (the next step brings it back). */
+    static final long HIDE_AFTER_MS = 2 * 60_000;
     /** After a frame was drawn, this long until it is on the screen (composited). */
     private static final long FRAME_MS = 32;
     /** The longest a step waits for the bubble to hide or let touches through. */
@@ -54,17 +56,20 @@ final class UseBubble {
     private final Person person;
     private final boolean german = "de".equals(Locale.getDefault().getLanguage());
     private final Runnable hide = this::remove;
+    private float density;
     private LinearLayout view;
     private WindowManager.LayoutParams params;
     private TextView line;
+    private LinearLayout row;
     private TextView primary;
     private TextView close;
+    private LinearLayout below;
     private Look look = Look.ACTIVE;
-    private Runnable quiet;
     private volatile String by;
     private volatile String job;
     private volatile String said;
     private String question;
+    private List<String> choices = Collections.emptyList();
     private Consumer<String> answer;
     private boolean shownBeforeQuestion;
 
@@ -88,27 +93,31 @@ final class UseBubble {
     /** Active, visible; it goes HIDE_AFTER_MS after the last call. */
     void active() { main.post(() -> { show(Look.ACTIVE); main.removeCallbacks(hide); main.postDelayed(hide, HIDE_AFTER_MS); }); }
 
-    /** Paused by a touch: `goOn` runs `inMs` from now (the quiet wait; a later call replaces it). */
-    void touchPaused(long inMs, Runnable goOn) {
-        main.post(() -> {
-            show(Look.TOUCH);
-            main.removeCallbacks(hide);
-            if (quiet != null) main.removeCallbacks(quiet);
-            quiet = goOn;
-            main.postDelayed(goOn, Math.max(0, inMs));
-        });
-    }
-
     /** Paused by the person's Pause: stays until Continue, ✓ or ✕. */
     void held() { main.post(() -> { show(Look.HELD); main.removeCallbacks(hide); }); }
 
-    void close() { main.post(() -> { main.removeCallbacks(hide); cancelQuiet(); remove(); }); }
+    void close() { main.post(() -> { main.removeCallbacks(hide); remove(); }); }
 
-    /** The AI's question with ✓ and ✕ (any thread): `then` hears "yes" or "no" once, on the main thread. */
-    void ask(String text, Consumer<String> then) {
+    /** The PC's run `forJob` is over (any thread): the bubble goes now – unless it shows another job, or a question
+     *  still waits for its answer. */
+    void finished(String forJob) {
+        main.post(() -> {
+            String now = job;
+            if (forJob != null && now != null && !forJob.equals(now)) return;
+            if (question != null) return;
+            said = null;
+            main.removeCallbacks(hide);
+            remove();
+        });
+    }
+
+    /** The AI's question (any thread) with its buttons (SayChoices; empty: only ✕): `then` hears the tapped label – ✕
+     *  for the ✕ cell – once, on the main thread. */
+    void ask(String text, List<String> buttons, Consumer<String> then) {
         main.post(() -> {
             shownBeforeQuestion = view != null;
             question = text;
+            choices = buttons;
             answer = then;
             ensure();
             main.removeCallbacks(hide);
@@ -121,6 +130,7 @@ final class UseBubble {
     void askDone(boolean keep) {
         main.post(() -> {
             question = null;
+            choices = Collections.emptyList();
             answer = null;
             if (!keep && !shownBeforeQuestion) { remove(); return; }
             render();
@@ -165,101 +175,141 @@ final class UseBubble {
     }
 
     private void show(Look next) {
-        if (next != Look.TOUCH) cancelQuiet();
         look = next;
         ensure();
         render();
     }
 
-    private void cancelQuiet() {
-        if (quiet != null) main.removeCallbacks(quiet);
-        quiet = null;
-    }
-
     /** The cells' texts for the look (or the question, which comes first). */
     private void render() {
         if (view == null) return;
+        row.removeAllViews();
+        below.removeAllViews();
         if (question != null) {
-            set(question, "✓", german ? "Ja" : "Yes", german ? "Gerade nicht" : "Not now");
+            line.setText(question);
+            primary.setVisibility(View.GONE);
+            close.setContentDescription(german ? "Gerade nicht" : "Not now");
+            for (String label : SayChoices.row(choices)) row.addView(choice(label, true), cell(LinearLayout.LayoutParams.WRAP_CONTENT));
+            for (String label : SayChoices.below(choices)) below.addView(choice(label, false), under());
+            below.setVisibility(below.getChildCount() > 0 ? View.VISIBLE : View.GONE);
             return;
         }
-        String end = german ? "Beenden" : "End";
+        below.setVisibility(View.GONE);
+        primary.setVisibility(View.VISIBLE);
+        close.setContentDescription(german ? "Beenden" : "End");
         switch (look) {
-            case TOUCH: set(german ? "Pausiert · geht gleich weiter" : "Paused · goes on in a moment", "Pause", null, end); break;
-            case HELD: set(german ? "Pausiert · das Handy gehört dir" : "Paused · the phone is yours", german ? "Weiter" : "Continue", null, end); break;
+            case HELD: set(german ? "Pausiert · das Handy gehört dir" : "Paused · the phone is yours", german ? "Weiter" : "Continue"); break;
             default: {
                 String who = by == null ? "Autark" : by;
-                set(said != null ? said : german ? who + " bedient dieses Handy" : who + " is using this phone", "Pause", null, end);
+                set(said != null ? said : german ? who + " bedient dieses Handy" : who + " is using this phone", "Pause");
             }
         }
     }
 
-    private void set(String text, String button, String buttonSays, String closeSays) {
+    private void set(String text, String button) {
         line.setText(text);
         primary.setText(button);
-        primary.setContentDescription(buttonSays);
-        close.setContentDescription(closeSays);
+    }
+
+    /** One of the AI's buttons: in the row a bold cell, under the pill a bubble of its own (up to two lines). */
+    private TextView choice(String label, boolean inRow) {
+        int dp4 = Math.round(4 * density);
+        TextView button = text(12, true);
+        button.setText(label);
+        button.setContentDescription(SayChoices.YES.equals(label) ? (german ? "Ja" : "Yes") : label);
+        button.setGravity(Gravity.CENTER);
+        button.setMinWidth(dp4 * 9);
+        if (inRow) button.setPadding(dp4 * 2, dp4 * 2, dp4 * 2, dp4 * 2);
+        else {
+            button.setMaxLines(2);
+            button.setEllipsize(TextUtils.TruncateAt.END);
+            button.setPadding(dp4 * 4, dp4 * 2, dp4 * 4, dp4 * 2);
+            button.setBackground(pillBackground());
+        }
+        button.setOnClickListener((tap) -> reply(label));
+        return button;
+    }
+
+    private LinearLayout.LayoutParams cell(int width) {
+        return new LinearLayout.LayoutParams(width, LinearLayout.LayoutParams.WRAP_CONTENT);
+    }
+
+    /** A bubble under the pill: as wide as its label, at the right edge (where the person's thumb is), 4 dp apart. */
+    private LinearLayout.LayoutParams under() {
+        LinearLayout.LayoutParams size = cell(LinearLayout.LayoutParams.WRAP_CONTENT);
+        size.gravity = Gravity.END;
+        size.topMargin = Math.round(4 * density);
+        return size;
     }
 
     private void tapPrimary() {
-        if (question != null) { reply("yes"); return; } // a second tap before the question goes is no Pause
+        if (question != null) return; // hidden while asking
         if (look == Look.HELD) person.resume(); else person.pause();
     }
 
     private void tapClose() {
-        if (question != null) { reply("no"); return; }
+        if (question != null) { reply(SayChoices.NO); return; }
         person.end();
     }
 
-    private void reply(String value) {
+    private void reply(String label) {
         Consumer<String> then = answer;
         answer = null;
-        if (then != null) then.accept(value);
+        if (then != null) then.accept(label);
+    }
+
+    private GradientDrawable pillBackground() {
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Color.argb(235, 32, 36, 34));
+        background.setCornerRadius(20 * density);
+        return background;
     }
 
     private void ensure() {
         if (view != null) return;
-        float density = service.getResources().getDisplayMetrics().density;
+        density = service.getResources().getDisplayMetrics().density;
         int dp4 = Math.round(4 * density);
         view = new LinearLayout(service);
-        view.setOrientation(LinearLayout.HORIZONTAL);
-        view.setGravity(Gravity.CENTER_VERTICAL);
-        view.setPadding(dp4 * 3, 0, dp4, 0);
+        view.setOrientation(LinearLayout.VERTICAL);
         view.setAlpha(0.85f); // see-through: the app below stays readable
-        GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.argb(235, 32, 36, 34));
-        background.setCornerRadius(20 * density);
-        view.setBackground(background);
+        LinearLayout pill = new LinearLayout(service);
+        pill.setOrientation(LinearLayout.HORIZONTAL);
+        pill.setGravity(Gravity.CENTER_VERTICAL);
+        pill.setPadding(dp4 * 3, 0, dp4, 0);
+        pill.setBackground(pillBackground());
         ImageView mark = new ImageView(service);
         mark.setImageResource(R.drawable.ic_stat_autark);
         LinearLayout.LayoutParams markSize = new LinearLayout.LayoutParams(dp4 * 4, dp4 * 4);
         markSize.setMarginEnd(dp4 * 2);
-        view.addView(mark, markSize);
+        pill.addView(mark, markSize);
         line = text(12, false);
-        line.setSingleLine(true);
+        line.setMaxLines(3); // more words take a second and third line: the pill grows downwards
+        line.setPadding(0, dp4 * 2, dp4, dp4 * 2); // one line is as tall as the cells beside it
         line.setEllipsize(TextUtils.TruncateAt.END);
-        view.addView(line, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        pill.addView(line, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        row = new LinearLayout(service);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        pill.addView(row, cell(LinearLayout.LayoutParams.WRAP_CONTENT));
         primary = text(12, true);
         primary.setGravity(Gravity.CENTER);
         primary.setPadding(0, dp4 * 2, 0, dp4 * 2);
         primary.setOnClickListener((tap) -> tapPrimary());
-        view.addView(primary, new LinearLayout.LayoutParams(dp4 * 16, LinearLayout.LayoutParams.WRAP_CONTENT));
+        pill.addView(primary, cell(dp4 * 16));
         close = text(13, true);
-        close.setText("✕");
+        close.setText(SayChoices.NO);
         close.setGravity(Gravity.CENTER);
         close.setPadding(0, dp4 * 2, 0, dp4 * 2);
         close.setOnClickListener((tap) -> tapClose());
-        view.addView(close, new LinearLayout.LayoutParams(dp4 * 9, LinearLayout.LayoutParams.WRAP_CONTENT));
-        // Touches outside the bubble arrive as ACTION_OUTSIDE (no position for other apps' windows) and go on to the app.
-        view.setOnTouchListener((v, event) -> {
-            if (event.getActionMasked() == MotionEvent.ACTION_OUTSIDE) person.touched();
-            return false;
-        });
+        pill.addView(close, cell(dp4 * 9));
+        view.addView(pill, cell(LinearLayout.LayoutParams.MATCH_PARENT));
+        below = new LinearLayout(service);
+        below.setOrientation(LinearLayout.VERTICAL);
+        below.setVisibility(View.GONE);
+        view.addView(below, cell(LinearLayout.LayoutParams.MATCH_PARENT));
         int width = Math.min(service.getResources().getDisplayMetrics().widthPixels - dp4 * 8, dp4 * 80); // ≤ 320 dp, 16 dp gutters
         params = new WindowManager.LayoutParams(width, WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                        | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         params.y = Math.round(36 * density);

@@ -7,7 +7,8 @@
 // Every handler runs as its caller (rpc/caller.ts: the scope, and the address of a tokenless
 // call) so code further down can narrow what that caller's answer may do (DEV5B).
 // Owns: dispatch, per-connection state (topics, abort signal, in-flight cap), event fan-out
-// (incl. `run.item` → `runs:<agentId>`, and `agent.activity` with the other PCs' runs added – F10) and closing connections of revoked devices. The
+// (incl. `run.item` → `runs:<agentId>`, and `agent.activity` with the other PCs' runs added – F10), the KEPT events'
+// last state and closing connections of revoked devices. The
 // tokenless `POST /rpc` route is served by rpc/tokenless.ts on this server's table.
 // Roles: the owner and the owner's paired phones (scope kind 'device', the CEO's) see everything their
 // tier allows (scopes.ts); an employee's device (scope kind 'person') gets only what
@@ -15,6 +16,11 @@
 // seen from the person's perspective, and loses its connection when its token or person ends
 // (`person.upserted`) – or when the owner changed that person's rights, so the open app reconnects at
 // once with its new session.info (people/events.ts personRights).
+// Fest round 22.11.2026 (state, not messages): an event that is the whole current state of something no method reads
+// (KEPT: main's updater, update.state) is kept – heard from the start, with or without a connection (a restarted runtime
+// hears main's replay before any port connects) – and a phone's or browser's connection that joins its topic gets it at
+// once, so it knows after every (re)connect whether an update waits; the window has main's own, a CLI's `wf events`
+// hears only news.
 // Never: business logic (handlers delegate to services), logging params (they may hold
 // secrets), or letting a slow/closed connection throw into the bus.
 
@@ -53,6 +59,8 @@ const MAX_INFLIGHT = 64;
 /** runId → agentId entries kept for routing `run.item` events. */
 const RUN_CACHE = 512;
 const NEVER = new AbortController().signal;
+/** Events whose payload is the whole current state of something no method reads: the last one goes to every new subscriber. */
+const KEPT: ReadonlySet<EventName> = new Set(['update.state']);
 
 interface Client {
   connection: RpcConnection;
@@ -73,11 +81,18 @@ export class RpcServer {
   private readonly table: HandlerTable;
   private readonly clients = new Set<Client>();
   private readonly runAgents = new Map<string, string>();
+  /** The last payload of each KEPT event. */
+  private readonly kept = new Map<EventName, unknown>();
+  private readonly offKept: Array<() => void> = [];
   private offBus: (() => void) | undefined;
 
   constructor(deps: RpcServerDeps) {
     this.deps = deps;
     this.table = deps.table ?? createHandlerTable();
+    try {
+      const bus = deps.services().bus;
+      for (const event of KEPT) this.offKept.push(bus.on(event, (data: unknown) => { this.kept.set(event, data); }));
+    } catch { /* services without a bus (the repair runtime): nothing to keep */ }
   }
 
   /** Number of attached connections (diagnostics). */
@@ -117,6 +132,7 @@ export class RpcServer {
   close(): void {
     for (const client of [...this.clients]) this.drop(client);
     this.releaseBus();
+    for (const off of this.offKept.splice(0)) off();
   }
 
   /** Detaches a client and closes its transport. */
@@ -165,6 +181,7 @@ export class RpcServer {
       return;
     }
     client.inflight++;
+    const before = request.method === 'events.subscribe' ? new Set(client.topics) : undefined;
     let reply: RpcResponse;
     try {
       const result = await this.dispatch(request.method, request.params, this.context(client.scope, client.topics, client.abort.signal));
@@ -174,7 +191,18 @@ export class RpcServer {
     } finally {
       client.inflight--;
     }
-    if (!client.closed) this.send(client, reply);
+    if (client.closed) return;
+    this.send(client, reply);
+    if (before) this.sendKept(client, before);
+  }
+
+  /** The kept state of every topic a phone's or browser's client just joined (it had none of them in `before`). */
+  private sendKept(client: Client, before: ReadonlySet<Topic>): void {
+    if (client.scope.kind !== 'device' && client.scope.kind !== 'person') return; // the window has main's own state; a CLI's events stay news
+    for (const [event, data] of this.kept) {
+      const topic = topicOf(event, data);
+      if (!before.has(topic) && client.topics.has(topic)) this.deliver(client, topic, event, data);
+    }
   }
 
   private async dispatch(method: unknown, params: unknown, ctx: HandlerContext): Promise<unknown> {
@@ -235,18 +263,22 @@ export class RpcServer {
     }
     // F10 (16.11.2026): windows and phones hear this PC's running runs with those of the person's other PCs (chat/live.ts).
     if (event === 'agent.activity') data = { active: allActivity(this.deps.services().bus, (data as { active: AgentActivity[] }).active) };
-    let frame: RpcEvent | undefined;
+    const shared: { frame?: RpcEvent } = {};
     for (const client of this.clients) {
-      if (client.closed || !client.topics.has(topic)) continue;
-      if (client.scope.kind === 'person') { this.forwardPerson(client, topic, event, data); continue; }
-      if (!mayReceive(client.scope, topic, event, data)) continue;
-      if (event === 'agent.upserted' && client.scope.kind === 'device') { // a phone: no SYSTEM.md again for a status change
-        this.send(client, { event, data: deviceAgent(client.agents ??= new Map(), data as Agent) });
-        continue;
-      }
-      const visible = visibleData(client.scope, event, data); // per-scope payload (an external agent's messages)
-      this.send(client, visible === data ? (frame ??= { event, data }) : { event, data: visible });
+      if (!client.closed && client.topics.has(topic)) this.deliver(client, topic, event, data, shared);
     }
+  }
+
+  /** One event to one subscribed client, as its scope may see it; `shared` reuses one frame for the clients that see it unchanged. */
+  private deliver(client: Client, topic: Topic, event: EventName, data: unknown, shared: { frame?: RpcEvent } = {}): void {
+    if (client.scope.kind === 'person') { this.forwardPerson(client, topic, event, data); return; }
+    if (!mayReceive(client.scope, topic, event, data)) return;
+    if (event === 'agent.upserted' && client.scope.kind === 'device') { // a phone: no SYSTEM.md again for a status change
+      this.send(client, { event, data: deviceAgent(client.agents ??= new Map(), data as Agent) });
+      return;
+    }
+    const visible = visibleData(client.scope, event, data); // per-scope payload (an external agent's messages)
+    this.send(client, visible === data ? (shared.frame ??= { event, data }) : { event, data: visible });
   }
 
   /** F-52: an event for a person's device – only what they may see, from their perspective. */

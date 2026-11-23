@@ -30,9 +30,9 @@ function overshoot(steps: readonly MotionStep[], from: { x: number; y: number },
   return Math.max(...steps.map((step) => (step.x - from.x) * ux + (step.y - from.y) * uy)) - length;
 }
 
-test('styles: three, glide is the default, unknown names are not styles', () => {
+test('styles: three, human is the default, unknown names are not styles', () => {
   assert.deepEqual([...MOTION_STYLES], ['instant', 'glide', 'human']);
-  assert.equal(DEFAULT_MOTION, 'glide');
+  assert.equal(DEFAULT_MOTION, 'human');
   assert.equal(isMotionStyle('human'), true);
   for (const value of ['fast', '', undefined, 3, 'Glide']) assert.equal(isMotionStyle(value), false, String(value));
 });

@@ -27,10 +27,10 @@ function harness(overrides: Partial<HostServicesDeps> = {}) {
   let blocker = 100;
   const deps: HostServicesDeps = {
     safeStorage: {
-      isEncryptionAvailable: () => available,
+      isAsyncEncryptionAvailable: async () => available,
       getSelectedStorageBackend: () => backend,
-      encryptString: plain => Buffer.from(`enc:${plain}`),
-      decryptString: cipher => cipher.toString().replace(/^enc:/, ''),
+      encryptStringAsync: async plain => Buffer.from(`enc:${plain}`),
+      decryptStringAsync: async cipher => ({ result: cipher.toString().replace(/^enc:/, '') }),
     },
     shell: {
       openExternal: async url => { calls.external.push(url); },
@@ -209,10 +209,10 @@ test('storage.ready checks availability without encrypting or reading any value'
   let backend = 'gnome_libsecret';
   let available = true;
   const h = harness({ safeStorage: {
-    isEncryptionAvailable: () => available,
+    isAsyncEncryptionAvailable: async () => available,
     getSelectedStorageBackend: () => backend,
-    encryptString: () => assert.fail('the boot probe never encrypts anything'),
-    decryptString: () => assert.fail('the boot probe never decrypts anything'),
+    encryptStringAsync: () => assert.fail('the boot probe never encrypts anything'),
+    decryptStringAsync: () => assert.fail('the boot probe never decrypts anything'),
   } });
   assert.deepEqual(await h.call('storage.ready', {}), { available: true });
   backend = 'basic_text';

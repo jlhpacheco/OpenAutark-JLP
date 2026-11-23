@@ -1,6 +1,6 @@
 // Entry of the Electron main process (bundled to app/main.cjs). Everything that must happen
-// before `ready`: test-data profile, another company's data folder (`--company=<id>`, B-072: companies.ts), the data
-// folder after the product's rename (identity-move.ts), no application menu, privileged schemes, single instance (per
+// before `ready`: test-data profile, another company's data folder (`--company=<id>`, B-072: companies.ts), the keyring
+// name of a folder from the old product name (keyring-name.ts), no application menu, privileged schemes, single instance (per
 // company: the lock lives in its folder), the run state (B-044 "Keep agents running", launcher.ts). A `--launcher` start decides cheaply – the
 // single-instance lock and the two small state files, before the composition root (desktop.ts and all
 // it loads) is even imported – and quits at once when the app runs or is not needed; the crash-loop cap
@@ -13,23 +13,25 @@
 
 import os from 'node:os';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import { Menu, Notification, app, dialog, protocol } from 'electron';
 import { launchFlags } from './app-paths.ts';
 import { companiesDir, companyArgs, companyDir, companyFlag, spawnApp, startingCompany, wakeCompanies } from './companies.ts';
 import type { Desktop } from './desktop.ts';
-import { applyIdentity } from './identity-move.ts';
+import { applyKeyringName } from './keyring-name.ts';
 import { BACKGROUND_FLAG, NOTICES, RESTARTED_FLAG, beginLaunch, launchSource, readRunState, type LaunchNotice } from './launcher.ts';
 import { PRIVILEGED_SCHEMES } from './protocols/handlers.ts';
+import { WAKE_FILE, sleeperAtLaunch, sleeperScript, startSleeper } from './sleeper.ts';
 
 const testData = process.env.WORKFORCE_TEST_DATA ? path.resolve(process.env.WORKFORCE_TEST_DATA) : null;
 if (testData) app.setPath('userData', testData); // isolated profile; also disables the network updater
 const firstData = app.getPath('userData');
-// B-072: another company's folder, before the rename check and the lock. 16.11.2026: a removed first company hands a plain
+// B-072: another company's folder, before the keyring name and the lock. 16.11.2026: a removed first company hands a plain
 // start to the next company; undefined – a removed company's own start (its sign-in task, say) – ends at once below.
 const picked = testData ? null : startingCompany(companyFlag(process.argv), { first: firstData, dir: companiesDir(firstData) });
 const company = picked ?? null;
 if (company) app.setPath('userData', companyDir(firstData, company));
-applyIdentity(app, { testData: testData !== null }); // the product's rename: the data folder and keyring name, before the lock that lives in that folder
+applyKeyringName(app); // before anything reads safeStorage
 const companies = testData ? null : { first: company ? firstData : app.getPath('userData'), dir: companiesDir(firstData) };
 
 if (process.platform !== 'darwin') Menu.setApplicationMenu(null); // macOS gets a minimal Edit menu after ready
@@ -79,6 +81,10 @@ if (!launch) {
       setTimeout(() => app.quit(), 5000);
     });
   } else {
+    // 19.11.2026: the person had quit – the wake helper waits at the meeting server so an own PC or phone can start it (main/sleeper.ts)
+    if (sleeperAtLaunch(launch, launchSource(process.platform, flags.launcher), existsSync(path.join(app.getPath('userData'), WAKE_FILE)))) {
+      startSleeper({ exe: process.execPath, script: sleeperScript(path.join(app.getAppPath(), 'app')), dataDir: app.getPath('userData'), args: companyArgs(company) });
+    }
     app.quit();
   }
 } else {

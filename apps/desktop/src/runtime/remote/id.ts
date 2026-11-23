@@ -3,34 +3,20 @@
 // before anything is sent and an answering PC whose key does not give the typed ID is ignored.
 // The ID is an address, not a secret or a proof: who answered is proven by the request's
 // signatures and the match code the two people compare (remote/sas.ts).
+// The check digit rule is shared with the iPhone web app (shared/model/remote.ts luhnDigit/validRemoteId).
 // Owns: deriving, formatting and parsing Remote IDs and the typed target (Remote ID or address).
 // Never: network, storage or trust decisions.
 
 import { createHash } from 'node:crypto';
+import { luhnDigit, validRemoteId } from '../../shared/model/remote.ts';
 
 export const REMOTE_ID_LENGTH = 9;
-
-/** Luhn check digit for a string of digits. */
-export function luhnDigit(payload: string): string {
-  let sum = 0;
-  for (let index = 0; index < payload.length; index++) {
-    let digit = Number(payload[payload.length - 1 - index]);
-    if (index % 2 === 0) { digit *= 2; if (digit > 9) digit -= 9; }
-    sum += digit;
-  }
-  return String((10 - (sum % 10)) % 10);
-}
 
 /** The Remote ID of a PC from its fingerprint (sha256 hex of its Ed25519 public key). */
 export function remoteIdOf(fingerprint: string): string {
   const digest = createHash('sha256').update(`wf-remote-id-v1|${fingerprint.toLowerCase()}`).digest();
   const payload = String(digest.readUInt32BE(0) * 4 + (digest[4] & 3)).padStart(10, '0').slice(-8);
   return payload + luhnDigit(payload);
-}
-
-/** True for 9 digits whose last one is the Luhn check digit of the first eight. */
-export function validRemoteId(digits: string): boolean {
-  return /^\d{9}$/.test(digits) && luhnDigit(digits.slice(0, 8)) === digits[8];
 }
 
 /** "482 913 071". */

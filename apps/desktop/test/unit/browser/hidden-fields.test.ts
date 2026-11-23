@@ -58,3 +58,34 @@ test('a field named like a card outside a payment frame is hidden too; a page wi
   const one = frame('https://shop.example/', fields);
   assert.deepEqual(await hiddenValues({ evaluate: one.evaluate } as unknown as PageLike), ['4000056655665556']);
 });
+
+test('22.11.2026: a diff shows a hidden value on a text: line (Stripe 17.11.); a field named like a secret hides its value without the page\'s help', () => {
+  const diff = [
+    '+ iframe [active] [ref=e150]:',
+    '+ button "Code erneut senden" [ref=f10e132] [cursor=pointer]',
+    '+ text: 4242 4242 4242 4242',
+    '+ textbox "Ablaufdatum (MM/JJ)" [ref=f10e106]:',
+    '+ text: 12 / 29',
+    '+ textbox "Sicherheitscode" [active] [ref=f10e114]:',
+    '+ text: "123"',
+    '+ text: Summe 123 EUR',
+  ].join('\n');
+  const masked = maskPasswords(diff, ['4242 4242 4242 4242', '4242424242424242', '12 / 29', '123']);
+  for (const secret of ['4242', '12 / 29', '"123"']) assert.ok(!masked.includes(secret), `${secret} shows:\n${masked}`);
+  assert.match(masked, /\+ text: Summe 123 EUR/, 'a short value stays outside a field');
+  const unknown = maskPasswords('- textbox "Card Number *" [ref=e1]: 4000 0566 5566 5556\n- textbox "CVV" [ref=e2]: "321"\n- textbox "Name" [ref=e3]: Max', []);
+  assert.ok(!unknown.includes('5556') && !unknown.includes('321'), unknown);
+  assert.match(unknown, /"Name" \[ref=e3\]: Max/);
+});
+
+test('22.11.2026: a field is hidden by its label, aria-label or placeholder too, and marked for the screenshot mask', async () => {
+  const marked: string[] = [];
+  const fields = [
+    { type: 'text', name: 'f1', value: '4000056655665556', labels: [{ textContent: 'Card Number *' }] },
+    { type: 'text', name: 'f2', value: '321', attrs: { 'aria-label': 'Prüfnummer' } },
+    { type: 'text', name: 'f3', value: 'Wien', attrs: { placeholder: 'Stadt' } },
+  ].map((field) => ({ ...field, getAttribute: (name: string) => (field as { attrs?: Record<string, string> }).attrs?.[name] ?? null, setAttribute: (name: string) => marked.push(`${field.name}:${name}`) }));
+  const page = { evaluate: async (expression: string) => vm.runInNewContext(expression, { document: { querySelectorAll: () => fields } }) } as unknown as PageLike;
+  assert.deepEqual(await hiddenValues(page), ['4000056655665556', '321']);
+  assert.deepEqual(marked, ['f1:data-autark-hidden', 'f2:data-autark-hidden']);
+});

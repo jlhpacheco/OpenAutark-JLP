@@ -12,13 +12,16 @@
 // and sessions sat at the window's ceiling because the fit trims only the excess above 80 %): the lean history. At a native
 // rebuild (sent uncached anyway) the tool work of finished runs keeps its call and arguments in place with the restore stamp and
 // leaves its output (leanMarks: condensed by 'window'); their reasoning is hidden. Chat lines and the agent's own words stay.
+// Runde "Halb" 21.11.2026: the lean view reaches into open work too – every tool and file item but the thread's newest steps
+// (LeanKeep.recent) is condensed, and only the newest runs keep their reasoning (LeanKeep.runs).
 // KI-Runde 17.11.2026: the lean history rides on a rebuild that happens anyway (agents/rebuild.ts) – nothing here weighs a
 // rebuild for savings any more. The fold (foldHides): once the agent wrote its hand-over, everything of its own work before
 // it leaves the view – restorable like any mark – while the chat lines (the agent's own posted words among them), the
-// tasks.finish calls since the hand-over before it and what it brought back stay.
-// Owns: which items the fit hides, which items the lean history and the chat lines' reach set aside, which items a fold hides,
+// tasks.update calls that finished a task since the hand-over before it and what it brought back stay.
+// Owns: which items the fit hides, which items the lean history and the chat lines' reach set aside (a set-aside call's long
+// arguments cut, leanArgs), which items a fold hides,
 // and the platform's token unit (tokensOf). Never: deletes anything; the fit and the lean history never mark the agent's own
-// words, the newest turn, the kept runs or a pinned item.
+// words, the newest steps, the newest turn's reasoning or a pinned item.
 
 import { CHARS_PER_TOKEN, compactStamp, type LedgerItem, type LedgerKind, type LedgerState, type LedgerViewItem } from '../../../shared/model/context-ledger.ts';
 
@@ -162,27 +165,56 @@ export function oldChatLines(rows: readonly LedgerItem[], pinned: ReadonlySet<st
 /** A loaded skill stays in full: its body is instructions the later work still follows, not the output of finished work. */
 const LEAN_KINDS: ReadonlySet<LedgerViewItem['kind']> = new Set(['tool', 'file']);
 
-/** B-089: what a condensed call costs as the view renders it – its arguments, its leanText (`text`, else computed) and the restore stamp (view.ts). */
+/**
+ * Runde "Halb" 21.11.2026: once a call's output is set aside, its arguments are the bulk (live: a Write's average 8,800
+ * characters, a shell command with an inline script 760). A string in them longer than ARG_KEPT keeps its start – a file path
+ * and a command's first line stay, which is what later work looks up – and says how much it left out; the call keeps the
+ * shape of its tool (an object stays an object with the same keys), and context.restore returns the original.
+ */
+export const ARG_KEPT = 300;
+const argCut = (value: string) => (value.length <= ARG_KEPT ? value : `${value.slice(0, ARG_KEPT)}… [${value.length - ARG_KEPT} characters left out – context.restore returns the call]`);
+
+/** A call's arguments with every long string cut to ARG_KEPT (argCut), at any depth; everything else as it is. */
+export function leanArgs(args: unknown, depth = 0): unknown {
+  if (typeof args === 'string') return argCut(args);
+  if (!args || typeof args !== 'object' || depth > 8) return args;
+  if (Array.isArray(args)) return args.map((value) => leanArgs(value, depth + 1));
+  return Object.fromEntries(Object.entries(args).map(([key, value]) => [key, leanArgs(value, depth + 1)]));
+}
+
+/** A view entry as a rebuild replays it: a condensed tool or file call with its arguments cut (leanArgs); any other entry as it is. */
+export function leanCall<T extends Pick<LedgerViewItem, 'kind' | 'state' | 'call'>>(entry: T): T {
+  return entry.state === 'condensed' && entry.call && LEAN_KINDS.has(entry.kind) ? { ...entry, call: { ...entry.call, args: leanArgs(entry.call.args) } } : entry;
+}
+
+/** B-089: what a condensed call costs as the view renders it – its cut arguments, its leanText (`text`, else computed) and the restore stamp (view.ts). */
 export function leanCost(entry: Pick<LedgerViewItem, 'itemId' | 'text' | 'call' | 'nested'>, text = leanText(entry.call?.output ?? entry.text)): number {
   const stamp = compactStamp(entry.itemId, entryTokens(entry));
-  return entryTokens({ text: '', call: { name: '', args: entry.call?.args ?? {}, callId: '', output: `${text}\n${stamp}` } });
+  return entryTokens({ text: '', call: { name: '', args: leanArgs(entry.call?.args ?? {}), callId: '', output: `${text}\n${stamp}` } });
 }
 
 /** B-089: what the lean history chooses from – an item, what it costs now and what its condensed form would cost. */
 interface LeanCandidate { itemId: string; kind: LedgerKind; runId?: string; state: LedgerState; nested?: boolean; tokens: number; cost: number; text?: string }
-type LeanKeep = { runs: ReadonlySet<string>; pinned: ReadonlySet<string> };
+/**
+ * `runs`: whose reasoning stays (and, without `recent`, whose tool work stays whole); `recent` (Runde "Halb" 21.11.2026): the tool
+ * and file items that stay whole – the newest steps of the thread, whatever run they belong to; `pinned`: never touched.
+ */
+export type LeanKeep = { runs: ReadonlySet<string>; pinned: ReadonlySet<string>; recent?: ReadonlySet<string> };
+
+/** Whether the lean history keeps this tool or file item whole. */
+const keptWhole = (item: { itemId: string; runId?: string }, keep: LeanKeep) => (keep.recent ? keep.recent.has(item.itemId) : keep.runs.has(item.runId!));
 
 /**
- * B-089: the one choice of the lean history – for every run outside `keep.runs` (unfinished work, this run): its kept tool and
- * file items that cost more than their condensed form are condensed, its reasoning is hidden. Never a chat line, the agent's
- * own words, a loaded skill, a nested, pinned or already marked item, or an item of no run. Pure: nothing is written.
+ * B-089: the one choice of the lean history – reasoning of a run outside `keep.runs` is hidden; a kept tool or file item that is
+ * not kept whole (keptWhole) and costs more than its condensed form is condensed. Never a chat line, the agent's own words, a
+ * loaded skill, a nested, pinned or already marked item, or an item of no run. Pure: nothing is written.
  */
 function leanPick(candidates: Iterable<LeanCandidate>, keep: LeanKeep): LeanMark[] {
   const out: LeanMark[] = [];
   for (const item of candidates) {
-    if (!item.runId || keep.runs.has(item.runId) || item.state !== 'keep' || item.nested || keep.pinned.has(item.itemId)) continue;
-    if (item.kind === 'reasoning') { if (item.tokens > 0) out.push({ itemId: item.itemId, state: 'hidden', saves: item.tokens }); continue; }
-    if (!LEAN_KINDS.has(item.kind)) continue;
+    if (!item.runId || item.state !== 'keep' || item.nested || keep.pinned.has(item.itemId)) continue;
+    if (item.kind === 'reasoning') { if (item.tokens > 0 && !keep.runs.has(item.runId)) out.push({ itemId: item.itemId, state: 'hidden', saves: item.tokens }); continue; }
+    if (!LEAN_KINDS.has(item.kind) || keptWhole(item, keep)) continue;
     const saves = item.tokens - item.cost;
     if (saves > 0) out.push({ itemId: item.itemId, state: 'condensed', saves, ...(item.text ? { text: item.text } : {}) });
   }
@@ -193,7 +225,7 @@ function leanPick(candidates: Iterable<LeanCandidate>, keep: LeanKeep): LeanMark
 export function leanMarks(entries: readonly LedgerViewItem[], keep: LeanKeep): LeanMark[] {
   return leanPick(entries.map((entry) => {
     const tokens = entryTokens(entry);
-    const open = LEAN_KINDS.has(entry.kind) && entry.runId && !keep.runs.has(entry.runId) && entry.state === 'keep' && !entry.nested && !keep.pinned.has(entry.itemId);
+    const open = LEAN_KINDS.has(entry.kind) && entry.runId && !keptWhole(entry, keep) && entry.state === 'keep' && !entry.nested && !keep.pinned.has(entry.itemId);
     if (!open) return { ...entry, tokens, cost: tokens };
     const text = leanText(entry.call?.output ?? entry.text);
     return { ...entry, tokens, cost: leanCost(entry, text), text };
@@ -206,7 +238,7 @@ export const FOLD_REASON = 'my work before my hand-over';
 /**
  * The fold's choice: every item before order `before` (where the hand-over starts) that is still in view and is the agent's own
  * work – tool calls and outputs (a script's inner calls with it), skills, files, reasoning, its own words, an earlier hand-over.
- * Never a chat line (its reach rule decides), an item in `stays` (the tasks.finish calls: their arguments are the task's
+ * Never a chat line (its reach rule decides), an item in `stays` (the calls that finished a task: their arguments are the task's
  * summary) or one the agent brought back and that is still pinned. Pure: nothing is written.
  */
 export function foldHides(rows: readonly LedgerItem[], before: number, stays: ReadonlySet<string>): string[] {

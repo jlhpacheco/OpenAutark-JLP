@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { changeList, diffLines, findLines, maskUrl, refOf, snapshotLines, type AXNode } from '../../../src/main/side-driver/snapshot.ts';
+import { changeList, diffLines, findLines, maskUrl, snapshotLines, type AXNode } from '../../../src/main/side-driver/snapshot.ts';
 import { checkoutTree } from './side-driver-fakes.ts';
 
 test('snapshot: roles, names, states, refs and nesting like Playwright', () => {
@@ -27,7 +27,6 @@ test('snapshot: roles, names, states, refs and nesting like Playwright', () => {
   ]);
   assert.deepEqual(snap.refs.get('s24'), { role: 'button', name: 'Pay' });
   assert.equal(snap.cut, false);
-  assert.equal(refOf(snap.lines[5]!), 's24');
 });
 
 test('snapshot: ignored and generic nodes give way to their children; text merges; secret values never show', () => {

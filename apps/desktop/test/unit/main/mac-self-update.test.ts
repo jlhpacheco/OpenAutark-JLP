@@ -354,15 +354,13 @@ function settleBench(boot: unknown) {
   const cacheDir = fresh('cache');
   if (boot) writeFileSync(path.join(dataDir, 'boot.json'), JSON.stringify(boot));
   const trashed: string[] = [];
-  const ids: Record<string, string> = { [bundle]: 'com.teydralab.workforce' };
   const previous = path.join(parent, PREVIOUS_BUNDLE);
   mkdirSync(previous);
   const deps = {
-    bundle, version: '1.1.0', dataDir, cacheDir, leftovers: [] as string[],
-    bundleId: async (target: string) => ids[target] ?? null,
+    bundle, version: '1.1.0', dataDir, cacheDir,
     trash: async (target: string) => { trashed.push(target); },
   };
-  return { parent, bundle, dataDir, cacheDir, deps, trashed, ids, previous };
+  return { parent, bundle, dataDir, cacheDir, deps, trashed, previous };
 }
 
 test('before this version ran stable nothing is touched', async () => {
@@ -373,16 +371,11 @@ test('before this version ran stable nothing is touched', async () => {
   }
 });
 
-test('once stable: the previous bundle and an old-named leftover of the same app go to the trash, others stay', async () => {
+test('once stable: the previous bundle goes to the trash, other apps beside it stay', async () => {
   const b = settleBench({ phase: 'stable', version: '1.1.0' });
-  const leftover = path.join(b.parent, 'Old Name.app');
-  const foreign = path.join(b.parent, 'Foreign.app');
-  mkdirSync(leftover);
-  mkdirSync(foreign);
-  b.ids[leftover] = 'com.teydralab.workforce';
-  b.ids[foreign] = 'com.someone.else';
-  await settleMacUpdate({ ...b.deps, leftovers: [leftover, foreign, b.bundle, path.join(b.parent, 'Absent.app')] });
-  assert.deepEqual(b.trashed, [b.previous, leftover]);
+  mkdirSync(path.join(b.parent, 'Foreign.app'));
+  await settleMacUpdate(b.deps);
+  assert.deepEqual(b.trashed, [b.previous]);
 });
 
 test('a failure note of an older version goes, the one of this version stays; a refused trash does not throw', async () => {

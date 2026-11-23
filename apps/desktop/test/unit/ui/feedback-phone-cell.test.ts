@@ -1,7 +1,7 @@
 // Feedback 16.11.2026 (F15, F22): on the phone the feedback cell was only on the tab roots. Every row a body draws itself
-// (a chat, an agent, its Work page, a person) and the "only My day" screen end with the one cell (src/ui/feedback/cell.tsx;
-// a placeholder of the same box where feedback is not allowed, so the row never shifts); the "only My day" screen mounts
-// the feedback menu itself. The team inbox's lines (src/ui/feedback/inbox-text.ts) say where a report was written.
+// (a chat, an agent, its Work page, a person) end with the one cell (src/ui/feedback/cell.tsx; a placeholder of the same
+// box where feedback is not allowed, so the row never shifts); 19.11.2026: the "only My day" screen is gone – the frame stays
+// with its row while the PC is away. The team inbox's lines (src/ui/feedback/inbox-text.ts) say where a report was written.
 // Owns: these assertions (source checks for the .tsx rows). Never: renders a view.
 
 import { test } from 'node:test';
@@ -21,7 +21,7 @@ test('the cell is the button where feedback is allowed, else a placeholder of th
   assert.match(cell, /isMobile\.value \? \[feedbackCell\(\)\] : \[\]/);
 });
 
-test('every phone row ends with it: the frame row, a chat, an agent, its Work page, a person and "only My day"', () => {
+test('every phone row ends with it: the frame row, a chat, an agent, its Work page and a person', () => {
   assert.match(read('shell/MobileShell.tsx'), /feedbackCell\(\), PROFILE\]/, 'before Profile, kept as a placeholder when not allowed');
   assert.match(read('chat/ChatHeader.tsx'), /cells: \[call, tabs\('workspace'\), feedbackCell\(\)\]/);
   for (const name of ['team/AgentView.tsx', 'team/AgentWork.tsx', 'team/PersonView.tsx']) {
@@ -30,9 +30,6 @@ test('every phone row ends with it: the frame row, a chat, an agent, its Work pa
     assert.ok(headers.length >= 2, `${name}: loading and loaded rows`);
     for (const header of headers) assert.match(header, /cells=\{phoneFeedbackCells\(\)\}/, `${name}: the same cells while it loads, so nothing moves`);
   }
-  const app = read('App.tsx');
-  assert.match(app, /<Header class="offline-header" title="My day" twoLine cells=\{\[feedbackCell\(true\)\]\}/, 'there whatever the PC allowed last');
-  assert.match(app, /<FeedbackMenu \/>/, 'the screen without a shell mounts the feedback host itself (the snapshot overlay is full screen on a phone)');
 });
 
 const PHONE: FeedbackInboxItem = {

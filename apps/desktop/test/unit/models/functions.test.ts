@@ -1,5 +1,5 @@
 // Function models (FN1): speech/image/video/music specialists in the catalog are never routed for
-// chat; functionModel() honours the Settings choice and falls back to the first specialist.
+// chat; functionStatus().choice honours the Settings choice and falls back to the first specialist.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,7 +7,7 @@ import { account, agent, mode, setup } from './harness.ts';
 import { Priors } from '../../../src/runtime/models/priors.ts';
 import { buildModel, specialties } from '../../../src/runtime/models/catalog-merge.ts';
 import { Catalog } from '../../../src/runtime/models/catalog.ts';
-import { functionModel, functionStatus } from '../../../src/runtime/models/functions.ts';
+import { functionStatus } from '../../../src/runtime/models/functions.ts';
 import { functionCandidates, type ModelInfo } from '../../../src/shared/model/providers.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import type { EngineModel } from '../../../src/runtime/engines/types.ts';
@@ -112,9 +112,9 @@ test('a row stored before a model counted as a specialist is not chat-routable o
   assert.equal(reread.get('openai:gpt-6-luna')?.strengths.chat, 0.4, 'general rows stay as stored');
 });
 
-test('functionModel: the Settings choice while available, else the first specialist; off; chat pins ignored', async () => {
+test('functionStatus: the Settings choice while available, else the first specialist; off; chat pins ignored', async () => {
   const h = await openaiSetup();
-  const stt = () => functionModel(h.services, 'stt');
+  const stt = () => functionStatus(h.services, 'stt').choice;
   // No choice: the first available specialist (catalog order among equals).
   assert.equal(stt()?.source, 'auto');
   assert.equal(stt()?.accountId, 'acc_openai');
@@ -134,26 +134,26 @@ test('functionModel: the Settings choice while available, else the first special
   // A chat model stored by the old rows is not a speech model: ignored.
   h.settings.update({ routing: { stt: 'openai:gpt-6-luna', image: 'openai:gpt-6-luna' } });
   assert.equal(stt()?.source, 'auto');
-  assert.equal(functionModel(h.services, 'image')?.modelId.startsWith('openai:'), true);
-  assert.ok(h.catalog.get(functionModel(h.services, 'image')!.modelId)?.functions?.includes('image'));
+  assert.equal(functionStatus(h.services, 'image').choice?.modelId.startsWith('openai:'), true);
+  assert.ok(h.catalog.get(functionStatus(h.services, 'image').choice!.modelId)?.functions?.includes('image'));
   // Off turns the function off; music has no model at all.
   h.settings.update({ routing: { stt: 'off' } });
   assert.equal(stt(), undefined);
   assert.equal(functionStatus(h.services, 'stt').off, true);
-  assert.equal(functionModel(h.services, 'music'), undefined);
+  assert.equal(functionStatus(h.services, 'music').choice, undefined);
   // The account turned off → nothing resolves.
   h.settings.update({ routing: { stt: 'auto', image: 'auto', work: 'auto' } });
   h.accounts.upsert(account('acc_openai', 'openai', { enabled: false }), false);
   assert.equal(stt(), undefined);
 });
 
-test('functionModel prefers a free local speech model over a pay-per-use key', async () => {
+test('functionStatus prefers a free local speech model over a pay-per-use key', async () => {
   const h = await openaiSetup();
   h.accounts.upsert(account('acc_local', 'llamacpp', { baseUrl: 'http://127.0.0.1:8080/v1', auth: 'local' }), false);
   h.engine('compatible').lists.set('llamacpp', [{ model: 'whisper-large-v3-turbo', name: 'whisper-large-v3-turbo', efforts: [] }]);
   await h.catalog.refresh({ force: true });
-  assert.deepEqual(functionModel(h.services, 'stt'), { modelId: 'llamacpp:whisper-large-v3-turbo', accountId: 'acc_local', provider: 'llamacpp', model: 'whisper-large-v3-turbo', source: 'auto' });
+  assert.deepEqual(functionStatus(h.services, 'stt').choice, { modelId: 'llamacpp:whisper-large-v3-turbo', accountId: 'acc_local', provider: 'llamacpp', model: 'whisper-large-v3-turbo', source: 'auto' });
   h.settings.update({ routing: { stt: 'openai:whisper-1' } });
-  assert.equal(functionModel(h.services, 'stt')?.modelId, 'openai:whisper-1', 'the person\'s choice beats the cheaper model');
+  assert.equal(functionStatus(h.services, 'stt').choice?.modelId, 'openai:whisper-1', 'the person\'s choice beats the cheaper model');
 });
 

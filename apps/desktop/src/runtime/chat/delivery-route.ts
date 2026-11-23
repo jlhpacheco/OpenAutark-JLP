@@ -27,9 +27,11 @@
 // Owns: those routing steps, the guards' counters and the decisions in flight. Never: notifies the person, decides
 // what counts as important (delivery does), or writes messages other than the guard's status lines. A line of the one a
 // task waits on wakes its owner with that task; a colleague's line opens it, a person's leaves the wait to its owner.
+// Quests 20.11.2026: a task's thread (tasks/thread.ts) – every wake from it carries its task, and a person's line there
+// that @mentions nobody is the task owner's to answer (an agent owner, else the thread's lead): no pick.
 
 import type { RuntimeServices } from '../contracts.ts';
-import { messageLevel, type Member, type Message } from '../../shared/model/chat.ts';
+import { isTaskThread, messageLevel, type Member, type Message } from '../../shared/model/chat.ts';
 import { isExternalAgent } from '../bridges/external-agents.ts';
 import { externalAgentName } from '../../shared/model/external-agents.ts';
 import { waitIn } from '../tasks/transitions.ts';
@@ -132,8 +134,9 @@ export class DeliveryRouter {
     const pickable = split?.pickable ?? agents;
     const always = split?.always ?? []; // already woken (urgent when important): never steered twice
     if (!pickable.length) { if (steer) this.steerRunning(message, agents, always); return; }
-    const lead = agentLike ? undefined : this.fallback(message.conversationId, pickable);
-    if (!mentioned.length && (agentLike || pickable.length > 1) && this.s.decisions?.available()) {
+    const thread = !agentLike && isTaskThread(message.conversationId); // a person's line in a task's thread: its owner answers
+    const lead = agentLike ? undefined : (thread ? this.taskOwner(message.conversationId, pickable) : undefined) ?? this.fallback(message.conversationId, pickable);
+    if (!thread && !mentioned.length && (agentLike || pickable.length > 1) && this.s.decisions?.available()) {
       const steered = steer ? this.steerRunning(message, agents, always) : [];
       this.decide(message, pickable, lead, { urgent, steered });
       return;
@@ -147,6 +150,17 @@ export class DeliveryRouter {
   private fallback(conversationId: string, agents: string[]): string {
     const lead = this.s.chats.lead(conversationId);
     return lead && agents.includes(lead) ? lead : agents[0];
+  }
+
+  /** The agent that owns the task of thread `taskId`, when it is one of `agents`. */
+  private taskOwner(taskId: string, agents: string[]): string | undefined {
+    try {
+      const task = this.s.tasks?.get(taskId);
+      return task?.assigneeKind === 'agent' && task.assigneeId && agents.includes(task.assigneeId) ? task.assigneeId : undefined;
+    } catch (error) {
+      this.s.log?.warn('the owner of a task thread is unknown', { taskId, error: String(error) });
+      return undefined;
+    }
   }
 
   /** B-080: the person's line into the running turn of every agent of the group at work (dispatcher.hear); 'mentions' agents only when named. */
@@ -206,12 +220,13 @@ export class DeliveryRouter {
   }
 
   private wakeAll(message: Message, agentIds: string[], options: Urgency & { dueAt?: number; coalesceKey?: string; note?: string; fold?: boolean } = {}): void {
+    const thread = isTaskThread(message.conversationId) ? message.conversationId : undefined; // its wakes carry the task
     for (const agentId of agentIds) {
       const waiting = message.authorId !== agentId ? this.waitingTask(message.conversationId, agentId, message.authorId) : undefined;
       this.s.wakes.wake({
         agentId, reason: 'message', conversationId: message.conversationId, coalesceKey: options.coalesceKey ?? chatWakeKey(message.conversationId),
         ...(options.dueAt !== undefined ? { dueAt: options.dueAt } : {}),
-        ...(waiting ? { taskId: waiting } : options.note ? { note: options.note } : {}),
+        ...(waiting ? { taskId: waiting } : { ...(thread ? { taskId: thread } : {}), ...(options.note ? { note: options.note } : {}) }),
       });
       if (waiting && message.authorKind !== 'human') this.opened(waiting, message.authorId); // a wait on a person stays until its owner moves it
     }

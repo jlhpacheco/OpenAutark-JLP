@@ -5,9 +5,11 @@
 // whatever its space. A report in another space than the one it sits in names it first on its status line, as a
 // label that is never cut off (model.ts reportSpace). Each level is indented one step; every branch (row + its
 // subtree + splits) is one `.team-branch`, which draws its parent's 1 px guide beside it – the last one down to its
-// row's middle only, so a guide ends at its parent's last direct report. Every row: real
+// row's middle only, so a guide ends at its parent's last direct report. Team-Call 21.11.2026: rows drag and drop –
+// an agent onto an agent reports to it, a person onto an agent makes it theirs (team-drag.ts, drop-model.ts). Every row: real
 // status ring/dot, one line under the name – in the sidebar its live status, on the Team page (F18) its role and how
-// many report to it directly (model.ts structureLine) – the tiny "AI"; right-click or long-press opens its menu (menus.ts). B-057: in
+// many report to it directly (model.ts structureLine) and, 21.11.2026, the PC it runs on when that is not this one ("on
+// Tower", runs-on.ts) – the tiny "AI"; right-click or long-press opens its menu (menus.ts). B-057: in
 // the sidebar an agent's splits are rows inside the same expansion, below its reports (splits/SplitNav.tsx).
 // Owns: the rows, branches and grouped body of the tree. Never: keeps expand state (the caller passes `open`),
 // edits the org or draws header markup.
@@ -15,6 +17,7 @@
 import type { Agent } from '../../shared/model/org.ts';
 import type { Person } from '../../shared/model/people.ts';
 import { AgentAvatar, Icon } from '../lib/ui.tsx';
+import { runsOn, watchPcs } from './runs-on.ts';
 import { useContextMenu } from '../lib/context-menu.tsx';
 import { agentName } from '../lib/store.ts';
 import { go } from '../lib/router.ts';
@@ -25,6 +28,7 @@ import type { PersonEntry } from './people-model.ts';
 import { agentLine, AgentStatusAvatar, AiTag } from './parts.tsx';
 import { orgTree, peopleTree, spaces } from './org-state.ts';
 import { agentMenu, personMenu } from './menus.ts';
+import { dropTarget, rowDrag } from './team-drag.ts';
 import { SplitCount, SplitNavRows, hasSplits } from '../splits/SplitNav.tsx'; // B-057
 
 type Toggle = { expanded: boolean; onToggle: () => void } | null;
@@ -43,10 +47,12 @@ export function AgentRow(props: { agent: Agent; depth: number; reports: number; 
   const { agent } = props;
   const active = agent.id === props.activeId;
   const toggle = props.toggle ?? null;
-  const line = props.direct === undefined ? agentLine(agent) : structureLine(agent, props.direct); // F18: the Team page shows the structure
+  watchPcs();
+  const where = props.direct === undefined ? undefined : runsOn(agent); // 21.11.2026: the Team page names an agent's PC when it is not this one
+  const line = props.direct === undefined ? agentLine(agent) : [structureLine(agent, props.direct), where && !where.here ? `on ${where.name}` : ''].filter(Boolean).join(' · '); // F18: the Team page shows the structure
   const menu = useContextMenu(() => agentMenu(agent));
   return (
-    <div class={`team-row${active ? ' active' : ''}`} style={{ '--depth': String(props.depth) }} {...menu}>
+    <div class={`team-row${active ? ' active' : ''}${dropTarget.value === agent.id ? ' drop-target' : ''}`} style={{ '--depth': String(props.depth) }} {...menu} {...rowDrag({ kind: 'agent', id: agent.id })}>
       <Caret name={agent.name} toggle={toggle} what={props.what} />
       <button type="button" class="team-row-open" aria-current={active ? 'page' : undefined} onClick={() => go.agent(agent.id)}>
         <AgentStatusAvatar agent={agent} size={30} />
@@ -72,7 +78,7 @@ export function PersonRow(props: { person: Person; depth: number; reports: numbe
   const line = [person.title, status === 'Active' || person.owner ? '' : status].filter(Boolean).join(' · ');
   const menu = useContextMenu(() => personMenu(person));
   return (
-    <div class={`team-row person${active ? ' active' : ''}`} style={{ '--depth': String(props.depth) }} {...menu}>
+    <div class={`team-row person${active ? ' active' : ''}${dropTarget.value === person.id ? ' drop-target' : ''}`} style={{ '--depth': String(props.depth) }} {...menu} {...rowDrag({ kind: 'person', id: person.id }, person.fromEmployer)}>
       <Caret name={name} toggle={toggle} />
       <button type="button" class="team-row-open" aria-current={active ? 'page' : undefined} onClick={() => go.person(person.id)}>
         <AgentAvatar agentId={person.id} size={30} />

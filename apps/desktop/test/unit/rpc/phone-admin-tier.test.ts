@@ -94,7 +94,7 @@ test('people.invite from my phone is the same person-scoped invite as on the PC'
     const ctx = { scope, services: { people }, extras: {}, topics: new Set(), signal: new AbortController().signal, secure: secureScope(scope) } as unknown as HandlerContext;
     return entry.handler({ id: 'per_anna000000' } as never, ctx);
   };
-  const fromPc = await run('people.invite', { kind: 'owner' });
+  const fromPc = await run('people.invite', { kind: 'owner', person: true });
   const fromPhone = await run('people.invite', PHONE);
   assert.deepEqual(fromPhone, fromPc, 'the handler does not depend on the caller');
   assert.deepEqual(await run('people.closeInvite', PHONE), { ok: true });

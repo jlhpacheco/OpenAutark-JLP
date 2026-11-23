@@ -1,5 +1,5 @@
-// RPC contract part: feedback reports, the app's look (<data>/theme.css, runtime/root/theme.ts), the legacy
-// import, voice transcription. Handlers: runtime/rpc/handlers/app.ts.
+// RPC contract part: feedback reports, the app's look (<data>/theme.css, runtime/root/theme.ts), voice
+// transcription. Handlers: runtime/rpc/handlers/app.ts.
 // Merged into Methods by module augmentation (split from methods.ts by area, 23.10.).
 // Owns: these method shapes. Never: behaviour.
 
@@ -13,11 +13,12 @@ declare module '../api/methods.ts' {
     /**
      * A person's report, saved on this PC (feedback.send delivers it). 16.11.2026: `kind` optional; `clientId` (≤ 64,
      * [A-Za-z0-9_-]) – the same id again returns the stored report; `client` – where it was written; `clientDiagnostics`
-     * – the device's own diagnostics; `audioFileIds` – up to 4 uploaded WebM/MP4 takes (shared/model/feedback-delivery.ts).
+     * – the device's own diagnostics; `dictated` – the text is a dictation's transcript (owner 20.11.2026: a report never
+     * carries a recording); `imageFileIds` – its images in order (≤ FEEDBACK_IMAGES_MAX, owner 21.11.2026).
      */
     'feedback.create': {
       params: {
-        kind?: FeedbackKind; text: string; screenshotFileId?: string; annotationFileId?: string; audioFileIds?: string[]; view?: string; conversationId?: string;
+        kind?: FeedbackKind; text: string; imageFileIds?: string[]; dictated?: boolean; view?: string; conversationId?: string;
         clientId?: string; client?: string; clientDiagnostics?: string;
       };
       result: FeedbackReport;
@@ -28,8 +29,6 @@ declare module '../api/methods.ts' {
     /** The CSS of <data>/theme.css ('' = none); open to every device – phones look the same. */
     'theme.get': { params: void; result: ThemeCss };
 
-    // ----------------------------------------------------------------- the one-time legacy import (onboarding: shared/model/onboarding.ts)
-    'import.legacy': { params: { path?: string } | void; result: { imported: { agents: number; chats: number; messages: number } } };
 
     // ----------------------------------------------------------------- voice
     /**

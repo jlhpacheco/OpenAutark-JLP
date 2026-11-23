@@ -9,7 +9,7 @@ import { migrate } from '../../../src/runtime/db/migrate.ts';
 import { Blobs } from '../../../src/runtime/files/store.ts';
 import { KnowledgeStore } from '../../../src/runtime/knowledge/service.ts';
 import { Org } from '../../../src/runtime/org/service.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { createPaths, ensurePaths } from '../../../src/runtime/system/paths.ts';
 import type { RuntimeServices, WakeRequest } from '../../../src/runtime/contracts.ts';
 import '../../../src/runtime/contracts/team-start.ts';

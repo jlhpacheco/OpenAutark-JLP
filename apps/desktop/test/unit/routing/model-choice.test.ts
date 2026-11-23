@@ -76,7 +76,7 @@ test('plain conversation is routed like any agent turn: no small-model default, 
   }
   h.settings.update({ routing: { work: HAIKU } });
   const settingsChat = await h.router.route(chat());
-  assert.deepEqual([settingsChat.modelId, settingsChat.reason], [HAIKU, 'the Work model in Settings · chat']);
+  assert.deepEqual([settingsChat.modelId, settingsChat.reason], [HAIKU, 'the Work model in Settings · chat · not weighed · effort medium']);
   h.settings.update({ routing: { work: LUNA } });
   assert.deepEqual([(await h.router.route(chat())).modelId, (await h.router.route(chat())).by], [LUNA, 'pin'], 'the person may choose Luna for work');
 });

@@ -6,13 +6,16 @@
 // folder); a file of the same title, or clearly the same content, in that folder is updated – never a duplicate, the old
 // version kept as history; `pinned` moves it into or out of its place's pinned/ folder (withPinned); into references/ it
 // keeps the person's own words with a reference kind (references/references.ts captureReference).
+// Runde „Halb“ 21.11.2026 (owner: a memory "gibt einfach einen kurzen Einstieg … das nicht zu vergessen", not a work
+// instruction): a note is a small pointer to one thing, and its description – now required – is the line the subconscious's
+// hint carries (subconscious/hints.ts); a way of working is a skill. The subconscious's thoughts.md is no note: memory.browse
+// leaves it out (find/service.ts leaves it out of the search).
 // Owns: these tools and their wording (folderText also for the subconscious's memory.browse).
 
 import type { ToolContext, ToolDef } from '../types.ts';
 import { failure, json } from '../types.ts';
 import type { KnowledgeItem } from '../../../shared/model/knowledge.ts';
 import { foldText } from '../../knowledge/normalize.ts';
-import { agentTags } from '../../knowledge/reserved.ts';
 import { appId, websiteId } from '../../knowledge/scope-id.ts';
 import { memoryId, scopeOfPath } from '../../knowledge/memory-tree.ts';
 import { REFERENCE_KINDS, captureReference, type ReferenceKind } from '../../references/references.ts';
@@ -21,7 +24,7 @@ import type { MemoryFolder, MemoryKind } from '../../../shared/model/memory.ts';
 import { clip, defineTool, internal, parseWhen } from './util.ts';
 import { subjectOf } from './references.ts';
 
-const KINDS = ['fact', 'preference', 'experience', 'procedure', 'plan', 'observation', 'note'] as const;
+const KINDS = ['fact', 'preference', 'experience', 'procedure', 'plan', 'note'] as const;
 const REFERENCES = /^references(?:\/([^/]+))?\/?$/;
 
 /** The current note a new one would only repeat in other words: same title, else clearly the same content. */
@@ -49,7 +52,7 @@ function placeOf(folder: string): string {
 /** The notes of `folder` itself (and its pinned/), the twin check's candidates. */
 async function notesIn(ctx: ToolContext, folder: string): Promise<KnowledgeItem[]> {
   const items = await ctx.services.knowledge.list({ ...scopeOfPath(`${folder}/x.md`), limit: 500 }).catch(() => []);
-  return items.filter((item) => item.kind !== 'reference' && item.kind !== 'observation'
+  return items.filter((item) => item.kind !== 'reference'
     && item.id.split(':').slice(0, -1).filter((part) => part !== 'pinned').join('/') === folder);
 }
 
@@ -65,8 +68,17 @@ function writeReference(ctx: ToolContext, person: string | undefined, args: { ti
 const PATH = { type: 'string', minLength: 1, maxLength: 512 } as const;
 const day = (at: number): string => new Date(at).toISOString().slice(0, 10);
 
+/** The subconscious's own thoughts (subconscious/thoughts.ts agents/<id>/thoughts.md): its keywords, not a note – no listing shows them. */
+const THOUGHTS = /^agents\/[^/]+\/thoughts\.md$/;
+
+/** A folder as memory.browse lists it: without the subconscious's thoughts file. */
+export function listedFolder(folder: MemoryFolder): MemoryFolder {
+  return { ...folder, files: folder.files.filter((entry) => !THOUGHTS.test(entry.path)) };
+}
+
 /** One memory folder as text: the main AI's memory.browse and the subconscious's (subconscious/tools.ts). */
-export function folderText(folder: MemoryFolder): string {
+export function folderText(input: MemoryFolder): string {
+  const folder = listedFolder(input);
   return [
     `memory/${folder.path}`.replace(/\/$/, ''),
     ...(folder.description ? [folder.description] : []),
@@ -85,7 +97,7 @@ const browse = defineTool<{ folder?: string }>({
   describe: (args) => internal(`Browse memory ${clip(args.folder ?? '', 60)}`),
   async run(args, ctx) {
     try {
-      const folder = ctx.services.knowledge.memoryBrowse(args.folder ?? '');
+      const folder = listedFolder(ctx.services.knowledge.memoryBrowse(args.folder ?? ''));
       return { content: [{ type: 'text', text: folderText(folder) }], structured: folder };
     } catch (error) {
       return failure((error as Error).message);
@@ -118,14 +130,14 @@ type WriteArgs = {
 
 const write = defineTool<WriteArgs>({
   name: 'memory.write',
-  description: 'Creates or updates a memory file, findable at once. What I do not keep, my next turn does not know, so I write what will still matter in weeks – short, dated, in the words someone would search for. The same title or content in a folder updates that file.',
+  description: 'Keeps one thing a later turn of mine would otherwise not think of – a fact, a wish of the person, a way that worked or failed here – as a short dated note, findable at once. Its description is the line my later self gets as a hint: when it matters and what it changes, in the words such a request would carry. A way of working that needs more than a few lines is a skill (skills.save). The same title or content in a folder updates that file.',
   inputSchema: {
     type: 'object',
     properties: {
       path: { ...PATH, description: 'A file to update.' },
       folder: { type: 'string', maxLength: 512, description: "Default my own (agents/<me>); company for everyone, branches/<space>, chats/<chat>, company/websites/<host>, company/apps/<process>, company/modes/<mode>, references/<person> for the person's own words, or any topic subfolder." },
       title: { type: 'string', minLength: 1, maxLength: 200 }, text: { type: 'string', minLength: 1, maxLength: 50_000 },
-      description: { type: 'string', maxLength: 300, description: 'One line on when it helps.' },
+      description: { type: 'string', minLength: 1, maxLength: 300, description: 'The hint line: when it matters and what it changes.' },
       kind: { type: 'string', enum: [...KINDS, ...REFERENCE_KINDS], description: `In references/: ${REFERENCE_KINDS.join(', ')} (default example).` },
       audience: { type: 'string', maxLength: 120, description: 'In references/: whom the person wrote it for, so a later draft for them finds it.' },
       tags: { type: 'array', items: { type: 'string' }, maxItems: 12 }, source: { type: 'string', maxLength: 500, description: 'Where it came from, e.g. "message:<id>".' },
@@ -133,7 +145,7 @@ const write = defineTool<WriteArgs>({
       confidence: { type: 'number', minimum: 0, maximum: 1, description: '0–1.' },
       validFrom: { type: 'string' }, validTo: { type: 'string', description: 'Ends it at this time.' },
     },
-    required: ['title', 'text'], additionalProperties: false,
+    required: ['title', 'text', 'description'], additionalProperties: false,
   },
   category: 'think',
   describe: (args) => internal(`Write memory "${clip(args.title, 60)}"`),
@@ -148,7 +160,7 @@ const write = defineTool<WriteArgs>({
       const written = ctx.services.knowledge.memoryWrite({
         ...(args.path ? { path: args.path } : twin ? { path: twin.id } : { folder }),
         title: args.title, text: args.text, ...(args.description !== undefined ? { description: args.description } : {}),
-        kind: args.kind as MemoryKind | undefined, tags: args.tags && agentTags(args.tags), source: args.source ?? `run:${ctx.runId}`,
+        kind: args.kind as MemoryKind | undefined, tags: args.tags, source: args.source ?? `run:${ctx.runId}`,
         validFrom: parseWhen(args.validFrom, now), validTo: parseWhen(args.validTo, now), confidence: args.confidence, by: ctx.agent.id,
       });
       const path = args.pinned === undefined ? written.path : ctx.services.knowledge.pin(memoryId(written.path), args.pinned, ctx.agent.id).id.replace(/:/g, '/');

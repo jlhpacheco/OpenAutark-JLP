@@ -9,6 +9,7 @@ import { EventEmitter } from 'node:events';
 import { CLOSE, ClientSockets, Keepalive } from '../../../src/runtime/http/ws.ts';
 import type { ClientScope } from '../../../src/shared/api/protocol.ts';
 import { silentLog } from '../devices/fakes.ts';
+import { agentProof } from '../../../src/runtime/security/agent-proof.ts';
 
 class FakeSocket extends EventEmitter {
   readonly OPEN = 1;
@@ -34,7 +35,8 @@ function helloWith(frame: Record<string, unknown>, scope: ClientScope, agentLive
   const ws = new FakeSocket();
   try {
     sockets.accept(ws as never, true);
-    ws.emit('message', Buffer.from(JSON.stringify({ protocol: 1, token: 'owner-token', client: 'cli', ...frame })), false);
+    const proof = typeof frame.agent === 'string' && !('proof' in frame) ? { proof: agentProof(frame.agent) } : {}; // the runtime's proof unless the test names one
+    ws.emit('message', Buffer.from(JSON.stringify({ protocol: 1, token: 'owner-token', client: 'cli', ...proof, ...frame })), false);
     return { scope: attached, closed: ws.closedWith };
   } finally {
     keepalive.stop();

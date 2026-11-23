@@ -1,14 +1,14 @@
-// Owns: who has the phone while the AI uses it (owner 10.11.2026 16:18, 15.11.2026 F16) – three states, kept apart:
-// active (the AI's steps run), paused and ended. A touch of the person pauses at once and goes on by itself
-// TOUCH_QUIET_MS after their last touch (each touch starts the wait again), so a person who helps the AI costs it only
-// a moment; the person's Pause holds until their Continue; their ✕ ends the job: its steps are refused for good,
-// waiting ones included. Their ✓ to the AI's question (phone.say ask, agreed) makes that job active, also after Pause or
-// ✕. The AI's own gestures do not count as the person's touch.
+// Owns: who has the phone while the AI uses it (owner 10.11.2026 16:18, 15.11.2026 F16, 20.11.2026) – three states, kept
+// apart: active (the AI's steps run), paused and ended. Only the person's own buttons in the bubble change it: their Pause
+// holds until their Continue; their ✕ ends the job: its steps are refused for good, waiting ones included. Their ✓ to the
+// AI's question (phone.say ask, agreed) makes that job active, also after Pause or ✕. A touch or typing of the person on
+// the screen changes nothing here (owner 20.11.2026: "dass ich klicken kann und da kann sie einfach weitermachen"): the
+// AI's next look at the screen shows what their touch changed.
 // A job is the PC's run (the request's `job`); every job the person ended stays refused, also after a newer job ran
 // (the last ENDED_KEPT of them). A PC without job ids (older desktop) gets one job per session, which ends SESSION_MS
 // after the last step. The refusals are facts in the AI's own view with its next step. Pure Java, no Android:
-// UseService asks it before every step and tells it about touches, its own gestures and the person's answers;
-// UseBubble shows it. Never: lets a step run while paused or ended, or lifts the person's Pause or ✕ by itself.
+// UseService asks it before every step and tells it about the person's buttons and answers; UseBubble shows it.
+// Never: lets a step run while paused or ended, or lifts the person's Pause or ✕ by itself.
 package com.teydralab.autark.android.phoneuse;
 
 import java.util.LinkedHashSet;
@@ -26,16 +26,9 @@ final class UseState {
 
     /** Without a job id, a pause in steps this long starts a new job (ended no longer applies). */
     static final long SESSION_MS = 5 * 60_000;
-    /** An own gesture's touch events can still arrive this long after its stroke ended. */
-    static final long OWN_GRACE_MS = 400;
     /** How many ended jobs are remembered (a late step of an older one is still refused). */
     static final int ENDED_KEPT = 64;
-    /** A touch-pause goes on by itself this long after the person's last touch. */
-    static final long TOUCH_QUIET_MS = 5_000;
 
-    static final String PAUSED_TOUCH = "The person is using the phone right now, so this step did not run. My phone use goes "
-            + "on by itself 5 s after their last touch: I try the step again in a few seconds, from a fresh look at the "
-            + "screen. When my steps can wait, I ask them first with phone.say (ask: true) – one tap answers.";
     static final String PAUSED_PERSON = "The person paused my phone use with Pause and has the phone; this step did not run. "
             + "My task stays: phone use goes on when they tap Continue in the bubble, or when they answer ✓ to my question "
             + "(phone.say with ask: true). Meanwhile I go on with other work.";
@@ -43,18 +36,12 @@ final class UseState {
             + "stays theirs for this task. I finish it another way, or tell them in the chat what is left on the phone.";
 
     private Mode mode = Mode.ACTIVE;
-    private boolean byTouch;
     private String job;
     private final Set<String> endedJobs = new LinkedHashSet<>();
     private boolean endedWithoutJob;
     private long lastStep = Long.MIN_VALUE / 2;
-    private long lastTouch = Long.MIN_VALUE / 2;
-    private long ownUntil = Long.MIN_VALUE / 2;
 
     synchronized Mode mode() { return mode; }
-
-    /** Paused by a touch (true) or by the person's Pause (false); meaningful only while paused. */
-    synchronized boolean byTouch() { return byTouch; }
 
     /** Before each step: null lets it run; else why not. `job` may be null (a PC without job ids). */
     synchronized Refusal step(String job, long now) {
@@ -66,45 +53,14 @@ final class UseState {
         if (mode == Mode.ENDED) mode = Mode.ACTIVE; // a new job: the ✕ was for the one before
         this.job = key;
         lastStep = now;
-        quiet(now); // the person stopped touching a while ago: it goes on
-        if (mode == Mode.PAUSED) return new Refusal("paused", byTouch ? PAUSED_TOUCH : PAUSED_PERSON);
+        if (mode == Mode.PAUSED) return new Refusal("paused", PAUSED_PERSON);
         return null;
     }
 
-    /** The AI's own gesture starts now and lasts `durationMs`: touches until then (plus a grace) are its own. */
-    synchronized void ownGesture(long now, long durationMs) { ownUntil = Math.max(ownUntil, now + Math.max(0, durationMs) + OWN_GRACE_MS); }
-
-    /** A touch on the screen outside the bubble in a live session: it pauses (from active) or starts the quiet wait
-     *  again (while a touch paused it). True when the bubble shows the touch-pause and its wait starts now. */
-    synchronized boolean touched(long now) {
-        if (now <= ownUntil || now - lastStep > SESSION_MS) return false;
-        if (mode == Mode.ACTIVE) { mode = Mode.PAUSED; byTouch = true; }
-        else if (mode != Mode.PAUSED || !byTouch) return false;
-        lastTouch = now;
-        return true;
-    }
-
-    /** The AI's gesture was cancelled by Android while active: a finger of the person came in its way (a touch now). */
-    synchronized boolean gestureCancelled(long now) {
-        if (mode != Mode.ACTIVE) return false;
-        mode = Mode.PAUSED; byTouch = true; lastTouch = now;
-        return true;
-    }
-
-    /** Milliseconds until a touch-pause is over (0 when none waits). */
-    synchronized long quietIn(long now) { return mode == Mode.PAUSED && byTouch ? Math.max(0, lastTouch + TOUCH_QUIET_MS - now) : 0; }
-
-    /** TOUCH_QUIET_MS after the person's last touch a touch-pause becomes active again; true when it did now. */
-    synchronized boolean quiet(long now) {
-        if (mode != Mode.PAUSED || !byTouch || now - lastTouch < TOUCH_QUIET_MS) return false;
-        mode = Mode.ACTIVE;
-        return true;
-    }
-
-    /** The person's Pause in the bubble (also while a touch paused: then it holds until Continue). */
+    /** The person's Pause in the bubble: it holds until Continue. */
     synchronized boolean pause() {
-        if (mode == Mode.ENDED || (mode == Mode.PAUSED && !byTouch)) return false;
-        mode = Mode.PAUSED; byTouch = false;
+        if (mode != Mode.ACTIVE) return false;
+        mode = Mode.PAUSED;
         return true;
     }
 
@@ -115,6 +71,13 @@ final class UseState {
         this.job = key;
         mode = Mode.ACTIVE;
         lastStep = now;
+    }
+
+    /** The PC's run `job` is over (owner 19.11.2026): its session ends; the person's own Pause and ✕ stay as they are. */
+    synchronized void finished(String job) {
+        String key = job != null && !job.isEmpty() ? job : null;
+        if (key != null && this.job != null && !key.equals(this.job)) return;
+        lastStep = Long.MIN_VALUE / 2;
     }
 
     /** The person's Continue: the AI may go on with the same job. */
@@ -136,14 +99,11 @@ final class UseState {
         return true;
     }
 
-    /** Why a running step stopped part-way (the person took the phone or ended while it ran). */
+    /** Why a running step stopped part-way (the person tapped Pause or ✕ while it ran). */
     synchronized Refusal midStep() {
         if (mode == Mode.ENDED) return new Refusal("ended", "The person ended my phone use for this task with ✕ while this step "
                 + "ran; it stopped part-way, and the phone stays theirs for this task. I finish it another way, or tell them in "
                 + "the chat what is left on the phone.");
-        if (byTouch) return new Refusal("paused", "The person touched the phone while this step ran, so it stopped part-way. My "
-                + "phone use goes on by itself 5 s after their last touch: I look at the screen again then, since it may have "
-                + "changed, and go on from what I see.");
         return new Refusal("paused", "The person paused my phone use with Pause while this step ran, so it stopped part-way. My "
                 + "task stays: it goes on when they tap Continue, or answer ✓ to my phone.say question; then I look at the "
                 + "screen again before the next step. Meanwhile I go on with other work.");

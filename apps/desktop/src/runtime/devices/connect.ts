@@ -14,6 +14,12 @@
 // F29 stage 1: the phone bridge also takes the phone app's direct socket on the peer listener (/peer/phone), which stays
 // open while a phone app is linked.
 // F25 stage 2: a phone may also ask on its tunnel for a WebRTC way (rendezvous/rtc.ts) – devices.rtc, devices.stun.
+// Eine-ID 22.11.2026: a new member accepted on a member's PC is admitted by the company's PC (company-admit.ts, wired in
+// remote/service.ts); a joining PC hears the company's name alone (companyName), the LAN hello keeps helloCompany. Owner's
+// addendum: a company exists once its first run is done (settings.onboarding.step 'done') – before, this PC is not
+// findable (no LAN answer, no meeting-server listing, no request) and shows no IDs; its own request still runs, and once
+// that is accepted the first run is done (finishFirstRun). Review 22.11.2026 (L6): once done, a kv mark keeps it a company
+// ("Set up team again" leaves the IDs); a fresh headless CLI folder stays unfindable until its first run is done.
 // Settings read here (all in settings.json, changed by the AI – skill app-settings): devices.peer,
 // devices.peerPort, devices.findable, devices.relay (the meeting server), devices.rtc and devices.stun, pwa.bind.
 // Owns: this wiring. Never: business logic.
@@ -23,11 +29,13 @@ import type { RuntimeServices } from '../contracts.ts';
 import { companyLabel } from '../../shared/model/companies.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import { connectNotice, nudgesMeeting } from './connect-signals.ts';
+import { admitMarks } from './company-admit.ts';
+import { companyCode, seatPerson, startCompanyFacts } from './company-facts.ts';
+import { KvRepo } from '../store/kv.ts';
 import type { RemoteIncoming } from '../../shared/model/remote.ts';
 import type { PairingHttp } from '../http/types.ts';
 import { PeerServer, hasLinkedPc, rememberedPeerPort, type PeerMode } from '../http/peer-server.ts';
 import { PortMap } from '../http/portmap.ts';
-import { closeAccessTurnedOff } from '../pwa/access-off.ts';
 import { PushService } from '../pwa/push.ts';
 import { pushPeopleMessages } from '../pwa/person-push.ts';
 import { startReadClear } from '../pwa/read-clear.ts';
@@ -118,6 +126,47 @@ export function companyName(s: Pick<RuntimeServices, 'host' | 'settings'>): stri
   return companyLabel(s.settings.get().profile, id);
 }
 
+/**
+ * Owner 22.11.2026: the company as the LAN hello names it – on an employee's seat with the person ("Dojo · Momo"), so a
+ * PC that holds the company and a seat of it shows two rows one can tell apart (≤ 80 characters, the person kept).
+ */
+export function helloCompany(s: Pick<RuntimeServices, 'host' | 'settings' | 'db'>): string {
+  const name = companyName(s);
+  const person = seatPerson(s)?.slice(0, 40);
+  return person ? `${name.slice(0, Math.max(0, 77 - person.length))} · ${person}` : name;
+}
+
+const COMPANY = { ns: 'company.state', key: 'setUp' } as const;
+
+/**
+ * Eine-ID addendum: this folder is a company once its first run was done – a mark kept from the first time the step read
+ * 'done' (review L6: "Set up team again" opens the first run, the IDs and requests stay).
+ */
+export function isSetUp(s: Pick<RuntimeServices, 'settings' | 'db'>): boolean {
+  const kv = new KvRepo(s.db);
+  try { if (kv.get(COMPANY.ns, COMPANY.key) === true) return true; } catch { /* read the step */ }
+  if (s.settings.get().onboarding?.step !== 'done') return false;
+  try { kv.set(COMPANY.ns, COMPANY.key, true, Date.now()); } catch { /* the step stands for it */ }
+  return true;
+}
+
+/** Other PCs find and ask this PC only while requests are on, the listener may open, and the company exists. */
+export function findableNow(s: Pick<RuntimeServices, 'settings' | 'db'>, peer: PeerMode): boolean {
+  return s.settings.get().devices.findable !== false && peer !== 'off' && isSetUp(s);
+}
+
+/**
+ * My own request was accepted and linked: the first run is done (the one place for Settings, the first-run card and
+ * devices.connect). Fest 22.11.2026: `name` – the name I joined with as a new member – is this PC's person's name where
+ * none is set yet (an employee's PC named its company after the person's folder before: "company-3").
+ */
+export function finishFirstRun(s: Pick<RuntimeServices, 'settings' | 'db'>, name?: string): void {
+  const own = name?.trim().slice(0, 80);
+  if (own && !s.settings.get().profile?.name?.trim()) s.settings.update({ profile: { name: own } });
+  if (s.settings.get().onboarding?.step !== 'done') s.settings.update({ onboarding: { completed: true, step: 'done' } });
+  isSetUp(s); // the mark
+}
+
 /** B-078 (D15): an employee's PC accepted here – the personal manager's one wake about that person (idempotent per person). */
 function welcomeEmployee(s: RuntimeServices, personId: string): void {
   const person = s.people?.get(personId);
@@ -130,14 +179,12 @@ export function createDevices(input: DevicesInput): Devices {
   let vapid: Promise<VapidKeys> | undefined;
   const push = new PushService({ db: s.db, clock: s.clock, log: s.log, vapid: () => (vapid ??= VapidKeys.load({ db: s.db, host: s.host, clock: s.clock })) });
   const pwa = new PwaService({ db: s.db, clock: s.clock, bus: s.bus, log: s.log, settings: s.settings, push, port: input.port, qr: qrDataUrl });
-  // B-078 (D5): no phone switch any more – a device gets in exactly while its accepted row exists; pwa.enabled gates nothing.
-  void closeAccessTurnedOff(s, pwa).catch((error) => s.log.warn('closing switched-off phone access failed', { error: String(error) }));
   s.notifications.addChannel?.((message) => { void pwa.pushNotify(message).catch((error) => s.log.warn('web push failed', { error: String(error) })); });
   const offPeoplePush = pushPeopleMessages(s, push); // employees' devices: a new message in a chat they are in
   const offReadClear = startReadClear(s); // B-078: a chat read anywhere closes its notice on every phone
 
   const peerMode = (): PeerMode => input.peerMode ?? s.settings.get().devices.peer;
-  const findable = () => s.settings.get().devices.findable !== false && peerMode() !== 'off';
+  const findable = () => findableNow(s, peerMode());
   const responder = new DiscoveryResponder();
   let meeting: Meeting | undefined;
   let peer: PeerServer | undefined;
@@ -149,7 +196,13 @@ export function createDevices(input: DevicesInput): Devices {
     pair: (phone) => pwa.pairPhone(phone),
     linked: (note) => s.notifications.notify({ kind: 'important', ...note }),
     admitted: (personId) => welcomeEmployee(s, personId),
-    company: () => companyName(s),
+    company: () => helloCompany(s),
+    companyName: () => companyName(s),
+    companyCode: () => companyCode(s), // owner 21.11.2026: an employee's PC shows its company's ID until its chain arrived
+    setUp: () => isSetUp(s),
+    setUpDone: (name) => finishFirstRun(s, name),
+    person: () => s.settings.get().profile.name ?? '', // review H1: "Add this PC to Momo's devices?"
+    admits: admitMarks(s.db),
     createPerson: (person) => {
       if (!s.people) throw new WorkforceError('unavailable', 'People cannot be added on this PC.');
       return s.people.save(person).id;
@@ -180,7 +233,9 @@ export function createDevices(input: DevicesInput): Devices {
     linked: () => hasLinkedPc(mesh.list()) || hasRelayPhone(devicesRepo.list({ kinds: ['phone'] })), // F29: my phone's direct socket
     // B-078: the home router maps the peer port while it listens (a test profile never touches the router)
     ...(process.env.WORKFORCE_TEST_DATA || process.env.WORKFORCE_FAKE_ENGINE === '1' ? {} : { portmap: new PortMap({ log: () => s.log }) }),
-    ...(loopbackOnly() ? { hosts: () => ['127.0.0.1'] } : {}), // a window test's listener stays on this PC (no Windows Firewall question on a shared screen)
+    // A test profile's listener stays on this PC (no Windows Firewall question on a shared screen) and says so: it
+    // advertises the loopback address it listens on, not this PC's LAN addresses (another Autark may hold that port there).
+    ...(loopbackOnly() ? { hosts: () => ['127.0.0.1'], advertise: (port: number) => [`http://127.0.0.1:${port}`] } : {}),
   });
   peer = listener;
   const meet = new Meeting({
@@ -195,8 +250,10 @@ export function createDevices(input: DevicesInput): Devices {
   meeting = meet;
   listener.onChange((state) => { mesh.updateSelf({ addresses: state.addresses }); remote.refresh(); meet.portChanged(); });
   const offSettings = s.bus.on('settings.updated', () => remote.refresh());
+  const offFacts = startCompanyFacts(s, mesh, () => remote.refresh()); // owner 21.11.2026: an employee's PC learns its company's name, Remote ID and how the person is named there
   const offPower = s.host.onPower((event) => { if (nudgesMeeting(event)) meet.nudge(); });
   meet.start();
+  mesh.setWaker(meet.relay); // 19.11.2026: a wake to an own PC's helper goes through this meeting-server connection (devices/wake.ts)
   remote.refresh();
 
   // Hands, eyes and the phone for agents (executed here or on a linked PC).
@@ -219,6 +276,6 @@ export function createDevices(input: DevicesInput): Devices {
   return {
     pwa, push, remote, meeting: meet, peer: listener, http,
     announceCaps,
-    stop: () => { offSettings(); offPower(); offPeoplePush(); offReadClear(); offPhones(); appPhones.stop(); bridge.closeAll(); meet.stop(); remote.stop(); responder.close(); },
+    stop: () => { offSettings(); offFacts(); offPower(); offPeoplePush(); offReadClear(); offPhones(); appPhones.stop(); bridge.closeAll(); mesh.setWaker(undefined); meet.stop(); remote.stop(); responder.close(); },
   };
 }

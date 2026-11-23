@@ -14,7 +14,7 @@ import type { ToolContext } from '../../../src/runtime/tools/types.ts';
 import { ManualClock, fakeHost, memoryDb, recordingBus, silentLog } from './fakes.ts';
 
 test('deviceLoad and loadIn: MB rounded; a ping without load or with a broken one reads as none', () => {
-  assert.deepEqual(deviceLoad(2, 3.6 * 1024 * 1024 * 1024), { freeMemoryMb: 3686, runs: 2 });
+  assert.deepEqual(deviceLoad(2, undefined, 3.6 * 1024 * 1024 * 1024), { freeMemoryMb: 3686, runs: 2 });
   assert.deepEqual(loadIn({ ok: true, at: 1, load: { freeMemoryMb: 5120.4, runs: 0 } }), { freeMemoryMb: 5120, runs: 0 });
   for (const answer of [{ ok: true, at: 1 }, { load: { freeMemoryMb: 'x', runs: 1 } }, { load: { freeMemoryMb: 10, runs: -1 } }, null, undefined]) {
     assert.equal(loadIn(answer), undefined, JSON.stringify(answer));
@@ -42,7 +42,7 @@ test('devices.list: the load of this PC and of each PC whose ping sent one; an o
   const ctx = {
     agent: { id: 'ag_1', name: 'Mira' }, runId: 'run_1', mode: 'general', signal: new AbortController().signal, status: () => undefined,
     services: {
-      devices: { self: () => devices[0], list: () => devices, call: async (id: string) => answers[id] },
+      devices: { self: () => devices[0], list: () => devices, online: () => true, call: async (id: string) => answers[id] },
       dispatcher: { activity: () => [{ agentId: 'ag_1' }, { agentId: 'ag_2' }, { agentId: 'ag_3' }] },
     },
   } as unknown as ToolContext;

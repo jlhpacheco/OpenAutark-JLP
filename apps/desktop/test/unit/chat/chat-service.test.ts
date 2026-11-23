@@ -115,6 +115,16 @@ test('members: add/remove posts quiet status lines; lead is reassigned when remo
   assert.equal(h.chats.lead(chat.id), 'ag_tom');
 });
 
+test('chats.send: an agent who left a chat posts nothing there – the rule of its run answers and <chat to> blocks', () => {
+  const h = setup();
+  const chat = h.chats.create({ title: 'Launch', agentIds: ['ag_tom', 'ag_mara'], createdBy: 'human' });
+  h.chats.send({ conversationId: chat.id, body: 'Still here', authorId: 'ag_tom', authorKind: 'agent' });
+  h.chats.setMembers(chat.id, { remove: ['ag_tom'] }, 'ag_tom');
+  assert.throws(() => h.chats.send({ conversationId: chat.id, body: 'After leaving', authorId: 'ag_tom', authorKind: 'agent' }), /Only members can post/);
+  assert.throws(() => h.chats.postAgentMessage(chat.id, 'ag_tom', 'run_1', { body: 'After leaving' }), /Only members can post/);
+  assert.equal(h.chats.messages(chat.id).filter((m) => m.authorId === 'ag_tom' && m.kind === 'text').length, 1);
+});
+
 test('B-047 D4: postAgentMessage posts an answer at the end; a quiet one stays quiet unless it mentions the person; chat.send posts carry runId', () => {
   const h = setup();
   const chat = h.chats.create({ agentIds: ['ag_tom', 'ag_lea'], createdBy: 'human' });

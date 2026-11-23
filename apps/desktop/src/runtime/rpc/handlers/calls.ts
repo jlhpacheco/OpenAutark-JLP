@@ -8,14 +8,20 @@
 // back as `say`) or take it over from another device; calls.decline says no to a ring; calls.live lists ringing and
 // running calls (calls/ring.ts). calls.turn writes one log line per call turn the device measured: numbers, the two ways
 // it names (heard by, answered by) and the answer's model id – nothing a page could put words of the call into.
+// Owner 19.11.2026: calls.start with a callId and join: true joins that running call beside the devices in it (the Join
+// beside Take over); every answer says how the call names this device (holder) and whether it is in beside the holder
+// (joined). calls.end makes only this device leave; the call ends with the last one (call-log.ts).
+// Team-Call 21.11.2026: calls.peers names the other people's PC windows this window talks to in its call; calls.signal
+// sends one WebRTC signal to one of them (calls/call-peer.ts).
 // Owns: param checks and the device identity. Never: provider protocol or audio.
 
 import { WorkforceError } from '../../../shared/errors.ts';
-import type { CallDevice } from '../../../shared/model/call.ts';
+import { callHolder, callSignal, type CallDevice } from '../../../shared/model/call.ts';
+import { callPeers, sendSignal } from '../../calls/call-peer.ts';
 import { callLogOf, realtimeOf, ringsOf } from '../../calls/wiring.ts';
 import { registerPersonVoice } from '../../people/rpc-voice.ts';
 import { callerDeviceName } from '../device-name.ts';
-import { bad, id, input, num, onlyKeys, oneOf, optNum, optText, text, type Obj } from '../params.ts';
+import { bad, id, input, num, onlyKeys, oneOf, optBool, optNum, optText, text, type Obj } from '../params.ts';
 import type { HandlerContext, HandlerTable } from '../table.ts';
 
 const CHAT = { capability: 'chat' } as const;
@@ -54,17 +60,23 @@ function rings(ctx: Pick<HandlerContext, 'services'>) {
 export function register(table: HandlerTable): void {
   table.add('calls.start', (params, ctx) => {
     const o = input(params);
-    onlyKeys(o, ['conversationId', 'callId']);
+    onlyKeys(o, ['conversationId', 'callId', 'join']);
     const conversationId = id(o, 'conversationId');
     const take = optText(o, 'callId', { max: 64 });
+    const join = optBool(o, 'join');
+    if (join && !take) bad('join', 'join: true only together with a callId');
     const log = callLog(ctx);
-    if (!take) {
-      const callId = log.start(conversationId, callDevice(ctx), ctx.signal);
-      return { callId, holder: log.holder(callId) ?? '' };
-    }
-    const taken = log.take(conversationId, take, callDevice(ctx), ctx.signal);
+    const device = callDevice(ctx);
+    const answer = (callId: string, say?: string) => {
+      const holder = log.who(device.key);
+      const record = log.record(conversationId, callId);
+      return { callId, holder, ...(say ? { say } : {}), ...(record && callHolder(record) !== holder ? { joined: true as const } : {}) };
+    };
+    if (!take) return answer(log.start(conversationId, device, ctx.signal));
+    if (join) { log.joinDevice(conversationId, take, device, ctx.signal); return answer(take); }
+    const taken = log.take(conversationId, take, device, ctx.signal);
     const opening = taken.answered ? ringsOf(ctx.services)?.answered(conversationId, taken.callId) : undefined;
-    return { callId: taken.callId, holder: taken.holder, ...(opening ? { say: opening.say } : {}) };
+    return answer(taken.callId, opening?.say);
   }, CHAT);
   table.add('calls.end', (params, ctx) => {
     const o = input(params);
@@ -121,6 +133,19 @@ export function register(table: HandlerTable): void {
     onlyKeys(o, ['sessionId']);
     realtimeOf(ctx.services).close(text(o, 'sessionId', { max: 64 }), callDevice(ctx).key);
     return { ok: true };
+  }, CHAT);
+  // Team-Call 21.11.2026: this PC window's peers in its call and its WebRTC signals to them (calls/call-peer.ts)
+  table.add('calls.peers', (params, ctx) => {
+    const o = input(params);
+    onlyKeys(o, ['conversationId', 'callId']);
+    return callPeers(ctx.services, id(o, 'conversationId'), text(o, 'callId', { max: 64 }), callDevice(ctx).key);
+  }, CHAT);
+  table.add('calls.signal', async (params, ctx) => {
+    const o = input(params);
+    onlyKeys(o, ['conversationId', 'callId', 'to', 'data']);
+    const data = callSignal(o.data);
+    if (!data) bad('data', 'a call signal (hello, bye, or an offer/answer with its SDP)');
+    return { sent: await sendSignal(ctx.services, id(o, 'conversationId'), text(o, 'callId', { max: 64 }), callDevice(ctx).key, text(o, 'to', { max: 200 }), data) };
   }, CHAT);
   registerPersonVoice(table); // F-52: people's utterance upload and transcription
 }

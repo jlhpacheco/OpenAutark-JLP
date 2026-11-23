@@ -6,6 +6,7 @@ import { PassThrough } from 'node:stream';
 import type { ChildLike, SpawnFn, SpawnOptions, OsLike } from '../../../src/runtime/system/supervisor.ts';
 import { Supervisor } from '../../../src/runtime/system/supervisor.ts';
 import type { ExecutableFinder, Executable } from '../../../src/runtime/accounts/executables.ts';
+import { nodeFiles } from '../../../src/runtime/engines/claude/rebuild.ts';
 
 let pids = 1000;
 
@@ -109,6 +110,7 @@ export function memoryFiles(stored: Record<string, Uint8Array> = {}) {
   const written = new Map<string, string>();
   const removed: string[] = [];
   const files = {
+    ...nodeFiles, // rmDir, size, folders, tail, append on disk
     writeFile: async (file: string, data: string) => { written.set(file, data); },
     readFile: async (file: string) => { if (!stored[file]) throw new Error('not found'); return stored[file]; },
     rm: async (file: string) => { removed.push(file); },

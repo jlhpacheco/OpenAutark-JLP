@@ -4,14 +4,14 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatMark, hasMarks, LISTENER_MARK_RULES, MARKS_LEGEND, markUncertainWords, parseMarks, plainText, wrapDictation } from '../../../src/shared/voice/marks.ts';
+import { formatMark, hasMarks, LISTENER_MARK_RULES, MARKS_LEGEND, markUncertainWords, plainText, spansFromInline, wrapDictation } from '../../../src/shared/voice/marks.ts';
 import { dictationPrompt } from '../../../src/runtime/voice/listen-transcribe.ts';
 
-test('formatMark/parseMarks: one mark round-trips; empty trailing fields are dropped; an old "as heard" field is read, never written', () => {
+test('formatMark/spansFromInline: one mark round-trips; empty trailing fields are dropped; an old "as heard" field is read, never written', () => {
   const mark = formatMark({ reading: 'Codex', percent: 70.4, alternatives: [{ text: 'Kotex', percent: 15 }, { text: 'Kodecs' }], heard: 'kodeks' });
   assert.equal(mark, '⟦?Codex|70%|Kotex 15%; Kodecs⟧');
-  assert.deepEqual(parseMarks(`Wir testen ${mark} heute.`), [{ reading: 'Codex', percent: 70, alternatives: [{ text: 'Kotex', percent: 15 }, { text: 'Kodecs' }] }]);
-  assert.deepEqual(parseMarks('⟦?Codex|70%|Kotex 15%|kodeks⟧'), [{ reading: 'Codex', percent: 70, alternatives: [{ text: 'Kotex', percent: 15 }], heard: 'kodeks' }]);
+  assert.deepEqual(spansFromInline(`Wir testen ${mark} heute.`), { text: 'Wir testen Codex heute.', marks: { uncertain: [{ start: 11, end: 16, pct: 70, alts: [{ t: 'Kotex', pct: 15 }, { t: 'Kodecs', pct: 0 }] }] } });
+  assert.deepEqual(spansFromInline('⟦?Codex|70%|Kotex 15%|kodeks⟧'), { text: 'Codex', marks: { uncertain: [{ start: 0, end: 5, pct: 70, alts: [{ t: 'Kotex', pct: 15 }] }] } });
   assert.equal(formatMark({ reading: 'olah', percent: 29, alternatives: [] }), '⟦?olah|29%⟧');
   assert.equal(formatMark({ reading: 'a|b⟧c', alternatives: [] }), '⟦?a b c⟧'); // field separators cannot break a mark
 });

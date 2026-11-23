@@ -9,14 +9,15 @@
 // Story – the shipped flow (ui/feedback): the pointer presses the feedback cell (the computer's tooltip names the
 // shortcut first) and the window freezes – the snapshot at 1:1 with the dock at its foot; it paints straight over the
 // e-mail and the phone number; it holds the dock's mic and talks (listening, then the words come into the field); Send
-// – the overlay goes and the status line says "Feedback sent · No. …"; then the end card.
+// – the overlay goes and the status line says "Feedback sent · No. …"; then the end card. The Android app's tour
+// (ANDROID_TOUR, owner 19.11.2026) has one chapter more before the end card: the top row's round icon left of the title
+// is grabbed and pulled down and out – the to-do bubble comes out under the finger and stays where it is dropped.
 // Owns: the scripts, their compiled tracks and stateAt. Never: timers, DOM or the live app.
 
 import { dwellMs, planMotion, pressMs, type MotionStep, type Point } from '../../shared/model/pointer-motion.ts';
 import { DESKTOP, PHONE, center, targetAt, type Layout, type TargetId, type Variant } from './scene-layout.ts';
 
-export type Switch = 'tip' | 'frozen' | 'listen' | 'busy' | 'sent' | 'end';
-export const SWITCHES: readonly Switch[] = ['tip', 'frozen', 'listen', 'busy', 'sent', 'end'];
+export type Switch = 'tip' | 'frozen' | 'listen' | 'busy' | 'sent' | 'end' | 'handle' | 'out';
 
 /** A switch at one moment: on or off, and how long ago it last changed (entry animations). */
 export interface Toggle { on: boolean; age: number }
@@ -34,6 +35,9 @@ export interface TourState {
   /** The cell's tooltip, the frozen screen with its dock, the mic listening, the words on their way, the status
    *  line's "Feedback sent", the end card. */
   tip: Toggle; frozen: Toggle; listen: Toggle; busy: Toggle; sent: Toggle; end: Toggle;
+  /** The Android tour's bubble chapter: the round icon in the top row, the bubble out – and where the bubble is. */
+  handle: Toggle; out: Toggle;
+  bubble: Point | null;
   /** Transcript words shown: 2.4 = two words and the third fading in. */
   words: number;
   /** Points of the tour's paintPath painted so far, and the pen's tip while it paints (scene units, 1:1). */
@@ -53,8 +57,6 @@ export interface Tour {
   /** The painted stroke (the scene draws its first `paint` points) and when it starts and ends (ms). */
   paintPath: readonly Point[];
   paintSpan: { start: number; end: number };
-  /** How long the talk was ("0:03", the Recording row's line). */
-  heard: string;
   /** When a switch first turns on (ms; tests and the window check seek there), -1 never. */
   firstOn(name: Switch): number;
   clamp(t: number): number;
@@ -84,17 +86,19 @@ interface Script {
   captions: Caption[];
   chapters: Chapter[];
   reveal: number;
-  held: number;
   paint: { start: number; end: number; steps: Array<{ t: number; point: Point }> };
+  /** The bubble follows the finger from start to end (the pull), then stays at `at`. */
+  pull: { start: number; end: number; at: Point | null };
   duration: number;
 }
 
-function compile(layout: Layout): Script {
+function compile(layout: Layout, bubble: boolean): Script {
   const phone = layout.variant === 'phone';
   const s: Script = {
-    moves: [], presses: [], rings: [], captions: [], chapters: [], reveal: 0, held: 0,
-    switches: { tip: [], frozen: [], listen: [], busy: [], sent: [], end: [] },
+    moves: [], presses: [], rings: [], captions: [], chapters: [], reveal: 0,
+    switches: { tip: [], frozen: [], listen: [], busy: [], sent: [], end: [], handle: [], out: [] },
     paint: { start: 0, end: 0, steps: [] },
+    pull: { start: 0, end: 0, at: null },
     duration: 0,
   };
   let now = 0;
@@ -166,13 +170,11 @@ function compile(layout: Layout): Script {
   wait(dwellMs('human', 22) + 200);
   press();
   ring(); // the ring shows where the hold starts
-  const talk = now;
   set('listen', true, 90);
   wait(1300);
   caption('Listening… let go when you are done.');
   wait(2000);
   release();
-  s.held = now - talk;
   set('listen', false);
   set('busy', true); // the words on their way
   wait(600);
@@ -192,6 +194,27 @@ function compile(layout: Layout): Script {
     },
   });
   wait(3200);
+  if (bubble && layout.handle && layout.drop) {
+    chapter('Bubble');
+    set('handle', true);
+    caption('Your bubble waits top left, beside the title.');
+    wait(1500);
+    const icon = center(layout.handle);
+    move(icon, 81, { size: layout.handle.w });
+    wait(dwellMs('human', 82) + 120);
+    press();
+    move({ x: icon.x + 4, y: layout.header + 18 }, 83, { drag: true, size: 20 }); // a little away: the pull starts
+    s.pull.start = now;
+    set('out', true);
+    caption('Pull it out – it follows your finger.');
+    move(layout.drop, 84, { drag: true, size: 40 });
+    wait(160);
+    release();
+    s.pull.end = now;
+    s.pull.at = at;
+    caption('Drop it anywhere. It stays over every app.');
+    wait(2800);
+  }
   set('end', true);
   caption('');
   wait(2600);
@@ -247,6 +270,8 @@ function readState(s: Script, layout: Layout, t: number): TourState {
     hot: targetAt(layout, pointer, frozen.on),
     tip: toggleAt(s, 'tip', t), frozen, listen: toggleAt(s, 'listen', t), busy: toggleAt(s, 'busy', t),
     sent: toggleAt(s, 'sent', t), end: toggleAt(s, 'end', t),
+    handle: toggleAt(s, 'handle', t), out: toggleAt(s, 'out', t),
+    bubble: s.pull.at && t >= s.pull.start ? (t < s.pull.end ? pointer : s.pull.at) : null,
     words: Math.min(WORDS.length, Math.max(0, (t - s.reveal) / WORD_MS)),
     paint,
     paintTip: painting ? pointer : null,
@@ -255,11 +280,9 @@ function readState(s: Script, layout: Layout, t: number): TourState {
   };
 }
 
-/** "0:03" (ui/feedback/recording.ts recordingLength for under an hour). */
-const clock = (ms: number): string => { const seconds = Math.round(ms / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`; };
 
-function tourOf(layout: Layout): Tour {
-  const s = compile(layout);
+function tourOf(layout: Layout, bubble = false): Tour {
+  const s = compile(layout, bubble);
   const clamp = (t: number): number => Math.min(s.duration, Math.max(0, Number.isFinite(t) ? t : 0));
   return {
     layout,
@@ -268,7 +291,6 @@ function tourOf(layout: Layout): Tour {
     captions: s.captions,
     paintPath: s.paint.steps.map((step) => step.point),
     paintSpan: { start: s.paint.start, end: s.paint.end },
-    heard: clock(s.held),
     firstOn: (name) => s.switches[name].find(([, on]) => on)?.[0] ?? -1,
     clamp,
     stateAt: (time) => readState(s, layout, clamp(time)),
@@ -277,3 +299,6 @@ function tourOf(layout: Layout): Tour {
 
 /** The computer's tour and the phone's: the same story, each in its own frame. */
 export const TOURS: Readonly<Record<Variant, Tour>> = { desktop: tourOf(DESKTOP), phone: tourOf(PHONE) };
+
+/** The Android app's tour (phone-page.tsx): the phone's, with the bubble chapter before the end card. */
+export const ANDROID_TOUR: Tour = tourOf(PHONE, true);

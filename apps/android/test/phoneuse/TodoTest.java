@@ -2,10 +2,12 @@
 // whole on the screen, the tab's side, the panel beside the dot and above the keyboard, the screenshot's size), what one
 // post sends (TodoPost: at most six shots, one client id per post until it went through, the files.upload and
 // tasks.quickCreate frames, the answers read) and the overlay's wiring read from its source (the AI's screenshot leaves
-// the button out, the window takes key focus only in the panel). Never: claims the overlay shows or a task arrives – that
+// the button out, the window never takes key focus – typing goes through BubbleTyping –, dictation is heard by the PC).
+// Never: claims the overlay shows or a task arrives – that
 // needs a phone and a PC.
 package com.teydralab.autark.android.phoneuse;
 
+import com.teydralab.autark.android.relay.Json;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -22,10 +24,52 @@ public final class TodoTest {
     public static void main(String[] args) throws Exception {
         place();
         post();
+        speech();
+        resend();
         wiring(source("app/src/main/java/com/teydralab/autark/android/phoneuse/TodoButton.java"),
                 source("app/src/main/java/com/teydralab/autark/android/phoneuse/UseService.java"),
                 source("app/src/main/java/com/teydralab/autark/android/phoneuse/UseLink.java"));
         System.out.println(assertions + " to-do button place, post and wiring assertions passed.");
+    }
+
+    private static void speech() {
+        // the language: the profile's before the phone's (bubble bug 19.11.2026: a German speaker, a phone set to English)
+        check("de-DE".equals(SpeechLang.tag("de", "en-US")) && "en-US".equals(SpeechLang.tag("en", "de-DE")));
+        check("de-AT".equals(SpeechLang.tag("de-AT", "en-US")) && "de-DE".equals(SpeechLang.tag("de_DE", "en-US")));
+        check("en-US".equals(SpeechLang.tag(null, "en-US")) && "de-DE".equals(SpeechLang.tag("  ", "de-DE")) && "en-US".equals(SpeechLang.tag(null, null)));
+        check("de".equals(SpeechLang.profileLanguage(Json.map("language", "de"))) && "de-AT".equals(SpeechLang.profileLanguage(Json.map("language", "de-AT"))));
+        check(SpeechLang.profileLanguage(Json.map("language", " ")) == null && SpeechLang.profileLanguage(null) == null
+                && SpeechLang.profileLanguage(Json.map("language", null)) == null && SpeechLang.profileLanguage(Json.map()) == null && SpeechLang.profileLanguage("de") == null);
+        // only a tag reaches the PC as the language: the profile's free text, an empty or a long value never does
+        check("de".equals(SpeechLang.valid(" de ")) && "de-AT".equals(SpeechLang.valid("de-AT")) && "en_US".equals(SpeechLang.valid("en_US")));
+        check(SpeechLang.valid(null) == null && SpeechLang.valid("") == null && SpeechLang.valid("Deutsch bitte") == null
+                && SpeechLang.valid("d") == null && SpeechLang.valid("de-") == null && SpeechLang.valid("x".repeat(30)) == null
+                && SpeechLang.valid("de;rm -rf") == null);
+        check(SpeechLang.profileLanguage(Json.map("language", "Deutsch bitte")) == null
+                && "de-DE".equals(SpeechLang.tag("Deutsch bitte", "de-DE")) && "en-US".equals(SpeechLang.tag("???", "??")));
+        // the settings object's other fields are never read: a name or a key in the answer changes nothing
+        check("de".equals(SpeechLang.profileLanguage(Json.map("language", "de", "profile", Json.map("name", "x"), "keys", Json.map("a", "b")))));
+        // a link change A -> B: A's late answer (de) must change neither the language nor the kept one that B's answer set
+        Object linkA = new Object(), linkB = new Object();
+        Object asked = linkA; // sync asked for A
+        String kept = null;
+        asked = linkB; // the link changed: sync asks for B
+        if (SpeechLang.isActive(asked, linkB)) kept = "en-GB"; // B answers
+        if (SpeechLang.isActive(asked, linkA)) kept = "de"; // A's late answer
+        check("en-GB".equals(kept) && !SpeechLang.isActive(asked, linkA) && !SpeechLang.isActive(null, linkA) && SpeechLang.isActive(linkA, linkA));
+        asked = null; // the link is gone: nothing late changes anything
+        check(!SpeechLang.isActive(asked, linkB));
+        // disconnected while the ask was out: sync forgets the ask, and the connected link is none - B's answer after that changes nothing
+        Object connected = null;
+        check(!SpeechLang.isActive(connected, linkB) && SpeechLang.isActive(linkB, linkB));
+        // the panel that the lock screen laid out too far right moves left until it is whole; never past the left edge
+        check(SpeechLang.shiftInto(763, 690, 1080) == 390 && SpeechLang.shiftInto(100, 690, 1080) == 100 && SpeechLang.shiftInto(-40, 690, 1080) == 0
+                && SpeechLang.shiftInto(500, 1200, 1080) == 0);
+    }
+
+    private static void resend() {
+        // a refusal of the PC shows a living socket; no answer in time, or no socket, does not
+        check(Resend.provesAlive(false, "unknown method") && Resend.provesAlive(false, null) && !Resend.provesAlive(true, null) && !Resend.provesAlive(false, "Not connected to your PC right now."));
     }
 
     private static void place() {
@@ -47,6 +91,8 @@ public final class TodoTest {
         check(Arrays.equals(TodoPlace.shotSize(1080, 2400), new int[] {720, 1600}));
         check(Arrays.equals(TodoPlace.shotSize(2400, 1080), new int[] {1600, 720}));
         check(Arrays.equals(TodoPlace.shotSize(720, 1600), new int[] {720, 1600}) && Arrays.equals(TodoPlace.shotSize(800, 600), new int[] {800, 600}));
+        check(Arrays.equals(TodoPlace.binCorner(1080, 2400, 168, 216), new int[] {456, 2016})); // the hide target: bottom centre
+        check(TodoPlace.near(540, 2100, 540, 2100, 10) && TodoPlace.near(540, 1910, 540, 2100, 192) && !TodoPlace.near(540, 1900, 540, 2100, 192));
     }
 
     private static void post() {
@@ -94,15 +140,67 @@ public final class TodoTest {
         check(service.contains("full = capture();") && service.split("takeScreenshot\\(", -1).length == 2); // one screenshot path
         // Collapsed it never takes key focus or touches outside itself.
         check(button.contains("FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL"));
-        check(button.contains("if (next != Look.PANEL) focusable(false);"));
+        check(button.contains("if (next != Look.PANEL) endTyping();"));
+        // Owner 20.11.2026 (Home and Back vanished with the keyboard): the overlay never takes key focus; the words come
+        // through BubbleTyping, an app window, so the keyboard stays below the navigation bar.
+        check(!button.contains("&= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE") && button.contains("BubbleTyping.begin(service, now, now.length(),"));
         check(button.contains("TYPE_ACCESSIBILITY_OVERLAY"));
         // JPEG 85, the post's client id reused, the text only in the RPC (no log of it, no preference of it).
         check(button.contains("CompressFormat.JPEG, 85"));
         check(button.contains("String[] task = deliver(link, text, post);") && button.contains("TodoPost.create(text, attachments, from.clientId())"));
         check(button.contains("HOLD_MS = 350") && button.contains("if (held) { holdRelease(); return true; }")); // the hold is the quick task
-        check(!button.contains("putString(") && !button.matches("(?s).*Log\\.[a-z]\\([^;]*text[^;]*\\);.*"));
+        // the only strings kept: the profile's language tag and the PC it came from (a value read from the PC belongs to that PC)
+        check(!button.replace("putString(\"speech_lang\", found).putString(\"speech_lang_origin\", origin)", "").contains("putString(")
+                && !button.matches("(?s).*Log\\.[a-z]\\([^;]*text[^;]*\\);.*"));
+        // Owner 20.11.2026 ("We got to steer" for "Wie geht es dir?"): the panel's mic and the hold record, and the PC hears
+        // the take in the profile's language – the phone's SpeechRecognizer is gone from the bubble.
+        check(button.contains("new Dictation(service, link, language(),") && button.contains("new Dictation(service, UseLink.linked(), language(),")
+                && button.contains("SpeechLang.tag(profileLanguage, Locale.getDefault().toLanguageTag())") && !button.contains("SpeechRecognizer"));
+        // Review 20.11.2026: phone use reads the app under the person's typing window, never the draft; the AI's gestures
+        // pass through the dot too; a hold ends with its window; dictated words reach the typing field.
+        check(service.contains("AccessibilityNodeInfo root = front();") && service.contains("AccessibilityNodeInfo front = front();") && service.split("getRootInActiveWindow", -1).length == 2);
+        check(service.contains("if (button != null) button.passThrough(true);") && service.contains("BubbleTyping.aiGesture("));
+        check(button.contains("dropHold(); // a hold whose window went") && button.contains("if (typing) BubbleTyping.set(text);"));
+        // Send while recording: the words first, then it sends
+        check(button.contains("if (dictation != null) { sendAfter = true; finishDictation(); return; }"));
+        // one ask of the PC per link, only the language field is read, the kept one belongs to its PC
+        check(button.contains("link == languageFor") && button.contains("link.origin()") && button.contains("link.request(\"todos.speechLanguage\"") && button.contains("if (!SpeechLang.isActive(languageFor, link) || !SpeechLang.isActive(UseLink.linked(), link)) return;") && button.contains("{ languageFor = null; dropDictation(); remove(); }") && !button.contains("settings.get"));
         // A call's answer is matched by id; a socket that ends fails every call still waiting.
         check(link.contains("calls.remove(((Number) frame.get(\"id\")).intValue())") && link.contains("failCalls();"));
+        // Owner 19.11.2026: one automatic shot per draft, hidden is hidden, a call never opens the app.
+        check(button.contains("boolean fresh = post.shots().isEmpty() &&") && button.contains("if (fresh && !shooting) shoot();"));
+        check(button.contains("UseLink.linked() != null && !place.getBoolean(HIDDEN, false)"));
+        // 20.11.: a dead socket carried six recordings for 14 hours - ping before sending, drop it and connect anew, keep the draft, send again with the same id
+        check(button.contains("if (!reachable(link)) throw new Unreachable(") && button.contains("link.alive(Resend.PING_MS)") && button.contains("link.reconnect();"));
+        check(button.contains("catch (Unreachable error) {") && button.contains("waitForPc(text, link)") && button.contains("Nicht gesendet – dein PC ist nicht erreichbar.") && button.contains("Not sent – your PC is not reachable."));
+        // no automatic retry: the link address does not name the PC (same origin, other PC behind the company proxy)
+        check(!button.contains("resendNow") && !button.contains("resend.") && !button.contains("postDelayed(resend"));
+        check(!button.contains("RECONNECT_MS") && !button.contains("Thread.sleep(1000)") && button.contains("link.reconnect();") && button.contains("private boolean reachable(UseLink link) throws InterruptedException {"));
+        check(button.contains("post.clientIdFor(text);"));
+        // 20.11. (Lukas #27): tapping send again after "not sent" carries the SAME client id, so a late buffered first send and the retry make one task
+        TodoPost chg = new TodoPost();
+        String c1 = chg.clientIdFor("Rufe Anna an");
+        check(c1.equals(chg.clientIdFor(" Rufe Anna an ")) && c1.equals(chg.clientId())); // unchanged (spaces aside): the same id
+        String c2 = chg.clientIdFor("Rufe Anna und Ben an");
+        check(!c2.equals(c1) && c2.equals(chg.clientIdFor("Rufe Anna und Ben an")) && c2.equals(chg.clientId())); // changed text: a new id, then stable
+        chg.add(new byte[] {1});
+        String c3 = chg.clientIdFor("Rufe Anna und Ben an");
+        check(!c3.equals(c2) && c3.equals(chg.clientIdFor("Rufe Anna und Ben an"))); // a new shot counts as a change
+        chg.clear();
+        check(!c3.equals(chg.clientIdFor("Rufe Anna und Ben an")));
+        TodoPost adopted = new TodoPost();
+        adopted.adopt("quick-9");
+        check("quick-9".equals(adopted.clientIdFor("Hallo"))); // an adopted id survives its first Send
+        TodoPost twice = new TodoPost();
+        String first = (String) TodoPost.create("Rufe Anna an", new java.util.ArrayList<>(), twice.clientId()).get("clientId");
+        String again = (String) TodoPost.create("Rufe Anna an", new java.util.ArrayList<>(), twice.clientId()).get("clientId");
+        check(first.equals(again) && first.length() == 36);
+        // the id is dropped only when the task came back (draftSent), never in the failure branches of submit()
+        int fail = button.indexOf("catch (Unreachable error) {");
+        String failures = button.substring(fail, button.indexOf("private String[] deliver(") > fail ? button.indexOf("private String[] deliver(") : fail + 600);
+        check(!failures.contains("post.clear()") && !failures.contains("clientId = null") && button.indexOf("post.clear();") > 0);
+        check(link.contains("boolean alive(long ms)") && link.contains("void reconnect()") && link.contains("ws.close();"));
+        check(!button.contains("PhoneRoutes") && button.contains("calling = new BubbleCall("));
     }
 
     private static Map<String, Object> map(Object... pairs) {
@@ -117,3 +215,4 @@ public final class TodoTest {
 
     private static void check(boolean value) { assertions++; if (!value) throw new AssertionError("Unexpected result " + assertions); }
 }
+

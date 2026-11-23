@@ -1,9 +1,12 @@
 // Checks for the person's live-view requests (rpc/handlers/browser.ts): one input, the tab it is for, a steering
-// step and a takeover request. Error texts are fixed and name only the field: they never echo what was typed.
+// step, a takeover request and – 21.11.2026, shared with the mesh (devices/browser-view.ts) – the agent and a pull. Error texts are fixed and name only the field: they never echo what was typed.
 // Owns: the input shapes and limits. Never: sends input or decides anything (view.ts).
 
 import { WorkforceError } from '../../shared/errors.ts';
-import type { BrowserButton, BrowserInput, BrowserSteer, BrowserTakeoverRequest } from '../../shared/model/browser.ts';
+import { PULL_MAX_BYTES, PULL_MIN_BYTES, PULL_WAIT_MAX_MS, type BrowserButton, type BrowserInput, type BrowserPullRequest, type BrowserSteer, type BrowserTakeoverRequest } from '../../shared/model/browser.ts';
+import { id, input, obj, onlyKeys, optNum } from '../rpc/params.ts';
+
+const MAX_AT = Number.MAX_SAFE_INTEGER;
 
 /** Text one input may insert (a paste or an IME commit). */
 export const MAX_INPUT_TEXT = 2000;
@@ -113,4 +116,25 @@ export function steerOf(p: Record<string, unknown>): BrowserSteer {
   if (p.action === 'back' || p.action === 'forward' || p.action === 'reload') return { action: p.action };
   if (p.window === 'show' || p.window === 'hide') return { window: p.window };
   throw new WorkforceError('bad_request', 'tab is a tab id like t2, url a web address, action back, forward or reload, window show or hide.');
+}
+
+/** The agent a live-view call is for, and its params (only `agentId` and `extra`). */
+export function browserTarget(params: unknown, extra: readonly string[] = []): { agentId: string; o: Record<string, unknown> } {
+  const o = input(params);
+  onlyKeys(o, ['agentId', ...extra]);
+  return { agentId: id(o, 'agentId'), o };
+}
+
+/** {agentId, after?: {state?, frame?}, maxBytes?, waitMs?} of browser.pull (`extra`: further keys passed over). */
+export function pullOf(params: unknown, extra: readonly string[] = []): BrowserPullRequest {
+  const { agentId, o } = browserTarget(params, ['after', 'maxBytes', 'waitMs', ...extra]);
+  const request: BrowserPullRequest = { agentId };
+  if (o.after !== undefined && o.after !== null) {
+    const after = obj(o, 'after');
+    onlyKeys(after, ['state', 'frame'], 'after');
+    request.after = { state: optNum(after, 'state', { min: 0, max: MAX_AT }), frame: optNum(after, 'frame', { min: 0, max: MAX_AT }) };
+  }
+  request.maxBytes = optNum(o, 'maxBytes', { min: PULL_MIN_BYTES, max: PULL_MAX_BYTES });
+  request.waitMs = optNum(o, 'waitMs', { min: 1000, max: PULL_WAIT_MAX_MS });
+  return request;
 }

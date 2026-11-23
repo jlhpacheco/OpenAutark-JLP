@@ -5,7 +5,7 @@
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
 import { Bus } from '../../../src/runtime/bus.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { Priors } from '../../../src/runtime/models/priors.ts';
 import { Catalog } from '../../../src/runtime/models/catalog.ts';
 import { RouterImpl } from '../../../src/runtime/routing/router.ts';
@@ -184,7 +184,7 @@ export function setup(options: { decisions?: DecisionService; secrets?: Record<s
     settings: settingsService,
     org, chats,
     accounts,
-    engines: { get: (id: EngineId) => { const e = engines.get(id); if (!e) throw new Error(`engine ${id} missing`); return e; }, all: () => [...engines.values()], disposeIdle: async () => {} },
+    engines: { get: (id: EngineId) => { const e = engines.get(id); if (!e) throw new Error(`engine ${id} missing`); return e; }, all: () => [...engines.values()] },
     secrets: { use: async (id: string, agentId: string) => { secretUses.push({ id, agentId }); const value = options.secrets?.[id]; if (!value) throw new Error('no secret'); return value; } },
     decisions: options.decisions,
   } as unknown as RuntimeServices;

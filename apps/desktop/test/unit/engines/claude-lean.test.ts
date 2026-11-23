@@ -7,8 +7,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AGENT_ENV, CORE_TOOLS, HUB_CALL_MS, LEAN_ENV, LEAN_SETTINGS, coreTools, promptArgs } from '../../../src/runtime/engines/claude/lean.ts';
-import { turnInput } from './fakes.ts';
-import { claudeAccount, claudeSetup } from './claude-fixture.ts';
+import { CLAUDE_AUTOCOMPACT } from '../../../src/runtime/agents/compaction-policy.ts';
+import { tick, turnInput } from './fakes.ts';
+import { claudeAccount, claudeSetup, until } from './claude-fixture.ts';
 
 const HUB = { url: 'http://127.0.0.1:4555/mcp', token: 'hub-token-for-test' };
 const flag = (args: string[], name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
@@ -55,6 +56,29 @@ test('claude lean: a new hub turn – the stable prompt only, the live context f
   assert.deepEqual(AGENT_ENV, { CLAUDE_CODE_PROMPT_CACHE_TTL: '1h' });
   assert.equal(call.options.env?.CLAUDE_CODE_PROMPT_CACHE_TTL, '1h', 'KI-Runde 17.11.2026: an agent turn asks for the one-hour cache, whatever login the account has');
   assert.equal(call.options.env?.CLAUDE_CODE_DISABLE_CRON, '1', 'the CLI cron stays off');
+  assert.equal(call.args.includes('--autocompact'), false, 'no CLI version known yet: the turn runs as before');
+});
+
+test('claude lean (Runde "Halb"): --autocompact once the CLI\'s --help lists it – one look per version, never in a turn\'s way; a CLI without it runs as before', async () => {
+  const h = claudeSetup({ version: '2.1.329', help: '  --autocompact <auto|tokens>  Auto-compact window size\n' });
+  await h.engine.run(input({ mcp: HUB }).input);
+  await until(() => h.cli.of('help').length > 0);
+  await tick(); await tick();
+  await h.engine.run(input({ runId: 'run_2', mcp: HUB }).input);
+  await h.engine.run(input({ runId: 'run_3', tools: [] }).input);
+  const [first, second, helper] = h.cli.of('turn');
+  assert.equal(first.args.includes('--autocompact'), false, 'the first turn names the version; the look runs after it');
+  assert.equal(flag(second.args, '--autocompact'), String(CLAUDE_AUTOCOMPACT), 'the session compacts near the run ceiling, not at the window\'s edge');
+  assert.equal(helper.args.includes('--autocompact'), false, 'a helper turn keeps Claude Code\'s own window');
+  assert.equal(h.cli.of('help').length, 1, 'one look per CLI version');
+
+  const old = claudeSetup({ version: '2.1.200' });
+  await old.engine.run(input({ mcp: HUB }).input);
+  await until(() => old.cli.of('help').length > 0);
+  await tick(); await tick();
+  const result = await old.engine.run(input({ runId: 'run_2', mcp: HUB }).input);
+  assert.equal(result.stop, 'done');
+  assert.equal(old.cli.of('turn')[1].args.includes('--autocompact'), false, 'a CLI that does not list the flag never gets it');
 });
 
 test('claude lean: a resumed hub turn has the same prompt file; the live context travels in the message', async () => {
@@ -90,6 +114,7 @@ test('claude lean: helper turns run on our system prompt only, with no built-in 
     assert.ok(call.args.includes('--no-session-persistence'), `${label}: no transcript`);
     for (const [name, value] of Object.entries(LEAN_ENV)) assert.equal(call.options.env?.[name], value);
     assert.equal(call.options.env?.CLAUDE_CODE_PROMPT_CACHE_TTL, undefined, `${label}: never resumed – it keeps Claude Code's own cache lifetime`);
+    assert.equal(call.args.includes('--autocompact'), false, `${label}: short, it keeps Claude Code's own compact window`);
   }
   assert.equal(h.written.get(flag(reader.args, '--system-prompt-file')!), 'STABLE');
 });

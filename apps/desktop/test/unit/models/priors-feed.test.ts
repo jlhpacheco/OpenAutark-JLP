@@ -8,7 +8,7 @@ import path from 'node:path';
 import { Priors } from '../../../src/runtime/models/priors.ts';
 import { buildModel } from '../../../src/runtime/models/catalog-merge.ts';
 import { adoptCopy, feedCopy, PRIORS_FEED_MS, PRIORS_FEED_URL, priorsFeedDue, refreshPriorsFeed, useStoredCopy } from '../../../src/runtime/models/priors-feed.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { clock, memoryDb } from '../store/helpers.ts';
 
 const SHIPPED = path.resolve(import.meta.dirname, '../../../resources/model-priors.json');

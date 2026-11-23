@@ -1,97 +1,45 @@
-// Task tools – the four commands every agent has directly (tasks.create, tasks.give, tasks.update, tasks.finish) and two
-// readers under "More tools" (tasks.list, tasks.get). One task model: work is a task, a piece is a task under another,
-// a person's own work for later is a task for them (a widget is how they answer); owner 07.11.2026 ("was ich zu tun hab
-// und nicht in dem Task"): a question to a person is a line in the chat, and my task waits on who. A receiver is named as a chat names a member (an
-// id, a guessed id, a name; chat-joins.ts namedMembers), or "me" / "team". Each result says the planned next look in my
-// words, so I never plan my own re-check. A task I cannot find comes back with my open tasks.
-// KI-Runde 17.11.2026: a request on a task is an effort, never a model (the receiver stays on the model it is on –
-// a model is named where a context starts: agents.split, agents.create); dueAt is a date the world sets; one
-// tasks.update carries state, fact and plan together; a fact holds 2,000 characters.
-// Owns: those six tools, the dedupe of the same open ask, the depth limit of pieces given on.
-// Never: an alias of an old argument name, or a mode or a model on a task (both are the agent's own).
+// The task tools (Quests round 20.11.2026: four commands instead of twenty – CONTRACT "AI"): tasks.add and tasks.update
+// here, tasks.list (tasks-list.ts) and tasks.remind (tasks-remind.ts). tasks.add puts a to-do into a quest – for me, a
+// colleague, the person or "team" – or starts a quest (quest "new"); tasks.update keeps one true: words, the person's
+// time, its quest, its owner (= give), a wait in one line, open again, done (with its result – the one verification against
+// done-when runs as before) or dropped. Every capability of the old commands stays: give is `for`, finish is status done
+// with result, a preparation is notes, an order is `after`, a person's to-do with a time is `at`, an appointment for the
+// person is their to-do with a time. A time on agent work is refused in code (tasks-util.ts AGENT_TIME); one on a person's
+// to-do stands when their words this turn name it (on one to-do per quest) or I am their assistant (personTimeRefused); a quest holds no time
+// (QUEST_TIME – its to-dos carry the times); a day without a clock takes no length (DAY_LENGTH – it would ring at
+// midnight). Without an id or quest, the task my turn is about is the default only when the turn began on it – its
+// thread, a note or wake on it (tasks-util.ts turnTask); a turn from a chat line names one. A to-do made in a
+// turn a person's line started carries that line in its thread (tasks-util.ts keepPersonLine). The same open ask to the
+// same person is made once. R2.13 (measured 20.11.: of 304 old finishes 69 were quiet, 47 had follow-ups, 19 alsoHandled):
+// a close can be quiet and carry its side work (alsoHandled); its follow-ups are what I set up in the same turn – my new
+// to-dos and reminders –, listed with the result by themselves; `priority` (normal · high · urgent) on add and update.
+// An "Only me" task is the person's to do: I add notes, a time, its quest around it, but never give it to an agent or
+// close it, nor its quest while it is open (tasks/service.ts onlyMeLine, refused here before anything changes).
+// Owns: these two tool definitions, the wait line's reading and the dedupe of an ask. Never: an alias of an old argument
+// name, or a model or a mode on a task (both are the agent's own).
 
 import type { ToolContext, ToolDef } from '../types.ts';
-import { CHAT_ID_PROPERTY, EFFORT_PROPERTY, TASK_ID_PROPERTY, WHEN_PROPERTY, failure, json, text } from '../types.ts';
+import { EFFORT_PROPERTY, WHEN_PROPERTY, failure, json } from '../types.ts';
 import { HUMAN_ID } from '../../../shared/ids.ts';
-import { WorkforceError } from '../../../shared/errors.ts';
 import type { UiBlock } from '../../../shared/blocks/catalog.ts';
-import { UNFINISHED, isFinished, type Evidence, type Task, type TaskFilter, type TaskStatus, type TaskView } from '../../../shared/model/tasks.ts';
+import { isFinished, type Evidence, type Task, type TaskResult, type TaskWait } from '../../../shared/model/tasks.ts';
 import type { Effort } from '../../../shared/model/providers.ts';
-import { isPersonId } from '../../../shared/model/people.ts';
-import { chatIfAny, clip, defineTool, internal, parseWhen, resolveChat } from './util.ts';
-import { canReadTask } from '../../tasks/access.ts';
-import { namedMembers } from './chat-joins.ts';
-import { nextWords, renderTask, taskLine } from '../../context/task-text.ts';
-import { namesFor } from '../../tasks/next.ts';
-import { nameOf } from '../../tasks/give.ts';
+import { onlyMeLine, type TaskPatch } from '../../tasks/service.ts';
 import { approveNotes, normalizeAskWidget } from '../../tasks/widgets.ts';
 import { askTarget } from '../../people/ask-target.ts';
-import { placeOnMyDay } from './calendar.ts';
-import { profileZone } from '../../calendar/service.ts';
+import { chatIfAny, clip, defineTool, internal } from './util.ts';
+import { isQuest, ownerOf } from '../../context/quest-text.ts';
+import { AGENT_TIME, DAY_LENGTH, QUEST_TIME, answer, isPerson, keepPersonLine, personTimeRefused, questOf, receiverOf, requireTask, timeOf, turnTask } from './tasks-util.ts';
+import { isDayOnly } from '../../../shared/model/day-settings.ts';
+import { profileZone } from '../../context/time.ts';
+import { listTool } from './tasks-list.ts';
+import { remindTool } from './tasks-remind.ts';
 
-/** How deep work may be given on below a task (a piece of a piece of a piece) – the guard against endless chains. */
-export const MAX_PIECE_DEPTH = 3;
-const BARE_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-const STATUSES: TaskStatus[] = ['open', 'waiting', 'done', 'dropped'];
+const TASK_ID = /\btask_[a-z0-9]+\b/gi;
+const ASK_TYPES_TEXT = 'record, upload, choice, form, confirm, checklist, review or app';
 
-/** A time as WHEN_PROPERTY says (undefined: none given; "" clears); one that cannot be read comes back as the refusal. A bare date is that day here. */
-function whenOf(ctx: ToolContext, raw: string | undefined, name: string): { at: number | undefined } | { refused: string } {
-  if (raw === undefined || !raw.trim()) return { at: undefined };
-  const day = BARE_DATE.exec(raw.trim());
-  const local = day ? new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])) : undefined;
-  if (local && local.getMonth() === Number(day![2]) - 1 && local.getDate() === Number(day![3])) return { at: local.getTime() };
-  const at = parseWhen(raw, ctx.services.clock.now());
-  return at === undefined ? { refused: `I cannot read ${name} "${clip(raw, 80)}": ${String(WHEN_PROPERTY.description)}` } : { at };
-}
-
-/** My open tasks as one line, for a task id that did not fit. */
-function myOpenTasks(ctx: ToolContext): string {
-  let open: TaskView[] = [];
-  try { open = ctx.services.tasks.list({ assigneeKind: 'agent', assigneeId: ctx.agent.id, status: [...UNFINISHED], includeSteps: true, readableBy: ctx.agent.id, limit: 5 }); } catch { open = []; }
-  return open.length ? `My open tasks: ${open.map((task) => `${task.id} "${clip(task.title, 60)}"`).join(', ')} (tasks.list has all).` : 'I have no open tasks (tasks.list has all).';
-}
-
-/** The task – only when I may read it; otherwise it does not exist for me (the failure names my open tasks). */
-function requireTask(ctx: ToolContext, id: string | undefined): TaskView {
-  const task = id ? ctx.services.tasks.get(id) : undefined;
-  if (task && canReadTask(ctx.services, ctx.agent.id, task)) return task;
-  throw new WorkforceError('not_found', `${id ? `No task "${id}" for me.` : 'This run has no task.'} ${myOpenTasks(ctx)}`);
-}
-
-/** Who `to` names: "me", "team", or a member's id (a name that fits nobody comes back with who exists). */
-function receiverOf(ctx: ToolContext, raw: string | undefined): string | { refused: string } {
-  const value = raw?.trim() || 'me';
-  if (['me', 'self', 'myself'].includes(value.toLowerCase())) return ctx.agent.id;
-  if (value.toLowerCase() === 'team') return 'team';
-  const named = namedMembers(ctx, [value]);
-  return typeof named === 'string' ? { refused: named } : named[0];
-}
-
-/** How many tasks stand above `taskId`. */
-function depthOf(ctx: ToolContext, taskId: string | undefined): number {
-  let depth = 0;
-  const seen = new Set<string>();
-  for (let task = taskId ? ctx.services.tasks.get(taskId) : undefined; task?.parentId && !seen.has(task.id) && depth < 20; task = ctx.services.tasks.get(task.parentId)) {
-    seen.add(task.id);
-    depth++;
-  }
-  return depth;
-}
-
-/** The owner as "<name> (<id>)". */
-function ownerWords(ctx: ToolContext, task: Task): string {
-  const id = task.assigneeId ?? HUMAN_ID;
-  return id === ctx.agent.id ? 'me' : `${nameOf(ctx.services, id)} (${id})`;
-}
-
-/** What every write answers: the task, its owner, state and the next look in my words. */
-function answer(ctx: ToolContext, task: TaskView, extra: Record<string, unknown> = {}): ReturnType<typeof json> {
-  const names = namesFor(ctx.services, profileZone(ctx.services));
-  return json({ ok: true, taskId: task.id, owner: ownerWords(ctx, task), status: task.status, next: nextWords(task, names, ctx.services.clock.now()), ...extra });
-}
-
-/** My still open ask to the same person with the same title, widget type and parent (one is enough). */
-function openAsk(ctx: ToolContext, title: string, at: { owner: string; parentId?: string; type?: string }): TaskView | undefined {
+/** My still open ask to the same person with the same title, ask type and quest (one is enough). */
+function openAsk(ctx: ToolContext, title: string, at: { owner: string; parentId?: string; type?: string }) {
   const row = ctx.services.db.get<{ id: string }>(
     `SELECT id FROM tasks WHERE created_by = ? AND assignee_kind = 'human' AND status IN ('open', 'waiting') AND parent_id IS ?
        AND COALESCE(assignee_id, 'human') = ? AND lower(trim(title)) = ? AND COALESCE(json_extract(widget, '$.type'), '') = ? LIMIT 1`,
@@ -99,238 +47,217 @@ function openAsk(ctx: ToolContext, title: string, at: { owner: string; parentId?
   return row ? ctx.services.tasks.get(row.id) : undefined;
 }
 
-type CreateArgs = {
-  title: string; to?: string; doneWhen?: string; notes?: string; plan?: string[]; parentId?: string; dependsOn?: string[]; dueAt?: string;
-  priority?: number; widget?: Record<string, unknown>; estimateMin?: number; effort?: Effort; chatId?: string;
-};
+/** The ask block as stored, with the title as its question where it has none; a string says why not. */
+function askOf(raw: Record<string, unknown>, title: string): UiBlock | string {
+  const normal = normalizeAskWidget(raw);
+  if (typeof normal === 'string') return normal;
+  if (normal.type === 'choice' && !normal.question) normal.question = title;
+  if (normal.type === 'confirm' && !normal.instructions) normal.instructions = title;
+  return normal;
+}
 
-const createTool = defineTool<CreateArgs>({
-  name: 'tasks.create',
-  description: 'Gives new work to me, a colleague, a person or the team, tracked until done or dropped. A question to a person is a line in our chat; a task for them is their own work for later, a widget is how they answer it, and their click comes back to me as their line. Whoever gets it hears of it at once; what I give others stands under "Given by me" until it comes back, and when it ends I hear how. A colleague I just asked in our chat already has that request; a task for it would be a second one.',
+/** The wait a line names: task ids → after them; "<name>: …" of a member → on them; else something outside. */
+export function waitOf(ctx: ToolContext, line: string): Omit<TaskWait, 'since'> | string {
+  const why = line.trim();
+  if (!why) return 'A wait names what it waits on, in one line.';
+  const ids = [...new Set(why.match(TASK_ID) ?? [])];
+  if (ids.length) {
+    for (const id of ids) requireTask(ctx, id);
+    return { on: 'task', ids, why };
+  }
+  const head = /^([^:–\n]{1,60})\s*[:–]/.exec(why)?.[1]?.trim();
+  const who = head ? receiverOf(ctx, head) : undefined;
+  if (typeof who === 'string' && who !== ctx.agent.id && who !== 'team') return { on: 'who', who, why };
+  return { on: 'outside', why };
+}
+
+/** How urgent a to-do is, in words (Task.priority 0 · 1 · 2). */
+const PRIORITIES = ['normal', 'high', 'urgent'] as const;
+type Priority = (typeof PRIORITIES)[number];
+const PRIORITY_PROPERTY = { type: 'string', enum: [...PRIORITIES], description: 'How urgent it is for whoever does it.' } as const;
+const priorityOf = (word: Priority | undefined): Task['priority'] | undefined => (word === undefined ? undefined : PRIORITIES.indexOf(word) as Task['priority']);
+
+/**
+ * What I set up in this turn besides `task` – my new open to-dos (not inside it) and my reminders – listed with its
+ * result as its follow-ups (R2.13); none when the turn's start is unknown.
+ */
+function followUpsOf(ctx: ToolContext, task: Task): TaskResult['followUps'] {
+  let since: number | undefined;
+  try { since = ctx.services.runs.get(ctx.runId)?.startedAt; } catch { since = undefined; }
+  if (since === undefined) return undefined;
+  const todos = ctx.services.db.all<{ id: string; title: string }>(
+    `SELECT id, title FROM tasks WHERE created_by = ? AND created_at >= ? AND id <> ? AND parent_id IS NOT ? AND status IN ('open', 'waiting')
+     ORDER BY created_at LIMIT 10`, [ctx.agent.id, since, task.id, task.id]);
+  const notes = ctx.services.db.all<{ id: string; title: string }>(
+    `SELECT id, title FROM schedules WHERE owner_id = ? AND kind = 'reminder' AND active = 1 AND created_at >= ? ORDER BY created_at LIMIT 10`, [ctx.agent.id, since]);
+  const items = [...todos.map((row) => ({ taskId: row.id, label: clip(row.title, 120) })), ...notes.map((row) => ({ scheduleId: row.id, label: clip(row.title, 120) }))];
+  return items.length ? items : undefined;
+}
+
+type AddArgs = { title: string; for?: string; quest?: string; at?: string; minutes?: number; notes?: string; ask?: Record<string, unknown>; after?: string[]; doneWhen?: string; effort?: Effort; priority?: Priority };
+
+const addTool = defineTool<AddArgs>({
+  name: 'tasks.add',
+  description: 'Puts a to-do into a quest for me, a colleague or the person, with a time when it has one. A goal with several steps gets its own quest (quest: "new"); what the person does stays theirs, and I hand them only what I could not do myself. An ask I answer with questions is unfinished: its to-do waits on the person.',
   inputSchema: {
     type: 'object',
     properties: {
-      title: { type: 'string', minLength: 1, maxLength: 300, description: 'The goal in a few words.' },
-      to: { type: 'string', description: '"me" (default; with a widget: the person of this chat), a colleague or a person by name or id, or "team" – Autark picks one owner now.' },
+      title: { type: 'string', minLength: 1, maxLength: 300, description: 'What is to be done, in the words of whoever asked for it.' },
+      for: { type: 'string', description: '"me" (default; with ask: the person of this chat), "person", a colleague or a person by name or id, or "team" – Autark picks one owner now.' },
+      quest: { type: 'string', description: 'The quest it goes into (a to-do\'s id means its quest), or "none". "new" makes this item itself the quest: its title is the goal, not a step, it holds no time, and its to-dos follow with further tasks.add {quest: <its id>}. Default: the quest my turn is about when it began in that quest\'s thread or from a note or wake on it; a line in a chat names none.' },
+      at: { ...WHEN_PROPERTY, description: `When the person does it, as their own words or their assistant set it; work among agents starts now. ${String(WHEN_PROPERTY.description)}` },
+      minutes: { type: 'integer', minimum: 1, maximum: 1440, description: 'How long the person needs; their calendar shows it.' },
+      notes: { type: 'string', maxLength: 20_000, description: "What is to be done now and what whoever takes it on cannot find without me: the person's words, the facts, what good looks like." },
+      ask: { type: 'object', properties: { type: { type: 'string' } }, required: ['type'], description: `How the person answers: an ask block – ${ASK_TYPES_TEXT} – with its fields (ui.help shows them).` },
+      after: { type: 'array', items: { type: 'string' }, maxItems: 20, description: 'The to-dos it comes after; it waits until the last of them ends.' },
       doneWhen: { type: 'string', maxLength: 2000, description: 'The outcome in one line – what exists or changed when it is done.' },
-      notes: { type: 'string', maxLength: 20_000, description: "What whoever takes it on cannot find without me: the person's words, the facts, what good looks like." },
-      plan: { type: 'array', items: { type: 'string', minLength: 1, maxLength: 300 }, maxItems: 20, description: 'The steps I see, one line each; "✓ " before a done one.' },
-      parentId: { type: 'string', description: 'The task this is a piece of; its end wakes that task\'s owner. Default this turn\'s task when the work goes to someone else; "none" for separate work.' },
-      dependsOn: { type: 'array', items: { type: 'string' }, maxItems: 20, description: 'Tasks it comes after; it waits until the last of them ends.' },
-      dueAt: { ...WHEN_PROPERTY, description: `A date the world sets – a customer's call, a release window, a lock that ends; for a person, when they do it. Work among us starts when it is given. ${String(WHEN_PROPERTY.description)}` },
-      priority: { type: 'integer', minimum: 0, maximum: 2, description: '0 normal, 1 high (a person sees it above their input), 2 urgent.' },
-      widget: { type: 'object', properties: { type: { type: 'string' } }, required: ['type'], description: 'How a person answers: an ask block – choice, form, confirm, checklist, record, upload, review, timer.' },
-      estimateMin: { type: 'integer', minimum: 5, maximum: 720, description: "Minutes a person needs; it goes into the person's calendar." },
-      effort: EFFORT_PROPERTY, chatId: CHAT_ID_PROPERTY,
+      effort: { ...EFFORT_PROPERTY, description: "The effort a colleague's work runs at from its first turn." },
+      priority: PRIORITY_PROPERTY,
     },
     required: ['title'], additionalProperties: false,
   },
   category: 'think',
-  describe: (args, ctx) => internal(`Create task "${clip(args.title, 80)}"${args.to ? ` for ${args.to}` : ''}`, args.chatId ?? ctx.conversationId),
+  describe: (args, ctx) => internal(`${args.quest === 'new' ? 'Start quest' : 'Add to-do'} "${clip(args.title, 80)}"${args.for ? ` for ${args.for}` : ''}`, ctx.conversationId),
   async run(args, ctx) {
-    const due = whenOf(ctx, args.dueAt, 'dueAt');
-    if ('refused' in due) return failure(due.refused);
-    const conversationId = chatIfAny(ctx, args.chatId);
+    const quest = args.quest?.trim() === 'new';
+    if (quest && (args.at?.trim() || args.minutes !== undefined)) return failure(QUEST_TIME);
+    const time = timeOf(ctx, args.at, 'at');
+    if ('refused' in time) return failure(time.refused);
+    const conversationId = chatIfAny(ctx, undefined);
     let widget: UiBlock | undefined;
     let notes = args.notes?.trim() ?? '';
-    if (args.widget) {
-      notes = [notes, approveNotes(args.widget)].filter(Boolean).join('\n\n');
-      const normal = normalizeAskWidget(args.widget);
-      if (typeof normal === 'string') return failure(normal);
-      widget = normal;
-      if (widget.type === 'choice' && !widget.question) widget.question = args.title;
-      if (widget.type === 'confirm' && !widget.instructions) widget.instructions = args.title;
-      if ((args.priority ?? 0) >= 1) widget.important = true;
+    if (args.ask) {
+      notes = [notes, approveNotes(args.ask)].filter(Boolean).join('\n\n');
+      const block = askOf(args.ask, args.title);
+      if (typeof block === 'string') return failure(block);
+      widget = block;
     }
-    // A widget without `to` goes to the person of this chat (who wrote last), else the person who owns the organisation.
-    const asked = args.to === undefined && widget ? (conversationId ? askTarget(ctx.services.db, conversationId, (ctx.services.chats.get(conversationId)?.lastSeq ?? 0) + 1, widget) : undefined) ?? HUMAN_ID : undefined;
-    const to = asked ?? receiverOf(ctx, args.to);
+    // An ask without `for` goes to the person of this chat (who wrote last), else the person who owns the organisation.
+    const asked = args.for === undefined && widget ? (conversationId ? askTarget(ctx.services.db, conversationId, (ctx.services.chats.get(conversationId)?.lastSeq ?? 0) + 1, widget) : undefined) ?? HUMAN_ID : undefined;
+    const to = asked ?? receiverOf(ctx, args.for);
     if (typeof to !== 'string') return failure(to.refused);
-    const toPerson = to === HUMAN_ID || isPersonId(to);
-    if (widget && !toPerson) return failure('A widget is how a person answers: to names a person.');
-    const others = to !== ctx.agent.id;
-    const parentId = args.parentId === 'none' ? undefined : args.parentId ?? (others ? ctx.taskId : undefined);
-    if (parentId) requireTask(ctx, parentId);
-    for (const after of args.dependsOn ?? []) requireTask(ctx, after);
-    if (parentId && others && !toPerson && depthOf(ctx, parentId) + 1 >= MAX_PIECE_DEPTH) return failure('This work is already three levels deep: I do this part myself.');
-    if (toPerson) {
+    if (widget && !isPerson(to)) return failure('An ask is how a person answers: for names a person.');
+    const parentId = quest ? undefined : questOf(ctx, args.quest);
+    if (isPerson(to) && !quest) { // the same ask again: the one that stands (its time included)
       const same = openAsk(ctx, args.title, { owner: to, parentId, type: widget?.type });
-      if (same) return answer(ctx, same, { already: true });
+      if (same) return json(answer(ctx, same, { already: true }));
     }
-    const route = others && !toPerson && args.effort ? { effort: args.effort } : undefined;
+    if (typeof time.at === 'number') {
+      const refused = isPerson(to) ? personTimeRefused(ctx, to, time.at, { quest: parentId }) : AGENT_TIME;
+      if (refused) return failure(refused);
+    }
+    if (time.day && args.minutes !== undefined) return failure(DAY_LENGTH);
+    for (const after of args.after ?? []) requireTask(ctx, after);
     const task = await ctx.services.tasks.createTo({
-      ...(conversationId ? { conversationId } : {}), ...(ctx.origin ? { origin: ctx.origin } : {}),
-      title: args.title, ...(notes ? { notes } : {}), ...(args.plan?.length ? { plan: args.plan } : {}), doneWhen: args.doneWhen,
-      dueAt: due.at, priority: (args.priority ?? 0) as 0 | 1 | 2, parentId, dependsOn: args.dependsOn, widget,
-      ...(args.estimateMin ? { estimateMin: args.estimateMin, estimateSource: 'model' as const } : {}), createdBy: ctx.agent.id,
-      ...(others && ctx.conversationId ? { givenIn: ctx.conversationId } : {}),
-    }, to, route ? { route } : {});
-    // The person's own to-do with a time or an estimate goes into their calendar now (dueAt is when they do it).
-    const placed = to === HUMAN_ID && (due.at !== undefined || args.estimateMin) ? placeOnMyDay(ctx, task.id, due.at, args.estimateMin) : undefined;
-    return answer(ctx, task, { ...(placed?.when ? { calendar: placed.when } : {}), ...(placed?.note ? { calendarNote: placed.note } : {}) });
-  },
-});
-
-const giveTool = defineTool<{ taskId?: string; to: string; note?: string; effort?: Effort }>({
-  name: 'tasks.give',
-  description: 'Hands a task to someone else, or takes one myself. It keeps its brief, plan and facts; they hear of it at once, and when it ends I hear how.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      taskId: TASK_ID_PROPERTY,
-      to: { type: 'string', minLength: 1, description: '"me", a colleague or a person by name or id, or "team" – Autark picks one owner now.' },
-      note: { type: 'string', maxLength: 4000, description: 'What the new owner needs from me; it lands in its notes as "From <my name>: …".' },
-      effort: EFFORT_PROPERTY,
-    },
-    required: ['to'], additionalProperties: false,
-  },
-  category: 'think',
-  describe: (args, ctx) => internal(`Give task ${args.taskId ?? ctx.taskId ?? ''} to ${args.to}`.trim(), args.taskId ?? ctx.taskId),
-  async run(args, ctx) {
-    const task = requireTask(ctx, args.taskId ?? ctx.taskId);
-    const to = receiverOf(ctx, args.to);
-    if (typeof to !== 'string') return failure(to.refused);
-    const view = await ctx.services.tasks.give(task.id, to, ctx.agent.id, { note: args.note, effort: args.effort, ...(ctx.conversationId ? { givenIn: ctx.conversationId } : {}) });
-    return answer(ctx, view);
+      ...(conversationId ? { conversationId } : {}), ...(ctx.origin ? { origin: ctx.origin } : {}), ...(quest ? { kind: 'quest' as const } : {}),
+      title: args.title, ...(notes ? { notes } : {}), doneWhen: args.doneWhen, parentId, dependsOn: args.after, widget,
+      ...(typeof time.at === 'number' ? { at: time.at } : {}), ...(args.minutes ? { minutes: args.minutes } : {}), createdBy: ctx.agent.id,
+      ...(args.priority ? { priority: priorityOf(args.priority) } : {}),
+      ...(to !== ctx.agent.id && ctx.conversationId ? { givenIn: ctx.conversationId } : {}),
+    }, to, to !== ctx.agent.id && !isPerson(to) && args.effort ? { route: { effort: args.effort } } : {});
+    keepPersonLine(ctx, task.id);
+    return json(answer(ctx, ctx.services.tasks.get(task.id) ?? task));
   },
 });
 
 type UpdateArgs = {
-  taskId?: string; status?: 'open' | 'waiting'; on?: 'who' | 'task' | 'outside'; who?: string; why?: string; until?: string; plan?: string[]; fact?: string;
-  title?: string; notes?: string; doneWhen?: string; dueAt?: string; priority?: number; dependsOn?: string[]; rev?: number;
+  id?: string; title?: string; notes?: string; doneWhen?: string; for?: string; at?: string; minutes?: number; quest?: string; after?: string[];
+  status?: 'open' | 'waiting' | 'done' | 'dropped'; waiting?: string; result?: string; evidence?: Evidence[]; effort?: Effort;
+  priority?: Priority; quiet?: boolean; alsoHandled?: string[];
 };
 
 const updateTool = defineTool<UpdateArgs>({
   name: 'tasks.update',
-  description: "Keeps a task true: its wait, plan, facts and details in one call. I call it at the end of a stretch of work: the right one is woken and everyone reading it sees where it stands. A wait on someone ends with their line in the task's chat or our 1:1, a wait on a task with its end; outside, I look again at until, else a day later. A question to a person goes in our chat, and I wait on who.",
+  description: 'Keeps a to-do or quest true: new words, a time, another owner, a wait, done or dropped. The person acts on what it says, so the moment it stops being true I change it, and when it is done or no longer needed I close it – a quest with everything in it.',
   inputSchema: {
     type: 'object',
     properties: {
-      taskId: TASK_ID_PROPERTY,
-      status: { type: 'string', enum: ['open', 'waiting'], description: '"waiting" with on and why; "open" ends a wait.' },
-      on: { type: 'string', enum: ['who', 'task', 'outside'], description: 'What moves it next: someone (who), a task, or something outside.' },
-      who: { type: 'string', description: 'On who: a person or agent by name or id; on task: its id.' },
-      why: { type: 'string', maxLength: 500, description: 'One line.' },
-      until: { ...WHEN_PROPERTY, description: `When I look at it again at the latest. ${String(WHEN_PROPERTY.description)}` },
-      plan: { type: 'array', items: { type: 'string', minLength: 1, maxLength: 300 }, maxItems: 20, description: 'The steps, one line each, "✓ " before the done ones; it replaces the old plan.' },
-      fact: { type: 'string', minLength: 1, maxLength: 2000, description: 'What I learned or decided, kept for whoever works on it next – in plain sentences, as they know nothing else.' },
-      title: { type: 'string', minLength: 1, maxLength: 300 }, notes: { type: 'string', maxLength: 20_000 }, doneWhen: { type: 'string', maxLength: 2000 },
-      dueAt: { ...WHEN_PROPERTY, description: `A date the world sets; for a person, when they do it. ${String(WHEN_PROPERTY.description)}` }, priority: { type: 'integer', minimum: 0, maximum: 2 },
-      dependsOn: { type: 'array', items: { type: 'string' }, maxItems: 20, description: 'The tasks it comes after; it replaces the list.' },
-      rev: { type: 'integer', description: 'The rev I read; a newer change wins and I read it again.' },
-    },
-    additionalProperties: false,
-  },
-  category: 'think',
-  describe: (args, ctx) => internal(`Update task ${args.taskId ?? ctx.taskId ?? ''}`.trim(), args.taskId ?? ctx.taskId),
-  async run(args, ctx) {
-    const current = requireTask(ctx, args.taskId ?? ctx.taskId);
-    const patch: Parameters<typeof ctx.services.tasks.update>[1] = {};
-    for (const key of ['title', 'notes', 'doneWhen', 'plan', 'fact'] as const) if (args[key] !== undefined) (patch as Record<string, unknown>)[key] = args[key];
-    if (args.priority !== undefined) patch.priority = args.priority as 0 | 1 | 2;
-    if (args.dueAt !== undefined) {
-      const due = whenOf(ctx, args.dueAt, 'dueAt');
-      if ('refused' in due) return failure(due.refused);
-      patch.dueAt = due.at;
-    }
-    if (args.dependsOn !== undefined) { for (const after of args.dependsOn) requireTask(ctx, after); patch.dependsOn = args.dependsOn; }
-    if (args.status === 'waiting' || (args.on !== undefined && current.status === 'waiting')) {
-      const until = whenOf(ctx, args.until, 'until');
-      if ('refused' in until) return failure(until.refused);
-      const on = args.on ?? current.waitingOn?.on ?? 'outside';
-      let who: string | undefined;
-      if (on === 'who') {
-        const named = args.who ? receiverOf(ctx, args.who) : { refused: 'A wait on someone names them (who).' };
-        if (typeof named !== 'string') return failure(named.refused);
-        who = named;
-      }
-      if (on === 'task') { if (!args.who) return failure('A wait on a task names it (who: its id).'); requireTask(ctx, args.who); }
-      const why = args.why?.trim() || current.waitingOn?.why;
-      if (!why) return failure('A wait says why, in one line.');
-      patch.status = 'waiting';
-      patch.waitingOn = { on, why, ...(who ? { who } : {}), ...(on === 'task' ? { ids: [args.who!] } : {}), ...(until.at !== undefined ? { until: until.at } : {}) };
-    } else if (args.status === 'open') patch.status = 'open';
-    const view = Object.keys(patch).length ? ctx.services.tasks.update(current.id, patch, ctx.agent.id, args.rev) : current;
-    return answer(ctx, view, { rev: view.rev });
-  },
-});
-
-const finishTool = defineTool<{ taskId?: string; status: 'done' | 'dropped'; summary: string; evidence?: Evidence[]; alsoHandled?: string[]; followUps?: Array<{ label: string; scheduleId?: string; taskId?: string }>; quiet?: boolean }>({
-  name: 'tasks.finish',
-  description: 'Ends a task: done with what came out, or dropped with why it is no longer needed. A task with a doneWhen gets one quick check of the result against it. Its open asks and my own pieces end with it; whoever gave it hears the result.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      taskId: TASK_ID_PROPERTY,
-      status: { type: 'string', enum: ['done', 'dropped'] },
-      summary: { type: 'string', minLength: 1, maxLength: 4000, description: 'The result in a few lines – the person reads it; for dropped, why.' },
+      id: { type: 'string', description: 'The quest or to-do; default the one my turn is about when it began in its thread or from a note or wake on it – a line in a chat names none.' },
+      title: { type: 'string', minLength: 1, maxLength: 300 },
+      notes: { type: 'string', maxLength: 20_000, description: 'What is to be done now; it replaces the notes.' },
+      doneWhen: { type: 'string', maxLength: 2000 },
+      for: { type: 'string', description: 'A new owner: "me", "person", a colleague or a person by name or id, or "team". They hear of it at once, and I hear how it ends.' },
+      at: { ...WHEN_PROPERTY, description: `When the person does it, as their own words or their assistant set it; work among agents starts now. ${String(WHEN_PROPERTY.description)}` },
+      minutes: { type: 'integer', minimum: 1, maximum: 1440 },
+      effort: { ...EFFORT_PROPERTY, description: "With for: the effort the new owner's work runs at from its first turn." },
+      quest: { type: 'string', description: 'The quest it moves into, or "none".' },
+      after: { type: 'array', items: { type: 'string' }, maxItems: 20, description: 'The to-dos it comes after; it replaces the list.' },
+      status: { type: 'string', enum: ['open', 'waiting', 'done', 'dropped'] },
+      waiting: { type: 'string', maxLength: 500, description: 'What it waits on, in one line – a name or a to-do\'s id first when it waits on someone or on that to-do ("Felix: the signed installer").' },
+      result: { type: 'string', maxLength: 4000, description: 'Done: what came out, in a few lines the person reads; dropped: why.' },
       evidence: {
-        type: 'array', maxItems: 30, description: 'What shows it: files, links, checks.',
+        type: 'array', maxItems: 30, description: 'What shows the result: files, links, checks.',
         items: { type: 'object', properties: { kind: { type: 'string', enum: ['file', 'link', 'tool', 'check', 'note', 'screenshot'] }, label: { type: 'string', minLength: 1 }, ref: { type: 'string' } }, required: ['kind', 'label'] },
       },
-      alsoHandled: { type: 'array', items: { type: 'string', maxLength: 300 }, maxItems: 20, description: "Side work and fixes everyone should know, one line each – our team's report." },
-      followUps: { type: 'array', maxItems: 20, description: 'What I set up to follow it: a schedule or task, one each.', items: { type: 'object', properties: { label: { type: 'string', minLength: 1 }, scheduleId: { type: 'string' }, taskId: { type: 'string' } }, required: ['label'] } },
-      quiet: { type: 'boolean', description: 'Nobody gets a notice.' },
-    },
-    required: ['status', 'summary'], additionalProperties: false,
-  },
-  category: 'think',
-  describe: (args, ctx) => internal(`${args.status === 'dropped' ? 'Drop' : 'Finish'} task ${args.taskId ?? ctx.taskId ?? ''}`.trim(), args.taskId ?? ctx.taskId),
-  async run(args, ctx) {
-    const task = requireTask(ctx, args.taskId ?? ctx.taskId);
-    const view = ctx.services.tasks.finish(task.id, {
-      status: args.status, summary: args.summary, evidence: args.evidence ?? [], alsoHandled: args.alsoHandled, followUps: args.followUps, quiet: args.quiet,
-    }, ctx.agent.id);
-    return json({ ok: isFinished(view.status), taskId: view.id, status: view.status });
-  },
-});
-
-const listTool = defineTool<{ whose?: string; status?: string[]; search?: string; chatId?: string; limit?: number }>({
-  name: 'tasks.list',
-  description: 'Lists tasks as lines with owner, state, due time and next look. Unfinished ones unless I name statuses.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      whose: { type: 'string', description: '"mine" (default), "given" for what I gave, a name or id for theirs, or "all".' },
-      status: { type: 'array', items: { type: 'string', enum: STATUSES } },
-      search: { type: 'string', maxLength: 200, description: 'Words of the task.' },
-      chatId: { type: 'string', description: "One chat's tasks." },
-      limit: { type: 'integer', minimum: 1, maximum: 100 },
+      alsoHandled: { type: 'array', items: { type: 'string', maxLength: 300 }, maxItems: 20, description: "Done or dropped: side work and fixes I did on the way that everyone should know, one line each – our team's report." },
+      quiet: { type: 'boolean', description: 'Done or dropped: I close it without a notice to anyone – nobody waits to hear about it.' },
+      priority: PRIORITY_PROPERTY,
     },
     additionalProperties: false,
   },
-  category: 'read',
-  describe: () => internal('List tasks'),
+  category: 'think',
+  describe: (args, ctx) => {
+    const id = args.id ?? turnTask(ctx)?.id;
+    return internal(`${args.status === 'done' ? 'Finish' : args.status === 'dropped' ? 'Drop' : 'Update'} ${id ?? ''}`.trim(), id);
+  },
   async run(args, ctx) {
-    if (args.chatId) resolveChat(ctx, args.chatId, { read: true });
-    const whose = args.whose?.trim() || (args.search || args.chatId ? 'all' : 'mine');
-    const filter: TaskFilter = { status: (args.status as TaskStatus[] | undefined) ?? [...UNFINISHED], search: args.search, conversationId: args.chatId, readableBy: ctx.agent.id, includeSteps: true, limit: args.limit ?? 30 };
-    if (whose === 'given') { filter.givenBy = ctx.agent.id; delete filter.status; }
-    else if (whose === 'mine') { filter.assigneeKind = 'agent'; filter.assigneeId = ctx.agent.id; }
-    else if (whose !== 'all') {
-      const who = receiverOf(ctx, whose);
-      if (typeof who !== 'string') return failure(who.refused);
-      if (who === HUMAN_ID || isPersonId(who)) { filter.assigneeKind = 'human'; if (who !== HUMAN_ID) filter.assigneeId = who; }
-      else { filter.assigneeKind = 'agent'; filter.assigneeId = who; }
+    let current = requireTask(ctx, args.id ?? turnTask(ctx)?.id);
+    const to = args.for === undefined ? undefined : receiverOf(ctx, args.for);
+    if (to !== undefined && typeof to !== 'string') return failure(to.refused);
+    const time = timeOf(ctx, args.at, 'at');
+    if ('refused' in time) return failure(time.refused);
+    const ownerAfter = to ?? ownerOf(current);
+    if (isQuest(current) && (typeof time.at === 'number' || args.minutes !== undefined)) return failure(QUEST_TIME);
+    const into = args.quest === undefined ? current.parentId : args.quest.trim() === 'none' ? undefined : questOf(ctx, args.quest); // its quest after this call
+    if (typeof time.at === 'number') { // on the person's to-do the time it already has stands as it is
+      const refused = !isPerson(ownerAfter) ? AGENT_TIME : time.at === current.at ? undefined : personTimeRefused(ctx, ownerAfter, time.at, { quest: into, id: current.id });
+      if (refused) return failure(refused);
     }
-    const tasks = ctx.services.tasks.list(filter);
-    const names = namesFor(ctx.services, profileZone(ctx.services));
-    const now = ctx.services.clock.now();
-    return text(tasks.length ? tasks.map((task) => taskLine(task, names, now, { owner: true, mine: ctx.agent.id })).join('\n') : 'No tasks.');
+    // A day without a clock takes no length – neither with it nor later on a to-do that stands as a day (isDayOnly).
+    const dayOnly = time.day === true || (time.at === undefined && isDayOnly(current, profileZone(ctx.services)));
+    if (dayOnly && args.minutes !== undefined) return failure(DAY_LENGTH);
+    const ending = args.status === 'done' || args.status === 'dropped';
+    if (ending && !args.result?.trim()) return failure('A to-do or quest I close says in result what came out, or why it is no longer needed.');
+    // "Only me" (tasks/service.ts onlyMeLine): never to an agent or the team, never closed by me – nor its quest while it is open
+    if (current.private && ((typeof to === 'string' && !isPerson(to)) || ending)) return failure(onlyMeLine());
+    const held = ending ? current.steps?.find((todo) => todo.private && !isFinished(todo.status)) : undefined;
+    if (held) return failure(onlyMeLine(held.title));
+    const patch: TaskPatch = {};
+    if (args.title !== undefined) patch.title = args.title;
+    if (args.notes !== undefined) patch.notes = args.notes;
+    if (args.doneWhen !== undefined) patch.doneWhen = args.doneWhen;
+    if (time.at !== undefined) patch.at = time.at;
+    if (args.minutes !== undefined) patch.minutes = args.minutes;
+    else if (time.day && current.minutes !== undefined) patch.minutes = null; // the length went with the clock time the day replaces
+    if (args.priority !== undefined) patch.priority = priorityOf(args.priority);
+    if (args.quest !== undefined) {
+      const target = into ? ctx.services.tasks.get(into) : undefined;
+      if (target && target.kind !== 'quest') ctx.services.tasks.update(target.id, { kind: 'quest' }, ctx.agent.id); // a lone to-do named as the place becomes a quest, as on add
+      patch.parentId = into ?? null;
+    }
+    if (args.after !== undefined) { for (const after of args.after) requireTask(ctx, after); patch.dependsOn = args.after; }
+    if (args.waiting !== undefined || args.status === 'waiting') {
+      const line = args.waiting ?? current.waitingOn?.why;
+      if (!line) return failure('A wait names what it waits on, in one line (waiting).');
+      const wait = waitOf(ctx, line);
+      if (typeof wait === 'string') return failure(wait);
+      patch.status = 'waiting';
+      patch.waitingOn = wait;
+    } else if (args.status === 'open') patch.status = 'open';
+    if (Object.keys(patch).length) current = ctx.services.tasks.update(current.id, patch, ctx.agent.id);
+    if (typeof to === 'string' && to !== ownerOf(current)) {
+      current = await ctx.services.tasks.give(current.id, to, ctx.agent.id, { ...(args.effort ? { effort: args.effort } : {}), ...(ctx.conversationId ? { givenIn: ctx.conversationId } : {}) });
+    }
+    if (ending) {
+      const alsoHandled = (args.alsoHandled ?? []).map((line) => line.trim()).filter(Boolean);
+      const followUps = followUpsOf(ctx, current);
+      current = ctx.services.tasks.finish(current.id, {
+        status: args.status as 'done' | 'dropped', summary: args.result!.trim(), evidence: args.evidence ?? [],
+        ...(alsoHandled.length ? { alsoHandled } : {}), ...(followUps ? { followUps } : {}), ...(args.quiet ? { quiet: true } : {}),
+      }, ctx.agent.id);
+    }
+    return json(answer(ctx, current));
   },
 });
 
-const getTool = defineTool<{ taskId: string }>({
-  name: 'tasks.get',
-  description: 'Shows one task whole: brief, plan, facts, pieces, what it waits on, next look, result.',
-  inputSchema: { type: 'object', properties: { taskId: { type: 'string', minLength: 1 } }, required: ['taskId'], additionalProperties: false },
-  category: 'read',
-  describe: (args) => internal(`Read task ${args.taskId}`, args.taskId),
-  async run(args, ctx) {
-    const task = requireTask(ctx, args.taskId);
-    const body = renderTask(ctx.services, task, profileZone(ctx.services), '## Task').split('\n');
-    return text([...body.slice(0, 3), `Owner: ${ownerWords(ctx, task)}`, ...body.slice(3)].join('\n'));
-  },
-});
-
-export const taskTools: ToolDef[] = [createTool, giveTool, updateTool, finishTool, listTool, getTool];
+export const taskTools: ToolDef[] = [addTool, updateTool, listTool, remindTool];

@@ -66,26 +66,23 @@ test('side calls name the agent and its chat; a stored secret goes as its value;
   await assert.rejects(tool(tools, 'browser.snapshot').run({ where: 'global' }, toolCtx().ctx), /The person's browser is not open here/);
 });
 
-test("browser.show opens the page as a shown tab: in the chat's area when the run has one, so the person's pane is not disturbed", async () => {
+test("browser.show where: 'chat' opens the page as a shown tab in this chat's area (a person's pane is the default, test/unit/pane/show.test.ts)", async () => {
   const t = toolCtx({ side: sideAnswer });
-  const out = await browserShowTools[0]!.run({ url: 'example.com/pricing' }, t.ctx);
+  const out = await browserShowTools[0]!.run({ url: 'example.com/pricing', where: 'chat' }, t.ctx);
   assert.deepEqual(t.sideCalls[0], { action: 'open', url: 'https://example.com/pricing', show: true, space: 'chat:ch_1', agent: { id: 'ag_ada', name: 'Ada' }, chat: 'ch_1' });
   assert.equal(textOf(out), "Opened https://example.com/pricing in this chat's area (tab web-a1).");
-  const pane = await browserShowTools[0]!.run({ url: 'example.com', where: 'global' }, t.ctx);
-  assert.equal(t.sideCalls.at(-1)!.space, 'global');
-  assert.match(textOf(pane), /^Opened https:\/\/example\.com\/ in the person's pane/);
-  await assert.rejects(browserShowTools[0]!.run({ url: 'file:///C:/x' }, t.ctx), /HTTP or HTTPS/);
+  await assert.rejects(browserShowTools[0]!.run({ url: 'file:///C:/x', where: 'chat' }, t.ctx), /HTTP or HTTPS/);
 });
 
-test("browser.show where: own puts the page in the agent's own area on its agent page (agent:<id>), a tab of its own when asked", async () => {
+test("browser.show where: 'agent' puts the page in the agent's own area on its agent page (agent:<id>), a tab of its own when asked", async () => {
   const t = toolCtx({ side: sideAnswer });
-  const out = await browserShowTools[0]!.run({ url: 'example.com/report', where: 'own', newTab: true }, t.ctx);
+  const out = await browserShowTools[0]!.run({ url: 'example.com/report', where: 'agent', newTab: true }, t.ctx);
   assert.deepEqual(t.sideCalls[0], { action: 'open', url: 'https://example.com/report', newTab: true, show: true, space: 'agent:ag_ada', agent: { id: 'ag_ada', name: 'Ada' }, chat: 'ch_1' });
   assert.equal(textOf(out), 'Opened https://example.com/report in my area on my agent page (tab web-a1).');
   const where = (browserShowTools[0]!.inputSchema.properties as Record<string, { enum: string[] }>).where!.enum;
-  assert.deepEqual(where, ['chat', 'global', 'agent'], 'agent: my area on my agent page – own is my own browser profile everywhere else');
+  assert.deepEqual(where, ['chat', 'agent'], "a person's pane is the default; chat and my area are the other places");
   const noChat = toolCtx({ side: sideAnswer, conversationId: undefined });
-  await assert.rejects(browserShowTools[0]!.run({ url: 'example.com', where: 'chat' }, noChat.ctx), /no chat area: where: 'global' is the person's pane, 'agent' my area on my agent page/);
+  await assert.rejects(browserShowTools[0]!.run({ url: 'example.com', where: 'chat' }, noChat.ctx), /no chat area: I give it to a person/);
   // browser.open's own stays the agent's own browser: nothing goes to the person's browser
   const rig = scriptBrowser();
   await tool(browserTools(rig.browser), 'browser.open').run({ url: 'https://shop.test/', where: 'own' }, t.ctx);
@@ -97,16 +94,16 @@ test("the where line and the descriptions name each place and its logins: the on
   const { browser } = scriptBrowser();
   assert.match(WHERE_HINT, /^chat: this chat's area above its messages – I put this chat's work there, so everyone here finds it and works along; global: the person's own pane, theirs across all chats; a login the person makes in one of these tabs holds in both; own: my own browser, with the logins I made in it; chrome \(browser\.open\): the person's own Chrome \(or Edge\) on this PC – their profile and logins; I work in that window with computer\.\*\.$/);
   assert.doesNotMatch(WHERE_HINT, /where they work|the person's logins/, "B-081: global is the person's own across chats; a login made in these tabs holds in every area");
-  // browser.show's agent area is in the person's browser, so it has its own where text
+  // browser.show's places are in the person's browser, so it has its own where text
   const showWhere = (browserShowTools[0]!.inputSchema.properties as Record<string, { description: string }>).where!.description;
-  assert.equal(showWhere, "chat (default), global: the person's pane across chats, or agent: my area on my agent page.");
+  assert.equal(showWhere, "chat: a chat's area instead of a person's pane; agent: my area on my agent page (pages only).");
   assert.doesNotMatch(showWhere, /\b(my|your) own browser\b/);
   const openText = tool(browserTools(browser), 'browser.open').description;
   // B-080: the person's own Chrome is its own place (where: 'chrome'); the app's tabs never claim its logins
   const [sideHint, chromeHint] = WHERE_HINT.split('; chrome (browser.open): ');
   assert.match(chromeHint!, /^the person's own Chrome \(or Edge\) on this PC – their profile and logins/);
   assert.match(openText, /In my own browser I keep my logins; in chat or global the person sees it with theirs; chrome is the person's own Chrome, as a UI tree for computer\.act\.$/);
-  assert.match(browserShowTools[0]!.description, /^Shows the person a web page as a tab above this chat, with their logins\./);
+  assert.match(browserShowTools[0]!.description, /^Puts something in front of a person as a tab in their side pane: the person I work for unless I name one/);
   for (const line of [sideHint!, browserShowTools[0]!.description, showWhere]) assert.doesNotMatch(line, /Chrome|saved sign-ins|their logins work|beside the chat/, line);
   assert.doesNotMatch(chromeHint!, /automation|bot checks? pass|passes/i, 'facts only');
   // The hint is said once, in the environment's Browser line; the tools' `where` names the places in a few words.

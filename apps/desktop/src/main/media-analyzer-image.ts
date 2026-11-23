@@ -5,7 +5,8 @@
 // of an SVG without a size of its own) – cuts the region asked for (fractions of the image),
 // scales it down to spec.maxPx on its longest edge (never up, except SVG) with high-quality resampling
 // and encodes it: PNG for line art, screenshots and anything with transparency, else JPEG; a PNG over
-// spec.maxBytes becomes a JPEG on white. It posts the one result, then done.
+// spec.maxBytes becomes a JPEG on white. It posts the one result, then done. 21.11.2026: spec.cover – rectangles of
+// the whole image painted solid black over what was drawn, before anything is encoded.
 // Owns: the page side of the image job. Never: reaches anything but its own origin (the CSP and the
 // session refuse it), keeps a bitmap after the job. imagePage must stay self-contained: it is served
 // as its own source.
@@ -105,6 +106,18 @@ export async function imagePage(env: ImagePageEnv, spec: ImageSpec): Promise<voi
       paint.drawImage(source, sx, sy, sw, sh, 0, 0, dw, dh);
     }
     closeAll();
+    // 21.11.2026: covering rectangles (fractions of the whole image) on top, solid black, rounded outwards – no pixel
+    // the scaling mixed from a covered part stays visible.
+    paint.fillStyle = '#000000';
+    for (const c of spec.cover ?? []) {
+      const fx = dw / sw;
+      const fy = dh / sh;
+      const x0 = Math.max(0, Math.floor((c.x * width - sx) * fx));
+      const y0 = Math.max(0, Math.floor((c.y * height - sy) * fy));
+      const x1 = Math.min(dw, Math.ceil(((c.x + c.w) * width - sx) * fx));
+      const y1 = Math.min(dh, Math.ceil(((c.y + c.h) * height - sy) * fy));
+      if (x1 > x0 && y1 > y0) paint.fillRect(x0, y0, x1 - x0, y1 - y0);
+    }
 
     let alpha = false;
     if (!spec.opaque) {

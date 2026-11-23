@@ -1,20 +1,24 @@
-// My day's calendar window, pure updates (B-041 §6, split out of lib/day-store.ts): the window after an upserted
+// The calendar window, pure updates (B-041 §6, split out of lib/day-store.ts): the window after an upserted
 // or removed row, and after a burst of them in one pass (a sync or a calendar switched on or off sends hundreds of
-// rows – one window update and one sort, not one per row), and the buffer that collects the rows of one frame.
+// rows – one window update and one sort, not one per row), and the buffer that collects the rows of one frame. The
+// window holds the caller's rows and the agents' (the Tasks page's AI lane), never a colleague's.
 // Owns: these updates and the buffer. Never: the signals themselves (day-store.ts passes read and write in).
 
 import type { CalendarEvent, CalendarList } from '../../shared/model/calendar.ts';
 import { HUMAN_ID } from '../../shared/ids.ts';
+import { isPersonId } from '../../shared/model/people.ts';
 
 export interface DayRange { from: number; to: number }
 export interface CalendarWindow extends DayRange { list: CalendarList }
 
-const overlaps = (event: CalendarEvent, range: DayRange): boolean => event.endAt > range.from && event.startAt < range.to;
+/** In the window: the caller's row or an agent's (not a colleague's) that overlaps the range. */
+const belongs = (event: CalendarEvent, range: DayRange): boolean =>
+  (event.ownerId === HUMAN_ID || !isPersonId(event.ownerId)) && event.endAt > range.from && event.startAt < range.to;
 
-/** The window after an upserted event: in it when it is the caller's and overlaps the range, else out of it. */
+/** The window after an upserted event: in it when it belongs there, else out of it. */
 export function withEvent(window: CalendarWindow, event: CalendarEvent): CalendarWindow {
   const rest = window.list.events.filter((entry) => entry.id !== event.id);
-  const keep = event.ownerId === HUMAN_ID && overlaps(event, window);
+  const keep = belongs(event, window);
   if (!keep && rest.length === window.list.events.length) return window;
   const events = keep ? [...rest, event].sort((a, b) => a.startAt - b.startAt || a.endAt - b.endAt) : rest;
   return { ...window, list: { ...window.list, events } };
@@ -27,7 +31,7 @@ export function withEvent(window: CalendarWindow, event: CalendarEvent): Calenda
 export function withChanges(window: CalendarWindow, upserts: ReadonlyMap<string, CalendarEvent>, removed: ReadonlySet<string>): CalendarWindow {
   if (!upserts.size && !removed.size) return window;
   const rest = window.list.events.filter((entry) => !upserts.has(entry.id) && !removed.has(entry.id));
-  const added = [...upserts.values()].filter((event) => event.ownerId === HUMAN_ID && overlaps(event, window));
+  const added = [...upserts.values()].filter((event) => belongs(event, window));
   if (!added.length && rest.length === window.list.events.length) return window;
   const events = added.length ? [...rest, ...added].sort((a, b) => a.startAt - b.startAt || a.endAt - b.endAt) : rest;
   return { ...window, list: { ...window.list, events } };

@@ -11,8 +11,8 @@
 import type { Run, RunItem, WakeReason } from '../model/runs.ts';
 
 const TRIGGERS: Record<WakeReason, string> = {
-  message: 'Message', task: 'Task', schedule: 'Schedule', answer: 'Answer', approval: 'Approval', handoff: 'Handoff',
-  child: 'Delegated work finished', retry: 'Retry', review: 'Review', report: 'Report to manager', manual: 'Manual', setup: 'Setup',
+  message: 'Message', task: 'Task', schedule: 'Schedule', answer: 'Answer',
+  child: 'Delegated work finished', retry: 'Retry', review: 'Review', manual: 'Manual',
   event: 'Event', split: 'Split', // B-057
   fold: 'Context fold', // KI-Runde 17.11.2026: the agent writes its hand-over
 };

@@ -123,8 +123,8 @@ test('spaces: a tab lives in one, panels and the shown tab go in the file, MAX_T
 
 test("an agent's area is a space of its own (agent:<id>): the file keeps it, the window may lay it out, a website opens there", () => {
   assert.equal(agentSpace('ag_ada'), 'agent:ag_ada');
-  for (const ok of ['global', 'chat:ch_1', 'agent:ag_ada', 'agent:a.b-c:1']) assert.ok(isSpace(ok), ok);
-  for (const bad of ['agent:', 'agent:../x', 'agents:ag', 'person:p1', 'agent:a b', `agent:${'x'.repeat(129)}`, 7]) assert.ok(!isSpace(bad), String(bad));
+  for (const ok of ['global', 'chat:ch_1', 'agent:ag_ada', 'agent:a.b-c:1', 'person:p1']) assert.ok(isSpace(ok), ok);
+  for (const bad of ['agent:', 'agent:../x', 'agents:ag', 'person:', 'person:../x', 'persons:p1', 'agent:a b', `agent:${'x'.repeat(129)}`, 7]) assert.ok(!isSpace(bad), String(bad));
   const files = memoryFiles(JSON.stringify({ version: 2, spaces: { 'agent:ag_ada': { shown: 'notes:ch_1', tabs: [{ id: 'notes:ch_1', panel: 'notes', conversationId: 'ch_1' }, { id: 'web-r', url: 'https://report.example/', by: 'ag_ada' }] } } }));
   const tabs = new PersonalTabs({ file: 'side-tabs.json', files });
   assert.equal(tabs.spaceOf('web-r'), 'agent:ag_ada');

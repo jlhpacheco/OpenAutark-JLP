@@ -60,7 +60,7 @@ import { unmarked, withSpeech } from './speech-meta.ts';
 import { addressedAgents, applyStickyModel, cleanSettings, modelTag } from './sticky-model.ts';
 import { stampSuggestions } from './suggestion-fresh.ts';
 import { buildSummaries, isHidden } from './summary.ts';
-import { ChatLive } from './live.ts';
+import { ChatLive, handedChat } from './live.ts';
 import { isPersonId } from '../../shared/model/people.ts';
 import '../contracts/people.ts';
 
@@ -81,14 +81,14 @@ export class ChatServiceImpl implements ChatService {
     this.s = deps;
     this.convs = new ConversationRepo(deps.db);
     this.msgs = new MessageRepo(deps.db);
-    this.live = new ChatLive(deps.bus, (id) => this.emitConversation(id), options.liveGapMs);
+    this.live = new ChatLive(deps.bus, (id) => this.emitConversation(id), options.liveGapMs, (activity) => handedChat(deps.db, activity));
     this.unwatch = watchHumanTodos(this.core());
   }
 
   // ------------------------------------------------------------- conversations
 
-  list(options: { includeHidden?: boolean; search?: string; forMember?: string } = {}): ConversationSummary[] {
-    let rows = buildSummaries(this.convs.list({ forMember: options.forMember, includeArchived: options.includeHidden }), this.repos());
+  list(options: { includeHidden?: boolean; search?: string; forMember?: string; threads?: boolean } = {}): ConversationSummary[] {
+    let rows = buildSummaries(this.convs.list({ forMember: options.forMember, includeArchived: options.includeHidden, threads: options.threads }), this.repos());
     if (!options.includeHidden) rows = rows.filter(row => !isHidden(row));
     if (options.search?.trim()) {
       const query = options.search;
@@ -137,12 +137,13 @@ export class ChatServiceImpl implements ChatService {
     return conversation;
   }
 
-  setMembers(id: string, change: { add?: string[]; remove?: string[]; lead?: string }, by: string): Member[] {
+  setMembers(id: string, change: { add?: string[]; remove?: string[]; lead?: string }, by: string, options: { quiet?: boolean } = {}): Member[] {
     const conversation = this.require(id);
     const leadBefore = this.convs.members(id).find(m => m.role === 'lead')?.memberId;
-    const lines = changeMembers({ db: this.s.db, convs: this.convs, org: this.s.org, nameOf: (memberId) => this.nameOf(memberId) }, conversation, change, by, this.s.clock.now());
+    const changed = changeMembers({ db: this.s.db, convs: this.convs, org: this.s.org, nameOf: (memberId) => this.nameOf(memberId) }, conversation, change, by, this.s.clock.now());
+    const lines = options.quiet ? [] : changed; // a task's thread: its event line says it (tasks/thread.ts)
     const lead = this.convs.members(id).find(m => m.role === 'lead')?.memberId;
-    if (change.lead && lead === change.lead && lead !== leadBefore) lines.push({ type: 'lead_changed', text: `${this.nameOf(lead)} leads this chat now`, details: { memberId: lead, by } });
+    if (!options.quiet && change.lead && lead === change.lead && lead !== leadBefore) lines.push({ type: 'lead_changed', text: `${this.nameOf(lead)} leads this chat now`, details: { memberId: lead, by } });
     for (const line of lines) this.status(id, line, { authorId: by });
     if (!lines.length) this.emitConversation(id);
     return this.convs.members(id);

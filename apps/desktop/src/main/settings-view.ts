@@ -1,5 +1,5 @@
 // Main's read-mostly view of the runtime's settings (the runtime owns them; main only reacts):
-// theme → title bar colors, closeToTray, openAtLogin, autoDownloadUpdates, the profile name.
+// theme → title bar colors, openAtLogin, autoDownloadUpdates, the profile name.
 // Owns: the cached copy, defaults before the runtime answered, change notification.
 // Never: persists settings itself (settings.update goes to the runtime) or imports electron.
 
@@ -8,12 +8,11 @@ import type { MethodName, ParamsOf, ResultOf } from '../shared/api/methods.ts';
 import type { Topic } from '../shared/api/protocol.ts';
 import type { Preferences, Settings, SettingsPatch } from '../shared/model/system.ts';
 
-export type DesktopPreferences = Pick<Preferences, 'theme' | 'closeToTray' | 'openAtLogin' | 'autoDownloadUpdates'>;
+export type DesktopPreferences = Pick<Preferences, 'theme' | 'openAtLogin' | 'autoDownloadUpdates'>;
 
 /** Same defaults as the runtime (src/runtime/settings/defaults.ts). */
 export const DEFAULT_DESKTOP_PREFERENCES: DesktopPreferences = {
   theme: 'system',
-  closeToTray: true,
   openAtLogin: false,
   autoDownloadUpdates: false,
 };
@@ -42,7 +41,6 @@ export class SettingsView {
     const prefs = this.value?.preferences;
     return {
       theme: prefs?.theme ?? DEFAULT_DESKTOP_PREFERENCES.theme,
-      closeToTray: prefs?.closeToTray ?? DEFAULT_DESKTOP_PREFERENCES.closeToTray,
       openAtLogin: prefs?.openAtLogin ?? DEFAULT_DESKTOP_PREFERENCES.openAtLogin,
       autoDownloadUpdates: prefs?.autoDownloadUpdates ?? DEFAULT_DESKTOP_PREFERENCES.autoDownloadUpdates,
     };
@@ -86,7 +84,7 @@ export class SettingsView {
 
 /** Which desktop-relevant preferences differ (all of them on the first load). */
 export function changedPreferences(next: Settings, previous: Settings | null): Array<keyof DesktopPreferences> {
-  const keys: Array<keyof DesktopPreferences> = ['theme', 'closeToTray', 'openAtLogin', 'autoDownloadUpdates'];
+  const keys: Array<keyof DesktopPreferences> = ['theme', 'openAtLogin', 'autoDownloadUpdates'];
   if (!previous) return keys;
   return keys.filter(key => next.preferences[key] !== previous.preferences[key]);
 }

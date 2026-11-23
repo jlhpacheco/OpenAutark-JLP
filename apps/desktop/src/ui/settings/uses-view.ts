@@ -9,17 +9,23 @@
 // names a model, never a mode: Work on
 // the plan in use, Embeddings and Voice on this PC as models.uses names them ("This PC" only where it names none), the
 // ChatGPT plan's images their model, GPT Image. What really runs always stands among the options, even when it is
-// not listed. A pick becomes a change of settings.json
-// (UseWrite: routing.<use>, for speech and voice also the voice keys; a local model not on this PC yet: a download).
+// not listed. 21.11.2026: Speech to text offers the ChatGPT plan's dictation ("codex", what "auto" takes first while its
+// login is here); Voice on This PC picks the model a call hears with (Speech to text's choices) – no cell sits fixed; a
+// local model's option says how it fits this PC (models.uses choices). A pick becomes a change of settings.json
+// through the one mapping (shared/model/models-uses.ts useWrite: routing.<use>, for speech and voice also the voice keys;
+// a local model not on this PC yet: a download).
 // Row layout: [label + hint] [provider] [model or the text field] [action].
 // Owns: these options, the row's words and those writes. Never: reads signals, writes settings or renders.
 
 import { accountCharge } from '../../shared/model/charge.ts';
-import type { LocalSpeechOffer, LocalSpeechPull } from '../../shared/model/local-speech-models.ts';
-import { FREE_ROUTE_CHOICE, OFFABLE_USES, USE_ABOUT, USE_AUTO, USE_LABELS, USE_LOCAL, USE_OFF, WORK_PLAN_PROVIDERS, modelsFor, voiceDefault, type ModelUse, type UseNow } from '../../shared/model/models-uses.ts';
+import { FIT_WORDS, type LocalSpeechOffer, type LocalSpeechPull } from '../../shared/model/local-speech-models.ts';
+import {
+  FREE_ROUTE_CHOICE, OFFABLE_USES, PLAN_DICTATION, PLAN_DICTATION_NAME, USE_ABOUT, USE_AUTO, USE_LABELS, USE_LOCAL, USE_OFF, WORK_PLAN_PROVIDERS,
+  modelsFor, useWrite, voiceDefault, type ModelUse, type UseNow, type UseWrite,
+} from '../../shared/model/models-uses.ts';
 import { modelOwner, type ProviderEntries } from '../../shared/model/provider-entries.ts';
 import { DECISION_PROVIDER, MEDIA_ONLY_PROVIDERS, type Account, type ModelInfo } from '../../shared/model/providers.ts';
-import type { RoutingSettings, VoiceSettings } from '../../shared/model/system.ts';
+import type { VoiceSettings } from '../../shared/model/system.ts';
 import { progressText, pullPercent, running } from './speech-models-text.ts';
 
 export const THIS_PC = 'this-pc';
@@ -35,19 +41,12 @@ export interface UseRowView {
   providers: UseOption[];
   model: string;
   models: UseOption[];
-  /** The model cell has nothing to pick (None, Off, a call in this PC's speech models). */
+  /** The model cell has nothing to pick (None, Off). */
   modelFixed: boolean;
   hint: string;
   state: UseNow['state'] | 'pending';
   /** The action slot: a download of a local model ('Download', 'Use', "42 %"), or the AI. */
   button?: { kind: 'download' | 'ai'; label: string; disabled: boolean; target?: string };
-}
-
-export interface UseWrite {
-  routing?: Partial<RoutingSettings>;
-  voice?: Partial<VoiceSettings>;
-  /** A local model that has to come to this PC first (the download chooses it). */
-  download?: string;
 }
 
 /** A cell before models.uses has answered: empty, in its usual box. */
@@ -88,8 +87,24 @@ export function servingAccounts(use: ModelUse, models: readonly ModelInfo[], acc
   return accounts.filter((account) => serving.has(account.id) || takesName(use, account, entries)
     || (use === 'voice' && talksByDefault(account))
     || (use === 'work' && isPlan(account) && WORK_PLAN_PROVIDERS.includes(account.provider))
-    || (use === 'image' && isPlan(account) && account.provider === FREE_ROUTE_CHOICE.image));
+    || (use === 'image' && isPlan(account) && account.provider === FREE_ROUTE_CHOICE.image)
+    || (use === 'stt' && isPlan(account) && account.provider === PLAN_DICTATION)); // 21.11.2026: the plan's dictation
 }
+
+/** The ChatGPT plan's dictation, as a model option. */
+const DICTATION: UseOption = { value: PLAN_DICTATION, label: PLAN_DICTATION_NAME, hint: 'On the ChatGPT plan' };
+
+/** A local speech model's option: here or a download, and how it fits this PC. */
+const offerOption = (offer: LocalSpeechOffer): UseOption =>
+  ({ value: offer.id, label: offer.label, hint: `${offer.installed ? 'On this PC' : `${offer.downloadMb} MB download`} · ${FIT_WORDS[offer.fit] ?? ''}`.replace(/ · $/, '') });
+
+const hinted = (hint: string | undefined): { hint?: string } => (hint ? { hint } : {});
+
+/** A local model's fit as models.uses says it (embeddings, a local server's chat model). */
+const fitHint = (now: UseNow | undefined, value: string): string | undefined => {
+  const fit = now?.choices?.find((choice) => choice.value === value)?.fit;
+  return fit ? FIT_WORDS[fit] : undefined;
+};
 
 /** The provider select: None while nothing serves, the accounts, This PC, Off; what runs now is always among them. */
 export function providerOptions(use: ModelUse, now: UseNow | undefined, models: readonly ModelInfo[], accounts: readonly Account[], entries?: ProviderEntries): UseOption[] {
@@ -109,14 +124,14 @@ export function modelOptions(use: ModelUse, provider: string, now: UseNow | unde
   if (provider === USE_OFF) return [{ value: NOTHING, label: 'Off' }];
   const options: UseOption[] = [];
   if (provider === THIS_PC) {
-    const named = now?.kind === 'this-pc' && now.name ? now.name : 'This PC'; // a call: the models that hear and speak
-    if (use === 'embeddings') options.push({ value: USE_LOCAL, label: named });
-    else if (use === 'voice') options.push({ value: NOTHING, label: named });
-    else {
-      for (const offer of offers.filter((entry) => entry.purpose === use)) {
-        options.push({ value: offer.id, label: offer.label, hint: offer.installed ? 'On this PC' : `${offer.downloadMb} MB download` });
-      }
-    }
+    const named = now?.kind === 'this-pc' && now.name ? now.name : 'This PC';
+    if (use === 'embeddings') options.push({ value: USE_LOCAL, label: named, ...hinted(fitHint(now, USE_LOCAL)) });
+    else if (use === 'voice') {
+      // 21.11.2026: a call on this PC hears with Speech to text's models – the cell picks among them (it never sat fixed)
+      if (accounts.some((entry) => isPlan(entry) && entry.provider === PLAN_DICTATION)) options.push(DICTATION);
+      options.push(...offers.filter((entry) => entry.purpose === 'stt').map(offerOption));
+      if (!options.length) options.push({ value: NOTHING, label: named });
+    } else options.push(...offers.filter((entry) => entry.purpose === use).map(offerOption));
   } else {
     const account = accounts.find((entry) => entry.id === provider);
     if (account && isPlan(account)) {
@@ -125,10 +140,11 @@ export function modelOptions(use: ModelUse, provider: string, now: UseNow | unde
         options.push(current ? { value: account.provider, label: `${current} · each turn`, hint: BEST_EACH_TURN } : { value: account.provider, label: BEST_EACH_TURN });
       }
       if (use === 'image' && account.provider === FREE_ROUTE_CHOICE.image) options.push(PLAN_IMAGES);
+      if (use === 'stt' && account.provider === PLAN_DICTATION) options.push(DICTATION);
     }
     if (account) {
       for (const model of modelsFor(use, models).filter((entry) => accountsOf(entry, [account]).length > 0)) {
-        options.push({ value: model.id, label: model.name || model.model });
+        options.push({ value: model.id, label: model.name || model.model, ...hinted(fitHint(now, model.id)) });
       }
       if (use === 'voice' && !options.length && talksByDefault(account)) options.push({ value: `${modelOwner(account, entries)}:${voiceDefault(account.provider)}`, label: voiceDefault(account.provider)! });
     }
@@ -177,43 +193,36 @@ export function useRowView(use: ModelUse, now: UseNow | undefined, models: reado
   return {
     provider, providers: now ? providerOptions(use, now, models, accounts, entries) : UNANSWERED,
     model: now ? now.modelId ?? (options[0]?.value ?? NOTHING) : NOTHING, models: now ? options : UNANSWERED,
-    modelFixed: !now || now.kind === 'none' || now.kind === 'off' || (use === 'voice' && now.kind === 'this-pc'),
+    modelFixed: !now || now.kind === 'none' || now.kind === 'off',
     hint: hintOf(use, now, pull, offers), state: now?.state ?? 'pending', ...(button ? { button } : {}),
   };
 }
 
-/** A local model picked: on this PC it is chosen, else it comes first. Speech to text also forgets a service's "off". */
-function localWrite(use: ModelUse, offer: LocalSpeechOffer | undefined): UseWrite {
-  const routing: Partial<RoutingSettings> = use === 'stt' ? { stt: USE_AUTO } : { tts: USE_LOCAL };
-  if (!offer) return { routing };
-  if (!offer.installed) return { routing, download: offer.id };
-  return { routing, voice: use === 'stt' ? { localStt: offer.id } : { localTts: offer.id } };
-}
-
-/** A model picked in the model select of `provider`. */
+/** A model picked in the model select of `provider` – the value it names, written by the one mapping (useWrite). */
 export function writeModel(use: ModelUse, provider: string, value: string, models: readonly ModelInfo[], offers: readonly LocalSpeechOffer[]): UseWrite {
   if (provider === THIS_PC) {
-    if (use === 'embeddings') return { routing: { embeddings: USE_LOCAL } };
-    if (use === 'voice') return { voice: { realtime: 'off' } };
-    return localWrite(use, offers.find((offer) => offer.id === value));
+    if (use === 'embeddings') return useWrite(use, USE_LOCAL, offers);
+    // voice: the model a call on this PC hears with (or this PC's speech as it is); stt / tts: the local model, else the local route
+    return useWrite(use, value && (value === PLAN_DICTATION || offers.some((offer) => offer.id === value)) ? value : USE_LOCAL, offers);
   }
   if (use === 'voice') {
     // the Voice use may name its account: "<accountId>:<model>" (calls/realtime/setup.ts)
     const model = models.find((entry) => entry.id === value)?.model ?? value.slice(value.indexOf(':') + 1);
-    return { routing: { voice: `${provider}:${model}` }, voice: { realtime: 'auto' } };
+    return useWrite(use, `${provider}:${model}`, offers);
   }
-  if (use === 'stt') return { routing: { stt: value }, voice: { localStt: '' } }; // this PC's model comes first while it is chosen
-  return { routing: { [use]: value } };
+  return useWrite(use, value, offers);
 }
 
-/** A provider picked: Off, This PC (the local model that fits), or the account's first option. */
+/** A provider picked: Off, This PC (the local model that fits; a call: this PC's speech as it is), or the account's first option. */
 export function writeProvider(use: ModelUse, provider: string, models: readonly ModelInfo[], accounts: readonly Account[], offers: readonly LocalSpeechOffer[], settings: Pick<VoiceSettings, 'localStt' | 'localTts'> | undefined): UseWrite | undefined {
   if (provider === NOTHING) return undefined;
-  if (provider === USE_OFF) return use === 'stt' ? { routing: { stt: USE_OFF }, voice: { localStt: '' } } : { routing: { [use]: USE_OFF } };
+  if (provider === USE_OFF) return useWrite(use, USE_OFF, offers);
+  if (provider === THIS_PC && use === 'voice') return useWrite(use, USE_LOCAL, offers);
   if (provider === THIS_PC && (use === 'stt' || use === 'tts')) {
     const mine = offers.filter((offer) => offer.purpose === use);
     const chosen = use === 'stt' ? settings?.localStt : settings?.localTts;
-    return localWrite(use, mine.find((offer) => offer.id === chosen && offer.installed) ?? mine.find((offer) => offer.installed) ?? mine.find((offer) => offer.recommended) ?? mine[0]);
+    const offer = mine.find((entry) => entry.id === chosen && entry.installed) ?? mine.find((entry) => entry.installed) ?? mine.find((entry) => entry.recommended) ?? mine[0];
+    return useWrite(use, offer?.id ?? USE_LOCAL, offers);
   }
   const first = modelOptions(use, provider, undefined, models, accounts, offers)[0]; // nothing here: a connection with no listed model takes a name (the row)
   return first || provider === THIS_PC ? writeModel(use, provider, first?.value ?? NOTHING, models, offers) : undefined;

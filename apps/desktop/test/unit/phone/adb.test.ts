@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { AdbPhone, inputText, keycode, sdkCandidates, shQuote, type ExecResult } from '../../../src/runtime/phone/adb.ts';
 import { parseBounds, parseDevices, parseDump, parseWmSize, renderDump, screenOf } from '../../../src/runtime/phone/uiautomator.ts';
 import { encodePng, pngSize } from '../../../src/runtime/computer/png.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { fakeSpawn, testSupervisor } from '../engines/fakes.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 

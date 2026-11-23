@@ -7,21 +7,18 @@
 // Never: serves a file other than the running job's blob, answers a job that is not running, trusts the page's numbers or bytes unchecked,
 // writes anywhere but the job's own temp file.
 
-import { createReadStream } from 'node:fs';
 import type { ReadStream } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
-import { Readable } from 'node:stream';
 import { WorkforceError } from '../shared/errors.ts';
 import { PREVIEW_LIMITS, previewSpec } from '../shared/model/video-preview.ts';
 import type { VideoPreview } from '../shared/model/video-preview.ts';
 import { PREVIEW_CSP, PREVIEW_HTML } from './media-preview-page.ts';
-import { parseRange } from './protocols/rules.ts';
+import { body, parseJson, readBody, status, streamBlob } from './hidden-jobs.ts';
 
 const HOST = 'media-preview';
 export const PREVIEW_ORIGIN = `wf-file://${HOST}`;
 const JOB_ROUTE = /^\/job\/(\d{1,9})\/(spec|video|out|progress|done|fail)?$/;
 const MAX_JSON_BYTES = 4 * 1024;
-const HEADERS = { 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' };
 const SMALLEST_COPY = 512;
 
 /** Why the page gave up (its stage) → what the runtime logs. 'light': nothing to do – the video is light enough already. */
@@ -72,8 +69,6 @@ export function newPreviewJob(id: number, file: string, size: number, mime: stri
   return job;
 }
 
-const status = (code: number, extra: Record<string, string> = {}) => new Response(null, { status: code, headers: { ...HEADERS, ...extra } });
-const body = (text: string, type: string, extra: Record<string, string> = {}) => new Response(text, { status: 200, headers: { ...HEADERS, 'Content-Type': type, ...extra } });
 const failure = (stage: string) => {
   const known = Object.hasOwn(FAILURES, stage) ? FAILURES[stage] : FAILURES.decode;
   return new WorkforceError(known.code, known.text);
@@ -96,28 +91,12 @@ export async function servePreview(request: Request, job: PreviewJob | null, scr
   switch (part) {
     case '': return body(PREVIEW_HTML, 'text/html; charset=utf-8', { 'Content-Security-Policy': PREVIEW_CSP });
     case 'spec': return body(JSON.stringify(previewSpec(job.size, job.mime)), 'application/json');
-    case 'video': return video(job, request);
+    case 'video': return streamBlob(job, request);
     case 'out': return out(job, request, url.searchParams.get('at') ?? '');
     case 'progress': return status(204);
     case 'done': return done(job, request);
     default: return failed(job, request);
   }
-}
-
-/** The job's blob, streamed; `Range: bytes=a-b` answers 206 so the page reads it as it needs it. */
-function video(job: PreviewJob, request: Request): Response {
-  const range = parseRange(request.headers.get('range'), job.size);
-  if (range === 'invalid') return status(416, { 'Content-Range': `bytes */${job.size}` });
-  const headers: Record<string, string> = { ...HEADERS, 'Content-Type': job.mime, 'Accept-Ranges': 'bytes' };
-  const code = range ? 206 : 200;
-  const { start, end } = range ?? { start: 0, end: job.size - 1 };
-  if (range) headers['Content-Range'] = `bytes ${start}-${end}/${job.size}`;
-  headers['Content-Length'] = String(job.size ? end - start + 1 : 0);
-  if (request.method === 'HEAD' || job.size === 0) return new Response(null, { status: code, headers });
-  const stream = createReadStream(job.file, { start, end });
-  job.streams.add(stream);
-  stream.once('close', () => job.streams.delete(stream));
-  return new Response(Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>, { status: code, headers });
 }
 
 /** One piece of the copy at byte offset `at`: in order, one at a time, at most one chunk, within the most a copy may be. */
@@ -171,31 +150,4 @@ async function failed(job: PreviewJob, request: Request): Promise<Response> {
   const detail = typeof report?.detail === 'string' ? report.detail.replace(/[^ -~]/g, ' ').trim().slice(0, 160) : '';
   job.finish(detail ? new WorkforceError(error.code, `${error.message} (${detail})`) : error);
   return status(204);
-}
-
-/** The request body up to `max` bytes; null when it is larger (the rest is not read). */
-async function readBody(request: Request, max: number): Promise<Uint8Array | null> {
-  if (!request.body) return new Uint8Array(0);
-  const reader = request.body.getReader();
-  const parts: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done: end, value } = await reader.read();
-    if (end) break;
-    size += value.byteLength;
-    if (size > max) {
-      await reader.cancel().catch(() => undefined);
-      return null;
-    }
-    parts.push(value);
-  }
-  const outBytes = new Uint8Array(size);
-  let at = 0;
-  for (const part of parts) { outBytes.set(part, at); at += part.byteLength; }
-  return outBytes;
-}
-
-function parseJson(bytes: Uint8Array | null): unknown {
-  if (!bytes) return null;
-  try { return JSON.parse(new TextDecoder().decode(bytes)); } catch { return null; }
 }

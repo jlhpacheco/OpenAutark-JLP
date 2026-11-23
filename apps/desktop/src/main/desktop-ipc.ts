@@ -26,6 +26,8 @@ export interface DesktopIpcParts<P extends PortLike> {
   openExternal(url: string): Promise<void>;
   titleBarLayout?(layout: TitleBarLayout): void;
   titleBarDim?(dim: boolean): void;
+  voiceLive?: IpcDeps['voiceLive']; // owner 19.11.2026: window.ts setVoiceLive
+  bubbleCall?: IpcDeps['bubbleCall']; // owner 19.11.2026: float-bar.ts setCall
   log(line: string): void;
 }
 
@@ -40,7 +42,6 @@ export function desktopIpcDeps<P extends PortLike>(parts: DesktopIpcParts<P>): I
       state: () => updates.state(),
       apply: () => updates.apply(),
       defer: () => updates.defer(),
-      setAutoDownload: enabled => updates.setAutoDownload(enabled),
       setRendererReady: ready => renderer.setReady(ready),
     },
     restartAck: (id, ok) => renderer.ack(id, ok),
@@ -58,6 +59,8 @@ export function desktopIpcDeps<P extends PortLike>(parts: DesktopIpcParts<P>): I
     openExternal: parts.openExternal,
     titleBarLayout: parts.titleBarLayout,
     titleBarDim: parts.titleBarDim,
+    voiceLive: parts.voiceLive,
+    bubbleCall: parts.bubbleCall,
     online: () => link.power('online'), // B-044: the window's network came back (chat re-delivery in the runtime)
     log: parts.log,
   };

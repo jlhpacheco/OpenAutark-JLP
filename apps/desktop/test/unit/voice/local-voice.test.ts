@@ -3,12 +3,14 @@
 // while the current one plays, the line ends once after its last sentence, a failed call or playback hands
 // the rest of the line to speechSynthesis, a cut line asks and plays nothing more, and without a local
 // voice everything stays with speechSynthesis (regression: German answers were read by robotic Windows
-// voices even with a neural voice on the PC).
+// voices even with a neural voice on the PC). VOICE 19.11.2026: a sentence later than LATE_MS after it is due hands the
+// rest of the line to the device's voice at once (the call never stalls on a slow link), a refused call rests the PC's
+// voice for REST_MS, and only a system voice picked by name keeps the device's voice (no local voice chosen is no opt-out).
 // Owns: these assertions only. Never: real audio or a runtime.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DeviceSpeech, localVoiceEngine, MAX_SENTENCE, sentences, type LocalVoiceDeps, type SpeechEngine } from '../../../src/ui/chat/composer/device-speech.ts';
+import { DeviceSpeech, LATE_MS, localVoiceEngine, MAX_SENTENCE, sentences, systemVoicePicked, type LocalVoiceDeps, type SpeechEngine } from '../../../src/ui/chat/composer/device-speech.ts';
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -123,4 +125,61 @@ test('without a local voice every line stays with speechSynthesis', async () => 
   assert.equal(ended, 1);
   h.engine.stop();
   assert.equal(h.fallbackStops(), 1);
+});
+
+test('VOICE: a sentence later than LATE_MS after it is due goes to the device voice with the rest of its line; the next line asks the PC again', async () => {
+  assert.equal(LATE_MS, 1_500);
+  const asked: string[] = [];
+  const fallback: string[] = [];
+  let answer!: () => void;
+  const engine = localVoiceEngine({
+    active: () => true,
+    speak: ({ text }) => { asked.push(text); return new Promise((resolve) => { answer = () => resolve({ audio: Buffer.from([0, 0]).toString('base64'), sampleRate: 24_000, durationMs: 1 }); }); },
+    play: async (_samples, _rate, ended) => { setTimeout(ended, 0); return () => {}; },
+  }, { play: (text, _reading, ended) => { fallback.push(text); ended(); }, stop: () => {} }, { lateMs: 20 });
+  let ended = 0;
+  engine.play('Das ist der erste Satz für den Test. Das ist der zweite Satz für den Test.', {}, () => { ended++; });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(fallback, ['Das ist der erste Satz für den Test. Das ist der zweite Satz für den Test.'], 'the whole line, at once');
+  assert.equal(ended, 1);
+  answer(); // the PC's late sentence is dropped
+  await tick();
+  engine.play('Kurz.', {}, () => { ended++; });
+  assert.equal(asked.at(-1), 'Kurz.', 'a late line rests nothing: the next one asks the PC');
+  answer();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(ended, 2);
+  assert.equal(fallback.length, 1, 'read by the PC in time');
+});
+
+test('VOICE: a refused call rests the PC voice for restMs – those lines go straight to the device voice', async () => {
+  let clock = 0;
+  let refuse = true;
+  const asked: string[] = [];
+  const fallback: string[] = [];
+  const engine = localVoiceEngine({
+    active: () => true,
+    now: () => clock,
+    speak: async ({ text }) => { asked.push(text); if (refuse) throw new Error('No local voice is downloaded on this PC'); return { audio: '', sampleRate: 0, durationMs: 0 }; },
+    play: async () => () => {},
+  }, { play: (text, _reading, ended) => { fallback.push(text); ended(); }, stop: () => {} }, { restMs: 60_000 });
+  engine.play('Erster Satz für den Test hier.', {}, () => {});
+  await tick(); await tick();
+  assert.deepEqual(fallback, ['Erster Satz für den Test hier.']);
+  clock = 59_000;
+  engine.play('Zweiter Satz für den Test hier.', {}, () => {});
+  assert.deepEqual(asked, ['Erster Satz für den Test hier.'], 'resting: no round trip to the PC');
+  assert.equal(fallback.length, 2);
+  clock = 60_001;
+  refuse = false;
+  engine.play('Dritter Satz für den Test hier.', {}, () => {});
+  assert.equal(asked.at(-1), 'Dritter Satz für den Test hier.', 'after the rest the PC is asked again');
+});
+
+test('VOICE: only a system voice picked by name keeps the device voice; a speaker number or nothing reads with the PC', () => {
+  assert.equal(systemVoicePicked('Microsoft Katja - German (Germany)'), true);
+  assert.equal(systemVoicePicked('3'), false);
+  assert.equal(systemVoicePicked(''), false);
+  assert.equal(systemVoicePicked(null), false);
+  assert.equal(systemVoicePicked(undefined), false);
 });

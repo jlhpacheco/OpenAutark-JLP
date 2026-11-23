@@ -112,3 +112,32 @@ test('joinPieces: trimmed texts with one space, marks moved along, empty pieces 
   assert.deepEqual(joinPieces([{ text: ' a ' }, { text: 'b' }]), { text: 'a b' });
   assert.deepEqual(joinPieces([]), { text: '' });
 });
+
+test('quiet speech in a noisy room is speech, not one long pause (STIMME 21.11.2026: a minute was kept as 1 s)', () => {
+  const cutter = new PieceCutter();
+  const pieces: Piece[] = [];
+  // 60 s of syllables (192 ms at 0.008) with 64 ms gaps over room noise 0.004, a 384 ms breath every 4 s
+  for (let at = 0; at < 60_000; at += BLOCK_MS) {
+    const breath = at % 4000 >= 3600;
+    const piece = cutter.push(block(!breath && at % 256 < 192 ? 0.008 : 0.004));
+    if (piece) pieces.push(piece);
+  }
+  const last = cutter.flush();
+  if (last) pieces.push(last);
+  const kept = pieces.reduce((sum, piece) => sum + piece.ms, 0);
+  assert.ok(kept > 59_000, `the whole take is kept: ${kept} ms`);
+  // and a long real silence after quiet speech is still shortened once the voice has fallen away
+  const quiet = new PieceCutter();
+  feed(quiet, 3_000, 0.008);
+  feed(quiet, 40_000, 0.001);
+  const rest = quiet.flush();
+  assert.ok(rest && rest.ms < 10_000, `the silence shrinks: ${rest?.ms} ms`);
+});
+
+test('steady room noise alone (0.008, no speech) is still a pause: a minute of it is never uploaded as pieces', () => {
+  const cutter = new PieceCutter();
+  const pieces = feed(cutter, 60_000, 0.008);
+  const last = cutter.flush();
+  assert.deepEqual(pieces, [], 'no piece of noise while recording');
+  assert.ok(last && last.ms <= 1_300, `only the last moment is left: ${last?.ms} ms`); // the pause trim's own bound (≈ LONG_PAUSE_MS)
+});

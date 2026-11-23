@@ -2,10 +2,8 @@
 // a subscription plan (a Codex or Claude Code login …) costs nothing per turn, whatever price the
 // engine reports – that stays on the run as the notional list-price cost ("plan, no charge").
 // Rules:
-// * Paid = pay-per-use: an API key (auth 'api_key'), a key from the environment (auth 'env'),
-//   or a Codex/Claude Code CLI signed in with an API key (its status check reports plan 'api') –
-//   unless it holds a plan's monthly API credits (B-083 `credits`: prepaid, lost at the month's end → a plan).
-//   Local runtimes and servers without a key are free; every other account is a plan.
+// * Paid, plan or free is the account's charge – shared/model/charge.ts accountCharge, the one rule routing, booking and the UI
+//   read (an API key or environment key, or a CLI signed in with an API key, pays per use; plan credits count as a plan).
 // * The price of one attempt's tokens, first source that knows it: the cost the provider or
 //   engine reported for this attempt (OpenRouter usage.cost; Claude Code's total_cost_usd made the turn's own by
 //   agents/turn-attempt.ts) → tokens × the curated price in model-priors.json → tokens × the daily keyless OpenRouter
@@ -19,31 +17,15 @@
 // a tenth of the input price (CACHED_SHARE, Anthropic's and OpenAI's discount); the input the turn wrote into the cache
 // (Claude's cache writes) counts at the write price – the prior's priceCacheWritePerM, else the input price; the rest at
 // the input price.
-// Owns: chargeOf, tokenPrice, cachePrices (the write and read price of one model – splits/fork.ts, subconscious/route-turn.ts),
+// Owns: tokenPrice, cachePrices (the write and read price of one model – splits/fork.ts, subconscious/route-turn.ts),
 // listPrice, attemptCost, combineCosts. Never: I/O, books spend (agents/turn-cost.ts does).
 
 import type { Account, ModelInfo } from '../../shared/model/providers.ts';
 import type { CostBasis } from '../../shared/model/runs.ts';
-import { LOCAL_PROVIDERS } from '../engines/http/common.ts';
+import { accountCharge } from '../../shared/model/charge.ts';
 import type { CacheTokens } from '../engines/types.ts';
 import { cachedInput } from '../engines/shared.ts';
 import type { PriorEntry } from './priors.ts';
-
-export type Charge = 'paid' | 'plan' | 'free';
-
-/** Pay-per-use auth kinds ('env' is the detected environment key). */
-const PAID_AUTH: ReadonlySet<string> = new Set(['api_key', 'env']);
-/** The plan a Codex/Claude Code status check reports for an API-key login. */
-const API_LOGIN_PLAN = 'api';
-
-/** Does a turn on this account cost real money ('paid'), nothing per turn ('plan') or nothing at all ('free')? */
-export function chargeOf(account: Pick<Account, 'auth' | 'provider' | 'plan' | 'credits'> | undefined): Charge {
-  if (!account) return 'plan';
-  if (account.auth === 'local' || LOCAL_PROVIDERS.has(account.provider)) return 'free';
-  if (PAID_AUTH.has(account.auth)) return account.credits ? 'plan' : 'paid';
-  if (account.auth === 'cli') return account.plan?.trim().toLowerCase() === API_LOGIN_PLAN && !account.credits ? 'paid' : 'plan';
-  return 'free'; // 'none': a server without a key bills nobody
-}
 
 export interface TokenUsage extends CacheTokens {
   /** All input, the cached part included. */
@@ -101,14 +83,10 @@ export function tokenPrice(usage: Pick<TokenUsage, 'inputTokens' | 'outputTokens
 }
 
 /**
- * The list price of the tokens: the model's own list price when its row carries one (older rows), else the curated prior
- * (with its cached and write prices, when it has them), else the daily keyless list's price on the model (B-078,
- * models/price-feed.ts).
+ * The list price of the tokens: the curated prior (with its cached and write prices, when it has them), else the daily
+ * keyless list's price on the model (B-078, models/price-feed.ts).
  */
-export function listPrice(usage: TokenUsage, model?: Pick<ModelInfo, 'scores' | 'price'>, prior?: PriorPrices): { usd: number; basis: 'list-price' | 'prior-price' } | undefined {
-  const scores = model?.scores;
-  const listed = scores ? tokenPrice(usage, { inputPerM: valid(scores.priceInputPerM), outputPerM: valid(scores.priceOutputPerM) }) : undefined;
-  if (listed !== undefined) return { usd: listed, basis: 'list-price' };
+export function listPrice(usage: TokenUsage, model?: Pick<ModelInfo, 'price'>, prior?: PriorPrices): { usd: number; basis: 'list-price' | 'prior-price' } | undefined {
   const curated = prior ? tokenPrice(usage, {
     inputPerM: valid(prior.priceInputPerM), outputPerM: valid(prior.priceOutputPerM),
     cachedInputPerM: valid(prior.priceCachedInputPerM), cacheWritePerM: valid(prior.priceCacheWritePerM),
@@ -128,8 +106,8 @@ function reported(usage: TokenUsage): number | undefined {
 }
 
 /** The cost of one attempt on its account and model (see the header). */
-export function attemptCost(input: { account?: Pick<Account, 'auth' | 'provider' | 'plan'>; usage: TokenUsage; model?: Pick<ModelInfo, 'scores' | 'price'>; prior?: PriorPrices }): AttemptCost {
-  const charge = chargeOf(input.account);
+export function attemptCost(input: { account?: Pick<Account, 'auth' | 'provider' | 'plan'>; usage: TokenUsage; model?: Pick<ModelInfo, 'price'>; prior?: PriorPrices }): AttemptCost {
+  const charge = accountCharge(input.account);
   if (charge === 'free') return { basis: 'free' };
   const own = reported(input.usage);
   if (charge === 'plan') {

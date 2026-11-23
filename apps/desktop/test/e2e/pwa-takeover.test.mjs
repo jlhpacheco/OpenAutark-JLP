@@ -103,7 +103,7 @@ test('X02: a To-do-only phone takes over the agent browser from its to-do, taps,
   const widget = { type: 'confirm', instructions: 'Press the button, type your name, then hand back.', url: pageUrl, confirmLabel: 'Done' };
   await owner.call('messages.send', {
     conversationId: chat.id,
-    body: `Sign in please [[tool:browser.open {"url":"${pageUrl}"}]] [[tool:tasks.create ${JSON.stringify({ title: 'Sign in to the test shop', to: 'human', widget })}]]`,
+    body: `Sign in please [[tool:browser.open {"url":"${pageUrl}"}]] [[tool:tasks.add ${JSON.stringify({ title: 'Sign in to the test shop', for: 'person', ask: widget })}]]`,
   });
   const todo = await until(async () => (await owner.call('todos.list')).find((task) => task.widget?.type === 'confirm' && task.createdBy === manager.id), 'the confirm to-do', 120_000);
   assert.ok((await owner.call('browser.list')).some((entry) => entry.agentId === manager.id), 'the agent browser is open');
@@ -118,9 +118,12 @@ test('X02: a To-do-only phone takes over the agent browser from its to-do, taps,
   phone.on('pageerror', (error) => errors.push(error.message));
   phone.on('console', (message) => { if (message.type() === 'error' && !/^Banner not shown/.test(message.text())) errors.push(message.text()); });
   await phone.goto(`http://localhost:${runtime.port}/${new URL(link.url).hash}`); // localhost: a secure context, as over adb reverse
-  const item = phone.locator(`.mobile-shell .todo-item[data-task-id="${todo.id}"]`);
-  await item.waitFor({ timeout: 60_000 });
-  await item.locator('.todo-open').tap();
+  // Tasks › For you: a tap on the to-do's row opens its detail in the list's place; its tool holds "Open browser".
+  await phone.evaluate(() => { location.hash = '#/tasks'; });
+  const row = phone.locator(`.mobile-shell ul[aria-label="For you"] .todo-row[data-task-id="${todo.id}"]`);
+  await row.waitFor({ timeout: 60_000 });
+  await row.locator('.todo-open').tap();
+  const item = phone.locator('.mobile-shell .tasks-page .task-detail .todo-tool');
   await item.getByRole('button', { name: 'Open browser' }).tap({ timeout: 30_000 });
   const picture = item.locator('.browser-touch img');
   await picture.waitFor({ timeout: 60_000 });

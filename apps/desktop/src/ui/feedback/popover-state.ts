@@ -3,7 +3,7 @@
 // place"); `overlayShown` is whether the snapshot overlay (FeedbackOverlay.tsx) is drawn.
 // Feedback 16.11.2026 (F11, F15 – "der ist generell dafür da, einen Snapshot davon zu machen"): every opening freezes the
 // window. `snapshot` takes the window's screenshot now and puts it into the draft in place of the one before (its marks
-// went with it; the words, the recordings and a crash report stay); the overlay shows once it is there (bounded). The
+// went with it; the words, the photos and a crash report stay; the stage shows the new shot); the overlay shows once it is there (bounded). The
 // cell's press takes it on pointer down, before anything opens (`pressSnapshot` – the opening that follows uses it); any
 // other opening takes it after two frames (a closing palette, the side browser's view coming back). A snapshot while
 // the overlay is shown is a snapshot of the overlay itself: nothing in the draft changes before the new image is there,
@@ -18,7 +18,7 @@ import { feedbackOpen } from '../lib/shell-state.ts';
 import { formatRoute, route } from '../lib/router.ts';
 import { activeConversationId } from '../lib/store.ts';
 import { canCaptureWindow, captureWindow } from './bridge.ts';
-import { feedbackDraft, shotTaking } from './draft.ts';
+import { feedbackDraft, shotFits, shotTaking } from './draft.ts';
 import type { DraftPlace, FeedbackDraft } from './draft.ts';
 
 /** The snapshot overlay is drawn. */
@@ -38,9 +38,13 @@ export function closeFeedback(): void { feedbackOpen.value = null; overlayShown.
 
 // ---------------------------------------------------------------- the snapshot
 
-/** The draft frozen anew: `shot` replaces its screenshot (the marks belonged to that one), the words and the rest stay. */
+/**
+ * The draft frozen anew: `shot` replaces its screenshot (the marks belonged to that one) and is shown; the words, photos
+ * and the rest stay. With the photos at the image cap it comes unticked (shown, it goes once a photo is removed and its
+ * box ticked) – nothing the person sees is cut at Send.
+ */
 export function frozen(draft: FeedbackDraft, shot: string | null, where?: DraftPlace): FeedbackDraft {
-  return { ...draft, shot, painted: null, marks: [], withShot: true, ...(where ? { where } : {}) };
+  return { ...draft, shot, marks: [], withShot: shotFits(draft), onStage: null, ...(where ? { where } : {}) };
 }
 
 let snapping: Promise<void> | null = null;

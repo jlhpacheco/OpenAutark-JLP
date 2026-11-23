@@ -63,6 +63,8 @@ declare module '../api/methods.ts' {
     'models.list': { params: { refresh?: boolean } | void; result: ModelInfo[] };
     /** Owner: what each model use resolves to right now (MODEL_USES order); Settings › Models shows it. */
     'models.uses': { params: void; result: UseNow[] };
+    /** One use set to one of its choices (or another model id), as Settings' selects set it; answers models.uses again. */
+    'models.setUse': { params: { use: string; value: string }; result: UseNow[] };
     'models.recent': { params: { agentId?: string } | void; result: string[] };
     /** The stored policy at one scope (no ids = global default for agents); null when none is set. */
     'models.getPolicy': { params: { agentId?: string; conversationId?: string } | void; result: ModelPolicy | null };

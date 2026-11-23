@@ -8,6 +8,15 @@
 // the callId – also a takeover from another device), and the row's holder is its PC plus participant (callHolder).
 // callState reads ringing / running / missed / declined / ended from the row and the clock; calls.live lists the
 // ringing and running calls for every device.
+// Owner 19.11.2026 ("mit dem anderen Gerät auch noch reingehen"): more devices of the person join a running call beside
+// its holder (CallRecord.joined, calls.start with join); each one's lines go into the same call, each one leaves alone,
+// and the holder's place goes to the next device when it leaves (call-log.ts). callMember says whether a device is in.
+// Team-Call 21.11.2026 (owner: "wenn zwei Menschen in der Gruppe sind, müssen die joinen können"): the people of a chat
+// share its call – every member's PC window sees Join (LiveCall.others: another person's PC holds it) and gets in beside
+// the others; each device names its person (CallJoin.person). People hear each other live over WebRTC between their PC
+// windows (ui/chat/call/people-audio.ts): calls.peers names whom a window talks to, calls.signal carries the SDP to that
+// PC (runtime/calls/call-peer.ts; the event calls.signal there). The holder's device leaving while another person is
+// still in keeps the call with its PC (holderOut) until the last one is out.
 // Owns: the shapes shared by runtime and clients (augmenting Methods like model/remote.ts). Never: carries audio beyond the
 // realtime chunks or provider keys; a call's lines are copies of its chat rows (text capped at CALL_LINE_TEXT), written and
 // kept in step with those rows only by the PC that holds the call row.
@@ -29,6 +38,8 @@ export interface CallLineMeta {
   spoken?: true;
   /** The agent's live voice said it, a realtime session or the talker (runtime/calls/talker.ts), not the agent's full turn. */
   voice?: 'realtime' | 'talker';
+  /** Owner 19.11.2026: the person said it on a device joined from another PC – stored quiet; the call voice of the PC that holds the call answers it. */
+  relay?: true;
 }
 
 /** One line of a call's transcript (CallRecord.lines): who said what when, and the chat row it is. */
@@ -56,7 +67,16 @@ export interface CallRecord extends CallLineMeta {
   ring?: CallRing;
   /** B-081: the agents in the call – the caller first, then those it brought in or who joined. */
   agents?: string[];
+  /** Owner 19.11.2026: the person's other devices in the call beside the holder (participant, name, pc), in the order they joined. */
+  joined?: CallJoin[];
+  /** Team-Call: the person on the holder's device (its PC's profile name). */
+  person?: string;
+  /** Team-Call: the holder's device left while another person stayed in – the call runs on, still written by its PC. */
+  holderOut?: true;
 }
+
+/** Owner 19.11.2026: a device of the person in a call beside its holder – named like the holder (callHolder of it is its id); Team-Call: with its person's name. */
+export interface CallJoin { participant: string; name: string; pc?: string; person?: string }
 
 /** B-081: how an agent rang (chat.call): who, why (shown on every ringing device), its opening line and the deadline. */
 export interface CallRing { by: string; why: string; say?: string; until: number; answeredAt?: number; declined?: { at: number; name: string } }
@@ -93,6 +113,28 @@ export function callHolder(record: Pick<CallRecord, 'pc' | 'participant'>): stri
   return `${record.pc ?? ''}/${record.participant}`;
 }
 
+/** Owner 19.11.2026: whether the device `who` (callHolder form) is in the call – as its holder or joined beside it. */
+export function callMember(record: Pick<CallRecord, 'pc' | 'participant' | 'joined' | 'holderOut'>, who: string): boolean {
+  return (!record.holderOut && callHolder(record) === who) || (record.joined ?? []).some((device) => callHolder(device) === who);
+}
+
+/** Team-Call: the devices in the call now, the holder first (not after it left: holderOut). */
+export function callDevices(record: Pick<CallRecord, 'participant' | 'name' | 'joined'> & Partial<Pick<CallRecord, 'pc' | 'person' | 'holderOut'>>): CallJoin[] {
+  const holder: CallJoin = { participant: record.participant, name: record.name, ...(record.pc ? { pc: record.pc } : {}), ...(record.person ? { person: record.person } : {}) };
+  return [...(record.holderOut ? [] : [holder]), ...(record.joined ?? [])];
+}
+
+/**
+ * Who is in the call by name, the holder first: one person's devices by device name ("Pixel", "Pixel and laptop",
+ * "Pixel, laptop and office-pc"); Team-Call: several people by their names ("Dominik and Momo").
+ */
+export function callDeviceNames(record: Pick<CallRecord, 'name' | 'joined'> & Partial<Pick<CallRecord, 'participant' | 'pc' | 'person' | 'holderOut'>>): string {
+  const devices = callDevices({ participant: '', ...record });
+  const people = new Set(devices.map((device) => device.person ?? ''));
+  const names = [...new Set(devices.map((device) => (people.size > 1 ? device.person || device.name : device.name)))];
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0] ?? '';
+}
+
 /** B-081: a ringing or running call as every device lists it (calls.live): the status line's Accept / Take over. */
 export interface LiveCall {
   callId: string;
@@ -103,11 +145,28 @@ export interface LiveCall {
   agentName?: string;
   why?: string;
   until?: number;
-  /** The device that holds it (running): its name. */
+  /** The devices in it (running): the holder's name, with those joined beside it ("Pixel and laptop"). */
   device?: string;
   holder?: string;
   /** The call's newest line. */
   last?: { name: string; text: string };
+  /** Team-Call: another person's PC holds it – this device joins it beside them (no take-over of someone else's place). */
+  others?: true;
+}
+
+/** Team-Call: one WebRTC signal between two people's PC windows in a call (no trickle: an SDP carries its candidates). */
+export type CallSignal = { op: 'hello' } | { op: 'bye' } | { op: 'offer' | 'answer'; sdp: string };
+/** Team-Call: a PC window this window hears and is heard by in a call (callHolder form) and its person's name. */
+export interface CallPeer { id: string; name: string }
+/** The longest SDP a signal carries. */
+export const MAX_CALL_SDP = 12 * 1024;
+
+/** Team-Call: the signal a value is, else undefined (checked on both PCs). */
+export function callSignal(value: unknown): CallSignal | undefined {
+  const o = value as { op?: unknown; sdp?: unknown } | null;
+  if (o?.op === 'hello' || o?.op === 'bye') return { op: o.op };
+  if ((o?.op === 'offer' || o?.op === 'answer') && typeof o.sdp === 'string' && o.sdp.length > 0 && o.sdp.length <= MAX_CALL_SDP) return { op: o.op, sdp: o.sdp };
+  return undefined;
 }
 
 /** "4:42", "1:02:05": how long a call ran. */
@@ -152,10 +211,11 @@ declare module '../api/methods.ts' {
     /**
      * Opens this device's call in a chat – its quiet row – or returns the one already open there; it ends with calls.end or
      * the connection. B-081: a callId takes that call – answers a ring (say: the agent's opening line, also posted in the
-     * chat) or takes it over from another device; holder is callHolder of the row.
+     * chat) or takes it over from another device. Owner 19.11.2026: `join` with a callId joins that running call beside the
+     * devices in it instead. holder: this device as the call names it (callHolder form); joined: it is in beside the holder.
      */
-    'calls.start': { params: { conversationId: string; callId?: string }; result: { callId: string; holder: string; say?: string } };
-    /** Ends this device's call: its row gets endedAt. */
+    'calls.start': { params: { conversationId: string; callId?: string; join?: boolean }; result: { callId: string; holder: string; say?: string; joined?: true } };
+    /** This device leaves its call; the call ends with the last device in it (its row gets endedAt). */
     'calls.end': { params: { callId: string }; result: { ok: true } };
     /** B-081: the person says no to a ringing call (any device): the row ends declined and the agent hears it. */
     'calls.decline': { params: { callId: string }; result: { ok: true } };
@@ -176,5 +236,16 @@ declare module '../api/methods.ts' {
     /** The person talked over the answer on this device: the model stops it. */
     'calls.realtimeInterrupt': { params: { sessionId: string; playedMs?: number }; result: { ok: true } };
     'calls.realtimeClose': { params: { sessionId: string }; result: { ok: true } };
+    /** Team-Call: whom this PC window hears in its call – the other people's PC windows in it – and how the call names it. */
+    'calls.peers': { params: { conversationId: string; callId: string }; result: { me: string; peers: CallPeer[] } };
+    /** Team-Call: a WebRTC signal to one of those peers (its PC's window hears the event calls.signal); sent false: not a peer now. */
+    'calls.signal': { params: { conversationId: string; callId: string; to: string; data: CallSignal }; result: { sent: boolean } };
+  }
+}
+
+declare module '../api/events.ts' {
+  interface EventMap {
+    /** Team-Call: a peer's WebRTC signal for this PC's window in a call (topic 'system': this PC's own window). */
+    'calls.signal': { conversationId: string; callId: string; from: string; data: CallSignal };
   }
 }

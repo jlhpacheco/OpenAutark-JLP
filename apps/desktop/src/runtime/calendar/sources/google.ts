@@ -1,5 +1,5 @@
 // Google Calendar as a two-way source (B-041 track G, the My day concept §5): consent in the system
-// browser via oauth-loopback.ts with narrow scopes – calendar.events.readonly (read the person's events; this build
+// browser on the loopback listener (apps/oauth/loopback.ts) with narrow scopes – calendar.events.readonly (read the person's events; this build
 // reads the main calendar) and calendar.app.created (an own "Workforce" calendar the app writes to-do blocks into;
 // google-mirror.ts). calendar.events.owned would also allow writing events into the main calendar; it is not asked
 // for in this build (GOOGLE_OPTIONAL_SCOPES). The refresh token goes to the vault (google-auth.ts), the access token
@@ -18,7 +18,7 @@ import { GoogleApi } from './google-api.ts';
 import { exchangeCode, GOOGLE_TOKEN_HOST, GoogleTokens, revokeToken, storeRefreshToken, type GoogleClient } from './google-auth.ts';
 import { occurrenceOf } from './google-events.ts';
 import { HttpFailure, type FetchFn } from './http.ts';
-import { startLoopback, type LoopbackConsent, type LoopbackServerFactory } from './oauth-loopback.ts';
+import { openLoopback, type LoopbackListener, type LoopbackServerFactory } from '../../apps/oauth/loopback.ts';
 import type { SourceRecord, SourcesRepo } from './repo.ts';
 import type { SourcesDeps } from './index.ts';
 
@@ -32,6 +32,7 @@ export const GOOGLE_ICS_WAY = "Google sign-in needs a Google client of the perso
 export const GOOGLE_OPTIONAL_SCOPES: readonly string[] = ['https://www.googleapis.com/auth/calendar.events.owned'];
 /** Days past the read window a full read keeps (so a daily sync does not need a full read every day). */
 const HORIZON_EXTRA_MS = 7 * 86_400_000;
+export const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 
 export interface GoogleDeps {
   s: SourcesDeps;
@@ -54,7 +55,7 @@ export interface SyncWindow { from: number; to: number }
 export class GoogleCalendar {
   readonly d: GoogleDeps;
   readonly tokens: GoogleTokens;
-  private consent?: LoopbackConsent;
+  private consent?: LoopbackListener;
   /** The last consent's failure (user-safe), until the next consent starts or succeeds. */
   lastError?: string;
   /** A consent is open in the browser. */
@@ -102,10 +103,13 @@ export class GoogleCalendar {
     if (!id) throw new WorkforceError('unavailable', GOOGLE_ICS_WAY);
     this.consent?.close();
     this.lastError = undefined;
-    const consent = await startLoopback({ clientId: id, scopes: GOOGLE_CALENDAR_SCOPES, timers: this.d.timers, server: this.d.loopback });
+    const consent = await openLoopback({ ports: [0], path: '', timers: this.d.timers, server: this.d.loopback });
+    const authUrl = consent.address(GOOGLE_AUTH_URL, {
+      client_id: id, response_type: 'code', scope: GOOGLE_CALENDAR_SCOPES.join(' '), access_type: 'offline', prompt: 'consent',
+    });
     this.consent = consent;
     this.waiting = true;
-    void consent.code.then((answer) => this.complete(ownerId, id, answer))
+    void consent.answer.then((answer) => this.complete(ownerId, id, answer))
       .catch((error: unknown) => {
         if (this.consent !== consent) return; // replaced by a newer consent
         this.lastError = error instanceof WorkforceError ? error.message : 'Google Calendar was not connected.'; // user-safe sentences only
@@ -117,10 +121,10 @@ export class GoogleCalendar {
         this.waiting = false;
         this.d.changed();
       });
-    try { await this.d.s.host?.openExternal(consent.authUrl); } catch (error) {
+    try { await this.d.s.host?.openExternal(authUrl); } catch (error) {
       this.d.s.log?.warn('google calendar consent page did not open', { error: String(error).slice(0, 120) }); // the UI offers the link
     }
-    return { authUrl: consent.authUrl };
+    return { authUrl };
   }
 
   private async complete(ownerId: string, clientId: string, answer: { code: string; verifier: string; redirectUri: string }): Promise<void> {

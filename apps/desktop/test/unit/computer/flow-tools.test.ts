@@ -9,7 +9,7 @@ import { computerTools } from '../../../src/runtime/computer/tools.ts';
 import type { HelperClient } from '../../../src/runtime/computer/helper.ts';
 import type { HelperOp } from '../../../src/runtime/computer/protocol.ts';
 import type { Host } from '../../../src/runtime/host.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import type { ToolContext, ToolOutput } from '../../../src/runtime/tools/types.ts';
 import { agent } from '../chat/harness.ts';
 

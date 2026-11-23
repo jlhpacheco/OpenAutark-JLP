@@ -3,14 +3,17 @@
 // own PCs): every device row this PC knows – PCs and phones with their public key, addresses and relation (personId:
 // my employee's PC; joinedAs 'employee': my employer's PC), removed ones as tombstones (only removals made since this PC
 // keeps a roster – one from 0.3.x days stays local, so it never cuts a link another PC kept) – the phones' token hashes, the
-// push subscriptions with the VAPID keys they were made under (held-push.ts), and this PC itself. It goes at a link-up
-// and within SEND_MS of a change, to each PC only when it differs from the last one sent there.
+// push subscriptions with the VAPID keys they were made under (held-push.ts), and this PC itself. It goes within SEND_MS
+// of a change and at every catch-up (service.ts: at link-up and in rhythm), to each PC only when it differs from the
+// last one that PC took – a link that comes up takes it whole again, a repeat with nothing new sends nothing.
 // Taking one in: a device this PC does not know is added with the same relation – a PC through the mesh, so it dials it
 // (my other PC: one group instead of pairs; my employer's PC: this PC becomes the same employee there), a phone as a
 // client row with its tokens, so it opens here too. A removal wins over an older pairing, and a pairing after the
 // removal wins over it. What changed here goes on to my other PCs; the per-PC hash stops the echo.
-// B-084: it also carries my person code's tree (remote/code.ts), so a PC joined through any of my PCs answers for the same
-// code; two codes converge by its rank rule. Never over employer/employee links: there each person keeps their own code.
+// B-084: it also carries my ID trees (remote/code.ts), so a PC joined through any of my PCs answers for the same IDs; two
+// trees converge by their rank rule. Eine-ID 22.11.2026: `me` (My ID) always – it is the tree of my own devices; `code`
+// (the Company ID) only from a PC that has no employer (one of the company's own PCs), and only such a PC takes it in –
+// a seat and its laptop get their company chain from the company ('company.facts'), never from each other.
 // Introductions over employer/employee links ('device.sibling', with their removals) live in siblings.ts; this class
 // wires them to link-ups and removals.
 // Owns: the roster unit and its merge. Never: links a PC the sender did not already trust, sends it over any other
@@ -18,14 +21,15 @@
 
 import { WorkforceError } from '../../../shared/errors.ts';
 import type { RuntimeServices } from '../../contracts.ts';
-import { codeFor, type Tree } from '../../remote/code.ts';
+import { codeFor, employerPc, meFor, type Tree } from '../../remote/code.ts';
 import { KvRepo } from '../../store/kv.ts';
 import { fingerprintOf, fromB64url } from '../keys.ts';
 import type { DeviceMesh, LinkKind } from '../mesh.ts';
 import { validAddress } from '../pair-proof.ts';
 import { DevicesRepo, publicDevice, type DeviceRecord } from '../repo.ts';
-import { heldKeys, heldSubs, keepKeys, keepSubs, localSubs, ownKey, type HeldSub, type KeyPair } from './held-push.ts';
-import { linkOf, links, selfId } from './home.ts';
+import { heldKeys, heldSubs, keepKeys, keepSubs, localSubs, ownKey, type HeldSub } from './held-push.ts';
+import type { KeyPair } from '../../pwa/vapid.ts';
+import { isCeoPc, links, selfId } from './home.ts';
 import { ROSTER_PEERS } from './notify.ts';
 import { peerInfo, SIBLING_METHOD, Siblings } from './siblings.ts';
 import { hashOf } from './stamps.ts';
@@ -40,8 +44,8 @@ export interface RosterDevice {
   personId?: string; joinedAs?: 'ceo' | 'employee'; pairedAt?: number; revokedAt?: number;
 }
 export interface RosterToken { deviceId: string; kind: 'device' | 'person'; hash: string; scope: string; name?: string; createdAt: number; expiresAt?: number; revokedAt?: number }
-/** `code`: my person code's tree (remote/code.ts; B-084), so every own PC answers for the same Remote ID. */
-export interface Roster { v: 1; devices: RosterDevice[]; tokens: RosterToken[]; subs: HeldSub[]; keys: KeyPair[]; vapid?: string; code?: Tree }
+/** `code`: the company tree (only from a PC without an employer), `me`: my own devices' tree (remote/code.ts). */
+export interface Roster { v: 1; devices: RosterDevice[]; tokens: RosterToken[]; subs: HeldSub[]; keys: KeyPair[]; vapid?: string; code?: Tree; me?: Tree }
 
 export type RosterMesh = Pick<DeviceMesh, 'add' | 'revoke' | 'selfInfo'> & { register(method: string, handler: (params: unknown, from: string) => Promise<unknown>, kinds?: readonly LinkKind[]): void };
 
@@ -100,10 +104,10 @@ export class RosterSync {
     return () => { for (const off of offs) off(); if (this.timer) clearTimeout(this.timer); this.timer = undefined; };
   }
 
-  /** A link came up: my own PC gets the roster now; every link gets its introductions. */
-  async linkUp(peer: string): Promise<void> {
-    this.sent.delete(peer);
-    if (linkOf(new DevicesRepo(this.s.db).get(peer))?.kind === 'ceo') await this.sendTo(peer, await this.build());
+  /** A catch-up: my own PC gets the roster when it differs from what it took last (`again` false: a new link takes it whole); every link gets its introductions. */
+  async linkUp(peer: string, again = false): Promise<void> {
+    if (!again) this.sent.delete(peer);
+    if (isCeoPc(this.s.db, peer)) await this.sendTo(peer, await this.build());
     await this.introduce();
   }
 
@@ -123,20 +127,26 @@ export class RosterSync {
     }));
     const own = await ownKey(this.s);
     const held = await heldKeys(this.s);
-    const code = this.code();
+    const { company, me } = this.trees();
+    const ceoPubs = links(this.s.db).filter(({ link }) => link.kind === 'ceo').map(({ record }) => record.publicKey).filter((pub): pub is string => Boolean(pub));
+    const companyOwn = !employerPc(this.s.db); // one of the company's own PCs
+    company?.signMissing(ceoPubs);
+    me?.signMissing(ceoPubs);
     return {
       v: 1, devices, tokens, subs: [...(own ? localSubs(this.s.db, own.pub, this.s.clock.now()) : []), ...heldSubs(this.s.db)],
       keys: [...(own ? [own] : []), ...[...held].map(([pub, priv]) => ({ pub, priv }))], ...(own ? { vapid: own.pub } : {}),
-      ...(code ? { code: code.tree() } : {}),
+      ...(company && companyOwn ? { code: company.tree() } : {}), ...(me ? { me: me.tree() } : {}),
     };
   }
 
-  /** My person code, read again (a removed PC drops out) and with every own PC of mine signed in (remote/code.ts). */
-  private code() {
-    const code = codeFor(fingerprintOf(fromB64url(this.mesh.selfInfo().pub)));
-    code?.refresh();
-    code?.signMissing(links(this.s.db).filter(({ link }) => link.kind === 'ceo').map(({ record }) => record.publicKey).filter((pub): pub is string => Boolean(pub)));
-    return code;
+  /** My two ID trees, read again (a removed PC drops out; remote/code.ts). */
+  private trees() {
+    const fp = fingerprintOf(fromB64url(this.mesh.selfInfo().pub));
+    const company = codeFor(fp);
+    const me = meFor(fp);
+    company?.refresh();
+    me?.refresh();
+    return { company, me };
   }
 
   private later(): void {
@@ -167,7 +177,7 @@ export class RosterSync {
   // ---------------------------------------------------------------- taking one in
 
   async receive(params: unknown, from: string): Promise<{ ok: true; changed: number }> {
-    if (linkOf(new DevicesRepo(this.s.db).get(from))?.kind !== 'ceo') throw new WorkforceError('forbidden', 'A roster comes only from my own PCs.');
+    if (!isCeoPc(this.s.db, from)) throw new WorkforceError('forbidden', 'A roster comes only from my own PCs.');
     const roster = (params ?? {}) as Partial<Roster>;
     new KvRepo(this.s.db).set(ROSTER_PEERS, from, true, this.s.clock.now());
     let changed = this.merge(Array.isArray(roster.devices) ? roster.devices.filter(validDevice) : [], from);
@@ -176,7 +186,10 @@ export class RosterSync {
     const keys = (Array.isArray(roster.keys) ? roster.keys : []).filter((key): key is KeyPair => typeof key?.pub === 'string' && typeof key.priv === 'string');
     if (await keepKeys(this.s, keys, own)) changed++;
     changed += this.subs(Array.isArray(roster.subs) ? roster.subs : [], own, typeof roster.vapid === 'string' ? roster.vapid : undefined);
-    if (roster.code !== undefined && this.code()?.take(roster.code, new DevicesRepo(this.s.db).get(from)?.publicKey)) changed++;
+    const sender = new DevicesRepo(this.s.db).get(from)?.publicKey;
+    const { company, me } = this.trees();
+    if (roster.code !== undefined && company?.take(roster.code, sender)) changed++; // refused on a PC with an employer
+    if (roster.me !== undefined && me?.take(roster.me, sender)) changed++;
     if (changed) this.later();
     await this.introduce();
     return { ok: true, changed };

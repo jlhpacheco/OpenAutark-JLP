@@ -15,7 +15,6 @@ tools:
   - "chat.*"
   - "knowledge.*"
   - "skills.*"
-  - "schedules.*"
 category: business-workflows
 workspace: docs
 verifier: Every entry has a date, amount, currency, counterparty, category and a linked receipt; totals reconcile with bank or statement balances.

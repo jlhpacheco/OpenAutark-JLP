@@ -5,7 +5,7 @@
 // reconciles the window (−7 … +60 days): missing or changed mirrors are written, mirrors of rows that went are
 // deleted – so a write that failed offline is repaired at the next sync, never by a timer. Only the PC set as
 // pc_device_id writes (a second PC connected to the same account reads only), and only with the app-calendar scope.
-// Owns: the write side of Google. Never: writes into the person's main calendar, or text of an "Only me" to-do.
+// Owns: the write side of Google. Never: writes into the person's main calendar.
 
 import { HUMAN_ID } from '../../../shared/ids.ts';
 import type { CalendarEvent } from '../../../shared/model/calendar.ts';
@@ -37,7 +37,7 @@ export class GoogleMirror {
 
   constructor(d: MirrorDeps) {
     this.d = d;
-    this.calendar = new CalendarRepo(d.s.db);
+    this.calendar = new CalendarRepo(d.s.db, () => d.zone()); // a day-only to-do goes to Google as an all-day event
   }
 
   /** The owner's Google source this PC writes to (undefined: none, another PC writes, or no app-calendar scope). */
@@ -98,7 +98,7 @@ export class GoogleMirror {
 
   private bodyOf(row: CalendarEvent): GoogleEventBody {
     const task = row.taskId ? this.d.s.tasks?.get(row.taskId) : undefined;
-    return mirrorBody(row, { title: task?.title, privateTodo: task?.private === true, pcId: this.d.selfPc(), zone: this.d.zone() });
+    return mirrorBody(row, { title: task?.title, pcId: this.d.selfPc(), zone: this.d.zone() });
   }
 
   /** The "Workforce" calendar's id (created when the source has none yet). */

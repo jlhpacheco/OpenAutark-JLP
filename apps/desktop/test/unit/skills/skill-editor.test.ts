@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmdirSyn
 import os from 'node:os';
 import path from 'node:path';
 import { SkillLibrary } from '../../../src/runtime/skills/service.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { skillId } from '../../../src/runtime/skills/editor.ts';
 const code = (value: string) => (error: unknown) => (error as { code?: string }).code === value;
 function fixture(t: { after: (fn: () => void) => void }) {

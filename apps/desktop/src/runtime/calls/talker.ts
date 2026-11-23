@@ -41,6 +41,7 @@ import type { RuntimeServices } from '../contracts.ts';
 import { saveRepairNotes } from '../agents/turn-finish.ts';
 import { chatWakeKey } from '../chat/delivery-route.ts';
 import type { ChatOpener, KeptChat } from '../decision/engine-runner.ts';
+import { actsOn } from './call-verdict.ts';
 import { noLane, sayNoLane } from './no-lane.ts';
 import { voiceAgent } from './realtime/setup.ts';
 import { flat, voiceAloudNote, voiceEndAsk, voiceLine, voiceQuietNote, voiceRunNote, voiceSystem, type TalkTeam } from './talker-prompt.ts';
@@ -48,6 +49,7 @@ import { readVoice, sayableSoFar, sentencesDone, type VoiceAnswer } from './voic
 import { VoiceRow } from './voice-row.ts';
 
 export { voiceSystem, type TalkTeam } from './talker-prompt.ts';
+export { actsOn } from './call-verdict.ts'; // its home; the voice's verdict is read there
 
 /** One spoken line's answer must be there by then; afterwards the agent's own turn answers. */
 export const TALKER_TIMEOUT_MS = 12_000;
@@ -67,8 +69,8 @@ export interface CallTalkerDeps {
   /** Opens one call's kept conversation (decision/engine-runner.ts createChatOpener). */
   voice: ChatOpener;
   timeoutMs?: number;
-  /** B-081: the call rows (call-log.ts): who rang a call, its lines, and an agent joining it. */
-  calls?: { record(conversationId: string, callId: string): CallRecord | undefined; join(conversationId: string, callId: string, agentId: string): void };
+  /** B-081: the call rows (call-log.ts): who rang a call, its lines, an agent joining it; owner 19.11.2026: whether this PC holds it (holder). */
+  calls?: { record(conversationId: string, callId: string): CallRecord | undefined; join(conversationId: string, callId: string, agentId: string): void; holder?(callId: string): string | undefined };
 }
 
 /** One call's voice: its session, who it speaks as and the lines it has not answered yet. */
@@ -102,15 +104,15 @@ export class CallTalker {
     this.deps = deps;
     const bus = quiet(() => this.s.bus, undefined);
     this.listening = bus
-      ? [bus.on('run.upserted', (run) => this.runEnded(run)), bus.on('message.created', (message) => this.ownLine(message)), bus.on('message.updated', (message) => this.ownLine(message))]
+      ? [bus.on('run.upserted', (run) => this.runEnded(run)), bus.on('message.created', (message) => { this.ownLine(message); this.relayed(message); }), bus.on('message.updated', (message) => this.ownLine(message))]
       : [];
   }
 
   private get s(): RuntimeServices { return this.deps.services(); }
 
-  /** Whether the voice answers the live lines of this chat's call: voice.talker not off, an agent in the chat it speaks as. */
+  /** Whether the voice answers the live lines of this chat's call: voice.talker not off, this PC holds the call (owner 19.11.2026: else that PC's voice answers – relay), an agent in the chat it speaks as. */
   serves(conversationId: string, callId?: string): boolean {
-    if (this.stopped || quiet(() => this.s.settings.get().voice?.talker, undefined) === false) return false;
+    if (this.stopped || quiet(() => this.s.settings.get().voice?.talker, undefined) === false || (callId && this.deps.calls?.holder && this.deps.calls.holder(callId) === undefined)) return false;
     return this.voiceOf(conversationId, callId).agentId !== undefined;
   }
 
@@ -123,6 +125,11 @@ export class CallTalker {
     entry.lines.push(message);
     entry.controller?.abort(); // a newer line: asked again with every unanswered one
     void this.answer(entry, ++entry.seq).catch((error: unknown) => this.s.log.warn('call voice failed', { conversationId: entry.conversationId, error: String(error) }));
+  }
+
+  /** Owner 19.11.2026: a line said on a device joined from another PC (meta.call.relay) reaches the PC that holds the call: its voice answers, else the agent. */
+  private relayed(message: Message): void {
+    if (message.meta.call?.relay && message.authorKind === 'human' && this.deps.calls?.holder?.(message.meta.call.id) !== undefined) { if (this.serves(message.conversationId, message.meta.call.id)) this.heard(message); else this.deliver(message); }
   }
 
   /** The call started (call-log.ts start or take): its voice's session opens now, so the first line does not wait for it. Never throws. */
@@ -202,7 +209,7 @@ export class CallTalker {
     if (held) { held.controller?.abort(); held.chat.close(); }
     const entry: Live = {
       conversationId, callId, agentId, team, lines: [], notes: [], aloud: [], told: new Set(), seq: 0,
-      chat: this.deps.voice({ purpose: 'call voice', system: voiceSystem(this.s, agentId, conversationId, team), effort: 'low' }), // decision 7.5: the lane's low effort
+      chat: this.deps.voice({ purpose: 'call voice', system: voiceSystem(this.s, agentId, conversationId, team), effort: 'low' }), // decision 7.5; TALK 19.11.2026: Luna thinks 0 tokens on a line at low – 'none' and the fast tier measured no sooner first word
     };
     this.calls.set(conversationId, entry);
     return entry;
@@ -422,24 +429,4 @@ export function handOver(mode: 'now' | 'next', chat: string, lines: Message[], s
 export function callWake(what?: string): string {
   const reason = flat(what ?? '', WHAT_MAX).replace(/[\s.]+$/, '');
   return reason ? `${CALL_WAKE.slice(0, -1)}: ${reason}.` : CALL_WAKE;
-}
-
-/**
- * The agents the voice's closing lines name as acting on the call ("<name>: yes – <what>"), each with what it acts on ('' when
- * the line names nothing), read tolerantly: a bold or underlined name, a role in brackets after it, a dash instead of the
- * colon. Undefined when no line names one of the agents: the verdict cannot be read.
- */
-export function actsOn(verdict: string, agents: Array<{ id: string; name: string }>): Map<string, string> | undefined {
-  const acts = new Map<string, string>();
-  let named = false;
-  for (const line of verdict.split('\n')) {
-    const match = /^[-•\d.)\s]*([^:–—(]{1,80}?)\s*(?:\([^)]*\))?\s*[:–—-]\s*(ja|yes|nein|no)\b(.*)$/i.exec(line.replace(/[*_`]/g, '').trim());
-    if (!match) continue;
-    const wanted = match[1].trim().toLowerCase();
-    const who = agents.find((agent) => agent.name.toLowerCase() === wanted || agent.id.toLowerCase() === wanted);
-    if (!who) continue;
-    named = true;
-    if (/^(ja|yes)$/i.test(match[2])) acts.set(who.id, match[3].replace(/^[\s:–—,-]+/, '').trim());
-  }
-  return named ? acts : undefined;
 }

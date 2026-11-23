@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { agent, harness } from '../chat/harness.ts';
 import { SchedulerImpl, type SchedulerOptions } from '../../../src/runtime/schedules/scheduler.ts';
 import { ScheduleRepo } from '../../../src/runtime/schedules/repo.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import type { ScheduleSpec } from '../../../src/shared/model/tasks.ts';
 
 const M = 60_000;
@@ -196,9 +196,8 @@ test('a broken stored schedule is deactivated; the timer and other schedules kee
 test('create validates input; runNow fires at once without moving the plan', () => {
   const h = setup();
   assert.throws(() => h.scheduler.create({ ownerId: 'ag_tom', kind: 'message', title: 'x', spec: { at: NINE + H }, payload: {} }), /is posted in a chat: pass chatId/);
-  assert.throws(() => h.scheduler.create({ ownerId: 'human', kind: 'reminder', title: 'x', spec: { at: NINE + H }, payload: {} }), /use a timer/);
+  assert.throws(() => h.scheduler.create({ ownerId: 'human', kind: 'reminder', title: 'x', spec: { at: NINE + H }, payload: {} }), /Reminders belong to agents/);
   assert.throws(() => h.message({ everyMs: 1000 }), /at least 60000/);
-  assert.equal(h.scheduler.create({ ownerId: 'human', kind: 'timer', title: 'Tea', spec: { everyMs: 1000 }, payload: {} }).active, true, 'timers may tick every second');
   const capped = new SchedulerImpl(h.services, { timers: h.timers, maxAgentSchedules: 1 });
   capped.create({ ownerId: 'ag_tom', kind: 'reminder', title: 'a', spec: { at: NINE + H }, payload: {} });
   assert.throws(() => capped.create({ ownerId: 'ag_tom', kind: 'reminder', title: 'b', spec: { at: NINE + H }, payload: {} }), /Too many active schedules/);

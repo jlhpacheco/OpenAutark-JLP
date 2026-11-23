@@ -1,10 +1,10 @@
 // Pure rules behind the task center UI (Work, 17:37 / 20:19 – shared/model/task-center.ts): the
 // optional recipients of a quick task (an agent – a manager counts as one –, a manager's branch, a
-// team, in the owner's composer an active person – F-52 –, and "Me": every part goes to My day –
+// team, in the owner's composer an active person – F-52 –, and "Me": every part goes to the Tasks page –
 // B-041) and their labels, the short progress/blocker line of a task row (what waits, the agent's live
 // note, the next step or its latest own report line – never invented thinking), the open questions of
 // a task the person can answer in its detail, whether a task message in a chat is the task itself or
-// only a reference to it, and the title a pending quick post shows.
+// only a reference to it.
 // Owns: these rules (unit-tested in test/unit/ui/task-center-model.test.ts).
 // Never: imports the store, rpc or the DOM – callers pass data in, so tests run in Node.
 
@@ -14,16 +14,15 @@ import type { Message } from '../../shared/model/chat.ts';
 import type { Task, TaskView } from '../../shared/model/tasks.ts';
 import type { QuickTaskTarget } from '../../shared/model/task-center.ts';
 import { HUMAN_ID } from '../../shared/ids.ts';
-import { excerpt } from '../../shared/text/chat-names.ts';
 import { plainPreview } from '../lib/format.ts';
 import { DESTINATIONS } from '../lib/vocab.ts';
 import { waitingLine } from './waiting.ts';
 import { ownerOf } from './work-model.ts';
 
-/** Where the person's own items go (B-041): the line a route, a recipient and an intake part show. */
-export const TO_MY_DAY = `→ ${DESTINATIONS.day}`;
+/** Where the person's own items go: the line a route, a recipient and an intake part show. */
+export const TO_TASKS = `→ ${DESTINATIONS.tasks}`;
 
-/** The person's own work (My day): theirs without an id or with their own – a colleague's carries 'per_…' (F-52). */
+/** The person's own work (For you on the Tasks page): theirs without an id or with their own – a colleague's carries 'per_…' (F-52). */
 export function isMine(task: Pick<Task, 'assigneeKind' | 'assigneeId'>): boolean {
   return ownerOf(task).kind === 'human'; // Work's owner rule
 }
@@ -63,9 +62,9 @@ function branchSize(managerId: string, list: readonly AgentLike[]): number {
 
 const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** "Me" (B-041): the person's own post – the split puts every part on My day (shared/model/task-center.ts). */
+/** "Me" (B-041): the person's own post – the split puts every part on their Tasks page (shared/model/task-center.ts). */
 export const ME_TARGET: QuickTaskTarget = { kind: 'me', id: HUMAN_ID };
-export const ME_RECIPIENT: Recipient = { target: ME_TARGET, label: 'Me', hint: TO_MY_DAY };
+export const ME_RECIPIENT: Recipient = { target: ME_TARGET, label: 'Me', hint: TO_TASKS };
 
 /**
  * The recipient menu: agents by name, managers with reports as branches, team names (Agent.team) as
@@ -160,7 +159,7 @@ export function progressLine(task: Pick<TaskView, 'assigneeKind' | 'assigneeId' 
 
 /**
  * Open questions of a task the person answers right in its detail: its unfinished human steps
- * with a catalog widget (a choice, a form, a confirm …). Mini-app to-dos stay on the My day list
+ * with a catalog widget (a choice, a form, a confirm …). Mini-app to-dos stay on the For-you list
  * (their sandboxed frame lives there).
  */
 export function openQuestions<T extends Pick<Task, 'assigneeKind' | 'status' | 'widget' | 'sort' | 'createdAt'>>(steps: readonly T[]): T[] {
@@ -169,7 +168,7 @@ export function openQuestions<T extends Pick<Task, 'assigneeKind' | 'status' | '
     && !!step.widget && String(step.widget.type) !== 'app').sort((a, b) => a.sort - b.sort || a.createdAt - b.createdAt);
 }
 
-// ------------------------------------------------------------------ task messages and posts
+// ------------------------------------------------------------------ task messages
 
 /**
  * A task message in a chat is the task itself (its anchor: the full card) or only a reference to
@@ -179,10 +178,4 @@ export function openQuestions<T extends Pick<Task, 'assigneeKind' | 'status' | '
  */
 export function isReference(message: Pick<Message, 'id'>, task: Pick<Task, 'messageId' | 'parentId'>): boolean {
   return !task.parentId && task.messageId !== message.id;
-}
-
-/** The title a quick post shows until the runtime answers (the runtime's rule: first line, else the first file, cut at 120). */
-export function postTitle(text: string, fileNames: readonly string[] = []): string {
-  const first = text.trim().split(/\r?\n/)[0]?.trim() ?? '';
-  return excerpt(first || fileNames[0] || 'Files', 120);
 }

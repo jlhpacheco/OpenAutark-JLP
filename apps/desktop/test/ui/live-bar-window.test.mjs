@@ -4,7 +4,8 @@
 //     names the model · effort of the activity; no run is a row in the history (no .working-message);
 //   * the person's newest message stays right above the bar (the list keeps its end);
 //   * another chat of the same agent, where nothing comes from, shows no bar;
-//   * the header's popover still lists both (one row each) over the content, nothing moves;
+//   * the header's live line opens both lines of the bar (their steps) and closes them again; the header and the
+//     composer do not move (20.11.2026: no popover draws the same rows a second time);
 //   * a click on a line opens the agent's page with its activity log;
 //   * light, dark, 640×480 (no horizontal page scroll) and phone width 390; no renderer errors.
 // Run: npm run test:ui   (needs a fresh build)   SCREENSHOTS=<dir> keeps the screenshots.
@@ -19,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -53,7 +55,7 @@ test('live bar: who works for the chat, above the composer; nothing in the histo
   await size(1280, 820);
   const shot = async (name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
   const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
 
   const manager = (await rpc.call('agents.list')).find((agent) => agent.template === 'manager');
@@ -125,13 +127,14 @@ test('live bar: who works for the chat, above the composer; nothing in the histo
   await shot('live-bar-02-dark');
   await page.emulateMedia({ colorScheme: 'light' });
 
-  // The header's popover still lists both, over the content – nothing moves.
-  const fixed = ['.chat-header', '.message-scroller', '.live-bar', '.composer'];
-  const popover = page.locator('.working-popover');
-  await expectStable(page, fixed, async () => { await page.locator('.chat-header .chat-live').click(); await popover.waitFor(); });
-  await page.waitForFunction(() => document.querySelectorAll('.working-popover .working-row').length === 2, undefined, { timeout: 10_000 });
-  await shot('live-bar-03-popover');
-  await expectStable(page, fixed, async () => { await page.keyboard.press('Escape'); await popover.waitFor({ state: 'detached' }); });
+  // The header's live line opens the bar's lines (both) and closes them again; the header and the composer stay.
+  const fixed = ['.chat-header', '.composer'];
+  await expectStable(page, fixed, async () => { await page.locator('.chat-header .chat-live').click(); await page.locator('.live-bar-more').first().waitFor(); });
+  await page.waitForFunction(() => document.querySelectorAll('.live-bar .live-bar-more').length === 2, undefined, { timeout: 10_000 });
+  assert.equal(await page.locator('.chat-header .chat-live').getAttribute('aria-expanded'), 'true');
+  await shot('live-bar-03-open');
+  await expectStable(page, fixed, async () => { await page.locator('.chat-header .chat-live').click(); await page.locator('.live-bar-more').first().waitFor({ state: 'detached' }); });
+  assert.equal(await page.locator('.live-bar .live-bar-more').count(), 0, 'closed again');
 
   // Hover only colours a line.
   await expectStable(page, ['.live-bar', '.live-bar-line', '.composer'], () => page.locator('.live-bar-line').first().hover());
@@ -159,8 +162,34 @@ test('live bar: who works for the chat, above the composer; nothing in the histo
   await page.emulateMedia({ colorScheme: 'dark' });
   await shot('live-bar-07-phone-dark');
   await page.emulateMedia({ colorScheme: 'light' });
+
+  // Owner 19.11.2026: the ▾ opens a line a little – its recent steps to scroll and "Watch live" – on the phone too;
+  // the caret cell only swaps its icon, the line beside it keeps its place.
+  const quillRow = bar.locator('.live-bar-item', { has: page.locator('.live-bar-name', { hasText: 'Quill' }) });
+  const caret = quillRow.locator('.live-bar-caret');
+  await expectStable(page, ['.composer'], async () => { await caret.click(); await quillRow.locator('.live-bar-more').waitFor(); });
+  assert.equal(await caret.getAttribute('aria-expanded'), 'true');
+  await quillRow.locator('.live-bar-steps .run-item').first().waitFor({ timeout: 15_000 });
+  assert.ok(await quillRow.locator('.live-bar-steps .run-item').count() >= 1, 'its steps show');
+  await quillRow.locator('.live-bar-watch').waitFor();
+  const phoneOpen = await page.evaluate(() => {
+    const steps = document.querySelector('.live-bar-steps')?.getBoundingClientRect();
+    return { steps, view: { width: innerWidth, height: innerHeight }, page: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+  });
+  assert.ok(phoneOpen.steps && phoneOpen.steps.right <= phoneOpen.view.width + 0.5 && phoneOpen.page <= 1, `the open line fits the phone: ${JSON.stringify(phoneOpen)}`);
+  await shot('live-bar-07b-phone-open');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await shot('live-bar-07c-phone-open-dark');
+  await page.emulateMedia({ colorScheme: 'light' });
   await size(1280, 820);
   await page.waitForTimeout(800);
+  await shot('live-bar-07d-open');
+  await quillRow.locator('.live-bar-watch').click();
+  await page.locator('.browser-live-empty, .browser-live-address').first().waitFor({ timeout: 10_000 }); // Quill's own area (it does not browse here)
+  await shot('live-bar-07e-watch-live');
+  await caret.click();
+  await quillRow.locator('.live-bar-more').waitFor({ state: 'detached' });
+  assert.equal(await caret.getAttribute('aria-expanded'), 'false', 'the ▾ closes it again');
 
   // A line opens the agent's Work page with its activity log (the log lives there since F11, 16.11.2026).
   await bar.locator('.live-bar-line', { has: page.locator('.live-bar-name', { hasText: 'Quill' }) }).click();

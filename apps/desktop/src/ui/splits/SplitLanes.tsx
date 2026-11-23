@@ -17,7 +17,6 @@ import { StepEntry, entryKey } from '../team/run-steps.tsx';
 import { runEntries } from '../team/model.ts';
 import { shownEntry } from '../team/step-view.ts';
 import { laneRows } from './split-lanes.ts';
-import { ensureModelNames } from './split-model.ts';
 import { SPLIT_STATUS_LABEL, isSettled, partLabel, splitDuration, splitModelParts } from './split-text.ts';
 import { SplitIcon } from './SplitRows.tsx';
 
@@ -46,7 +45,6 @@ function LaneHead(props: { split: SplitView; first: boolean }) {
 export function SplitLanes(props: { group: SplitGroupView }) {
   const { group } = props;
   const [items, setItems] = useState<ReadonlyMap<string, readonly RunItem[]>>(new Map());
-  useEffect(ensureModelNames, []);
   const onItems = (splitId: string, list: readonly RunItem[]) => setItems((current) => new Map(current).set(splitId, list));
   const splits = group.splits.slice().sort((a, b) => a.idx - b.idx);
   const byId = new Map(splits.map((split) => [split.id, split]));

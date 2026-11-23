@@ -25,7 +25,7 @@ test('an id that cannot name a folder keeps its instructions in the app', () => 
   const f = setup(false);
   try {
     const odd = f.org.create({ name: 'Odd', instructions: 'Old import.', createdBy: 'human' });
-    f.db.run('UPDATE agents SET id = ? WHERE id = ?', ['agent one', odd.id]); // ids db/import-v7.ts may keep
+    f.db.run('UPDATE agents SET id = ? WHERE id = ?', ['agent one', odd.id]); // an id an older store may have kept
     f.org.setCoreFiles(f.core);
     const counts = f.core.start();
     assert.equal(counts.skipped, 1);

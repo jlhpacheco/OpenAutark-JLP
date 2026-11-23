@@ -6,18 +6,15 @@
 // Read-only and bounded (HOME_DISCOVERY maxBytes, text only, FOLDER_FILES names, FOLDER_DEPTH levels); hidden
 // files, dependency folders and links leading out of the skill's folder are never read; only the agent's own
 // usable home (home.ts usable: set, there, not refused – approved once when it lies outside the workspace).
-// B-044 integration: files.read and files.list (tools/builtin/files.ts) also read inside that home by absolute path
-// – homeReadRoot names the root they resolve in (links resolved there, AgentHomes.refused asked for the real path);
-// files.write and shell.exec stay in the workspace.
-// Owns: these lookups and their bounds. Never: writes, reads outside a listed skill's folder (knowledge.open) or the
-// home (files.*) or another agent's home, or treats the text as an instruction or a permission (it is data written
-// outside this app).
+// files.read and files.list (tools/builtin/files.ts) read the home like any folder on this PC, by absolute path.
+// Owns: these lookups and their bounds. Never: writes, reads outside a listed skill's folder or another agent's home, or
+// treats the text as an instruction or a permission (it is data written outside this app).
 
 import { readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { readSkillBody, readText, type DiscoveredSkill } from '../skills/discover.ts';
 import { stripInvisible } from '../skills/import-text.ts';
-import { HOME_DISCOVERY, writeRoot, type AgentHomes } from './home.ts';
+import { HOME_DISCOVERY, type AgentHomes } from './home.ts';
 
 /** Files of a skill's folder named with its SKILL.md (beyond: '…'). */
 export const FOLDER_FILES = 40;
@@ -52,16 +49,6 @@ export function folderFiles(folder: string): string[] {
   };
   visit(folder, '', 1);
   return out.length > FOLDER_FILES ? [...out.slice(0, FOLDER_FILES), '…'] : out;
-}
-
-/**
- * The root files.read / files.list resolve `given` in when it is an absolute path inside the agent's usable home
- * outside the workspace (read-only there); undefined otherwise – the workspace rule applies.
- */
-export function homeReadRoot(homes: Pick<AgentHomes, 'usable'> | undefined, agentId: string, given: string | undefined, workspace: string): string | undefined {
-  if (!given || !path.isAbsolute(given)) return undefined;
-  const root = writeRoot(homes, agentId, given, workspace);
-  return root === workspace ? undefined : root;
 }
 
 /** One text file of a listed skill's folder (real path inside the real folder). */

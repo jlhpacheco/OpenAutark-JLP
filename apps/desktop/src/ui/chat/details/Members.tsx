@@ -6,7 +6,7 @@
 // removing one ends its access at once. "Connect external agent" (chats.connectExternal,
 // session.can; not in system or archived chats) asks for a name and shows the agent's token once,
 // with Copy, until Done – together with the `/ws` address(es) it can use (the PC: pwa.state through
-// shared externalSocketUrls; a phone: the address it reached the PC on).
+// shared externalSocketUrls, read again after every reconnect – lib/use-load.ts; a phone: the address it reached the PC on).
 // F-52: people of the organisation are members too (PeopleMembers.tsx: rows, picker entries, history rule).
 // B-078 D7: a 1:1 stays two – it has no "Add"; "Start a group with them" opens New chat with its members chosen.
 // Owns: member rows, the picker and the connect form. Never: deletes agents (only membership),
@@ -28,6 +28,7 @@ import { newChatOpen } from '../../lib/shell-state.ts';
 import { canStartChat } from '../../shell/gates.ts';
 import { pushToast, toastError } from '../../lib/toasts.ts';
 import { AgentAvatar, Button, confirm, Icon, Popover } from '../../lib/ui.tsx';
+import { useLoad } from '../../lib/use-load.ts';
 import type { MenuItem } from '../../lib/ui.tsx';
 import { HistoryRow, PersonMemberRow, peopleCandidates, personMembers } from './PeopleMembers.tsx';
 
@@ -140,7 +141,7 @@ function AddMember(props: { chat: ConversationSummary }) {
 /** C8: the `/ws` addresses an external agent can use – the PC's (pwa.state), else the one this page reached the PC on. */
 function useSocketUrls(): string[] {
   const [urls, setUrls] = useState<string[]>([]);
-  useEffect(() => {
+  useLoad(() => {
     if (!can('pwa.state')) {
       // Inside the iPhone web app the page's host is the website, not the PC: no address to show.
       const web = platform === 'pwa' && !inHostedApp() && (location.protocol === 'https:' || location.protocol === 'http:') && location.host;

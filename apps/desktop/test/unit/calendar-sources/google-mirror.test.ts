@@ -1,5 +1,5 @@
-// B-041 track G: My day's own rows mirrored into the person's "Workforce" Google calendar – a to-do block (made,
-// moved, done ✓, removed), an "Only me" to-do as "Busy", an event made in the app with its title; the app's event id
+// B-041 track G (Quests round 20.11.2026): the Tasks page's own rows mirrored into the person's "Workforce" Google
+// calendar – a to-do with a time (its row read from the task: given a time, moved, done ✓, removed), an "Only me" to-do by its title like any other, an event made in the app with its title; the app's event id
 // and extendedProperties.private {eventId, taskId, pcId}; only the PC set as pc_device_id writes, and only with the
 // app-calendar scope; a sync repairs writes that failed, deletes mirrors of rows that went and makes a deleted
 // Workforce calendar again.
@@ -16,13 +16,20 @@ import { vienna } from './ics-fixtures.ts';
 const iso = (date: string, hhmm: string) => new Date(vienna(date, hhmm)).toISOString();
 const DAY = '2026-10-24';
 
-test('a to-do block goes to the Workforce calendar and follows its moves, its check-off and its removal', async () => {
+type World = Awaited<ReturnType<typeof setup>>['w'];
+/** A to-do's time (its own at/minutes); its calendar row is read from it. */
+function place(w: World, taskId: string, startAt: number, endAt: number) {
+  w.tasks.update(taskId, { at: startAt, minutes: Math.round((endAt - startAt) / 60_000) }, 'human');
+  return w.calendar.repo.get(taskId)!;
+}
+
+test('a to-do with a time goes to the Workforce calendar and follows its moves, its check-off and its removal', async () => {
   const { google, w, connect } = await setup();
   await connect();
   assert.equal(google.calendars.size, 1, 'the Workforce calendar is made at the first sync');
   assert.ok(google.apiCalls().includes('POST /calendars'));
   const task = w.todo('Küche aufräumen');
-  const block = w.calendar.upsertBlock(task.id, vienna(DAY, '10:00'), vienna(DAY, '10:30'), 'planner');
+  const block = place(w, task.id, vienna(DAY, '10:00'), vienna(DAY, '10:30'));
   await until(() => google.mirrors().length === 1);
   const [first] = google.mirrors();
   assert.equal(first.id, mirrorId(PC, block.id));
@@ -35,20 +42,19 @@ test('a to-do block goes to the Workforce calendar and follows its moves, its ch
   w.tasks.finish(task.id, { status: 'done' as const, summary: 'Done' }, 'human');
   await until(() => google.mirrors()[0].summary === '✓ Küche aufräumen');
   assert.equal(w.calendar.repo.get(moved.id)!.state, 'done');
-  w.calendar.remove(moved.id, 'human');
+  w.tasks.remove(task.id, 'human');
   await until(() => google.mirrors().length === 0);
 });
 
-test('an "Only me" to-do shows as Busy; an event made in the app keeps its title and has no task', async () => {
+test('an "Only me" to-do shows by its title (it hides nothing); an event made in the app keeps its title and has no task', async () => {
   const { google, w, connect } = await setup();
   await connect();
   const secret = w.todo('Termin beim Psychologen', { private: true });
-  w.calendar.upsertBlock(secret.id, vienna(DAY, '14:00'), vienna(DAY, '15:00'), 'planner');
+  place(w, secret.id, vienna(DAY, '14:00'), vienna(DAY, '15:00'));
   const { event } = await w.calendar.add({ text: 'Lunch with Tom', startAt: vienna(DAY, '12:00'), endAt: vienna(DAY, '13:00'), kind: 'event' }, 'human');
   await until(() => google.mirrors().length === 2);
   const byRow = new Map(google.mirrors().map((mirror) => [mirror.extendedProperties!.private!.eventId, mirror]));
-  assert.equal([...byRow.values()].find((mirror) => mirror.extendedProperties!.private!.taskId === secret.id)!.summary, 'Busy');
-  assert.equal(JSON.stringify(google.calls).includes('Psychologen'), false, 'no text of a private to-do leaves the PC');
+  assert.equal([...byRow.values()].find((mirror) => mirror.extendedProperties!.private!.taskId === secret.id)!.summary, 'Termin beim Psychologen');
   const lunch = byRow.get(event.id)!;
   assert.equal(lunch.summary, event.title);
   assert.equal('taskId' in lunch.extendedProperties!.private!, false);
@@ -61,7 +67,7 @@ test('only the PC set as pc_device_id writes; another PC on the same account rea
   assert.equal(w.sources.list('human')[0].writable, false);
   const writes = () => google.apiCalls().filter((call) => /^(PUT|POST|DELETE) /.test(call)).length;
   const before = writes();
-  w.calendar.upsertBlock(w.todo('Steuern').id, vienna(DAY, '16:00'), vienna(DAY, '17:00'), 'planner');
+  place(w, w.todo('Steuern').id, vienna(DAY, '16:00'), vienna(DAY, '17:00'));
   for (let i = 0; i < 20; i++) await tick();
   w.clock.advance(60_000);
   await w.sources.sync(source.id);
@@ -83,7 +89,7 @@ test('a sync repairs failed writes, deletes mirrors of rows that went and makes 
   const { source } = await connect();
   const calendarId = [...google.calendars.keys()][0];
   google.down = true;
-  const block = w.calendar.upsertBlock(w.todo('Wäsche waschen').id, vienna(DAY, '17:00'), vienna(DAY, '18:00'), 'planner');
+  const block = place(w, w.todo('Wäsche waschen').id, vienna(DAY, '17:00'), vienna(DAY, '18:00'));
   for (let i = 0; i < 20; i++) await tick();
   assert.equal(google.mirrors().length, 0, 'the write failed (offline)');
   google.down = false;

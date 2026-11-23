@@ -33,22 +33,24 @@ const OWNER = { kind: 'person', name: 'Alex' } as const;
 test('an agent edits settings.json, the person then saves another setting before the watcher fires: the edit is not the person\'s', () => {
   const h = rig();
   try {
-    const doc = parseText(readFileSync(h.file, 'utf8')).data as { profile: Record<string, unknown> };
-    doc.profile.forEveryAgent = 'SYNTHETIC: changed in settings.json';
+    const doc = parseText(readFileSync(h.file, 'utf8')).data as { security: Record<string, unknown> };
+    doc.security.money = 'ask';
     writeFileSync(h.file, JSON.stringify(doc, null, 2), 'utf8'); // no nudge: the watcher has not handed it over yet
     const patch = { profile: { name: 'Alex Example' } } as SettingsPatch;
     actingAs(OWNER, patch, () => h.settings.update(patch));
-    const entry = readSecurityChanges(h.kv).find((change) => change.field === 'forEveryAgent');
-    assert.equal(entry?.to, 'SYNTHETIC: changed in settings.json', 'the change is written down');
-    assert.equal(entry?.by.kind, 'other', 'and not as the person who saved something else');
+    // FX1 H4: a disk edit of the security section is put back in every mode – never applied, so never the person's
+    const entry = readSecurityChanges(h.kv).find((change) => change.field === 'security.money');
+    assert.equal(entry, undefined, 'nothing changed, nothing written down as the person');
+    assert.equal(h.settings.get().security?.money, 'yes', 'the section in force stays');
+    assert.equal(h.settings.get().profile.name, 'Alex Example', 'the person\'s own save went through');
   } finally { h.done(); }
 });
 
-test('the person changing the line through settings.update is named', () => {
+test('the person changing the mode through settings.update is named', () => {
   const h = rig();
   try {
-    const patch = { profile: { forEveryAgent: 'SYNTHETIC: the person\'s own line' } } as SettingsPatch;
+    const patch = { security: { mode: 'secure' } } as SettingsPatch;
     actingAs(OWNER, patch, () => h.settings.update(patch));
-    assert.deepEqual(readSecurityChanges(h.kv).map((change) => [change.field, change.by.kind, change.to]), [['forEveryAgent', 'person', 'SYNTHETIC: the person\'s own line']]);
+    assert.deepEqual(readSecurityChanges(h.kv).map((change) => [change.field, change.by.kind, change.to]), [['security.mode', 'person', 'secure']]);
   } finally { h.done(); }
 });

@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import { ClaudeEngine } from '../../../src/runtime/engines/claude/engine.ts';
 import { ClaudeStreamParser } from '../../../src/runtime/engines/claude/stream.ts';
 import { END_MARK, claudeTranscript } from '../../../src/runtime/engines/claude/transcript.ts';
-import { PROJECT_DIR_NAME, probeOutcome } from '../../../src/runtime/engines/claude/rebuild.ts';
+import { PROJECT_DIR_NAME, nodeFiles, probeOutcome } from '../../../src/runtime/engines/claude/rebuild.ts';
 import { takesThinkingDisplay } from '../../../src/runtime/engines/claude/rebuilder.ts';
 import { homeRoots } from '../../../src/runtime/system/paths.ts';
 import type { EngineEvent, RebuildItem } from '../../../src/runtime/engines/types.ts';
@@ -28,6 +28,7 @@ function memoryFs() {
   const files = new Map<string, string>();
   const removed: string[] = [];
   const ops = {
+    ...nodeFiles, // tail and append on disk
     writeFile: async (file: string, data: string) => { files.set(path.resolve(file), data); },
     readFile: async (file: string) => { const text = files.get(path.resolve(file)); if (text === undefined) throw new Error('missing'); return new TextEncoder().encode(text); },
     rm: async (file: string) => { removed.push(path.resolve(file)); files.delete(path.resolve(file)); },
@@ -55,6 +56,7 @@ function setup(script: CliScript = {}) {
   const fake = fakeSpawn((call) => {
     const { child, args } = call;
     if (args.includes('--version')) { setImmediate(() => { child.stdout.write(`${script.version ?? '2.1.303'} (Claude Code)\n`); setImmediate(() => child.exit(0)); }); return; }
+    if (args.includes('--help')) { setImmediate(() => { child.stdout.write('Usage: claude [options]\n'); setImmediate(() => child.exit(0)); }); return; } // Runde "Halb": the look for --autocompact (lean.ts CeilingFlag)
     if (!args.includes('--include-partial-messages')) { // the rebuild probe: initialize only, never a user message
       child.onLine = (message) => {
         if (message?.type !== 'control_request') return;

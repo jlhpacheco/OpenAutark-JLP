@@ -58,7 +58,7 @@ export async function chooseSession(services: RuntimeServices, plan: TurnPlan, r
   if (session && session.accountId && session.accountId !== accountId) session = undefined;
   const contextWindow = (session && session.model === route.modelId ? session.contextWindow : undefined) ?? store.reportedWindow(engine.id, route.modelId) ?? catalogWindow;
   if (plan.fold) return { session, contextWindow, sinceSeq: plan.memberCursor }; // a fold's turn resumes the session as it stands (agents/context-fold.ts)
-  // The native rebuild, when the session starts anew this turn (rebuild.ts: an engine switch, no session, a fold waiting, past the fit, a cold cache; undefined: the path below).
+  // The native rebuild, when the session starts anew this turn (rebuild.ts: an engine switch, no session, a fold waiting, past the fit, a cold cache, a trim that pays; undefined: the path below).
   const rebuild = async (current: SessionBinding | undefined, overLimit?: boolean) => (native && engine.caps.rebuild
     ? nativeRebuild(services, { plan, request, engine, account: native.account, route, model: native.model, session: current, offer: native.offer, prompt: native.prompt, promptKey: key, contextWindow, overLimit, anew: native.anew })
     : undefined);
@@ -66,7 +66,6 @@ export async function chooseSession(services: RuntimeServices, plan: TurnPlan, r
   const seeded = session ? undefined : await seedSplit(services, plan, request, engine, route, key, native);
   if (seeded) return { session: seeded.session, contextWindow, sinceSeq: plan.memberCursor, prefix: seeded.prefix, seeded: seeded.session !== undefined };
 
-  if (session && session.promptKey === undefined) store.stamp(plan.agent.id, plan.thread, engine.id, key, plan.mode.key);
   // S2: a changed prompt key keeps the session – it resumes on the prompt and tools it started with (buildTurn, session-key.ts).
   // Every engine with sessions. Past the fit the session starts anew under the limit; the renewal (the record as text) is the
   // backstop for a context nothing brings into the window. Otherwise it goes on unless it starts anew anyway (rebuild.ts).

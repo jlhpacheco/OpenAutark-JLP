@@ -11,7 +11,7 @@
 //                  cost mode (23.10.2026: one global cost mode, Settings.routing.costMode – a
 //                  global setPolicy with costMode writes it there; migration 55 moved stored ones) and
 //                  never a pin (01.11.2026: the default model is the Work use, Settings.routing.work – a
-//                  global setPolicy with a pin writes it there; an older stored pin moves there once)
+//                  global setPolicy with a pin writes it there)
 // Owns: validation of ModelPolicy input (B-083: `pinBy` kept, name ≤ 80 characters), get/set per scope, the PolicyApi
 // factory for RPC, chatChoice and `effectivePolicy` (global defaults → agent; the default model is the Work use, router.ts).
 // Never: routes (router.ts does), lets a chat scope store bounds (only pin/effort live there) or lets the chat choice route.
@@ -23,7 +23,7 @@ import type { Effort, ModelInfo, ModelPolicy } from '../../shared/model/provider
 import { WorkforceError } from '../../shared/errors.ts';
 import { KvRepo } from '../store/kv.ts';
 import { normalizeEffort } from '../models/efforts.ts';
-import { USE_AUTO, chosenFor, isProviderChoice, useValue } from '../../shared/model/models-uses.ts';
+import { chosenFor, isProviderChoice } from '../../shared/model/models-uses.ts';
 
 export interface PolicyScope {
   agentId?: string;
@@ -123,21 +123,14 @@ function resolveScope(services: RuntimeServices, scope: PolicyScope): { kind: 'g
   return agentId ? { kind: 'agent', agentId } : { kind: 'global' };
 }
 
-/** The global default policy (or undefined); an older stored pin moves to the Work use once (it is no part of it). */
+/** The global default policy (or undefined); a pin is no part of it (the Work use is). */
 export function defaultPolicy(services: RuntimeServices): ModelPolicy | undefined {
-  const kv = new KvRepo(services.db);
-  const stored = kv.get<ModelPolicy>(POLICY_NS, DEFAULT_POLICY_KEY);
+  const stored = new KvRepo(services.db).get<ModelPolicy>(POLICY_NS, DEFAULT_POLICY_KEY);
   if (!stored) return undefined;
-  let policy: ModelPolicy;
-  try { policy = cleanPolicy(stored); } catch { return undefined; }
-  if (!policy.pin) return policy;
-  const { pin, ...rest } = policy;
   try {
-    if (useValue(services.settings.get().routing, 'work') === USE_AUTO) services.settings.update({ routing: { work: pin } });
-    if (isEmpty(rest)) kv.delete(POLICY_NS, DEFAULT_POLICY_KEY);
-    else kv.set(POLICY_NS, DEFAULT_POLICY_KEY, rest, services.clock.now());
-  } catch { /* moved on a later read */ }
-  return rest;
+    const { pin: _pin, ...rest } = cleanPolicy(stored);
+    return rest;
+  } catch { return undefined; }
 }
 
 /**
@@ -157,7 +150,7 @@ export function chatChoice(services: RuntimeServices, conversationId: string | u
 export function getPolicy(services: RuntimeServices, scope: PolicyScope): ModelPolicy | null {
   const target = resolveScope(services, scope);
   if (target.kind === 'global') {
-    const stored = defaultPolicy(services) ?? {}; // first: an older stored pin moves to the Work use
+    const stored = defaultPolicy(services) ?? {};
     const work = chosenFor(services.settings.get().routing, 'work');
     const policy: ModelPolicy = { ...stored, ...(work && !isProviderChoice(work) ? { pin: work } : {}) };
     return isEmpty(policy) ? null : policy;

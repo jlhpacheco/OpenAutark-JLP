@@ -12,9 +12,9 @@ Android APK update channels: `UpdateCheck` reads `R.bool.lite_updates` (false in
 
 One person runs an AI company on their PC: a manager, teams of specialist agents (video, web, research, social,
 finance …) and a private secretary, across company, personal brand and private life. The person talks to agents
-in **chats** (a chat is a place, not an agent), gives **tasks** (one simple task model: whoever owns it works on it
-until it is done or they ask), and looks at a calm **My day**: the few things only a human can do, what they
-handed off, and their calendar. Agents are trusted like senior employees: they act on the whole PC without
+in **chats** (a chat is a place, not an agent), gives **tasks** (quests – goals with an end – holding to-dos; whoever
+owns one works on it until it is done or it waits on something real), and looks at one **Tasks** page: their own
+to-dos, the quests, what the agents and colleagues work on, and their calendar. Agents are trusted like senior employees: they act on the whole PC without
 asking, hire and archive colleagues (themselves included), split work into parallel parts (Ultra), use any model
 (Codex, Claude Code, ACP plan CLIs, API keys, local servers) and work on linked PCs and Android phones. The
 system behind it is deliberately small: **a SQLite store plus a few plain files and skills**. Anything without a
@@ -59,14 +59,15 @@ tells the AI.
   `companies.ts` (several companies per installation, §3; leaving or deleting one: `company-remove.ts`),
   `host-services.ts` (notifications with their sound, §4.2),
   `updates/*` (electron-updater state machine; on macOS, where Squirrel.Mac refuses an ad-hoc signed app, an own
-  self-update `updates/mac-self-update.ts`, only once the product is named Autark), `identity-move.ts` (B-066: at the
-  first start as Autark the old data folder `Proactive Agent Workforce` moves by one atomic rename – never copied or
-  merged – and the old updater cache goes; a no-op unless packaged, named exactly Autark and on the default data
-  folder; `logs/identity-move.log`; installer side `assets/installer.nsh`), `launcher*.ts` ("Start with Windows" = keep agents running:
+  self-update `updates/mac-self-update.ts`), `keyring-name.ts` (a data folder moved from the old name keeps that name
+  for the OS keyring in `<data>/keyring-name` until `ready`; the folder itself is moved by an older release – data still
+  in the old folder gets the 0.3.14 advice, §3 Database), `launcher*.ts` ("Start with Windows" = keep agents running:
   one per-user Task Scheduler task, `run-state.json`, `next-due.json`), `protocols/*` (`app://`, `wf-sandbox://`,
   `wf-file://`), `session-guards.ts` (microphone only for our page while armed), `workspace-*.ts` and `side-driver/`
-  (§10), `media-analyzer*.ts` (keyframes, audio decode, image prep in a hidden offscreen window), `title-bar.ts`
-  (§11). Closing the window does not stop agents when `closeToTray` is on.
+  (§10), `media-analyzer*.ts` and `media-preview*.ts` (keyframes, audio decode, image prep, video previews – two
+  instances of the one hidden-window runner `hidden-jobs.ts`, each with its own session and queue), `title-bar.ts`
+  (§11). Closing the window always keeps the agents running in the tray; the tray's Quit quits (Quests-Runde 20.11.2026:
+  no `closeToTray` setting).
 * **Preload** (`src/preload`) exposes `window.workforce` (`shared/api/desktop.ts`) over IPC; `main-world.ts` guards
   the runtime port. `ipc.ts` accepts only our window's main frame; `ipc-args.ts` checks every argument.
 * **UI** (`src/ui`) is one Preact app for the desktop window *and* the PWA served by the runtime. It only talks
@@ -137,7 +138,7 @@ its own company. The uninstaller removes the other companies' launcher tasks too
 | `settings.schema.json` | JSON Schema (draft-07) of the same table for editors and scripts: enums, ranges, patterns, defaults, descriptions; written by the app once per start – never edit | `settings/schema.ts` (`schemaText()`), `settings/service.ts` |
 | `theme.css` | The app's look: CSS applied live on top of the shipped styles (tokens such as `--surface`, `--text`; dark mode `:root[data-theme=dark]`). Delete it to go back | `root/theme.ts` |
 | `agents/<id>/` | `SYSTEM.md` (the agent's instructions – authoritative), `HUMAN.md` (the person's own lines near the end of its prompt; only "for every agent" from `settings.json` follows, §5), `skills/<name>/SKILL.md` (its Main Skills), `agent.json`, `avatar.png/jpg` copy; `agents/README.md` says who is who | `agent-core/*` |
-| `memory/` | **The memory tree** (§5.2): one Markdown file per entry in folders by who it is for – `company/`, `branches/<space>/`, `agents/<id>/`, `references/<person>/`, `chats/<chat>/` and any topic subfolder (`_folder.md` describes a folder). The files are the truth; anyone may edit them; writing or changing one makes it findable with `knowledge.find` (by words; by meaning where a person chose an embedding model) | `knowledge/memory-*.ts`, `tools/builtin/memory.ts` |
+| `memory/` | **The memory tree** (§5.2): one Markdown file per entry in folders by who it is for – `company/`, `branches/<space>/`, `agents/<id>/`, `references/<person>/`, `chats/<chat>/` and any topic subfolder (`_folder.md` describes a folder). The files are the truth; anyone may edit them; writing or changing one makes it findable with `knowledge.find` (by words; where a person chose an embedding model, meaning re-ranks them, §5.3) | `knowledge/memory-*.ts`, `tools/builtin/memory.ts` |
 | `prompts/` | Own versions of the shipped prompts (`identity`, `rules`, `skills`, `compaction`, `onboarding`, `agent-default`, `subconscious`) – a file here replaces the shipped one | `context/templates.ts` |
 | `modes/` | Own modes (`<key>.md`), replacing a shipped mode of the same key | `modes/service.ts` |
 | `secrets/` | The secrets catalog: one `<route>.md` per route listing entries (id, name, kind, tags, description) – never a value | `secrets/files.ts` |
@@ -146,7 +147,8 @@ its own company. The uninstaller removes the other companies' launcher tasks too
 | `side-tabs.json` | The browser tabs per space: `global` (the person's pane), `chat:<id>` (a chat's area), `agent:<id>` (an agent's own area, kept by that agent); the window follows an edit within a second (§10) | `root/side-tabs.ts`, `main/workspace-tabs.ts` |
 
 App-managed (never reported by the watcher): `workforce.db` (+ WAL), `blobs/ab/cd/<sha256>` (content-addressed
-files, `files/store.ts`), `accounts/<provider>/<id>/` (isolated CLI homes headless and in tests; the desktop app
+files, `files/store.ts`; the layout, the HTTP Range rule and the content types are one rule for runtime and main in
+`shared/files/serving.ts` and `shared/files/mime.ts`, Quests-Runde 20.11.2026), `accounts/<provider>/<id>/` (isolated CLI homes headless and in tests; the desktop app
 keeps them in the PC's shared `<Autark Companies>/logins/<provider>/<folder>`, §6), `browser-profiles/<agentId>/`, `logs/`,
 `tmp/`, `backups/`, `exports/`, `engine-cwd/` (empty folder CLI engines start in), `engine-prompts/`,
 `models/speech/` (local speech models and, on the same download rail, the local embedding model `embedding-minilm-l12-int8`, fetched on first need, §5.3), `engine-transcripts/` (rebuilt Claude Code sessions, §5.5), `runtime.json` ({port, token} while the app runs), `boot.json`,
@@ -170,16 +172,16 @@ key – purpose, options or range, pattern, default – and everything else is b
 key's default in place of `null`); `"$schema"` is skipped; unknown keys are dropped. Writing: the app writes
 the **whole** file after every update and after every read whose text differs from the whole current text – that keeps
 the comments current, turns an old file of differences into the whole file once (every value the person set stays) and
-leaves an invalid value as written with a `// Not applied (<reason>) …` line above it. Never overwritten: the store
-from before the rebuild until its import moved it aside, a file that is not JSON at all (copied to
+leaves an invalid value as written with a `// Not applied (<reason>) …` line above it. Never overwritten: a file that
+is not JSON at all (copied to
 `settings.rejected.json` before the app writes again), and a file whose sections only fail together. A deleted file is
 written again from the current values (write `{}` to reset). A valid edit applies within a second. Consequences:
 a default changed in a later version does not reach existing installs for keys already in the file; a script reading
 the file must strip the comments (`parseText(text).data`, never plain `JSON.parse`); editors need `allowComments`
 (the schema sets it; a strict ajv needs `strict: false`). There is no spending, monthly or budget key anywhere (a test
 asserts it). The skill `app-settings` is one short paragraph (open the file, every key has its options above it, change
-the value, save) plus pointers to what is not in the file. The old `settings` table is emptied after its one-time move
-into the file and kept only so an old backup can still be moved. Without a data folder (tests) settings live in memory.
+the value, save) plus pointers to what is not in the file. The old `settings` table is no longer read (its move into
+the file ran up to 0.3.3; Quests-Runde 20.11.2026). Without a data folder (tests) settings live in memory.
 
 **theme.css**: `root/theme.ts` emits `theme.updated` {css} on every change; `ui/main.tsx` puts it into
 `<style id="wf-theme-css">` as the last stylesheet and reloads it on reconnect; phones get it too (`theme.get`
@@ -199,21 +201,28 @@ reaches its own company. In PowerShell JSON arguments lose their inner quotes; t
 document the HTTP route.
 
 **SQLite** (`runtime/db`): one database with WAL and a prepared-statement cache. Main tables: conversations,
-members, messages (+FTS), tasks (+FTS; steps and human to-dos are tasks), runs and run_items (the journal), wakes,
-schedules, knowledge (+FTS; only the runtime's chat observations and the older versions of memory files – the memory
-itself is the files of §5.2), vector_files and
+members, messages (+FTS), tasks (+FTS; quests and to-dos, the person's included, are tasks, §4.3), runs and run_items
+(the journal), wakes, schedules, knowledge (+FTS; only the older versions of memory files – the memory itself is the
+files of §5.2), vector_files and
 vector_chunks (the vectors, §5.3), context_items (the transcript's items, §5.5), accounts, models, devices, tokens,
 people, media (+FTS), files, bridges, split_groups and splits, calendar_events and calendar_sources, spend, kv.
 A message's `meta` carries the values every device renders (B-075): `live` while a run's row streams, `ms` and `lines`
 on its finished answer (§4.2), `call` on a call's own row and on each line said in it (§9).
-Migrations (`db/migrations/001…109`) are only ever appended, never rewritten; `085` removed the permission gate,
-`086`/`087` dropped the dead tables of the refactor (`087` took `context_items` with them by mistake; `089` makes it
-again with the old schema), `088` adds the vector tables, `091` the partial index `messages_streaming` on
-`messages(conversation_id)` where `state = 'streaming'` (the live rows are read up to twice a second), `103` the use
-count `uses` on `secrets` and `secret_groups` (§7.4); B-092: `107` `runs.cache_write_tokens`, `108` the Claude session's
-kept running total `engine_sessions.cost_total`/`cost_ref`, `109` `engine_sessions.folded_at` and `compacted_at` (the fold,
-§5.1; carried over only when the same session ref is saved again at the same generation) and `context_items.tokens` ×3/2
-(rows counted before at 3 characters per token; rows from before B-080 wave 3 were at 4 and stay somewhat low).
+Migrations (Quests-Runde 20.11.2026, `db/migrate.ts`): the list starts at the **baseline** `091-baseline.ts` – the
+schema the old chain 001–091 left (the old chain against the baseline gave the same `sqlite_master` and rows at 91, 100
+and 109; its fingerprint is pinned in `test/unit/db/baseline.test.ts`) in one step for a new database –, then `092…110`,
+only ever appended. Data below `OLDEST_SCHEMA` (103, Autark 0.3.9) is refused before anything is copied or changed
+(`db/upgrade.ts`; the repair screen shows `olderData`: "Install Autark 0.3.14 first … then this version opens it", with
+the release link `OLD_CHAIN_URL`) – the one-time conversions of 13.11. and the login move of 16.11. live in that bridge
+release, not here; a first start in "Autark" while the old name's folder still holds the data gets the same advice
+(`olderFolder`). Kept notes: `103` the use count `uses` on `secrets` and `secret_groups` (§7.4); B-092: `107`
+`runs.cache_write_tokens`, `108` the Claude session's kept running total `engine_sessions.cost_total`/`cost_ref`, `109`
+`engine_sessions.folded_at` and `compacted_at` (the fold, §5.1; carried over only when the same session ref is saved
+again at the same generation) and `context_items.tokens` ×3/2 (rows counted before at 3 characters per token); `110`
+the quests (§4.3: `tasks` rebuilt with `kind`, `at`, `minutes`; a task with pieces became a quest and its pieces, flattened,
+its to-dos; `due_at` became `at` only on the person's work – an agent's or team row's old date is dropped –; the
+calendar's to-do blocks became their tasks' `at`/`minutes`; routine and timer schedules became reminders, messages or a
+to-do's `at`; `day_briefings` and `task_estimates` dropped; kv `quests/converted` marks a profile it converted).
 Before migrating older data one pre-update copy is made (`VACUUM INTO`). Repositories live next to their service
 (`tasks/repo.ts`, `chat/*-repo.ts`, …) or in `runtime/store`.
 
@@ -229,7 +238,7 @@ device row, push subscriptions (`forgetBound`) – and that start makes its own.
 ## 4. How work flows
 
 Event-driven everywhere: no polling loops. The exceptions are bounded and named (account limit reads §6, the
-Telegram long poll §7, the morning run's one timeout §4.7).
+Telegram long poll §7, the watcher's ring and morning-pass timers §4.3).
 
 ### 4.1 Wakes, the scheduler and the dispatcher
 
@@ -239,7 +248,11 @@ Telegram long poll §7, the morning run's one timeout §4.7).
   schedule and the next future wake, re-armed on every change, on power resume and after clock jumps. It writes
   `next-due.json`, so the OS launcher can start a closed app for scheduled work.
 * **The dispatcher** (`agents/dispatcher.ts` and `dispatch-*.ts`): pump(agent) claims due wakes, groups them by
-  (chat, task), runs the most important group and releases the rest; after every turn the agent is pumped again.
+  (chat, task), runs the most important group and releases the rest; after every turn the agent is pumped again. Since
+  21.11.2026 other due groups that are plain chat groups woken only by agents' lines (no line or answer of a person, no
+  task, no origin, no call) ride along in the same turn (`dispatch-groups.ts ridersOf`, `agents/turn-riders.ts`): their
+  lines arrive under their own chat label, their cursors move and their wakes end only when the turn ends done. A person's
+  line and a task group always keep a turn of their own, so each gets its answer in its own chat.
   At most one running turn per agent on its main lane and four splits per agent (`SPLIT_LIMITS.runningPerAgent`);
   there is no global slot FIFO or RAM/disk-space admission threshold. Low disk space is information in the agent's
   volatile environment (`context/environment.ts`, below 2 GB), so it can keep working and make room. Actual write
@@ -288,7 +301,7 @@ Telegram long poll §7, the morning run's one timeout §4.7).
   text's last open block closes at its end) – `push` = priority important (a push to persons; in a chat with other agents
   it reaches every agent's running turn, else wakes them), `quiet` = silent (no unread, wakes nobody; an @mention still
   reaches that member; a quiet line that names the person is posted as a normal line – `quietUnlessPerson`, B-092), none =
-  normal. An agent's @mention of the person makes its line a `reply` notification; only `push` rings (B-092: 14 pushes in
+  normal; a `task_…` id writes into that task's thread and makes or joins it (§4.3). An agent's @mention of the person makes its line a `reply` notification; only `push` rings (B-092: 14 pushes in
   three days came only from an "@Name" salutation; a chat the person set to "Mentions and tasks" still hears a mention; an
   `@` inside an e-mail address names nobody). A block to a chat the agent is not in is not posted; the run log and the next
   turn's repair notes say so. Ask blocks and ```app todo blocks in a posted text become to-dos. At the end
@@ -359,7 +372,8 @@ Telegram long poll §7, the morning run's one timeout §4.7).
   chat.read, chat.search, the ledger – carries `[ch_… "Title" · Author · HH:MM #seq]` (the owner "Name (CEO)", a quiet
   author "(quiet)", a system line without author); its volatile prompt has "## My chats" (`context/chat-overview.ts`:
   up to 40 chats, newest activity first, `ch_… · title · last author: last line…`, archived marked; B-092: a chat a person
-  is in carries " · <Name> reads here") instead of the former "## This chat". **The person's line a turn answers arrives
+  is in carries " · <Name> reads here"; task threads are left out – they stand in "## My quests") instead of the former
+  "## This chat". **The person's line a turn answers arrives
   whole** (B-092: the owner's longest message had been cut before its ask): no `BODY_CAP` cut for it, and `chat.read {seq}`
   returns that one line alone and uncut by the output head cut – one bound for both, `WHOLE_CHARS` 100,000
   (`tools/outputs.ts`), past it the head and the tail with one line between naming the file that holds all of it.
@@ -408,7 +422,7 @@ Telegram long poll §7, the morning run's one timeout §4.7).
   (`main/host-services.ts`) plays a sound by default (`notifications.sound`): one per 3 s across all notifications, a
   beep while the window has focus (then no OS toast), else the OS notification's own sound; none for silent ones. In the
   window, toasts for to-dos and blockers stay (`ui/lib/toasts.ts`, ttl 0) until Open, Dismiss, the
-  person reaching where Open leads (the chat, or My day for a to-do outside a chat) or the task finishing
+  person reaching where Open leads (the chat, or the to-do on the Tasks page) or the task finishing
   (`ui/lib/store-events.ts`), and so does an install that did not land (`toastStartNotice`); an important message,
   mention or link line goes after 20 s (`NOTICE_ONLY_MS`, 16.11.), done and reply toasts after 6 s. Nothing toasts for
   what the person already looks at.
@@ -422,70 +436,128 @@ Telegram long poll §7, the morning run's one timeout §4.7).
   (a browser paired by QR at two PCs' own addresses) is alerted once per origin – one pairing (Remote ID, the iPhone web
   app or the Android app) avoids it.
 
-### 4.3 Tasks and to-dos
+### 4.3 Quests and to-dos (Quests-Runde 20.11.2026)
 
-* **One task model** (`tasks/service.ts`, `shared/model/tasks.ts`): work is a task, steps are child tasks, the
-  person's work is a task owned by `human` (a to-do). A task may be chat-free (it then has its own space). Rows,
-  FTS and the atomic claim: `tasks/repo.ts`; optimistic concurrency by `rev`.
-* **Read rule** (`tasks/access.ts`): every agent reads every task, except one the person marked "Only me".
-* **Creating**: agents use `tasks.create/assign/claim/update/complete`; the person's task composer and "Send to…"
-  make ONE plain task (`tasks/quick.ts`); without an owner the responsible manager is woken and decides.
-  "Give to me" makes it the person's (`tasks/human.ts`).
-* **Where handed work lands, and how loud** (KI-Runde 17.11.2026, B-092): a task carries an effort, never a model
-  (`tasks.create`/`tasks.give` lost `model`; a model is named where a context starts – `agents.split`, `agents.create`,
-  `agents.update`, §6). Work handed from a chat the person is in to an agent who is not in it lands in the giver's 1:1 with
-  the receiver; a task never adds anyone to the person's chat (`tasks/owners.ts`, `tasks/create.ts`). The card of a task an
-  agent made for an agent is posted silent; the person's own hand-over card and a task for the person stay loud. A wait
-  whose reason changed replaces the task's last wait line instead of adding one, and a person's line no longer reopens a
-  task that waits on them – it wakes the owner with the task, and the owner moves it (`tasks/lifecycle.ts`). A task fact is
-  capped at 2,000 characters; one `tasks.update` carries state, fact and plan.
-* **To-dos with widgets**: an agent's ask block in a message, or `human.ask`, becomes the person's to-do with a widget
-  (confirm, choice, form, approve, checklist, timer, record, upload, review, or an agent-programmed ```app mini-tool).
-  `approve` is a plain question; its answer `{approved, note?}` binds nothing. `human.ask` with `at` or reason
-  `physical` puts the to-do on My day and into the calendar at once (`tools/builtin/human.ts` → `placeOnMyDay`).
-  Agents may prepare a person's to-do (`todos.prepare`) but never tick it off.
+* **One task model, two kinds** (`tasks/service.ts`, `shared/model/tasks.ts`): a task row has `kind` `'quest'` or
+  `'todo'`. A **quest** is a goal with an end (`doneWhen`), owned by an agent or a person, and holds to-dos (their
+  `parentId`); a **to-do** is one thing one owner (agent, colleague, the person = `human`) does, in a quest or not. One
+  level only (`tasks/quests.ts`): a quest never sits in a quest, a to-do never holds to-dos – a to-do placed under a
+  to-do goes into that to-do's quest, and a top-level to-do that gets one becomes a quest. Order inside a quest is
+  `dependsOn` ("after", `tasks/depends.ts`; an end that opens several to-dos of one agent wakes it once). Closing a quest
+  ends its open to-dos quietly ("Quest closed: <why>"); opening it again (reopen, undo) brings them back as they were
+  (`quests.ts reopenTodos`); the last open to-do ending wakes the quest's agent owner once ("Every to-do of <quest> is
+  done – it is done when …", `tasks/transitions.ts`). A wait is `status: 'waiting'` + `waitingOn {on, who|ids, why,
+  since}`; notes say what is to be done now. A task may be chat-free. Rows, FTS and the atomic claim: `tasks/repo.ts`;
+  optimistic concurrency by `rev`.
+* **One "when"**: `at` (epoch ms) + `minutes` on a to-do – the person's time: drawn on their calendar, it rings and
+  pushes them then. A day without a time is `at` at local midnight without `minutes` (`shared/model/day-settings.ts
+  isDayOnly`; it rings at that day's work start, `ringAt`). **Agent work has no time – in code**: `at` on a to-do whose
+  owner is or becomes an agent or "team" is refused (`tools/builtin/tasks-util.ts AGENT_TIME`), migration 110 and the
+  bridge for older PCs (`bridge/quests-2011.ts`) carry no agent's old due date over, Send to… an agent puts the person's
+  time into its notes, and task lines an agent reads print no time on agent work (`VERGESSEN.md` in
+  `.local/quests-20261119`: 62 % of agent tasks carried a date a median 41 h ahead, finished in 0.6 h).
+* **Read rule**: every agent reads every task. **"Only me"** (`private` on the row) means the person does this one:
+  the AI sees it, keeps it in view and helps around it (notes, a reminder, its quest, a time), but an agent never gives
+  it to an agent or "team", never closes it, nor its quest while it holds one (`tasks/service.ts onlyMeLine`, `give`,
+  `finish`; the tools refuse the same before any change). Nothing is hidden – it travels to every PC like any task, an
+  employee's PC included (`devices/sync/employee.ts`).
+* **A task's thread** (`tasks/thread.ts`; owner: "pro einzelnen Task einen Chat … also einen Verlauf"): the history of
+  one quest or to-do is a conversation whose id IS the task id (`task_…`, `shared/model/chat.ts isTaskThread`), made on
+  demand – two PCs that make it write the same id; no table, no sync change. Members: the people the task concerns, its
+  agent owner as lead, the agents that made or gave it; a person's to-do that names no agent has that person's assistant
+  (`day/assistant.ts`) as lead; whoever joins later reads it whole (`history: 'full'`). It is in no chat list
+  (`chat/conversation-repo.ts` list skips `task_…`; UI `ui/chat/threads.ts isThread`), is named by its task
+  (`chat/titles.ts`), and a person's line there wakes the task's owner with the task (`chat/delivery-route.ts`). Event
+  lines – given, waiting, done, quest closed, recording attached – are quiet status lines (`TaskService.line()` →
+  `threadEvent`); unread is a dot on the row (`chats.threadNews`); `chats.thread {taskId}` opens it; an agent writes
+  there with `<chat to="task_…">` (`agents/chat-out.ts` joins it); removing a task removes its thread (`dropThread`).
+  **The person's line stays with the work**: a to-do made in a turn a person's line started gets that line whole as the
+  first quoted entry of its thread (`tools/builtin/tasks-util.ts keepPersonLine`, drawn by `ui/chat/KeptLine.tsx`) – only
+  when every person in the thread reads the chat it came from, else its link alone (`LINE_ELSEWHERE`; a later joiner gets
+  the same, `keepQuotesFor`).
+* **The one intake of a person's line** (`tasks/quick.ts`, RPC `tasks.quickCreate` – owner `rpc/handlers/task-center.ts`,
+  a colleague `people/rpc-tasks.ts`): `{text, at?, minutes?, quest?, private?, attachments?, clientId?, target?}` from the
+  Tasks page's line, a calendar slot (`calendar/add.ts`), the chat's `/todo` (`ui/chat/composer/slash.ts`), the phone's
+  to-do button and the float bar. The line stands at once as the person's own chat-free to-do (title = first line, notes
+  = the rest, a plain Done), in the picked quest, at the time they confirmed; then their assistant (`day/assistant.ts
+  wakeAssistant`) is woken once with the line, the time phrases in it they did not confirm (`shared/text/when.ts
+  findTimes`) and the open work it is about (`tasks/related.ts relatedWork`), and sorts it – person, agent or both as two
+  to-dos in one quest, the quest, an open time – each change one event line in the thread. An "Only me" line (default:
+  `settings.day.aiHelps` off; the line's own choice wins) is sorted too and never handed on. `target` (Send to…) hands it
+  straight to an agent, branch, team or colleague (`handOver`). A retry with the same `clientId` answers the first to-do.
+  `day.add`, `todos.add` and the old quick routing are gone.
+* **The agent's four task commands** (`tools/builtin/tasks.ts`, `tasks-list.ts`, `tasks-remind.ts`, `tasks-util.ts`; all
+  four in the base core set; they replace twenty – `tasks.create/give/finish/get`, `todos.prepare`, `schedules.*` and the
+  calendar's to-do tools): `tasks.add {title, for?, quest? ("new" with doneWhen), at?, minutes?, notes?, ask?, after?,
+  doneWhen?, effort?, priority?}` – a to-do in a quest for me, a colleague, the person or "team", or a new quest (default:
+  the quest of this turn's work); `tasks.update {id?, title?, notes?, doneWhen?, for? (= give), at? ("" clears),
+  minutes?, quest?, after?, status? (open · waiting · done · dropped), waiting? (one line), result?, evidence?, effort?,
+  priority?, quiet?, alsoHandled?}` – done needs a result and runs the one verification; the follow-ups of a close are what
+  this turn set up (new to-dos and reminders), listed by themselves; `tasks.list {id?, who?, search?, done?}` – my quests,
+  or one quest or to-do whole with every owner's to-dos, waits, the ended ones and its thread; `tasks.remind` – my own note
+  (§4.6). Times go through `parseWhen(value, now, profile zone)` (`tools/builtin/util.ts`, §4.7). A preparation for the
+  person is a notes paragraph ("Prepared by <name>: …").
+* **Per turn** (`context/quest-text.ts`, `context/prompt-volatile.ts`): `## My quests` – one line per open quest I own,
+  hold an open to-do in or gave, no cap (`title · task_… · person: n open (next: …) · me: n · <colleague> n · next note
+  <when>`), then `Other:` my lone to-dos; the turn's own work as `## Current quest` or `## Current to-do` with the quest as
+  it stands now (`questSnapshot`: done-when, every owner's open to-dos with waits and since when, the thread lines since my
+  last line there); `## Related open work` when a person's new line is about others' open work (`relatedWork`, top 3). A
+  fold carries the `## My quests` lines into its hand-over (§5.1).
+* **The watcher** (`tasks/watch.ts`; nothing in it wakes an agent on a timer of its own – `next_at`, the per-task looks,
+  the stall pause and the 2-day nudges are gone): an owner for an ownerless row (`give.ts pickOwner`),
+  an archived agent's work to its successor (`owners.ts`), the follow-up of an owner's turn (§4.4), recovery at start, and
+  **the person's ring**: a to-do whose `at` is reached pushes once (kv `tasks/ringsTo`; on the CEO PC with the smallest
+  id). **The morning pass** (`tasks/morning.ts`): at 07:00 profile time, once per agent and day (kv `tasks/morning:<id>`,
+  a missed one a minute after the next start), an agent that owns open quests or holds open to-dos in them without an
+  active reminder gets ONE wake listing them, each as `questSnapshot`. A bridge wake (`bridge/quests-wake.ts`, once per
+  agent, only where migration 110 converted data) had every agent sort its old open work into quests.
+* **Where handed work lands, and how loud** (KI-Runde 17.11.2026, B-092): a task carries an effort, never a model (a
+  model is named where a context starts – `agents.split`, `agents.create`, `agents.update`, §6). Work handed from a chat
+  the person is in to an agent who is not in it lands in the giver's 1:1 with the receiver; a task never adds anyone to
+  the person's chat (`tasks/owners.ts`, `tasks/create.ts`). The card of a task an agent made for an agent is posted
+  silent; the person's own hand-over card and a task for the person stay loud. A wait whose reason changed replaces the
+  task's last wait line in its thread instead of adding one, and a person's line no longer reopens a task that waits on
+  them – it wakes the owner with the task, and the owner moves it (`tasks/lifecycle.ts`). Progress goes into the thread.
+* **To-dos with widgets**: an agent's ask block in a message, or `tasks.add` with `ask` for the person, becomes the
+  person's to-do with a widget (confirm, choice, form, approve, checklist, timer, record, upload, review, or an
+  agent-programmed ```app mini-tool; `tasks/block-todo.ts`, `tasks/widgets.ts`). `approve` is a plain question; its
+  answer `{approved, note?}` binds nothing. "Later" moves its `at` (`todos.snooze`, undoable); "Repeat" is a timer widget
+  with `repeat` daily · weekdays · weekly (`todos.changeWidget`): Done moves `at` to the next time, `todos.stopRepeating`
+  ends it (`tasks/human.ts`).
 * **A click is the person's line** (B-076, owner 05.11.: "das ist nicht eine Entscheidung, das ist einfach nur der
   Button-Klick"; `tasks/answer-receipt.ts`): an answer or a decline posts ONE message of the person in the chat (kind
   `answer`, idempotent per client id or block key) – their line (`shared/blocks/answer-text.ts`: the picked option in
   full, "Label: value" lines, "I can't do this: …"; a secret field shows only its `secret://` handle – the typed value
   is in the secrets catalog before the line is made) as a reply to the asking message,
   with the answer's files attached; `meta.answer` keeps the block key, the to-do, the one-line summary and what the
-  block asked. The asking agent is woken as for a typed line (reason `message`, no note; on the open task when the to-do
-  is a step of one, merging with that task's wake) and a turn running in that chat takes it in at its next step
+  block asked. The asking agent is woken as for a typed line (reason `message`, no note; on its quest when the to-do is
+  in one, merging with that task's wake) and a turn running in that chat takes it in at its next step
   (`dispatcher.steer`); it reads "(answer to my ask "…")" before the line (`context/render.ts`). The line counts as a
   person's message for the loop guard (`chat/delivery.ts`). The to-do then ends quietly: no "Done:"/"Cancelled:" row,
-  no `[ui-answer]` note (`tasks/lifecycle.ts`); only when the to-do was the last open step of a task that waits on the
-  person (`needs_you` or waiting on the human) does `tasks/transitions.ts` set the task working again and note "The
-  person answered my ask … – I continue the task." (a decline: "Nothing on this task waits on the person any more
-  (cancelled: …)"). Exceptions: a chat-free to-do, or a line that cannot be posted (the person left the
-  chat), wakes with reason `answer` and the line plus file paths as the note.
+  no `[ui-answer]` note (`tasks/lifecycle.ts`); a wait on the person ends with it (`tasks/transitions.ts endWaitOn` – the
+  asker hears the person's own line). Exceptions: a chat-free to-do, or a line that cannot be posted (the person left
+  the chat), wakes with reason `answer` and the line plus file paths as the note.
 * **Finishing**: a result needs a summary; evidence is welcome, never required. With a done-condition and a
   connected verifier the result is checked once (`tasks/verification.ts`): verified, or one note and one wake to the
-  owner. Whoever created or assigned delegated work hears once how it ended (`tasks/lifecycle.ts`).
+  owner; the person's own Done (an agent-led quest too) closes at once. Whoever created or gave the work hears once how
+  it ended (`tasks/lifecycle.ts`, `transitions.ts endNote`); a quiet close tells nobody.
 * **Transitions** (`tasks/transitions.ts`): work that waits on someone continues as soon as the wait ends (an answer,
-  a message, a child's result).
-* **Delegation** (`agents/handoff.ts`): `agents.delegate` (a subtask for a colleague or a mode) and `agents.handoff`
-  with a portable checkpoint (`context/checkpoint.ts`). A delegation chain is limited to three levels (a cheap guard
-  against loops, not a permission).
-  `agents/delegated-answer.ts` records runtime-only references to the concrete read person message, delegation child
-  and return chat in KV. A returned result answers that still-open request once, with or without a task id; room
-  membership alone confers no publishing default. Private tags and already-sent answers remain private/deduplicated.
+  a message, a to-do it comes after).
 
-### 4.4 The ownership loop
+### 4.4 After an owner's turn (Quests-Runde 20.11.2026)
 
-`tasks/ownership.ts` – one rule: **an owner keeps working on its task until it is done or it asks.** After each turn
-of the owner (or of the lead, for unowned team work):
+**An owner keeps working on its task until it is done or it waits on something real**; nothing looks again by itself.
+After each turn of the owner on its task (`tasks/watch.ts afterTurn`):
 
-| Turn outcome | Next wake |
+| Turn outcome | Next |
 |---|---|
-| Did something (a tool call or a status change) | continue after 1 s |
-| Did nothing | pause 1 min, doubling per turn without progress, at most a day |
-| Usage limit or outage | after 1 min, doubling up to 30 min – at once when an account becomes usable |
-| Waiting (waiting, needs you, blocked) | one re-check after a day; the awaited event wakes it sooner |
-| Done, or another agent's turn on it | nothing |
+| The person's Stop | the task pauses until they resume it |
+| Cut off (interrupted) | it goes on now |
+| Usage limit or outage (no account or model) | one retry wake at the retry-after, else `OUTAGE_RETRY_MS` (30 min) – brought forward when an account or model comes back or the host is online again |
+| Done, failed or waiting | nothing – the awaited event wakes it; a later look is the agent's own reminder (`tasks.remind`, §4.6) |
 
-A person's Stop pauses the task until they resume it. `recover()` wakes every unfinished agent task once after a
-restart. The loop never completes, blocks or escalates a task by itself.
+`recover()` wakes the work a cut-off run belonged to once after a restart; the morning pass (§4.3) names the quests that
+have no next note. The watcher never completes, blocks or escalates a task by itself.
 
 ### 4.5 Splits and Ultra
 
@@ -536,15 +608,22 @@ UI: split rows in the team sidebar, in the chat and on a split page (`ui/splits`
 
 ### 4.6 Schedules
 
-`runtime/schedules`: kinds message, reminder and routine (`fire.ts`); a spec is `at`, `cron` (croner, IANA zone,
-DST-safe) or `every`, plus times, window, exceptions and catch-up (`spec.ts`). Agents use one `when` shape
-(`schedules.message/remind/routine/update/list/cancel`, `when.ts`); each result echoes the next runs. A schedule another
-PC fires shows its next run here too: `scheduler.ts` list/get fill a display `nextAt` (`firstFire`, never written), also
-in the synced `schedule.upserted`. The agent page lists active schedules by next run, paused ones under one closed
-"Paused (n)" fold, ended one-shots left off (one state rule for both lists, `ui/tasks/schedule-state.ts`).
+`runtime/schedules` (Quests-Runde 20.11.2026): two kinds (`fire.ts`) – **message** (the person's "Send later": a chat
+post as if typed then, `post.ts`) and **reminder** (an agent's own first-person note at a time, once or repeating, about
+a quest or to-do – `taskId`; it wakes the agent with the note, and the turn reads the quest as it stands, §4.3). The
+reminder is an agent's only "look again later"; a repeat lives in its spec, a person's ring in the to-do's own `at` –
+`routine` (tasks per fire, "Post as task") and `timer` are gone (migration 110 and, for rows from older PCs,
+`bridge/quests-2011.ts oldSchedule` map them: an agent's routine → a repeating reminder, a person's → a repeating message,
+a timer → its to-do's `at`). A spec is `at`, `cron` (croner, IANA zone, DST-safe) or `every`, plus times, window,
+exceptions and catch-up (`spec.ts`, zone math from `shared/text/when.ts`). Agents use `tasks.remind {text, at | repeat,
+about?, list?, cancel?}` (`tools/builtin/tasks-remind.ts`; times through `when.ts`, words read in the person's zone);
+each result echoes the next runs. A schedule another PC fires shows its next run here too: `scheduler.ts` list/get fill
+a display `nextAt` (`firstFire`, never written), also in the synced `schedule.upserted`. The agent page lists active
+schedules by next run, paused ones under one closed "Paused (n)" fold, ended one-shots left off (one state rule for both
+lists, `ui/tasks/schedule-state.ts`); Chat details › Scheduled shows the two kinds (`ui/chat/details/Schedules.tsx`).
 
 **The person's side – the composer's schedule mode** (`ui/chat/composer/ScheduleBar.tsx`, `schedule-form.ts`,
-`schedule-rule.ts`, `schedule-next.ts`, `schedule-mode.ts`, `schedule-clock.ts`; it replaced the "Send later" dialog and
+`schedule-rule.ts`, `schedule-next.ts`, `schedule-mode.ts`; dates and zones through `shared/text/when.ts`; it replaced the "Send later" dialog and
 needs no new runtime): "Schedule…" in the + menu or the Send button's right-click menu puts one block of settings above
 the text inside the composer frame and lets the text area grow; nothing outside the frame moves. Rows: **Once | Repeat**;
 Repeat has **Days** (weekday buttons at fixed times, stored as `times` plus `days`), **Interval** (every N minutes,
@@ -560,29 +639,70 @@ whose rule the form can show (not several times a day, a daily window, skipped d
 composer in schedule mode with the text and rule and saves through `schedules.update` (the rule only if it changed, so
 an interval keeps its anchor; the Ultra switch is inert while editing, `schedules.update` has no Ultra field); the draft
 that was in the field comes back afterwards.
+**Settings › Scheduled** (owner 21.11.2026, `ui/settings/ScheduledPage.tsx` + `ScheduleDialog.tsx`, pure part
+`ui/tasks/schedule-edit.ts`) lists every schedule of the company grouped by chat (the shared `schedules` signal, kept fresh
+by the schedule events): switch = pause/resume, Edit and Delete per row, "New message" = `messages.schedule`. The dialog
+reuses the composer's `ScheduleBar` (props `form`/`onChange` now, no × there) and `schedule-form.ts`. `schedules.update`
+takes `conversationId` (a message moves to a chat its author is in; `repo.save` writes `conversation_id`), and the person
+rewords every scheduled message – an agent's too, still posted under its name – and an agent's reminder note (`post.ts`).
 
-### 4.7 My day and the calendar
+### 4.7 The Tasks page and the calendar (Quests-Runde 20.11.2026)
 
-* **UI** (`ui/day`, route `#/day`; the default route `home` is a pure alias): "Next" on top (`DayNext.tsx`, computed
-  live from the list and the calendar by `day-next.ts` – the soonest to-do or event whose time has not passed, with
-  Start – and one line of what was done since last evening), the input row ("I do this": one to-do per line, typed or
-  dictated), the person's to-dos in groups (titles up to two lines; "High" only near the due time; a to-do whose planned
-  block passed more than 30 minutes ago asks for a new time with answers the person taps, `DayStale.tsx`), "Handed
-  off", one line each for the chats that matter (at most three) and what the team did, and the calendar pane (day
-  grid; a week view on a computer; click a free slot to add something there). Calendar blocks and to-do rows have
-  right-click menus.
-* **Runtime**: `calendar/service.ts` (the members' local calendar – events and the time blocks of tasks),
-  `calendar/planner.ts` (places to-dos into free gaps), `day/service.ts`, `day/morning.ts` (one re-armable timeout to
-  the morning run, default 06:00) and `day/briefing.ts` (its sentences come from the helper model, `day/helper.ts`;
-  since 17.11.2026 My day reads only its chat order and when the PC slept – the sentences are no longer shown),
-  `day/keep-awake.ts` (keep the PC awake for agent work after hours), `day/focus.ts`, `day/estimates.ts`,
-  `day/handed-off.ts` ("Send to team" wakes the responsible manager), `day/assistant.ts` (the person's secretary or
-  CEO assistant works for them). Settings: `settings.json` `day` and `calendar`.
-* **Connected calendars** (`calendar/sources/*`): Google two-way (system-browser consent, loopback) and read-only
-  ICS links, managed by agents with `calendar.connect` (list, add, remove, sync, Google sign-in link). Without the
-  person's own Google client the `google` action starts no sign-in and names the iCal way instead – the calendar's
-  secret ICS address, read where that account is signed in, then `add_ics` (`GOOGLE_ICS_WAY`, 16.11.). Ticking off a
-  to-do updates its block (`calendar/task-link.ts`).
+* **One page "Tasks"** instead of My day and Work (and their side-pane copies) – `ui/tasks/TasksPage.tsx`; routes
+  `#/tasks[/<taskId>][?date=…&owner=…]`, the default `home`, and an older `#/day[/<date>]` link (`ui/lib/router.ts`; a
+  chat route to a `task_…` id opens the task). One rail entry, one phone tab, one palette action and one side-pane tab
+  "Tasks" (`ui/lib/vocab.ts`, `shell/Rail.tsx`, `shell/MobileShell.tsx`, `workspace/browser-model.ts` – a stored
+  'day'/'work' tab reads as 'tasks'). Desktop: the quest column in the sidebar (`QuestNav.tsx`: "Quests" + `+`, with you
+  · other · AI only, connected calendars on/off); the head ‹ › date · Day | Week · search (`task-search.ts`: a local stem
+  match plus `tasks.list search`); the list – the input line, **For you** (the person's own open to-dos, `ForYou.tsx`,
+  rows `TodoRow.tsx`), **Done today**, **At work** (agents', colleagues' and team work, one collapsed line, `AtWork.tsx`);
+  on the right the calendar, or the open to-do's or quest's detail in its place (the list never moves). One column (a
+  phone, the side pane, a narrow window): List | Calendar, quests as chips, the detail as its own view.
+* **The input line** (`TaskInput.tsx`, `input-model.ts`, `LineExtras.tsx`): typed or dictated (`use-dictation.ts`,
+  `FieldMic.tsx`); every time phrase is marked blue as it is typed (`findTimes`, below) – one phrase with a clock time is
+  used at once (× drops it), a day alone or two or more phrases are offered outlined until one is clicked, otherwise the
+  assistant decides; each non-empty line is its own to-do (dictation stays one line); text plus a click on a calendar
+  slot = a to-do at that time. Its `+` is the Plus menu: Files…, Only me, Send to… (a colleague, agent or team –
+  `target`). Enter → `tasks.quickCreate` (§4.3); the new rows read "<assistant> is sorting…" while it runs.
+* **The detail** (`TodoDetail.tsx`, `QuestDetail.tsx`, `TaskEdit.tsx`, `TodoWidget.tsx`): the title edits in place, the
+  time chip opens a small field with the same phrase rule, notes as Markdown, the tool (the ask widget, a mini-app, the
+  recorder – its big teleprompter only while recording), and the thread (`ui/chat/TaskThread.tsx` with a slim "Write to
+  <lead> about this…" line). A quest shows its lead, done-when, n of m done, "AI this week" (its agents' turn time since
+  Monday, `quest-runs.ts`), its to-dos per owner, the next note and its thread. Menus: `todo-menu.ts` (Later, Repeat ›
+  Daily · Weekdays · Weekly, Show as, Can't do, Send to team, Only me, Important, Move to quest, Undo last change …) and
+  `task-menu.ts` for quests (Rename, Give to, Done, Reopen, Drop, Delete).
+* **The calendar** (`TaskCalendar.tsx`, `calendar-model.ts`, data `ui/lib/day-store.ts`): a day grid and a week; the
+  person's to-dos in their quest's colour (`--wf-c1…8`), dragged in 15-minute steps (`calendar.move` moves the to-do's
+  `at`); connected calendars' events grey; done to-dos at the time they were done (a logbook); day-only to-dos in a strip
+  above the hours; the AI lane – the agents' notes (`calendar/agent-runs.ts`) and their done to-dos, never open agent
+  work – only while At work is open.
+* **Runtime**: `calendar/service.ts` (appointments as stored rows; the to-dos with a time read from their tasks as rows of
+  kind 'todo' – `calendar/repo.ts todoRow`, id = the task's, never stored: a person's open to-do at `at` for `minutes`, a
+  done one at its end, a day-only one all-day; a move or removal changes the to-do's `at`), `calendar/add.ts` (a slot
+  click: an appointment, or the person's line through `tasks.quickCreate`), `calendar/rules.ts` (conflicts, busy spans,
+  free gaps), `day/assistant.ts` (the person's secretary or CEO assistant – sorts the line, §4.3), `day/keep-awake.ts`
+  (keep the PC awake for agent work after hours), `day/clock.ts` (the profile zone and the day settings). Settings:
+  `settings.json` `day` (work hours, `bufferMin`, `planAt` as the night's end, `aiHelps` for the line, `keepAwake`) and
+  `calendar`. The day planner, the morning planner and briefing, the focus timer, learned estimates, "Handed off", the
+  stale-asks tidy and the Next card are gone, with `day.plan/briefing/handedOff`, `day.add` and the keys
+  `day.autoPlan`/`day.agentLane`.
+* **Connected calendars** (`calendar/sources/*`): Google two-way (system-browser consent on the one loopback listener
+  `apps/oauth/loopback.ts`, shared with the apps' MCP sign-in) and read-only ICS links, managed by agents with
+  `calendar.connect` (list, add, remove, sync, Google sign-in link). Without the person's own Google client the `google`
+  action starts no sign-in and names the iCal way instead – the calendar's secret ICS address, read where that account is
+  signed in, then `add_ics` (`GOOGLE_ICS_WAY`, 16.11.). The Google mirror writes the person's to-dos with a time (a
+  day-only one as an all-day event) from the same to-do rows (`sources/google-mirror.ts`). Agents read the person's days
+  with `calendar.list {from?, to?, who?, minutes?}` – appointments, to-dos with a time and free gaps
+  (`tools/builtin/calendar.ts`); an appointment an agent sets for the person is their to-do with a time (`tasks.add`).
+* **Time in words – one parser, one zone math** (`shared/text/when.ts`): `findTimes(text, now, zone)` returns every
+  time phrase of a German or English text with its span and moment (`/15:00`, `in 2 h`, `heute`, `morgen um 10`,
+  `übermorgen`, weekdays – a bare one that is today means next week –, `Fr 9`, `24.12.`, `24. Dezember`, `15 Uhr`, `9am`
+  …; a day alone is `allDay`); a phrase is one contiguous span, so "morgen … am Freitag" names two and the reader picks.
+  `stripTime` cuts a used phrase from a title; `wallOf`/`wallTime`/`addDays`/`weekdayOf` are the app's one zone and date
+  math (DST-correct), used by the schedules' specs, the calendar and its ICS/Google sources, the day settings, notices,
+  the context's times and the UI. The tools read every time with `parseWhen(value, now, zone)` (`tools/builtin/util.ts`:
+  epoch ms, ISO, a duration, `+24h`/`in 30m`, a zone-less ISO as wall time in the zone, else exactly one `findTimes`
+  phrase with nothing left over). The stem of the word search is one too (`shared/text/normalize.ts stem`, §5.2).
 
 ## 5. Agents and the organisation
 
@@ -615,9 +735,9 @@ that was in the field comes back afterwards.
   `agents.create` returns the hire's own part (from "## My role" on) and the line on how the creator starts it; since
   B-092 it takes an optional `model` and `effort` (the colleague's start model with the creator's name on it), its
   `instructions` say who the colleague is and for whom, and the first piece of work is a task. Nothing
-  enforces any of it; there is no monthly limit, budget field or purchase check anywhere (`Agent.budget` is gone). The
-  CAPTCHA line the owner wanted ("ich bin kein Roboter") is the default of "For every agent" (`profile.forEveryAgent`,
-  below) and stands nowhere else (16.11.2026): the shipped texts say Autark's browser first, the person's own Chrome where
+  enforces any of it in Trust AI mode; Secure mode closes money for good (§7.6). The CAPTCHA line the owner wanted ("ich
+  bin kein Roboter") is the security topic text `captcha` (`<data>/security/<mode>/captcha.md`, §7.6; until 19.11.2026
+  the default of `profile.forEveryAgent`): the shipped texts say Autark's browser first, the person's own Chrome where
   it falls short, and `feedback.report` to tell the makers what it lacked.
 * **Editing**: any agent may update any agent, itself included (`agents.update`: role, instructions, mode, model pin,
   manager – a hand-over –, space, avatar, voice, home project, home device). B-076: `instructions` without "# How I work"
@@ -645,11 +765,10 @@ that was in the field comes back afterwards.
   file until the other PC's file lands (B-087). The **home project** (`agent-core/home.ts`) is the folder its turns start in.
   `HUMAN.md` (`agent-core/human.ts`, owner 15.11.2026) holds the person's own lines to the agent – the person writes it
   (agent page "From you", `agents.setHuman`, or the file), the agent may change it, no standard or update rewrites it;
-  a hire starts without one (16.11.). **For every agent** (`settings.json` `profile.forEveryAgent`, ≤ 4,000 characters,
-  default the CAPTCHA line in the PC's language, `humanDefault` in `shared/model/agent-core.ts`; Settings › Security)
-  is one text the person, any agent and linked PCs change like any setting (its own sync unit); `prompt-stable.ts`
-  renders "## From <name>" (HUMAN.md) and then "## From <name> – for every agent" last, each only with text. The bridge
-  `kontext-1311` empties once per PC a HUMAN.md that is only the old default line.
+  a hire starts without one (16.11.). Since 19.11.2026 there is no "For every agent" setting any more: its text moved
+  into the security topic files (bridge `sicher-1119`: the CAPTCHA default dropped, any other text appended to
+  `general.md` of both modes); `prompt-stable.ts` renders the section `security` ("## What <name> and I agreed", §7.6)
+  and then "## From <name>" (HUMAN.md) last.
 * **Home device**: `Agent.deviceId` – the PC its computer, browser and phone tools run on by default (§8). The agent's
   turns and data stay on the PC that hosts the org.
 * **The other companies on this PC** (B-075; `tools/builtin/companies.ts`, `tools/placement.ts` `placeCompany`,
@@ -678,7 +797,7 @@ that was in the field comes back afterwards.
   work for each CEO alike", `identity.md` `{{ceos}}`), then the agent's SYSTEM.md as it stands (the main part, §5),
   then the rich-answer line, the mode, "My folder", "My environment" (this PC – "… the Autark system on it, whose language is set to <language>." is a
   fact, the agent writes in the language people write to it in –, workspace, web, screen, tools), skills; then the volatile
-  part (now, environment now, this chat, team and models, pinned notes, tasks) and the publishing line. The heading of
+  part (now, environment now, my chats, team and models, pinned notes, my quests and the turn's own work) and the publishing line. The heading of
   the always set (always-skills such as `money` and the pinned notes, B-078 – so in practice every turn) names where
   agreements live (B-077, owner 05.11.: the open system brings itself to its best state – an agent that reads an older
   pinned agreement there moves it itself; no extra call, no marker): with "What I have here" in the SYSTEM.md it adds
@@ -694,8 +813,8 @@ that was in the field comes back afterwards.
   away to their own Chrome) and `subconscious` (the system prompt of the
   subconscious's asked run, §5.4). Since B-075 (owner 04.11., Nachricht 3: the AI's own will, never what it may) they
   speak as the AI itself – "# How I work", "# Who I am", "This is my SYSTEM.md" – and so do the code-side sections
-  ("## My instructions", "## My folder", "## My main skills", "## My environment", "## My open tasks and promises",
-  "## My splits here" …), the tool texts and the shipped skills ("I read this when …"); `onboarding.md`'s start line
+  ("## My instructions", "## My folder", "## My main skills", "## My environment", "## My quests",
+  "## My parts" …), the tool texts and the shipped skills ("I read this when …"); `onboarding.md`'s start line
   stays the person's own. Every one, `rules.md` included, can be replaced by a file in `<data>/prompts`. The only rule about
   irreversible steps is one self-check line: "Before something I cannot undo (deleting, paying, sending to outsiders,
   publishing under their name), I check target, amount and recipient myself (I list them), then I do it; when what I
@@ -739,21 +858,12 @@ that was in the field comes back afterwards.
   left again in H1: no effect, and it sends agents at anything open) – and that the fewer the words, the more the person
   leaves to the agent. This was checked live (01.11.2026); with the Codex app note (below) Codex
   hires on "set everything up", but still reads it as setting up the work basis, not as the company's own work.
-* **Prompt updates** (`org/prompt-updates.ts`, `context/prompt-updates.ts`): after seed creation and before dispatch,
-  untouched `SYSTEM.md` standards follow the current default (B-076: the standard includes the team's rules, so a change
-  of `rules.md` renews or offers like any other) while the role suffix stays the agent's: renewing an untouched head
-  brings it to today's form once (`org/role-upgrade.ts`: "## Your role" → "## My role", a role text that is exactly one a
-  template shipped before B-076 – recognised by `resources/agents/previous-bodies.json` – becomes today's template text from
-  `resources/agents/<key>.md`; only on that way from the old form, a missing "## What I have here" is added; anything
-  written by the person or the agent stays word for word). Each hire's template and full instruction baseline live in
-  `kv` (`agent-prompt-defaults`); "edited" means the standard part above the role heading changed since that record
-  (`headOf`) – an agent that only fitted its role or "What I have here" still follows the new standard automatically –
-  and only an edited standard part gets a durable `review` wake once per new default, through that agent's configured
-  model route (the changed lines cut between lines with a count, `shownChanges`). Historical standard heads bootstrap
-  older installations. Archived custom agents are offered the update when restored. Global overrides in `prompts/`
-  follow the same rule (`prompt-defaults`): untouched copies update, custom versions get a manager review. Full reference
-  texts live in `prompts/updates/<name>-<sha256>.md`; no custom prompt is automatically overwritten. A review can adopt,
-  adapt or keep the current text. The offered revision and wake are saved together; this needs no provider call at boot.
+* **Prompt updates**: an agent's SYSTEM.md follows its standard through the standard comment (`org/standard.ts`, §5);
+  there is no one-time upgrader of older heads any more (Quests-Runde 20.11.2026) – data from before 0.3.9 updates
+  through 0.3.14 first (§3 Database). Global overrides in `prompts/` (`context/prompt-updates.ts`, kv `prompt-defaults`): untouched copies
+  follow a shipped revision, custom versions get one durable review request for the team's reviewer (its manager, else
+  the top agent, on the PC it runs on). Full reference texts live in `prompts/updates/<name>-<sha256>.md`; no custom
+  prompt is automatically overwritten. A review can adopt, adapt or keep the current text.
 * **Fortbildungen / trainings** (B-086) are gone since 14.11.2026: a lesson for agents that already work is a change of
   the standard (`prompts/standard-*.md`), and the standard comment (`org/standard.ts`, above) brings it to every agent
   once with its next turn – becoming a lead too (since B-092 without a wake of its own). Mode files (`resources/modes/*.md`) stay the live channel for every
@@ -770,8 +880,7 @@ that was in the field comes back afterwards.
   start and end of a long one –, every step with each result under its call, the final text; redacted before any cut;
   the newest steps stay when the file would pass 200,000 characters); both only for the main lane, not a split's parts;
   earlier turns are in the activity log (Team › agent › Show work, `agents.log` / `runs.items`, the `agents.log` tool);
-  asked for its system prompt, an agent hands over `last-prompt.md` as a file (skill `system-prompt`); a one-time upgrade (`org/standard-upgrade.ts`) replaced the false sentences in frozen `SYSTEM.md` heads ("The app
-  enforces these limits", the "Permissions section"). Engines add their own text around ours (Claude's prefix and tool
+  asked for its system prompt, an agent hands over `last-prompt.md` as a file (skill `system-prompt`). Engines add their own text around ours (Claude's prefix and tool
   descriptions, Codex's skills and multi-agent notes and the person's `~/.codex/AGENTS.md`); our prose was about 15 %
   (Claude) and 25 % (Codex) of a first request, measured 03.11., the rest mostly tool schemas.
 * **Stable section** (`context/prompt-stable.ts`, byte-identical for the same agent and mode so providers cache it; since
@@ -784,10 +893,12 @@ that was in the field comes back afterwards.
   a standing preference, not a message: Codex puts the person's `AGENTS.md` into every thread, and an agent answered it
   instead of the turn, C4-live; until 03.11. the line was Codex-only and named the file), Main Skills, one skills line.
   A Codex helper thread's note (`engines/codex/helper-thread.ts` `HELPER_NOTE`) says the same without naming a file or a tool.
-* **Volatile section** (`context/prompt-volatile.ts`): now, this chat, the current task, "## My environment now"
+* **Volatile section** (`context/prompt-volatile.ts`): now, "## My environment now"
   (B-075, every mode: "Companies on this PC: … (this one), … · Linked PCs: … (online|offline)", only with more than one
   company or a linked PC; `environment.ts` `companiesLine`, with how to act in another company where `tools.call` is
-  offered), working nearby (`work-presence/*`: who else touches the same files), splits. A manager-mode turn also carries "## Team and models
+  offered), working nearby (`work-presence/*`: who else touches the same files), "## My chats", splits, pinned notes, and
+  (Quests-Runde 20.11.2026, `context/quest-text.ts`, §4.3) "## My quests" without a cap, the turn's own work as
+  "## Current quest" or "## Current to-do", and "## Related open work" for a person's new line. A manager-mode turn also carries "## Team and models
   (live)" (`context/setup-facts.ts`: agents per space, accounts, usable strong models, and one line naming the models
   that answer decisions and search by meaning now – `usesLine`, §6); the longer setup checklist
   ("## Setup (live)": onboarding finished, spaces, paid fallback, phone, Telegram …) no longer rides in every manager turn
@@ -834,7 +945,7 @@ that was in the field comes back afterwards.
   too small, so "80 % fit" landed at 1.2M real tokens); the ledger counts at 2, rows from before were rescaled ×3/2 by
   migration 109; the engine's own count (`session.contextTokens`) is the real one. **The causes** (`wantsFold`, at the end
   of a main-lane turn that ended done, no part, no call turn, nothing queued or running for this agent): the run finished a
-  task (a `tasks.finish` in it) and the engine counts at least `FOLD_STEP` (120,000); the count is at least `FOLD_IDLE`
+  task (an ok `tasks.update` call and a task I own ended since the run started – Quests-Runde) and the engine counts at least `FOLD_STEP` (120,000); the count is at least `FOLD_IDLE`
   (180,000 – the replay found 160–200k saving more than 250k, because leads that rarely finish a task sat at 120k–250k for
   most of their calls); or the engine compacted by itself (a run note `{compacted: 'engine', before, after, ms}` from Claude
   Code's `compact_boundary` or Codex where it says so) – that cause is kept on the binding (`compactedAt`, migration 109) for
@@ -844,20 +955,34 @@ that was in the field comes back afterwards.
   would re-write the cache (`effortKeepsCache`) –, with the session's own prompt and tools (cache warm), no repair notes, no
   live block and no failover or renewal; its whole input is `FOLD_NOTE` in the agent's voice ("My turn is done, and my context
   holds {{size}}: I read all of it again on every step. I write my hand-over to myself now – it is all my next turn starts
-  from, beside my chats with my own lines in them, my open tasks and my files: …"; without a count "all I read on the way"),
+  from, beside my chats with my own lines in them, my quests and my files: … an ask that is not done stays open in its
+  quest, and my quests as they stand now are added under my hand-over …"; without a count "all I read on the way"),
   true for all three causes. Its closing text never reaches a chat (blocks it addresses go out as always); `endFold` writes,
-  in one transaction, the hand-over as a pinned ledger item of its own kind (`checkpoint`, id letter `c`, "Hand-over", shown
+  in one transaction, the hand-over with the `## My quests` lines as they stand appended under `FOLD_QUESTS` (data, never
+  the agent's retelling – so a fold never drops an ask) as a pinned ledger item of its own kind (`checkpoint`, id letter `c`, "Hand-over", shown
   in full in every later view), and marks every item of the agent's own work before it – tool calls and outputs, skills,
   files, reasoning, commentary, earlier hand-overs – hidden with `by: 'fold'`, restorable as every hidden item is
   (`context.restore`). What stays in view: chat lines under their reach rule, the agent's own posted words in its chats
   (also lines posted through a block in the middle of a turn – the 'Update' note records `messageIds`), and the
-  `tasks.finish` calls since the previous hand-over (at a first fold: those of the run that just ended). A hand-over too short
+  `tasks.update` calls that finished a task (status done or dropped) since the previous hand-over (at a first fold: those of the run that just ended). A hand-over too short
   to stand for a context of `FOLD_STEP` tokens (`compaction-policy.ts`) marks nothing. The session is marked folded (`foldedAt`, migration 109), and the
   next turn rebuilds from the ledger view (`why: 'fold'`) and adopts the current prompt and tool offer. A fold turn that fails
   or is cut marks nothing and the next trigger tries again; while the thread's rebuilds are blocked no fold is asked for; a
   'fold' rebuild that cannot run clears the mark, and one that falls back (a failed probe, too large) blocks that thread's
   rebuilds for 6 h like a refusal. Replayed on the 15,807 real Claude calls of 16./17.11. (company-2, read only): −51 to −55 %
   at list prices, the fold turns themselves costing about $16–59 of what remains; not run against a real model yet (OFFEN).
+* **Since 21.11.2026 ("Halb") – what holds the context down:** inside a run the engines compact at `RUN_CEILING` (250k,
+  `agents/compaction-policy.ts`; Claude Code `--autocompact` only when the installed CLI lists the flag, Codex
+  `model_auto_compact_token_limit`) – a safety net far above normal work, not a working limit. Between turns a sixth
+  rebuild cause `trim` (`agents/rebuild.ts`, `agents/rebuild-lean.ts`): from `TRIM_AT` (100k) the lean view is computed
+  and the session rebuilt when `freed × TRIM_PAYBACK_CALLS (24) × cached price ≥ rewritten × write price` at the turn
+  model's own prices (an unchanged prompt and tool offer counts at the read price). The lean view keeps whole only the
+  thread's newest `KEEP_STEPS` (6) tool steps and the reasoning of this and the newest run – also inside work that is
+  still open – and cuts string arguments of set-aside calls to `ARG_KEPT` (300) characters; words stay, `context.restore`
+  returns every original. The subconscious no longer condenses (its one call weighs the effort and picks hints:
+  `subconscious/route-turn.ts`, `subconscious/hints.ts`, live section `## From my memory`). An unweighed turn runs at
+  `UNWEIGHED_EFFORT` (medium, `routing/previous.ts`); there is no floor for a person's line. `agents.split` takes `needs`
+  (check | chain | judgment) per fresh part and the router maps it to a tier (`routing/split-route.ts`).
 * **Rebuilds and their five causes** (B-092, `agents/rebuild.ts`): a session is rebuilt from the ledger view when a fold
   waits, when its cache is cold (`CACHE_COLD_MS`, 60 min – the lean history is free then), on an engine or account switch,
   when no session exists, and past the fit. The weighing of warm rebuilds for savings (`pays`, `shrinks`,
@@ -867,17 +992,18 @@ that was in the field comes back afterwards.
 * **Lean tool offer** (`tools/core-sets.ts`): each mode offers a small core set directly; everything else is reached
   through the two meta tools `tools.find` and `tools.call` – since B-092 every registered tool that can work here, from
   every mode (§7.1); a tool an agent used becomes direct whenever its session starts anew, a rebuilt one included
-  (`tools/learned.ts`, promoted inside the rebuild). B-092 added `tasks.get`, `shell.exec`, `schedules.remind`,
-  `memory.write`, `agents.split` and `agents.split_tell` to the base core set (224 of 278 lookups measured 15.–17.11. were
-  for a tool the agent knew by name). The core set holds the main AI's call of the subconscious (`subconscious`, a spec of
-  about 110 tokens, §5.4); the `memory.*` tools, `context.restore` and – only where a person chose an embedding model (§5.3) –
-  `vector.embed` and `vector.search` are found through `tools.find`. `how-i-work.md` names `knowledge.find` for what was saved
+  (`tools/learned.ts`, promoted inside the rebuild). The base core set (`BASE_CORE`): the four task commands
+  `tasks.add`, `tasks.update`, `tasks.list`, `tasks.remind` (Quests-Runde 20.11.2026, §4.3), `chat.read`, `chat.direct`,
+  `web.fetch`, `knowledge.find`/`knowledge.open`, and since B-092 `shell.exec`, `memory.write`, `agents.split` and
+  `agents.split_tell` (224 of 278 lookups measured 15.–17.11. were for a tool the agent knew by name); `model.set` is no
+  longer in it – it stands in the one-line tool list and is reached through `tools.call`. The core set holds the main AI's
+  call of the subconscious (`subconscious`, a spec of about 110 tokens, §5.4); the `memory.*` tools, `context.restore`,
+  `vector.embed` and `vector.search` are found through `tools.find` (every mode, with or without an embedding model, §5.3). `how-i-work.md` names `knowledge.find` for what was saved
   (the former `rules.md` line named the vector tools: "By meaning, vector.search finds what vector.embed made searchable
   (tools.find); grep finds exact words."; with the older "vector.embed once, then vector.search …" a Codex Manager went
   `tools.find` → `vector.embed` → `vector.search` unasked in 2 of 2 runs, 02.11.).
 * **Subconscious** (`subconscious/*`): on the cheap model, the routing call before a turn and the main AI's own call, which
-  keeps memory and tidies the transcript when asked (§5.4, §5.5), and the small side work around turns – the one verification check of a task result and widget fills for to-dos the
-  person typed.
+  keeps memory and tidies the transcript when asked (§5.4, §5.5), and the one verification check of a task result.
 * **Codex's own sub-agent note** ("do not spawn sub-agents unless the user explicitly asks …": the developer messages
   `<multi_agent_role>` and `<multi_agent_mode>`, which Codex puts into a thread's context after this app's instructions –
   again in a fork and in a history it compacted) is answered by the Codex adapter's **app note** (`engines/codex/app-note.ts`,
@@ -906,7 +1032,7 @@ that was in the field comes back afterwards.
   with `_` or `.` are no entries. **The files are the truth**: a person, an agent with any editor tool or a script may
   edit them; the data-folder watcher reports it (the store's own writes are recognised and not reported back). **No
   list, index or folder listing of memory ever goes into an agent's context** (owner: "100.000 Einträge … komplett
-  überfüllter Kontext"), so the cost is constant at any size (live q-r4c, 03.11.: 100,000 files, the same main prompt of 11,406 + 1,014 characters and the same first input of 15,349 tokens as with 2,000); an agent reaches memory only through a tool call, and no tool output counts what is embedded or in a folder – except `vector.embed`, which reports how many files of the places it was given it embedded, re-embedded or found already embedded: named on `memory` that would be a count of memory files, and the place is not refused (never seen live; the main AI repeated "42 Dateien" of a workspace folder in qf). The one
+  überfüllter Kontext"), so the cost is constant at any size (live q-r4c, 03.11.: 100,000 files, the same main prompt of 11,406 + 1,014 characters and the same first input of 15,349 tokens as with 2,000); an agent reaches memory only through a tool call, and no tool output counts what is embedded or in a folder – except `vector.embed` for the files it was given (memory and the catalog it refuses: they are in the search already, §5.3). The one
   thing in the prompt is the content of files in a `pinned/` subfolder of the company, the agent's branch, its own
   folder and the current chat (a few tiny always-relevant facts, hard-capped, bigger ones left out). By default a turn
   looks at `company/`, its branch, its own folder, `references/` and its chat's folder; that is relevance, not a
@@ -915,16 +1041,15 @@ that was in the field comes back afterwards.
   subfolders, newest titles), `memory.read {path}`, `memory.write {folder or path, title, text, description, kind, tags, source …}`
   (the same title in a folder updates that file, the previous state stays as a version for a while; an unchanged text is
   "unchanged"), `memory.forget {path}`. **Searching memory is `knowledge.find`** over the folders the caller names in `in`,
-  else the whole tree (code names no part of memory, rule (f)): by the word index (Find below), by meaning only where a person
-  chose an embedding model (§5.3, until 14.11. `vector.search` over `memory/…`); there is no search tool of its own. The older
-  calls stay as thin wrappers over the files (`knowledge/service.ts` save, correct, list …; scopes global, space, agent,
-  conversation, website, app, mode map to folders); their tools `knowledge.remember`, `knowledge.recall` and
-  `knowledge.correct` became `memory.write` and `knowledge.find` (`bridge/kontext-1311.ts RENAMED_TOOLS`). The runtime's own chat observations and the older versions of files stay database rows
-  (`knowledge/service.ts`); `forget` removes a file's whole chain. A one-time move turned the old knowledge rows into
-  files (`knowledge/memory-migrate.ts`; an old `kn_…` id still finds its file). Writing memory is **the only thing that
-  embeds automatically**, and only where a person chose an embedding model: `knowledge/memory-follow.ts` tells the vector system about every write, removal and watched
-  edit, and embeds in the background what is not yet embedded (moved rows, edits made while the app was closed, a
-  restored tree, an embedding model chosen later); without one the word index follows what a search reads. A folder's own report walks only a folder new to it: Windows also reports a folder
+  else the whole tree (code names no part of memory, rule (f)): the word index ranks (Find below, `knowledge/search.ts
+  noteHits`), and where a person chose an embedding model meaning re-ranks the words' top 30 and may add a note the words
+  missed (§5.3); there is no search tool of its own. The older calls stay as thin wrappers over the files
+  (`knowledge/service.ts` save, correct, list …; scopes global, space, agent, conversation, website, app, mode map to
+  folders). The older versions of files stay database rows (`knowledge/service.ts`; Quests-Runde 20.11.2026: no chat
+  observations any more); `forget` removes a file's whole chain; an old `kn_…` id still finds its file
+  (`knowledge/rows.ts movedTo`). Nothing embeds memory in the background: a note gets its meaning when a search next asks
+  for it, and a removed note or folder takes its stored meaning along at once (`knowledge/memory-follow.ts` →
+  `vectors.forget`); the word index follows what a search reads. A folder's own report walks only a folder new to it: Windows also reports a folder
   when a file in it is written, and that file reports itself. Skills `memory` (how the tree works) and `memory-hygiene` (what
   is worth keeping and how) explain it to agents. Texts are redacted of secret values before they are stored.
 * **References** (`references/references.ts`): the person's own words, reasons and corrections ("Remember why…" on
@@ -934,12 +1059,13 @@ that was in the field comes back afterwards.
 * **Public library** (`library/hub.ts`, `library/publish.ts`, `tools/builtin/library.ts`): one server for every Autark, `services/library` (Cloudflare Worker + D1/FTS5 at library.openautark.com, no sign-in; an installation is a random id in kv `library/voter`). `library.find` / `library.open` / `library.publish` (checks first, CC0) / `library.rate`; `skills.save` with `from: <id>` writes the entry's files beside my own text and records `derived-from: library:<id>@<rev>`. It is not part of the knowledge catalog: a find there would send every query's words to a public server.
   - **The word index** (`knowledge/words.ts`) ranks them all: one in-memory SQLite FTS5 table per corpus.
   - Indexed: title, description and text, folded (ä→ae …), bm25 weights 10/4/1.
-  - Query: up to 48 salient words of the query, long ones light-stemmed, a long compound also by its two parts where the index holds both, and the small DE/EN vocabulary, joined by OR.
+  - Query: up to 48 salient words of the query, long ones stemmed by the app's one stem (`shared/text/normalize.ts stem`, Quests-Runde 20.11.2026: also `-ieren/-ierung/-ation` to their root, so "Signierung" finds "signieren" and "Signatur"; the person's own search boxes use the same stem), a long compound also by its two parts where the index holds both, and the small DE/EN vocabulary, joined by OR.
   - A hit's score is its bm25 relative to the best kept hit.
-  - The catalog index (`knowledge/find.ts wordCatalog`) holds every entry of the viewer's catalog with its text, up to 32 KB.
+  - The catalog index (`knowledge/find.ts findInCatalog`) holds every entry of the viewer's catalog with its text, up to 32 KB.
   - The memory index (`KnowledgeStore`) holds the whole tree, the newest 5,000 files. A search rereads only a file whose time changed; the query's folders and filters pick the hits.
-  - Where a person chose an embedding model, the catalog adds its hits by meaning (two hops), and memory is searched by meaning instead (never merged).
-  - Measured on the live data (bench, 95 catalog turns): rank 1 in 26 (40 with the last chat lines), against MiniLM's 7.
+  - Where a person chose an embedding model, meaning re-ranks the word hits of the catalog and of memory alike and may add what the words missed – one search, no second system (`vectors/meaning.ts`, §5.3).
+  - Measured on the live data (bench, 95 catalog turns; `.local/unterbewusstsein-20261113/bench/b13-rerank.ts`): rank 1 in 26 and top 5 in 39 by words alone, 7 and 34 by MiniLM alone, 27 and 50 by both.
+  - Open tasks are found by the same index (`tasks/related.ts relatedWork`, §4.3): a to-do's title finds its quest in the top 3 in 0.89 of the cases (tasks_fts AND 0.01).
   - The stable prompt says where memory is and what it holds (`context/environment.ts memoryLine`).
   - Files are searched with `files.search` (below its `path`; without one the workspace first, then the person's home folder – app-data, hidden, dependency and, inside files, OneDrive folders left out; at most 60,000 entries and 8 s).
 * **Hits before a turn** (v2, 15.11.; owner: "Diese drei Regeln vom drei Treffern ist blödsin, weg" – the code rule of 14.11.,
@@ -958,65 +1084,64 @@ that was in the field comes back afterwards.
   can be updated instead of doubled (§5.4).
   The main AI can write memory itself the same way (`memory.write`).
 
-### 5.3 The vector system: `vector.embed` and `vector.search`
+### 5.3 Meaning inside the one search: `vector.embed` and `vector.search` (Quests-Runde 20.11.2026)
 
-Owner 01.11.: "Nicht Memory Search. Ein System, mit dem generell alle mit Vektoren suchen können, für alles, auch Dateien
-irgendwo am PC", "Mach das intelligent, nicht einfach alles auf dem PC in Vektoren zerlegen", and finally "Das System muss
-es vorher embedden … es muss embedded werden. Und dann ist es da, und wenn es dann den Bereich mit der Suche durchsucht,
-dann kann es das." One system for everything (`runtime/vectors/*`, contract `contracts/vectors.ts`, shared shapes
-`shared/model/vectors.ts`; `services.vectors`), two explicit tools for **everyone** – the main AI, the subconscious's
-run and any agent – wherever a person chose an embedding model (since 14.11. finding goes by words otherwise, §5.2 Find):
+Owner 01.11.: "Ein System, mit dem generell alle mit Vektoren suchen können, für alles, auch Dateien irgendwo am PC",
+"Mach das intelligent, nicht einfach alles auf dem PC in Vektoren zerlegen"; 20.11.: "intelligente Wortsuche … so einfach
+wie möglich". **Meaning is an optional ranking inside the one word search** – no second index, no background pass, no
+re-embed queue (`runtime/vectors/*`, contract `contracts/vectors.ts`, shapes `shared/model/vectors.ts`;
+`services.vectors` with `rank`, `embed`, `search`, `forget`):
 
-* **Offered only with a chosen model** (14.11.): a tool with `requires: 'embeddings'` (`vector.search`, `vector.embed`) is
-  offered only while an embedding model a person chose can serve (`services.vectors.available()`). `Registry.allowed` applies
-  this to the direct offer, the prompt's More tools, `tools.find` and every call, so a tool that cannot work is never listed;
-  the subconscious's run lists its own steps by the same rule (`FlowTool.requires`). Without an embedding model, memory and the
-  catalog are found by their words (`knowledge/words.ts`): the main AI with `knowledge.find`, and the subconscious with its
-  `knowledge.find` step, which searches the same memory files (numbered for `done.show`) and catalog entries. The asked run
-  stays a loop (12 calls in 14 days, 0.18 per 100 runs).
-* **`vector.embed {paths: string[]}`** (`tools/builtin/vector-embed.ts`): a model deliberately makes files or folders
-  searchable. Whole files are embedded (Markdown, text, code, JSON, CSV; PDF through `files/pdf.ts`; a long file is cut
-  internally into chunks of about 1,800 characters with 200 overlap, at headings and blank lines where it can); **nothing
-  is picked automatically**, the model picks what. They stay stored. A file already embedded and unchanged costs one
-  `stat`; a changed one is embedded again (its old vectors stay until its first new chunk exists). A call has a 45 s
-  budget; what did not fit is reported with "call vector.embed again with the same paths" and continues at its next chunk.
-  Folders are walked with **sensible exclusions** (`vectors/places.ts`): binaries and media, `node_modules` and other
+* **The blend** (`vectors/meaning.ts`): every search finds by its words (`knowledge/words.ts`, §5.2); with a chosen
+  embedding model `rank()` embeds only the query and adds each text's cosine to its word score – equal parts, no tuned
+  weight; a text the words missed comes by its cosine alone, a word hit not embedded yet counts the average cosine of the
+  others; scores relative to the best. Memory (`knowledge/search.ts noteHits`, the words' top 30) and the catalog
+  (`knowledge/find.ts findInCatalog`) rank this way; measured on the 95 catalog turns it is never worse than the better of
+  words or vectors alone (§5.2). Without a model nothing here runs and the words stand alone.
+* **The one queue** (`Meaning.need/drain`): a ranking hands over the texts it could return (its caller's reach); what has
+  no vector of the chosen model is stored redacted and embedded in the background, one batch at a time. A ranking never
+  waits for a document, only for its query (`QUERY_WAIT_MS` 5 s); a failing model pauses the queue for `RETRY_MS` (5 min).
+  Another model's vectors never count – after a change each text gets the new model's meaning when a search next asks.
+  A removed memory note takes its stored meaning along at once; one deleted while the app was closed goes at the first
+  ranking (`vectors/create.ts`).
+* **Both tools in every mode** (no `requires` gate any more): with or without a model; without one `vector.search` gives
+  the word hits plus one line (`NO_MODEL`).
+* **`vector.embed {paths: string[]}`** (`tools/builtin/vector-embed.ts`, `vectors/files.ts`): a model deliberately adds
+  files or folders to the search (memory and the catalog it refuses – they are in it already). Each file's whole text
+  (Markdown, text, code, JSON, CSV; PDF through `files/pdf.ts`) is cut into pieces of about 1,800 characters with 200
+  overlap (`vectors/chunk.ts`) and stored with its lines; one word index over every added piece (the file name as its
+  title) finds them at once, and their meaning comes through the queue – the call waits for it within its 45 s budget
+  (`EMBED_BUDGET_MS`) and says how many pieces still get it in the background. **Nothing is picked automatically.** An
+  unchanged file costs one `stat`; a search notes a hit's file that changed since and drops one that is gone.
+  Folders are walked with **sensible exclusions** (`vectors/places.ts`, absolute paths): binaries and media, `node_modules` and other
   dependency, build and cache folders, `.git`, app data (`AppData`), browser profiles (cookies, saved logins), hidden
   entries, generated files (lockfiles, minified code, logs) and anything that looks like a secret (`.ssh`, `.gnupg`,
   `.aws`, `.env*`, key files, password and credential exports such as `logins.csv`); each is skipped **and reported**
   (`skipped: {path, reason}`); a whole drive, a secrets folder and app data itself are refused even when named. A file
-  named on purpose is embedded. At most 50,000 files are walked per call.
-* **`vector.search {query, in: string[], k?}`** (`tools/builtin/vector-search.ts`): like grep over meaning. It embeds
-  **only the query text** and compares it with what is **already embedded** under the places in `in` (files, folders,
-  `"memory"` or `"memory/<folder>"` – a filter, never embedded itself); `k` up to 50, default 8. Hits are
-  `{path, chunk, lines?, snippet, score}`; the service's result also holds how many files were searched
-  (`searched.embeddedFiles`), the tool's output only "N hits." (rule (a)). If nothing is embedded under a place it says so:
-  "Nothing embedded under X." (until q-r it added "– embed it first with vector.embed", an order). **There is no embedding of files at search time, no background indexing of the PC and no automatic scan of
-  anything.** Before a search a cheap mtime/size check without a model (400 ms budget, each file looked at most once in 5 seconds)
-  forgets files that are gone and says that some changed since they were embedded, without a count (rule (a), q-r3: the note said
-  "N of these files changed"); their hits stay what was embedded. New files are not looked for. A changed memory file goes to the background (below).
-* **The only automatic embedding** is the memory tree, with a chosen model: writing memory makes it findable by meaning (§5.2; a watcher with a 1.5 s
-  delay, plus one background pass 30 s after start for what changed while the app was off and what is not embedded yet; that
-  pass leaves a file embedded with another model as it is). Files embedded with another model are re-embedded in the
-  background **only after somebody chose another model in settings** (`kv` `vectors`/`choice` holds the choice and whether
-  that work is open, across restarts).
+  named on purpose is added. At most 50,000 files are walked per call.
+* **`vector.search {query, in: string[], limit?, hops?}`** (`tools/builtin/vector-search.ts searchByMeaning`, also the
+  subconscious's step): each place goes to its own search – `memory…` to `knowledge.search`, `catalog` to
+  `findInCatalog`, added files and folders to `services.vectors.search` – and the hits merge by their relative scores
+  (`{path, chunk, lines?, snippet, score}`; the tool's output says only "N hits.", rule (a)). `hops` 1–2: the best 3
+  hits' own texts search on, a path scores the product of its steps, floor 0.3 – with words alone too. **There is no
+  embedding of files at search time, no background indexing of the PC and no automatic scan of anything**; new files are
+  not looked for.
 * **The query** is embedded as a whole, so with this PC's small model the words a matching text holds find it and a
   question or a list of kinds of information blurs it (measured 03.11. on the q-r fixture: "Was ist über die Kanzlei
   Brenner gespeichert?" put the Brenner file below ten seed files, "Kanzlei Brenner Unterlagen Versand als PDF per E-Mail"
   first at 0.63 against 0.30). Both tools' texts say this as a fact; what to write stays the caller's.
-* **Storage and search** (`vectors/store.ts`, migration `088`): `vector_files` (path in one stored form – `memory/…` below
-  the memory folder, else the absolute path –, mtime, size, embedding model, chunks done) and `vector_chunks` (line range, a
-  snippet, the vector as int8: 384 bytes per chunk with the local model); search is a plain scan in pages so the event loop
-  gets a turn between them (a scan over 100,000 chunks stays a simple loop). One embedding job runs at a time; a query does
-  not wait for it. Vectors of two models are never compared: files of another model are named in the note ("being re-embedded"
-  after a choice in settings, else "embedded with another embedding model"), without a count.
+* **Storage** (`vectors/store.ts`, the tables `vector_files`/`vector_chunks` of the baseline, no migration): one row per
+  text – a memory note `memory/<path>`, a catalog key, or a file piece `<file key>#<n>` with its lines –, its version in
+  `mtime`, the model `''` until embedded, the redacted text (≤ 1,800 characters) in `snippet`, the vector as int8 (384
+  bytes with the local model). An in-memory mirror of keys, versions and vectors means a ranking reads no SQL. Old file
+  rows from before keep answering with their 320-character snippet until `vector.embed` reads the file again.
 * **The model** (`models/embeddings.ts`, the use `embeddings` in `settings.json` › `routing`): only a model a person chose embeds.
   - `local` is this PC's paraphrase-multilingual-MiniLM-L12-v2: int8 ONNX, 118 MB plus a 17 MB tokenizer, fetched on first need, run in a worker thread that ends after 2 minutes idle, about 0.4–0.5 GB while it runs.
   - `<connection>:<model>` is a local server's or an API key's embedding model.
-  - `auto` (nothing chosen) and `off` embed nothing: finding goes by words (§5.2), `vector.embed`/`vector.search` are not offered (above), and the vector service itself answers that no model is available.
+  - `auto` (nothing chosen) and `off` embed nothing: finding goes by words alone (§5.2); the tools stay offered and say so (above).
   - After 3 failures of the local model, this runtime stops offering it until the next start.
   - Kept from before: the local model runs on ONNX Runtime's WebAssembly build (the native package crashed the process on load); with a remote model, query and chunk texts are redacted of known secrets before they leave the PC, a failed call is repeated once and a redirect is never followed; Matryoshka vectors are cut short, Qwen3 queries get Qwen's instruction; a pay-per-use account's embedding is booked in the cost journal (`vectors/spend.ts`). Measured 01.11. on the 8 GB reference PC: load 2–3.5 s, a query 30–60 ms, a chunk of 1,800 characters 415–600 ms, 430–530 MB while loaded, 90 MB after the worker ended.
-* **Specs** (characters ÷ 4, measured): `vector.embed` 117 tokens, `vector.search` 154. Neither is in the core set (§5.1).
+* Neither tool is in the core set; both are found through `tools.find` (§5.1).
 
 ### 5.4 The subconscious: one call before a turn, and the main AI's own call
 
@@ -1064,7 +1189,7 @@ switch line, that is the state before 17.11.
 * **What wakes the routing call** (`subconscious/route-turn.ts`, called by `service.ts beforeTurn`; findings 14.11.): the
   person's lines when a person wrote; otherwise a colleague's lines with content (`woke`); otherwise the turn's task – its title
   and the wake's newest note, else the task's notes (`taskText`, `agents/turn-prepare.ts planTurn`), so task, schedule, retry,
-  review and handoff wakes are routed too; a chat wake's (`message`) note – a mini-app event, a waiting task's notice – is not the
+  review and child wakes are routed too (a reminder carries its quest or to-do); a chat wake's (`message`) note – a mini-app event, a waiting task's notice – is not the
   work, so there the task's title and own notes stand. A person's message with only files is theirs as its file names
   ("[status.png (image/png)]").
   A wake without anyone's words and without a task, or with only a bare "ja bitte" from a person (`wake.ts hasContent`), gets no
@@ -1178,14 +1303,14 @@ dazuschalten. Die sollen sich gegenseitig routen können. Die haben Wissen und T
   the card's own lines are 326 characters. Each step's input: the person's name, the day with its weekday ("Monday, 2026-11-02", so "this week" can be placed),
   the memory folders it can write in, the steps left, its 12 newest kept thoughts (`thought.keep`), what the knowledge catalog
   holds for the ask (one search at the start, 6 hits within 3 s), the main AI's ask, the chat that goes along and its steps so
-  far. **The tools** (`FLOW_TOOLS`, so a new ability is one entry there): `vector.search` and `vector.embed` (only with a chosen
+  far. **The tools** (`FLOW_TOOLS`, so a new ability is one entry there): `vector.search` and `vector.embed` (with or without an
   embedding model, §5.3), `memory.browse`,
   `memory.read`, `memory.write`, `memory.forget`, `thought.keep`, `knowledge.find` (memory files by the word index, numbered for
   `done.show`, and catalog entries), `knowledge.open`, `voice.words`,
   `context.list`, `context.read`, `context.condense`, `context.hide`, `context.restore`, `agent.tell`, `done`; how the coming
   turn runs is the routing call's, not a tool's. `voice.words` adds the person's names and terms to the learned words
-  (`settings.json` `voice.vocabulary`) through the settings store; `context.condense` has the model word each item from its
-  whole original in one call. Bounds: 12 steps and 5 min a run (`service.ts ASK_STEPS`, `ASK_MS`), each model call at most
+  (`settings.json` `voice.vocabulary`) through the settings store; `context.condense {ids}` puts each item's lean form in its
+  place (`context/ledger/window.ts leanText`, the code of the lean history – no model wording). Bounds: 12 steps and 5 min a run (`service.ts ASK_STEPS`, `ASK_MS`), each model call at most
   180 s (a step of a CLI that starts one process per call took 7–84 s on the 8 GB PC, its start alone up to 200 s when the PC
   was out of memory; a Codex helper turn whose model stays silent 90 s after it started ends sooner, §6), at most about 100k
   tokens sent; a step that got the run nowhere (no tool call, a stuck or failed model, the same call with the same output)
@@ -1248,8 +1373,7 @@ dazuschalten. Die sollen sich gegenseitig routen können. Die haben Wissen und T
   sees its decision as a `subconscious` pair (B-073: (j) takes out the waiting call's own timeout choice). The main AI's own call
   needs no check. Beside the named notes before a turn (§5.2, the person's own lines as the query, 14.11.) and the asked run's
   catalog search at its start, nothing searches automatically: a model asks through a tool call, and no code names its query or place.
-* **Kept from before:** the verification of a task result against its done-condition (`subconscious/verify*.ts`) and the
-  widget fills for to-dos the person typed (`widget*.ts`).
+* **Kept from before:** the verification of a task result against its done-condition (`subconscious/verify*.ts`).
 
 ### 5.5 The transcript by item IDs (the context ledger, restored)
 
@@ -1268,7 +1392,7 @@ simpler: the separate gardener is gone, the subconscious's brains decide, and th
   number (`33` or `"33"`) for the one item whose id carries it; messages and the other kinds count apart, so a number two items carry
   (`m3`, `t3`) is not guessed – `context.hide`, `condense` and `read` answer with both forms (B-074).
 * **Marks, by the brains' tools** (`subconscious/context-tools.ts`): `context.list` pages the older items one line each (id, kind, tokens – a marked one as `condensed 300t (was 4500t)` or `hidden (was 4500t)` –, the first 80 characters and what the main AI said after it; a page fits one step's output, its head points past its last line). Without `minTokens` every run sees the marked ones too (q-r1b2, 03.11.: as bare ids a run could neither take a condensed file out on the person's word nor bring it back); `minTokens` counts what an item takes now, so the tidy run's first list holds only what could still come off (q-r2a/q-r2c: with the marked ones in it, the cheap model hid them all and condensed the hidden ones back, turn after turn); condensing a hidden item says what it costs and counts so,
-  `context.read` pages one original, `context.condense {ids}` puts a short text in each item's place, worded by the brain that holds the flow from the whole original in one call; a mark's output says what is still big; the run logs what it cost against what it saved, `context.hide` takes it out,
+  `context.read` pages one original, `context.condense {ids}` puts each item's lean form in its place (`window.ts leanText`; given texts `{texts}` keep their checks below); a mark's output says what is still big; the run logs what it cost against what it saved, `context.hide` takes it out,
   `context.restore` brings either back: the main AI gets the originals as the call's output (every run is its own call since 14.11.; until then another run's undoing pinned and showed nothing unless `done.show` named the ids). A condensed item reaches the main AI as the short text with a **compacted JSON
   stamp** under it: `{"compacted":"t17","was":"<n> tokens","restore":"context.restore"}`; a hidden one is not seen at all, with the
   calls its script made: one real tool call in the rebuilt history names ids only, none of its words – under the main AI's own tool name
@@ -1312,8 +1436,14 @@ simpler: the separate gardener is gone, the subconscious's brains decide, and th
 
 ## 6. Engines, accounts, routing, decisions
 
-**Agents run without asking** on every engine: Claude Code with `--permission-mode bypassPermissions`, Codex with
-`approvalPolicy: 'never'`, ACP permission requests answered allow.
+**In Trust AI mode agents run without asking** on every engine: Claude Code with `--permission-mode bypassPermissions`,
+Codex with `approvalPolicy: 'on-request'` + `dangerFullAccess` and every approval accepted (`codex/approvals.ts`), ACP
+permission requests answered allow. **In Secure mode** (§7.6) the native tools go through the security gate: Claude Code
+`--permission-mode default --permission-prompts host` with `--settings` allow rules for the open folders (each
+`can_use_tool` request → `services.security.gate`, `engines/claude/permissions.ts`); Codex `workspaceWrite` with
+`writableRoots` = the open write folders (`untrusted` when commands ask), each approval request through the gate for that
+one step (`codex/native-gate.ts`), a thread loaded under the other mode is reloaded once; ACP permission requests through
+the gate (`acp/permissions.ts`). Flags apply from the next turn.
 
 | Engine | How it runs (`runtime/engines`) |
 |---|---|
@@ -1325,7 +1455,9 @@ simpler: the separate gardener is gone, the subconscious's brains decide, and th
 
 * **MCP hub** (`runtime/mcp/hub.ts`): ONE Streamable-HTTP MCP server inside the runtime for every CLI engine run; each
   run gets a lease token (`/mcp`, loopback only). Clients see our tools as `mcp__workforce__<name>`.
-* **Engine registry** (`engines/registry.ts`): lazy construction, idle sweep; processes are leases of the supervisor.
+* **Engine registry** (`engines/registry.ts`): lazy construction; a Codex server or ACP process ends itself when idle
+  (one `IdleTimer`, `engines/shared.ts`); processes are leases of the supervisor. Codex and ACP speak through one
+  newline JSON-RPC client (`engines/line-rpc.ts`).
   The CLI engines get the agents' env once (`engines/wf-shim.ts` `agentEnv`: `<data>/bin` first on PATH,
   `AUTARK_DATA`, §3); `childEnv` still strips provider keys.
   A provider's transient failure is an outage of the account, not of the model (`provider-outage.ts`).
@@ -1351,10 +1483,9 @@ simpler: the separate gardener is gone, the subconscious's brains decide, and th
   provider and e-mail, the login is signed out, or it was removed there (`dismissed.ts`, key `<provider>:<folder>`).
   Remove drops only the row; a sign-out marks the home for every company, a working check clears the mark. Two plans of
   one e-mail stay apart by the login's own identity (`cli-homes.ts` `whoseLogin`: Codex `account_id`, Claude Code's
-  `organizationUuid`). The bridge `bridge/logins-1611.ts` (from the AccountService constructor at every start,
-  idempotent, never throws, lock `<logins>/.move.lock`) moves each old home whole by rename into the logins folder and
-  repoints its row, joins a login another company already moved there, leaves a home that cannot move where it is, and
-  repoints a row whose home went missing (a restore, an import). The 0.3.8 handoff between companies is gone (§12).
+  `organizationUuid`). The move of older homes into the logins folder was the bridge release's (data from before 0.3.9
+  updates through 0.3.14, §3 Database; its bridge `logins-1611` is gone since the Quests-Runde); a home that did not move
+  still works where it is (`system/paths.ts homeRoots`). The 0.3.8 handoff between companies is gone (§12).
   B-083 plan credits: an Anthropic or OpenAI API key whose organisation holds the monthly API credits a plan includes
   (Claude Max/Ultra, ChatGPT Pro/Business) carries `Account.credits` (migration 095; the account row's "Plan credits"
   toggle, `accounts.update credits`): it counts as a plan (`shared/model/charge.ts`), candidates put paying accounts
@@ -1370,8 +1501,10 @@ simpler: the separate gardener is gone, the subconscious's brains decide, and th
   shows only the newest of each family; an older one by search or while chosen, under "Older versions"). New models
   arrive by themselves: a started catalog lists every account again every 30 min (cooling ones too – listing costs no
   quota), a version newer than every curated one takes its predecessor's prior without name and prices
-  (`Priors.forNewer`, family parse in `models/family.ts`), and Claude Code – which learns models only with new versions –
-  updates itself shortly after start and every 6 h when no Claude process runs (`engines/claude/cli-update.ts`).
+  (`Priors.forNewer`, family parse in `models/family.ts`), and Claude Code and Codex – which learn models only with new
+  versions – update themselves shortly after start and every 6 h when no process of that CLI runs (`engines/cli-update.ts`,
+  one timer per CLI; "updated" = `--version` changed: `claude update`; Codex standalone and pnpm/bun/brew `codex update`,
+  Windows npm `npm install -g @openai/codex@latest`; the Codex desktop app's own copy is left to that app).
   The global model rating (14.11., `models/priors-feed.ts`): with the daily keyless price list a started catalog also GETs
   `https://openautark.com/model-priors.json`, built by `scripts/model-priors/generate.mts` from our judgement in
   `resources/model-priors.json` plus Artificial Analysis list prices (attributed in `$source`; our smarts stay ours). The
@@ -1463,20 +1596,15 @@ simpler: the separate gardener is gone, the subconscious's brains decide, and th
   <account> (a chat model; no decision model connected | a decision model) · Search by meaning: off | <model> on this PC | …")
   in the manager's live part and in `app.status`; `models.list` with category `decision` or `embeddings` answers that
   line plus only the connected models made for that use. Gone: `decisionModel`, `functions`, `helper`, `workPlan`,
-  `voice.realtimeModel`, the Ollama "decision" marker, `decision/hint.ts`, `routing/guidance-settings.ts`. One-time moves:
-  `routing/uses-settings.ts` maps the old keys when settings are read (`functions.chat` or `workPlan` → work;
-  `decisionModel`, `helper`, `functions.compaction` → decision; `functions.<media>` → that use; `voice.realtimeModel` →
-  voice; an older global pin from `models.setPolicy` → work), and `accounts/legacy.ts` maps accounts at start (old
-  'decision' accounts become normal connections – OpenRouter's an OpenRouter connection, other hosted vendors an
-  OpenAI-compatible one at `<origin>/v1`, local ones an Ollama or compatible local server, key, priority and on/off kept;
-  'artificial-analysis' accounts are removed, their key stays in the vault); code reading a use also understands the older
-  object shape. `models.setPolicy` with a global pin now writes the Work use.
+  `voice.realtimeModel`, the Ollama "decision" marker, `decision/hint.ts`, `routing/guidance-settings.ts`, and (Quests-Runde
+  20.11.2026) their one-time moves – the old keys' mapping when settings were read and the old accounts' mapping: every file a
+  0.3.0+ app read was rewritten with the uses, and only 0.3.9+ data opens here (§3). A use is read as stored
+  (`routing/uses-settings.ts` checks its values); an old stored global pin is ignored (`routing/policies.ts`).
 * **API connections are a file** (B-066): `settings.json` section `providers`, one entry per connection
   `{name, protocol, url, key: "secret://<id>", models}` with protocol `openai-chat`, `openai-responses`, `anthropic` or
   `decision` (`shared/model/provider-entries.ts`); the file head's comment lists the known services. Unknown providers
   are a URL, a model name and an API type. `accounts/provider-file.ts` reconciles entries into the accounts table
-  (state, limits, priority stay in the table) and moves older API accounts in once under an id from their service or
-  name (`moveOld`). The settings form, `accounts.add` and the AI (skill `ai-providers`: research a provider from its
+  (state, limits, priority stay in the table); an older local API account keeps its own id. The settings form, `accounts.add` and the AI (skill `ai-providers`: research a provider from its
   name, send the key through the Secrets system) all write this one section. Plans found on this PC, keys from the
   environment and scanned local servers stay detected.
 * **Money**: only a cost journal (`spend/ledger.ts`, `spend.list`) – real charges of paid turns (`models/pricing.ts`;
@@ -1514,7 +1642,7 @@ simpler: the separate gardener is gone, the subconscious's brains decide, and th
 
 ## 7. Tools, connectors, skills, secrets
 
-### 7.1 The tool registry – no gate
+### 7.1 The tool registry – a gate only through the security mode (§7.6)
 
 `tools/registry.ts` is one list of tools, exposed identically to every engine. **One call path:
 validate → place → run → redact → journal.** Validation checks the arguments against the schema (`validate.ts`);
@@ -1529,8 +1657,8 @@ only the core set an engine holds directly (`core-sets.ts`) and its text; `tools
 work here (`EVERY_MODE` and `ToolDef.anyMode` are gone). A tool that cannot work here is not listed: `phone.*` while no app
 phone is linked (`phone/linked.ts`) and adb is not installed on this PC (`phone/adb.ts installed()`; with adb and no phone on
 the cable the driver says so; a mode that names `phone.*` keeps it, for setting adb up; no tracking process – a change in
-the attached ADB phones seen when adb runs anyway re-announces this PC's caps), and the vector tools
-(`requires: 'embeddings'`) while no chosen embedding model can serve (14.11., §5.3). "My environment now" names the linked
+the attached ADB phones seen when adb runs anyway re-announces this PC's caps); the vector tools are offered with or
+without an embedding model (Quests-Runde 20.11.2026, §5.3). "My environment now" names the linked
 phones with their phone use (on / off / not connected right now, the PC that holds an app phone when it is not this one;
 `context/environment.ts phonesLine`) and `devices.list` lists them. `tools.find` ranks over every reachable tool (the phone
 family's keywords include sms, code, notification, authenticator, 2fa, otp) and says why a named phone tool cannot run. The
@@ -1545,8 +1673,10 @@ and a pull made for a generation no longer changes the person's reading voice. T
 descriptions, errors and result notes speak as the agent (B-075: "I end my turn now"; `agents.list` marks the caller
 `me: true`).
 
-Families (`tools/builtin/*` and the owning folders): `agents.*` (list, create, update, archive, delegate, handoff,
-split …), `chat.*`, `tasks.*`, `todos.prepare`, `human.ask`, `schedules.*`, `calendar.*`, `knowledge.*`,
+Families (`tools/builtin/*` and the owning folders): `agents.*` (list, create, update, archive, split …), `chat.*`
+(`chat.update` is one tool for what eight did – title, add, lead, remove, parentId, replyMode, archive, leave, run in
+that order, `tools/builtin/chat-update.ts`), `tasks.add`/`update`/`list`/`remind` (§4.3), `calendar.list`/`connect`,
+`knowledge.*`,
 `references.*`, `skills.*`, `modes.*`, `models.list`/`model.set`, `decide`, `files.*` and `shell.exec` (any absolute
 path on the PC), `web.search`/`web.fetch`, `secrets.*`, `media.*`, `people.list`, `spaces.*`, `app.status`,
 `accounts.sign_in`, `feedback.report`, `computer.*`, `browser.*`, `phone.*`, `devices.list`/`devices.connect`, `telegram.connect`,
@@ -1669,6 +1799,51 @@ optimistic conflict detection, not OS compare-and-swap against external writers.
 * Kept on purpose: the leak guard (a value never lands anywhere else), output masking (`redact.ts`) and refusing
   values too short to mask.
 
+### 7.6 Security modes – Trust AI and Secure (19.11.2026)
+
+Owner 19.11.2026 (`.local/sicher-20261119/OWNER-2026-11-19.md`): two modes, chosen on the first run's
+About card and changed in Settings › Security. `settings.json` section `security` (`shared/model/security-settings.ts`;
+`securityOf(settings)`, defaults `securityDefaults(mode)`; schema `runtime/settings/security-keys.ts`). **Per PC since
+the Umzug round (21.11.2026):** the section is one of the local sections that never travel (`devices/sync/settings.ts`
+`LOCAL_SECTIONS`: devices, pwa, security; a PC before this version that still sends it is ignored), so each PC has its
+own mode – Settings › Security heads "This PC – <name>". An agent works under the rules of the PC its call runs on; a
+moved agent reads the new PC's rules in its prompt. The topic texts below stay company-wide (they travel as files).
+**`security.otherPcs`** (both modes, `yes` | `ask` | `no`, no schema default – absent = yes, so the first start never
+reads it as a disk edit, `keepSecurity`): what agents on other PCs get here. `devices/other-pcs.ts gateOtherPcs` is the
+one check for every way in – a forwarded `tools.call` (`devices/tools.ts`, before `gateForwarded`), incoming files
+(`files.put`), remote paths (`devices/sync/paths.ts RemotePaths.gate`); the person never, an agent that runs on this PC
+passes; `no` refuses naming the PC, `ask` is an approval request of capability `otherPcs`; one fact line in the prompt
+only when it is not yes. Gate texts name the PC ("… is closed on Tower"); the approval to-do names it too, and an answer
+given on another PC reaches the PC that holds the request (`client_id` of an app-made `apr:` to-do travels, soft;
+`security/answer-relay.ts`, peer `security.answer`, CEO links only, first answer wins).
+* **Trust AI** (`mode:'trust'`) is the open system of before: no gate except the three switches `money`, `publish`,
+  `message` (Yes/Ask, default Yes; Ask makes the app ask the person before each such step).
+* **Secure** (`mode:'secure'`): switches `read`/`write` (all | chosen + folder list), `commands`, `web`, `computer`
+  (yes | chosen apps | ask), `phone`, `message`, `publish`, `accounts`, `setup`, `team` (yes | ask). The company's own
+  folders are always open (`security/policy.ts`). Hard-closed, no request opens them: spending money (stored cards
+  refused by the vault, spending tools), Autark's own window for computer use (the helper's `Guard` armed with Autark's
+  pids, fails closed), the `security` section and `<data>/security/secure/*` for agents.
+* **The gate** (`runtime/security/service.ts` `services.security`): `check` (open | ask | closed) and `gate` (asks and
+  waits ≤ 2 min, honouring the turn's AbortSignal). Callers: `tools/registry.ts call` (Autark tools, mapped by
+  `security/tool-gate.ts`), the receiving side of forwarded calls (linked PC `devices/tools.ts`, other company
+  `builtin/companies.ts`), the engines' native tools (§6), the RPC of non-person owner sessions (an agent's or a shell's
+  `wf`, `security/rpc-guard.ts`). Paths are compared as real paths (`\\?\`, 8.3 names, junctions resolved).
+* **Approval requests** (`security/approvals.ts`, kv-persisted): each is also the person's to-do (`tasks/approval-todo.ts`,
+  client id `apr:<id>`, origin `security`) – the Tasks page's For you and a push on PC and phone; Settings › Security lists
+  them last. Answers: once (one identical call of that agent), always that setting, always that place (folder or app),
+  decline. An answer after the call gave up wakes the agent in its chat or task.
+* **Topic texts** – one file per text field, `<data>/security/<mode>/<topic>.md` (`security/topics.ts`; defaults
+  `resources/security/<mode>/<topic>.md`, `{{name}}` = the person). In the prompt as the stable section `security`
+  ("## What <name> and I agreed", `security/agreements.ts`) before the person's HUMAN.md: Trust – the agreements and any
+  Ask switch as a fact; Secure – one fact line per switch, its note, and the general/captcha texts. Agents edit
+  `security/trust/*` in Trust mode (their text: only when the person clearly wants it); everything else there is put back
+  when changed on disk outside the app. Critical texts and the mode (and Trust's money switch) need Edit → "Yes, change it"
+  every time.
+* **The person** is told apart from an agent's shell by an in-memory person token from main (never on disk); the
+  launch token in `runtime.json` gives owner scope without the person-only methods.
+* Honest limits: a shell running as the same Windows user can read any file; Codex reads cannot be limited; PCs on
+  0.3.12 or older ignore the section.
+
 ## 8. Devices
 
 **One connect surface** – Settings › Devices (`ui/settings/DevicesGroup.tsx`, rows `connect-rows.tsx`, texts
@@ -1677,8 +1852,9 @@ optimistic conflict detection, not OS compare-and-swap against external writers.
 this PC's **Remote ID** (9 digits: 8 from the key fingerprint plus a check digit, `remote/id.ts`) with Copy and the
 meeting server's state in its hint ("meeting server connected", "only this network …"); incoming
 requests with their code (Accept – for an employee's PC or phone with the person it belongs to, or a new person made in
-the same step – or Decline; my other own PCs' requests show too, below); "Connect a phone" (a QR of this PC's own Remote
-ID, `phone.pairLink` → `remoteId`, for me or for an employee); **PCs on this network** with Connect (`remote/nearby.ts`,
+the same step – or Decline; my other own PCs' requests show too, below); "Connect a phone" (only this PC's own Remote ID
+as a QR, `phone.pairLink` → `remoteId`; whose phone it is, Accept says – an employee's too, Quests-Runde 20.11.2026);
+**PCs on this network** with Connect (`remote/nearby.ts`,
 the LAN hello on UDP 47813, `devices/discovery.ts`; the hello answer names its `company`, and `connect-text.ts`
 `nearbyGroups` shows one row per PC, or a PC row with one row per company; one fixed "PCs on this network" row with
 Refresh holds the place); "Connect a PC" by Remote ID or address (IP:port of a fixed IP or local server), as CEO
@@ -1733,7 +1909,18 @@ or as employee; one row per device with right-click Rename and Remove (a PC behi
   refusal). A message too large for one frame (8 MiB) fails on the sending side with "too large for the link between
   PCs" – a too-large answer goes back as that error – instead of closing the link. A PC that is off stays "offline"
   while it is redialed (no flip to "connecting" every 30 s). "peer connected" is logged only for a link that is kept;
-  a peer socket the main HTTP server cuts for silence is marked 4008 like the others.
+  a peer socket the main HTTP server cuts for silence is marked 4008 like the others. A socket error hands its cause
+  with the 1006 (`channel.ts` `closeWhy`: error code and syscall, whether this PC still has the address the socket ran
+  on – never the address –, age, bytes waiting), logged in 'peer link closed' (22.11.2026: two PCs' links died ~19 s
+  after a send – Windows' TCP give-up while the notebook's Wi-Fi dropped). **Link quality** (`devices/link-quality.ts`,
+  memory only): a PC link's round trip and clock offset (NTP-style from the mesh `ping`'s `at`, the sample with the
+  smallest round trip) at link-up and each sync round, a page socket's (phone, browser, iPhone tunnel) from the
+  keepalive's own ws ping → pong; median of the last 5, stale after 5 min; Settings › Devices shows "45 ms" or "Slow
+  connection" (≥ 300 ms round trip), `devices.list` gives the AI `link`, `linkQuality(deviceId)` is there for calls.
+  **Pages notice silence** (`ui/lib/rpc.ts`, `shared/api/protocol.ts` `SILENT_MS` 60 s): the PC sends each page socket
+  a beat `{}` with every keepalive tick (after its Hello; old pages and the CLI pass over it); 60 s without any frame
+  while no call waits for its answer → the page reconnects and reloads everything; views load through `ui/lib/use-load.ts`
+  (again after every reconnect).
 * **The meeting server** (`services/remote-relay`; address = `settings.devices.relay`, empty = off; default
   `DEFAULT_RELAY` = `wss://telecoding-relay.onrender.com/autark`, Autark's own, mounted under `/autark` in the
   TeleCoding relay process on Render behind Cloudflare, `AUTARK_IP_HEADER=cf-connecting-ip`; a test profile –
@@ -1751,24 +1938,37 @@ or as employee; one row per device with right-click Rename and Remove (a PC behi
   on this PC. A call for another PC is forwarded over the mesh as `tools.call` and runs there like a call of that PC's
   own agent (a remote `shell.exec` has no 120 s RPC timeout; its own limits bound it); the journal names the PC.
   `devices.list` shows the PCs, their capabilities, `homeDevice`, `employeeOf` and – for this PC and each own online
-  PC – `load` {freeMemoryMb, runs} (`devices/load.ts`, carried by pings to `ceo` links only), so an agent can put heavy
-  work on an idle PC (`agents.update device`). Agents can hire an agent with its
+  PC – `load` {freeMemoryMb, runs} (`devices/load.ts`, carried by pings to `ceo` links only) and each PC's `security`
+  mode and `otherPcs` switch (§7.6, carried with the load), so an agent can put heavy work on an idle PC or move itself
+  there with its record (`agents.update device`, below). Agents can hire an agent with its
   home on another PC (`agents.create device`).
 * **Shared work between linked PCs** (`runtime/devices/sync/*`, wired by `startSync` in `runtime/main.ts` before the
-  start-up reconcile, §4.1; mesh methods `sync.rows`, `sync.secret`, `sync.file`, `sync.login`, `sync.live`; listeners
-  attach only while a PC is linked). **Live work** (16.11.2026, `sync/live.ts`, `ceo` links only): runs do not travel,
-  so each PC sends its whole live state (per run its activity, step and chats, `ChatLive.snapshot`) at link-up and on
-  every change (gathered for `GAP_MS`, one message in flight per PC, a failed one sent once more); the receiver keeps it
-  per PC (`ChatLive.setRemote`) until the link goes, so the live bar, chat header, chat list and `agent.activity`
-  (entries with `deviceId`) show the other own PCs' work; `runs.cancel` forwards a run it does not have to its PC
-  (`sync.live.cancel` → `cancelRunHere`). What a link carries
-  (`home.ts`, from `devices.allow` `{personId?, joinedAs?}`): between **CEO PCs** everything both ways; to an
+  start-up reconcile, §4.1; mesh methods `sync.rows`, `sync.secret`, `sync.file`, `sync.login`, `sync.reading`, `sync.live`; listeners
+  attach only while a PC is linked). **The one rule (Fest 22.11.2026): state, not messages** – whatever travels comes
+  again on its own, so a lost message heals without retry code of its own: every link runs its catch-up again every 2 min
+  while it stays up (`service.ts` `rhythm`, each round announced as `sync.round` so other modules follow it – company-facts
+  does), sending only what is owed since the last round; after either PC changes version its cursors start from zero
+  once (`stamps.ts`: one cursor per part 'rows'/'files', keyed by both PCs' versions); a PC keeps settings units it does
+  not know and passes them on (`settings.ts` BASE + per-key units, kv `sync.settings`). **Live work** (16.11.2026,
+  `sync/live.ts` + `live-wire.ts`, `ceo` links only): runs do not travel; each PC sends numbered change commands with the
+  run's ID (start = the run's entry, change = only the changed fields, end at once; counter `s` +1 per change), a pulse
+  `{s,h}` (counter + 6-character hash, ~21 characters) every 5 s while it has running work, and its whole state at
+  link-up or when the receiver finds a gap or a differing pulse (`w:1`); the receiver drops a PC's state 15 s after its
+  last message (a 0.3.16 PC, which sends `{runs}` whole and never repeats, never expires). The receiver keeps it per PC
+  (`ChatLive.setRemote`), so the live bar, chat header, chat list and `agent.activity` (entries with `deviceId`) show the
+  other own PCs' work; a context fold's run carries `fold` and the bar says "Folding its context"; `runs.cancel` forwards
+  a run it does not have to its PC (`sync.live.cancel` → `cancelRunHere`). At link-up and each round one mesh `ping`
+  measures the link's round trip and clock offset (`devices/link-quality.ts`, below). What a link carries
+  (`home.ts`, from `devices.allow` `{personId?, joinedAs?}`; whether a link is a CEO PC's is one check, `home.ts
+  isCeoPc`): between **CEO PCs** everything both ways; to an
   **employee's PC** the chats the person is a member of, the messages they may read (`people/access.ts`, from the join or
   the whole history), their tasks, in the person's own terms (`people/perspective.ts`); back from it only the person's
-  own lines and changes to their own tasks (`employee.ts`; anything else is dropped quietly, wakes from it are ignored).
+  own lines and changes to their own tasks (`employee.ts`; her own open to-dos reach the company as hers, an "Only me"
+  one too – it hides nothing; anything else is dropped quietly, wakes from it are ignored).
   A link coming up sends what is owed since that PC's cursor (everything the first time), in this order (B-087,
   `sync/service.ts` `linkUps`): roster, side pane, rows, secrets, every plan's login, then the wakes that waited (they
-  may need that login or secret), then settings and the file manifest with its rescan. Only that PC's own link-up
+  may need that login or secret), then settings and the file manifest with its rescan (the rescan and the ledger only at
+  link-up, not in the 2-minute rounds; a file that failed to pull is offered again by the next round). Only that PC's own link-up
   releases the wakes that wait for it (`rows.ts` `resume(peer)`, held agents included). One link-up per PC at a time; an
   "online" that comes again while one runs (a link swap) ends it before its next step and runs it again at once from
   the same cursor – during its last step its wakes go once more on the new link right away and it runs again after
@@ -1779,7 +1979,7 @@ or as employee; one row per device with right-click Rename and Remove (a PC behi
   with members, agents (of the live state only "paused"), tasks, schedules, accounts (metadata; a CLI plan a PC found
   travels too – the receiver gives it its own home, or the default home of a CLI with one sign-in per PC, and keeps
   one account for the same provider and e-mail (any one, for such a CLI), the `detected` flag stays per PC),
-  messages, chat notes and knowledge rows (chat observations and old versions of memory files, without embedding,
+  messages, chat notes and knowledge rows (old versions of memory files, without embedding,
   uses and last use), written through
   the repositories and the services' own events, no echo, passed on to the other CEO PCs. A message gets a fresh local
   seq; a streaming one travels with its live values (§4.2), and one that ends here after other lines came, or a silent
@@ -1790,8 +1990,14 @@ or as employee; one row per device with right-click Rename and Remove (a PC behi
   stored under the same id; only ids, counts and error codes are logged. **Plan logins** (`logins.ts`, B-075, owner
   04.11.: sign in once, the plan works on all his PCs): the files that hold a CLI plan's login (`accounts/cli-homes.ts`
   `loginFiles`: Codex `auth.json`, Claude Code `.credentials.json`, Gemini CLI `oauth_creds.json` and
-  `google_accounts.json`) are read at send time and travel only inside the mesh channel between CEO links – never to an
-  agent, tool, prompt, the UI or a log. The newer login wins by its own time (Codex `last_refresh`, Claude Code's and
+  `google_accounts.json`) are read at send time and travel only inside the mesh channel to every PC that shares the plan
+  (`plan-peers.ts`, 22.11.2026: the CEO links and – for a CLI plan with a login home of its own (Codex, Claude Code) "on
+  all PCs of this company" of the company's own – every employee's PC, whose refreshed login goes back to the company's PCs; an employee's own plans never leave their
+  PC; from a non-'ceo' link only that very account's login is taken) – never to an agent, tool, prompt, the UI or a log.
+  A plan whose login turns 'needs_login' asks those PCs at once (`want`, at most every 30 s, answered at most that often). **Plan readings**
+  (`readings.ts`, `sync.reading`, 22.11.2026): a plan's limits are the plan's, not a PC's – each reading goes to every PC
+  that shares the plan and the newer `readAt` (turned into this PC's clock by the link's ping offset) wins, so a PC whose own read fails shows what another PC read (stale only
+  when no PC read it lately); state and cooling stay each PC's own. The newer login wins by its own time (Codex `last_refresh`, Claude Code's and
   Gemini CLI's token expiry; else the file's mtime); the receiver writes the files whole (mode 0600) into the account's home here – its own
   home in the PC's logins folder (§6; a synced CLI row lands in the shared home of the same e-mail when that home's note
   names it), or a CLI's default home (`~/.codex` …) – and never over a file of another account
@@ -1814,7 +2020,7 @@ or as employee; one row per device with right-click Rename and Remove (a PC behi
   fields – unless the row here had already brought newer instructions, then the row stands; a rewrite with the same
   bytes (a save back to what the file says) is a new version; files the agent core writes from its cache into a folder
   that had none are dated before the agent existed, so a linked PC's real ones win; `settings.json` (`settings.ts`) as one unit per top-level section (`settings/<section>`) – all
-  but `devices`, `pwa` and the window layout –, stamped only on a real change, with a baseline at 0 when the sync
+  but `devices`, `pwa`, `security` (since 21.11.2026 per PC, §7.6) and the window layout –, stamped only on a real change, with a baseline at 0 when the sync
   attaches (an older single `settings` stamp counts for every section); a winning section becomes a `settings.update`
   patch, so a text cleared on one PC is cleared on the others, but at the first link the joiner merges: an empty or
   null text from the other PC never clears a text the joiner has (its own name stays), and what it kept – also a
@@ -1827,9 +2033,82 @@ or as employee; one row per device with right-click Rename and Remove (a PC behi
   pull leaves the link-up incomplete. Not carried: the `models` table (each PC's own catalog), read cursors, calendar
   and media rows, browser extensions. **Home device**: a NULL `device_id` means this PC; an agent's turns run only on its home PC
   (dispatcher gate, §4.1), its due wakes are handed there (through the CEO PCs when the home is not known directly),
-  and each schedule fires on one PC (`placeSchedules`: where its agent runs; the person's on the CEO PC with the
-  smallest id). A PC that joins as CEO retires its own untouched first-run Manager and empty chats once the company's
+  and each schedule fires on one PC (`placeSchedules`: where its agent runs – or where it would go on, below; the
+  person's on the CEO PC with the smallest id). The agent's record (`context_items`) travels too since 21.11.2026
+  (next bullet); runs, wakes, splits and engine sessions stay per PC. Two rules of `rows.ts` (Umzug 21.11., `READ.md`):
+  a wake goes to a PC only after the rows it names (`owed` PCs get a catch-up from their cursor first, else the wakes
+  wait for the next link-up) – a wake ahead of its line found nothing new and was settled silently; and a row counts as
+  history only on a link-up without cursor and when it is not newer than the pairing. A PC that joins as CEO retires its own untouched first-run Manager and empty chats once the company's
   agents arrive.
+* **An agent between the person's PCs** (Umzug 21.11.2026, owner: move agents, go on when a PC is off, bring two
+  states together; contract `.local/umzug-20261121/CONTRACT.md`; migration 113: `agents.homes`, `context_items.pc` and
+  `changed`, counter table `context_seq`). An agent runs on exactly one PC (`Agent.deviceId`; NULL = this PC, and an
+  incoming row naming this PC is stored as NULL). That PC writes its record (§5.5); every other CEO PC mirrors it.
+  * **The record between CEO PCs** (`devices/sync/ledger.ts`, `ledger-wire.ts`, `ledger-branch.ts`, `ledger-fetch.ts`,
+    `ledger-forget.ts`; mesh method `sync.ledger`, CEO links only, never relayed, never to an employee's PC or a phone):
+    the PC an agent runs on pushes its `context_items` rows whose `changed` (raised by two triggers from `context_seq`,
+    so deletes never lower it) is past that peer's cursor (kv), in pages ≤ 2 MiB, at link-up right after `rows` and
+    before secrets, logins and wakes, then every second while linked (one push per peer in flight, a failed one again
+    after 30 s). With each kept or condensed row go its originals (the run item, its tool_call row, a minimal runs row –
+    a copy keeps the source's final status and never counts as this PC's run, `context/recent-actions.ts`); hidden rows
+    go without (96 % of the rows, measured 21.11.). A receiver writes nothing for a row equal to its copy (no echo). A PC
+    that becomes an agent's writer owes each CEO peer that agent's whole record once (`becameWriter`). Blobs come with
+    `fetchOriginals` after an arrival (`needBlob`); a restore of a hidden item whose original is elsewhere fetches it
+    from the PC in the row's `pc`, then from the others (`context/ledger/restore.ts restoreFetched`, ≤ 10 s; the
+    subconscious's sync restore says "it is on its way"); with that PC off it says where it is. "Forget permanently"
+    reaches every CEO PC (op `forget`, owed in kv to an offline one).
+  * **Moving** (`agents/move.ts`, one watcher on `agent.upserted` for every cause – the tool, the app's "Works on",
+    a synced row, a takeover): leaving this PC stops the agent's main turn at once like the person's Stop (its own
+    `agents.update device` call runs to its end, `movingMyself`), stops its parts, flushes the record and sends its
+    waiting wakes on; arriving here marks it `arriving` (the dispatcher starts no turn) and asks the PC it came from
+    `agents.handover` – that PC answers when its leave is done, with the repair notes still waiting there; at the answer,
+    a dropped link or 60 s the turn goes. Then the stale `engine_sessions` here are dropped (after a running turn ends),
+    so the next turn rebuilds its session from the record (§5.5), and one line in the next turn says where it runs now.
+    A move to an own PC that is offline is refused – tool and app (`moveRefused`). From inside a split part an agent
+    does not move itself.
+  * **Going on elsewhere – only where set up, only with the newest state** (owner 21.11. ~14:00; `devices/sync/takeover.ts`,
+    `home.ts goesOn`/`settledHere`, `ledger-settled.ts`; `Agent.homes` – the PCs it is also at home on, set by the agent
+    itself with `agents.update {homes}`, empty by default = it never switches by itself): the agent's PC announces to its
+    homes `busy` when a run of the agent starts and `settled {head}` when no run is open and every row up to head was
+    acknowledged (`resettle` asks again after a link-up); a newer row or `busy` clears it. `settled` carries a fingerprint
+    of the agent's state (`settled-state.ts`: its chats' message counts and times, its tasks, the file manifest of
+    `agents/<id>/` and `memory/`), compared with the stand-in's own at the moment the link drops; it is believed only on
+    the link generation it came on, cleared at start and after a sleep (heartbeat older than 30 s). When the agent's PC is a CEO PC
+    gone ≥ 2 min (`TAKEOVER_MS`, counted from the later of its last-seen time and this runtime's start) and a wake is due,
+    the smallest-id online PC among its homes takes it **only if it holds `settled`** – it writes `deviceId` itself (the
+    row travels; the PC it left stays one of its homes); else the agent waits for its PC (one info line). A PC that holds
+    the wake but is not that home hands the wake there; a schedule of such an agent is armed there too (`firesHere`). The
+    agent reads "My PC <H> has not been reachable since HH:MM; my record was complete here, so I go on on <me> …"; when <H>
+    is back it stays and hears it once. Known limit: with three or more homes, when the smallest online one is not
+    settled but a larger one is, nobody takes the agent.
+  * **The same on every home** (`devices/sync/share*.ts`, mesh `sync.share`, only between the agent's homes, CEO links,
+    inside the channel): its browser sign-ins – Playwright storage state (cookies + per-site storage) read through the
+    browser when its session closes and at a leave (`shareNow`), kept encrypted (`host.encrypt`, `<data>/share/`),
+    merged on the other home before its next page (incoming wins per cookie and site; a removal since the last share
+    travels as a removal), never by copying the profile (its cookie store is bound to the PC's OS key) – and its home
+    project (agent.json `home`): whole files by sha256 to the same absolute path (a watcher, gathered 500 ms, and the full
+    list at link-up), `.git`/`node_modules`/`.venv`/`__pycache__`/links/files over 256 MB skipped, changed on both sides →
+    both kept ("name (from <PC>).ext"), deletions travel; not mirrored to a PC where the path is not absolute, a network
+    path, its parent is missing or the folder is not write-open to the agent (`security.check`) – the agent hears it once. Lines of different kinds (arrival, back,
+    branch) stand together, a newer one of the same kind replaces the older (`noteMove`, repair notes of the main thread).
+  * **Two records that drifted apart**: the agents row (last writer wins) names the writer. The other PC's own rows the
+    writer lacks go to it as a branch; it appends them after its own rows with fresh ids and orders, `pc` = the PC that
+    wrote them (their hidden originals stay there for a restore), drops the sessions and tells the agent once ("While
+    <P> could not reach <me> (…) I also worked on <P>: n items, first–last"). Rows from before this version (older than
+    the PC's first ledger start, kv `sync.ledger.start`) are appended hidden ("My older record from <P> …"); an agent
+    with no rows at all on the writer takes the rows as they are. The loser deletes only rows the writer took. One agent's
+    conflict never holds back the others (`refused` answer, owed per agent).
+  * **Files and folders**: `devices.send_file` (`send-file.ts`, receiver `receive-file.ts`, names and place
+    `landing.ts`) sends a file or a whole folder (layout and empty folders kept, links to folders not followed) in 1 MiB
+    pieces after a `begin` that announces the total size (free space checked); to `at` (an absolute folder there), else
+    the same folder path when it exists there, else `inbox/<PC>/`. Never overwrites (" (2)", exclusive create); a
+    folder is built as `.<id>.partdir` and named at the end; a transfer without a piece for 5 minutes, an abort or a
+    lost link removes what it wrote. Only characters Windows cannot hold change (leading dots stay; CON/NUL… get `_`);
+    a network path or one not absolute on the receiver's OS goes to the inbox untouched; the landing folder must be
+    open to the sending agent under the receiver's rules, else the inbox with the reason. A receiver before this version
+    takes single files into its inbox only.
+  * Proven with two real runtimes over the mesh (`test/e2e/runtime-move.test.mjs`: mirror, move, takeover after 120 s,
+    merge after a split).
 * **Phones since B-078 (D5)**: a phone pairs by this PC's Remote ID through the meeting server, the same 4-digit code
   on both screens, Accept on the PC; access exists exactly while its accepted device row exists (no "Phone access"
   switch). Android: the native app (`apps/android`, phone use via an AccessibilityService). **Direct first** (16.11.2026,
@@ -1876,7 +2155,7 @@ or as employee; one row per device with right-click Rename and Remove (a PC behi
   backup and restore, provider histories and the feedback inbox; `manage` for `system.root`, `chats.export`,
   `skills.delete`, `modes.*`, local command servers and the mailbox; `permissions` for `secrets.export`). Owner-only stay
   `feedback.setup`, `knowledge.forget` and what opens a window on the PC's own screen (`files.open`/`openPath`,
-  `secrets.openFolder`, `modes.openFolder`, `agents.openHome`, `system.install`, `import.legacy`, `computer.preview`). A
+  `secrets.openFolder`, `modes.openFolder`, `agents.openHome`, `system.install`, `computer.preview`). A
   sign-in whose answer returns to the PC's own 127.0.0.1 address (Google Calendar, an app's MCP OAuth, a browser plan
   sign-in) opens in the PC's side pane – `side.open {url}` → `{ok, tab}` (`manage` + secure, host op `sideBrowser`
   'open', `PANE_MISSING` without a pane) – and the phone shows that tab in its pane sheet (`ui/workspace/phone-tabs.ts`
@@ -1890,7 +2169,9 @@ or as employee; one row per device with right-click Rename and Remove (a PC behi
   when older than 30 s, `SERVE_CACHE_MS`; showing the QR waits for that read), then LAN and tailnet – never this PC's
   loopback: with nothing else `pwa.link` refuses (`conflict`, "choose 'The same
   network' or ask the AI to set up Tailscale"), and `pwa.enable` without a bind while only the loopback answers takes
-  `lan`. Web push with VAPID (`push.ts`, `vapid.ts`, `webpush-crypto.ts`); the service
+  `lan`. Web push with VAPID: one push request (`push.ts pushOne`: encrypt, headers, 404/410 = gone) and one signer
+  (`vapid.ts vapidHeader`) for the own subscriptions and the held ones (`devices/sync/held-push.ts`),
+  `webpush-crypto.ts`; the service
   worker is `ui/pwa/sw.ts`. **Back on screen at once** (B-077, `ui/lib/rpc.ts` `checkAlive`): when the page becomes
   visible, is shown again (`pageshow`), the network returns or a push arrives (`wf.wake` from the service worker), a
   closed socket reconnects at once and an open one is asked `session.info`; no answer within 3 s ends it as dead and a
@@ -1913,8 +2194,11 @@ or as employee; one row per device with right-click Rename and Remove (a PC behi
   A phone opens the PC's own address: on the LAN, a fixed IP or forwarded port, or
   `tailscale serve` set up by the AI with the skill `phone-access`. On the phone the UI is mostly chats, plus voice.
 * **People of the organisation** (`runtime/people`): the owner is the first person (`human`); employees are people
-  with name, role, a manager and their own chats and to-dos. An invite (`people.invite`, QR or link, 72 hours, one use)
-  lets a person's phone or browser ask to join; the owner allows it on a to-do; the device gets a person token.
+  with name, role, a manager and their own chats and to-dos. **One way for a person's device** (F13; Quests-Runde
+  20.11.2026 – no person-scoped QR or 6-digit invite): the device asks with this PC's connect
+  code, and Accept says whose it is – "Invite a device" on a person's page shows `ui/team/PersonJoin.tsx` (this PC's code
+  and each incoming request with that person preset); the device gets a person token. An invite link (`people.invite`,
+  72 hours, one use) stays only for "Copy link" – a browser on the network.
   Person devices call the person variants (`people/rpc-*.ts`) and see the chats they are members of and their own
   to-dos (`people/access.ts`, `perspective.ts`). The owner sees everything. A new message in a chat reaches the
   devices of every person who is a member by push (`pwa/person-push.ts`). Team › Add › Person is a page
@@ -1939,9 +2223,11 @@ or as employee; one row per device with right-click Rename and Remove (a PC behi
   over the app's link, 20 s a step) and over adb (USB or wireless debugging, on any linked PC that has the phone) only
   when no app phone is attached or the serial names an ADB device (`phone/drivers.ts`; `phone.devices` marks each
   "Autark app" or "ADB"). Each app step carries `by`, the agent's name, which the app's bubble shows; `phone.say {text ≤
-  120, ask?}` puts a status line in that bubble or asks yes/no (75 s; app 0.3.15, ADB has no bubble; B-092, Android source
+  120, ask?, buttons?}` puts a status line in that bubble or asks yes/no (75 s; app 0.3.15, ADB has no bubble; B-092, Android source
   only, not compiled: the ask vibrates once and becomes a notification with ✓/✕ when the screen is off or the app is not
-  in front); `phone.type`
+  in front); since 19.11.2026 `buttons` (≤ 8 labels ≤ 40) are the AI's own answers – short ones beside the line, longer
+  ones as bubbles under it (`phoneuse/SayChoices.java`), the answer is the tapped label – and a run that used a phone
+  sends it op `done` when it ends (`run.upserted`), so the bubble goes at once (else 2 min after the last step); `phone.type`
   answers what the field reads afterwards (masked; a password field is not read back). Setup over adb (installing it
   through the shell, pairing, `adb tcpip`) is the skill `phone-adb`; the app phone's facts are the skill `phone-access`.
 * **Computer use** (`runtime/computer`): a persistent Windows helper (PowerShell with UI Automation,
@@ -1991,7 +2277,7 @@ phone path, the employee push and the HTTPS route via `tailscale serve`.
   the caret. Once the ChatGPT plan heard the last piece (`by: 'plan'`, remembered in localStorage
   `wf.dictationPlanHeard`), pieces go up compact as Ogg Opus at 24 kbit/s (`ui/lib/ogg-opus.ts`: WebCodecs encoder plus
   a minimal Ogg writer; WAV again on any other answer or where the encoder is missing), about a tenth of the bytes;
-  the plan gets them unchanged as one request. The composer's mic, the feedback cell's hold-to-talk and My day use it. While this PC's first speech
+  the plan gets them unchanged as one request. The composer's mic, the feedback cell's hold-to-talk and the Tasks page's input line use it. While this PC's first speech
   model downloads, the mic says "Speech model downloading NN %" and waits. Main has no voice code; it only arms the
   microphone for 15 s per request (`bridge.armMedia`, `main/security.ts`).
 * **Transcription** (`voice/transcribe.ts`), one fixed order: a dictation goes first to the person's ChatGPT plan when
@@ -2188,6 +2474,35 @@ phone path, the employee push and the HTTPS route via `tailscale serve`.
   Canvas export keeps the flattened JPEG within 600,000 image bytes; an oversized complete envelope stays local rather
   than dropping its screenshot. A send that is not confirmed leaves the report saved on the PC, and the form's action
   cell then reads "Send again" (the same saved report with its screenshot goes out again).
+* **The always-on bubble and calls that keep going (19.11.2026, `.local/blase-call-20261119/`):**
+  * Windows bubble (`main/float-bar*.ts`, `float-bar-place.ts`): right-click → Hide (`float-bar.json` `hidden`), back
+    with Ctrl+Alt+N or the tray. One automatic screenshot per draft (only while the draft has none). "Call" starts the
+    call in the main page without showing the window (navigate + `callRequest`); the bubble turns into a pill (who,
+    Open, End).
+  * The page reports live voice (call, conversation, dictation, recording; `ui/boot/voice-live.ts`):
+    * Electron: the preload's `voiceLive` makes main lift background throttling (`window.ts`). X during live voice only
+      hides the window; the close runs when voice ends (`main/window-voice.ts`). Quit, update quit and Windows session
+      end let go first.
+    * Android app: native-port `{t:'voice.live', on, kind}`; `KeepAlive` turns into a microphone foreground service
+      with "Call running · End" (`{t:'voice.stop'}` back to the page). `MainActivity` leaves the WebView unpaused.
+      Only a page without the native port (iPhone web app, browser) still ends its conversation on hide.
+  * Android bubble (`phoneuse/TodoButton.java`):
+    * Hidden by dropping it on a ✕ at the bottom. Back by pulling the round icon left of a tab's title out of the
+      app's header (`ui/pwa/bubble-handle.tsx`, `bubble-pull.ts` → `bubble.pull/move/drop`, `NativePort`,
+      `phoneuse/BubblePull.java`). One bubble at a time.
+    * The call runs in the bubble with no app (`phoneuse/BubbleCall.java`): SpeechRecognizer → first line via
+      `tasks.quickCreate` (routing) → `calls.start` in the agent's direct chat → lines as `messages.send` with speech
+      meta → agent rows of `chat:<id>` over `UseLink` read by `PhoneSpeech`.
+  * Several devices in one call (`CallRecord.joined`, `calls.start {join:true}`, `runtime/calls/call-row.ts`):
+    * Every joined microphone feeds the call, and only the device that heard the newest line reads the reply.
+    * Only the holder PC writes the row; join and leave travel as quiet chat notes.
+    * Only the holder PC's talker answers; a guest PC relays lines (`meta.call.relay`).
+  * Voice: Silero + Smart Turn are fetched on every PC (`ensureTurn`). The PC's local voice reads for every device
+    without a choice and is fetched once with ≥ 3 GB to spare. A sentence > 1.5 s late goes to the device voice.
+    sherpa audio is copied out of external buffers, which Electron refuses (`voice/local/engine.ts`, `addon.ts`). The
+    phone voice prefers Google's engine and its best offline voice.
+  * The talker stays gpt-6-luna at effort low without a service tier. Measured: low used 0 reasoning tokens, and fast
+    did not change the first token. Prompt `CALL_VOICE`: speech is heard once.
 
 ## 10. Browser, the global pane and the areas
 
@@ -2360,7 +2675,7 @@ draft (no chat: a notice). The side tabs' hover reports carry a short selector (
 pointer line (§8).
 
 **Tab kinds**: a blank tab (the new-tab page lists the panels it can become, `NewTabPage.tsx`), a website tab (lives in
-main), and the app's own panels: **My day**, **Work**, **Activity**, **Notes** (a chat's shared notes,
+main), and the app's own panels: **Tasks** (the one Tasks page, §4.7), **Activity**, **Notes** (a chat's shared notes,
 `NotesView.tsx`/`notes-sync.ts`), **Media** (one stored file or a file on the PC: image, player, PDF head –
 `MediaView.tsx`; without a file the searchable library, `MediaLibrary.tsx`), **Video** (a chat's video work with its
 versions v1…vN, `VideoView.tsx`, `video-versions.ts`), **Screen** (this PC's live picture while agents use it,
@@ -2392,15 +2707,37 @@ area). On the phone, files open with the system app.
   back to 0 on arrival (the path itself stays the motion model's). Drawers: the side tabs' in-page drawer
   `main/side-driver/cursor-script.ts` (embedded by `page-script.ts`, DOM APIs only; the screen overlay's too, §8) and
   `ui/workspace/PointerLayer.tsx` over the picture of an agent's own browser; people keep a thin plain arrow. Every
-  browser act and batch glides by default (≤ 300 ms, `pointer-motion.ts` `min(300, 60 + 50·log2(D/W+1))`); `instant`
-  jumps when the agent passes it, in its own browser only – the person's side browser always travels (glide, or human
-  when asked, `driver.ts`). The own-browser picture turns an agent's single-point move into a glide from where it draws
+  browser act and batch moves like a hand by default (`DEFAULT_MOTION` = `human`, up to 1.4 s,
+  `min(1400, 180 + 140·log2(D/W+1))`; 21.11.2026, owner); the agent passes `glide` (≤ 300 ms,
+  `min(300, 60 + 50·log2(D/W+1))`) or `instant` (a jump) when a step should be quick – in either browser, the person's
+  side browser included (`driver.ts`). Computer use takes the same default. The own-browser picture turns an agent's single-point move into a glide from where it draws
   the cursor now (UI only, `pointer-overlay.ts` `drawnPath`).
 * **Where a call goes** (`browser/place.ts`): `where: own|chat|global` decides (own browser, the chat's area, the
   person's pane); else the tab id (`web-…` in any space, `t1` the agent's own); else where the agent worked last in this
   chat (own at first; kept per agent and chat, `placeKey`: a `global` in one chat leaves the agent's other chats where
-  they were). `browser.show` opens a page as a shown tab and opens its surface; with `where: 'own'` it goes into the agent's
-  own area. `browser.open` and `browser.show` reuse the agent's preview tab unless `newTab`. Panels go into an agent's
+  they were). `browser.open` and `browser.show` reuse the agent's preview tab unless `newTab`.
+* **The pane between people** (21.11.2026, `shared/model/pane.ts`, `runtime/pane/`): a tab runs on one PC – its
+  origin – and shows in the panes of the people it is given to; a person sees their pane on all their PCs and phones (a
+  person with no PC keeps it on the company's PCs as space `person:<id>`). `targets.ts` names each person's PCs (own PCs
+  = this one + 'ceo' links, a colleague = 'employee' links or – on an employee's PC – the PCs company.facts names, the CEO
+  there = 'employer' links) and the default PC (the one I am on if it is theirs, else their only one, else one online).
+  `put.ts`: **putOn** (Open on: a website loads anew on the target PC; other tabs carry their origin – a path tab names
+  its PC), **receive** on the target (mesh `pane.put`, every link kind; a copy naming that PC is its own tab again),
+  **shareOn** on the origin with the whole set of people (records `{people, places}` in kv `pane.shares`, puts the tab in
+  new people's panes, takes it out of left-out ones via `pane.remove`). `shares.ts reach` is the one check for a call
+  from another PC: a 'ceo' link reaches everything, an employee's PC its person's shares, the company's PC the CEO's
+  ('owner') or – relaying – a colleague's (`for`); `side.*`, `browser.*` and `files.path` (path inside a shared path)
+  use it. `relay.ts callPc`: linked PCs directly, a colleague's PC through the company's PC (`pane.relay`, employee to
+  employee only, the pane's methods only, `for` set by the company). RPC `pane.targets` / `pane.open` / `pane.share`
+  (`rpc/handlers/pane.ts`); the tab menu's **Open on ›** (every kind, PCs grouped by person) and **Share with ›** (kinds
+  with `shareKey`: websites, an agent's browser, file/folder/media by path) in `ui/workspace/PaneMenu.tsx` /
+  `share-tab.ts` / `pane-targets.ts`. `browser.show` (`browser/show-tool.ts`) gives a page or the agent's **own
+  browser** (panel `{id: 'agent:<id>', panel: 'agent'}`, the live view with Take over) to a person's pane – default the
+  agent's manager when that is a person, else the CEO – on a PC (`person`, `pc`), shares it (`share`, `'all'`), puts it in
+  a chat's area (`where: 'chat'`, `chatId`) or a page in its own area (`where: 'agent'`); `back` takes its browser out of
+  every pane it put it in. A view of an agent on another PC pulls through this PC (`rpc/handlers/browser.ts`
+  `browserHandlers` → `devices/browser-view.ts`, caller as `via`, frames ≤ 1 MiB parts, never the real window); the UI
+  pulls per browser (`browser-feed.ts`). Panels go into an agent's
   area by the agent writing its `agent:<id>` space in `side-tabs.json`. The full where-hint stands once per turn in the
   environment's "Browser, where:" line and in `browser.show` (the chat's area: this chat's work goes there and everyone
   in it finds it; global: the person's own pane across chats; a login the person makes in one of these tabs holds in
@@ -2459,7 +2796,7 @@ area). On the phone, files open with the system app.
   the whole body –, "Select text" on touch, a sheet with the phone's own handles, `chat/SelectText.tsx`, "Save as
   secret" for a selection, Edit, Delete; the rules in `chat/message-tools.ts`; final text messages also carry Copy and
   Reply icons in their reserved meta row, and a right swipe on a message replies on the phone), `team/menus.ts` (agent,
-  person), `tasks/task-menu.ts`, `tasks/todo-menu.ts`, `splits/split-menu.ts`, calendar blocks, schedules, account and
+  person), `tasks/task-menu.ts`, `tasks/todo-menu.ts`, `splits/split-menu.ts`, calendar rows, schedules, account and
   device rows, browser tabs. Page titles of agents, people, splits and tasks open the same menu as a dropdown
   (`team/TitleMenu.tsx`); on the phone a ⋯ button and long press.
 * **Fewer icons**: icons only where they carry meaning (rail, header cells); menus, settings rows and groups have none.
@@ -2471,9 +2808,10 @@ area). On the phone, files open with the system app.
   `runtime/accounts/provider-file.ts` reconciles them into accounts; protocols `openai-chat`, `openai-responses`,
   `anthropic`, `decision`; a cell names the model that runs, never "Auto" (§6); account rows have Move up/down and no plan
   roles), **Voice**, **Calendar**, **Secrets** (the inline band, §7.4), **Security** (16.11.2026, `SecurityPage.tsx`,
-  `#/settings/security`, also for the old names `permissions` and `access`: Access – `profile.pcAccess` Full access |
-  Careful, a change goes to the Manager first as the person's line, `onboarding/pc-access.ts` `setPcAccess` – and "For
-  every agent", one text saved on blur, `profile.forEveryAgent`, §5),
+  `#/settings/security`, also for the old names `permissions` and `access`; 19.11.2026: Mode Trust AI | Secure behind
+  Edit → "Yes, change it", the Manager hears of a change (`onboarding/security-mode.ts`); Trust: the agreement texts and
+  three Yes/Ask switches; Secure: one row per switch with its folder or app list and a note; Public library, Changes,
+  and last Waiting requests – §7.6),
   **Apps**, **Skills & memory** (skills with their route, the memory tree, click opens the file tab), **Devices** (§8),
   **Feedback**, **About** (version and update, back up and restore, data folder). General ends with the Companies group
   (§3) and holds Appearance only in the PC window. Everything else is a file the AI edits. **Search** (16.11.): every
@@ -2505,17 +2843,21 @@ area). On the phone, files open with the system app.
   – or the resting line), then Call and "Chat tabs" (the chat's area, §10). Chat details: members, bridges, notes,
   schedules, message search. The live bar has one line per working agent with its own Stop in a fixed slot
   (`chat/LiveBar.tsx`; a split part's slot stays empty; a run on another own PC stops there, §8); the header has no Stop.
+  The header's live line opens and closes every line of the live bar; the bar's ▾ box (`chat/LiveBarMore.tsx`) holds the
+  run's task link and, on a split part's line, its group's rows (the separate working popover is gone, Quests-Runde
+  20.11.2026).
   **Chat list** (`chat/ChatList.tsx`, `list-order.ts` `nestChats`): the person's 1:1s with agents nest under the 1:1 of
   their top-most manager in the list (one level; an explicit `parentId` wins; a person ends the chain), parents open by
   default.
-* **Live work in a chat** (B-075; `chat/WorkingMessage.tsx`, `WorkingPopover.tsx`, `RunDisclosure.tsx`,
-  `team/run-items.tsx`): the header line, the chat list row, the working popover, the live block (the newest 6 steps,
+* **Live work in a chat** (B-075; `chat/LiveBar.tsx`, `chat/LiveBarMore.tsx`,
+  `team/run-items.tsx`): the header line, the chat list row, the live bar, the live block (the newest 6 steps,
   "+N earlier steps", the live line) and "Worked … · N steps" above an answer render only from the run's row and its
   meta (§4.2), the same in every window, on linked PCs and on the phone; where this connection may read the run's
   journal (its home PC), "+N earlier steps", a stopped run's steps and the answer's list open the journal instead
   (every step, live while the run runs). The chat does not poll runs; split groups and Team views without the runs
   stream still re-read the items when the agent's live note changes (at most every 2 s, `useRunItems`).
-* **Rail** (`shell/Rail.tsx`): My day · Work · Chats · Team; from the bottom: profile (`ProfileMenu.tsx`: the
+* **Rail** (`shell/Rail.tsx`): Tasks · Chats · Team (the phone's three tabs the same, `lib/vocab.ts DESTINATIONS`;
+  the to-do badge on Tasks); from the bottom: profile (`ProfileMenu.tsx`: the
   companies, "New company", "Import a company", Settings – §3), plan quotas, update. Command palette: Ctrl/Cmd+K.
 * **Team** (`ui/team`): the Team page's second line per agent is its role and "· N reports" (`model.ts`
   `structureLine`; the sidebar and the phone's Team tab keep the live line); people who never joined sit in the
@@ -2547,8 +2889,8 @@ area). On the phone, files open with the system app.
   link target keeps its backslashes as written, a network path (`\\host\…`, `//host/…`) stays text, and inside a link
   label or a button/label (an option, a card) the enclosing control keeps the click; while text is selected nothing
   opens, so selecting still copies. A task result's evidence chips open their paths the same way, with the task's
-  assignee as the author, and so do the Open of a file block and of a review widget on every device (16.11.; in My day
-  and a task's detail the to-do's creator is the author, `authorId`); a connection that may not read paths gets one
+  assignee as the author, and so do the Open of a file block and of a review widget on every device (16.11.; on the
+  Tasks page and in a task's detail the to-do's creator is the author, `authorId`); a connection that may not read paths gets one
   toast with the reason (`NO_PATH_READ`).
 * **Look**: `styles/tokens.css` defines every colour; the person's look is `theme.css` (§3).
 
@@ -2559,7 +2901,8 @@ tabs, people, references, the phone, Android control, linked PCs, the week calen
 Send later – now the composer's schedule mode –, splits, the emergency stop, the live view and takeover, schedules, crash
 repair). What only held back, judged,
 guarded, undid or duplicated is gone, and where a settings screen went, the AI does it through a file, a skill or
-`wf call`. Agents may do everything; the person is asked with `human.ask` or a chat message.
+`wf call`. Agents may do everything; the person is asked with a to-do of theirs (`tasks.add` for the person, with an
+`ask`) or a chat message.
 
 * **Gate and judgment**: the guardian, the permission service and modes (Standard/Full autonomy), grants, rules, hard
   stops, money bands and budgets, offers, approvals and the approval park, deny memory, manager review, variant and
@@ -2644,6 +2987,21 @@ guarded, undid or duplicated is gone, and where a settings screen went, the AI d
   `tasks.create`/`tasks.give` (`askedRoute` in `tasks/give.ts`); `EVERY_MODE` and `ToolDef.anyMode` (§7.1); the standard's
   `review` wake (§5); the call voice's one structured call per line with `relay` none/next/now (§9); the duplicate
   `leads()` in `routing/kind.ts` (one in `org/standard.ts`).
+* **Removed in the Quests-Runde (20.11.2026)**: My day and Work with their side-pane copies, the task center views and
+  the task filter nav (one Tasks page, §4.7); the day planner, morning planner and briefing, focus timer, learned
+  estimates, "Handed off", the stale-asks tidy, the Next card, the stored to-do blocks of the calendar, the per-task looks
+  (`next_at`, stall pause, 2-day nudges), routine and timer schedules and "Post as task" (§4.6); twenty task, schedule and
+  calendar tools (four task commands and `calendar.list`/`connect`, §4.3); `day.add`, `todos.add`,
+  `day.plan/briefing/handedOff`; the settings `day.autoPlan`, `day.agentLane`, `preferences.closeToTray`; "Only me" as a
+  read exception (every agent reads every task); the second vector system (memory and catalog index, start pass, re-embed queue,
+  `requires: 'embeddings'`, §5.3); the subconscious's widget-fill chain; eight `chat.*` tools (→ `chat.update`); the
+  working popover; the unused voice-rtc host op and main's voice-rtc window; main's identity move; the person-scoped
+  device invite; `people.directChat`; the IPC `updates.setAutoDownload`; migrations 001–090 (the baseline, §3) and every
+  one-time move of data from before 0.3.9 – the JSON-store import, settings rows, app records, per-entry secret files, the
+  old phone switch, the logins move, the legacy accounts, the old model keys, the knowledge-row move and chat
+  observations, the 13.11. conversions, the role and standard upgraders; doubles – the calendar's own OAuth loopback, a
+  second web-push request and signer, `isCeoLink`/`isCeo`, `chargeOf`; test helpers in `src` (ManualClock, MemoryLogger,
+  memoryConnection, socketPair, §13).
 
 **Leftovers still in the tree** (harmless, to remove when their callers go): compatibility stubs and legacy fields
 named in their file headers (e.g. `TaskView.route`, `shared/model/browser.ts` device fields); the
@@ -2666,7 +3024,19 @@ named in `ui/styles/index.css` and the header of `ui/settings/FeedbackPage.tsx`.
 * Simplicity first: delete before adding; no settings knob the owner did not ask for; no layer that only guards.
 * Constructor injection for everything that touches processes, time, network or disk (tests use fakes); no global
   singletons except the composition roots (`runtime/main.ts`, `main/index.ts`, `ui/main.tsx`). Late binding through
-  `services: () => RuntimeServices`.
+  `services: () => RuntimeServices`. Test helpers live in `test/`, never in `src` (Quests-Runde 20.11.2026): ManualClock,
+  MemoryLogger and nullLogger in `test/unit/fakes.ts`, memoryConnection in `test/unit/rpc/memory-connection.ts`,
+  socketPair in `test/unit/devices/socket-pair.ts`.
+* **Bridges** (`runtime/bridge/*`): a one-time change for older data or PCs lives only in a bridge file whose leading
+  comment names its release ("bridge 0.3.16"); `scripts/check-boundaries.mjs` warns two releases later, so it goes. One
+  name per thing – no alias layers. Bridges are for structural changes (schema, IDs); **what an older version left
+  wrong that an AI can check and put right** goes into the **update note** instead (Fest 22.11.2026, owner: no code per
+  old mistake): `resources/updates.md`, one section per version (what changed; per leftover how it shows, how I check,
+  how I fix), and `runtime/system/update-note.ts` – at the first start of a newer version (kv `system/version`, read
+  before `recordStart` stores the new one; semver order, a `-local.N` build before its release), the personal manager
+  (`managerAgent`) gets one wake on its home PC with a lead in its own voice and every section since; fresh installs and
+  folders before their first run get none. The release kit's step `update-note` (`scripts/update-note.mjs --check`)
+  refuses a release without its section.
 * **Contracts**: service shapes in `runtime/contracts.ts` and `runtime/contracts/*` (later additions by module
   augmentation). The RPC contract: core methods in `shared/api/methods.ts`, every other area in its own
   `shared/api/methods-<area>.ts` (augmenting `Methods`); events in `shared/api/events.ts`. A new method goes into its
@@ -2689,28 +3059,29 @@ All paths below `code/apps/desktop/src` unless stated.
 | Service contracts | `runtime/contracts.ts`, `runtime/contracts/*` |
 | RPC | contract `shared/api/*`, server `runtime/rpc/server.ts`, scopes `rpc/scopes.ts`, handlers `rpc/handlers/*`, extras `rpc/extras.ts`; client `ui/lib/rpc.ts` |
 | HTTP, PWA, push | `runtime/http/*` (`peer.ts` incl. `/peer/phone`, `static.ts` incl. `/ui-hashes.json`), `runtime/pwa/*` (`pair-code.ts` the 6-digit code, `urls.ts`), `ui/pwa/*`, `ui/hosted/*` (`ui-hashes.ts` the file check), `shared/model/ui-hashes.ts` |
-| Data folder and files | `runtime/root/*`, `runtime/settings/*` (`schema.ts` is the one table; `read.ts`, `service.ts`), `runtime/system/paths.ts`, `runtime/agent-core/*`, `runtime/secrets/files.ts`, `runtime/apps/connectors.ts`, `runtime/chat-files/*` |
+| Data folder and files | `runtime/root/*`, `runtime/settings/*` (`schema.ts` is the one table; `read.ts`, `service.ts`), `runtime/system/paths.ts`, `runtime/agent-core/*`, `runtime/secrets/files.ts`, `runtime/apps/connectors.ts`, `runtime/chat-files/*`, `shared/files/{mime,serving}.ts` (content types, blob layout, Range – runtime and main) |
 | Companies | `main/companies.ts`, `main/company-remove.ts` (leave, delete), `runtime/root/companies.ts`, `shared/model/companies.ts`, `runtime/tools/builtin/companies.ts` (`companies.list`, `runCompanyTool`), `runtime/rpc/handlers/companies.ts`, `runtime/portability/company.ts` (export, import), UI `ui/shell/ProfileMenu.tsx`, `ui/settings/CompaniesGroup.tsx`, `assets/installer.nsh` |
-| Database | `runtime/db/*` (migrations), `runtime/store/*` |
+| Database | `runtime/db/*` (`migrate.ts` with `OLDEST_SCHEMA`, `upgrade.ts`, `migrations/091-baseline.ts` … `110-quests.ts`), `runtime/store/*` |
+| Bridges (one-time, named by release) | `runtime/bridge/*` (`cost-1117.ts`, `sicher-1119.ts`, `quests-2011.ts` rows from older PCs, `quests-wake.ts`) |
 | Chats | `runtime/chat/*` (a run's row: `streaming.ts`, `live-row.ts`, `publish-message.ts`; `live.ts` with the other PCs' live state), `runtime/notes/store.ts`, UI `ui/chat/*` (`message-tools.ts` Copy/Reply, `SelectText.tsx`, `message-keys.ts` masked keys, `LiveBar.tsx`, `list-order.ts`) |
-| Tasks, ownership | `runtime/tasks/*`, UI `ui/tasks/*` |
+| Quests, to-dos, threads | `runtime/tasks/*` (`quests.ts`, `thread.ts`, `quick.ts` the one intake, `watch.ts`, `morning.ts`, `related.ts`), `runtime/context/quest-text.ts`, `runtime/tools/builtin/{tasks,tasks-list,tasks-remind,tasks-util}.ts`, `shared/model/tasks.ts`, UI `ui/tasks/*`, `ui/chat/TaskThread.tsx`, `ui/chat/KeptLine.tsx` |
 | Wakes, scheduler, dispatcher, turns | `runtime/wakes/queue.ts`, `runtime/schedules/*`, `runtime/agents/*`, `runtime/runs/journal.ts` |
 | Fold, boundary, session start (B-092) | `runtime/agents/context-fold.ts` (causes, hold, fold turn, `FOLD_NOTE`), `agents/compaction-policy.ts` (`FOLD_STEP`, `FOLD_IDLE`, `CACHE_COLD_MS`), `agents/boundary.ts`, `agents/rebuild.ts`, `agents/session-key.ts` (start record), `agents/volatile-delta.ts` (was / now), `agents/turn-cost.ts`, `routing/kind.ts`, `bridge/cost-1117.ts`, `splits/wait.ts`, `phone/linked.ts`, `calls/{talker,voice-row,voice-text,no-lane}.ts`, `engines/claude/kept.ts` |
 | Splits | `runtime/splits/*`, `runtime/git/*`, UI `ui/splits/*` |
-| My day, calendar | `runtime/day/*`, `runtime/calendar/*`, UI `ui/day/*` |
-| Org, agents, people | `runtime/org/*`, `runtime/people/*` (`access.ts` incl. the CEO layer, `rpc-ceo.ts` the co-CEO's methods), `runtime/portability/*`, `runtime/patterns/*`, UI `ui/team/*` (`PersonNew.tsx` Add person, `AgentWork.tsx`/`WorkNow.tsx`/`agent-work.ts` the Work page, `org-state.ts`) |
+| Tasks page, calendar, time phrases | UI `ui/tasks/*` (`TasksPage.tsx`, `TaskInput.tsx`, `TaskCalendar.tsx`, `TodoDetail.tsx`, `QuestDetail.tsx`), `ui/lib/day-store.ts`, `runtime/day/*` (`assistant.ts`, `keep-awake.ts`, `clock.ts`), `runtime/calendar/*`, `runtime/tools/builtin/calendar.ts`, `shared/text/when.ts` (the one time parser and zone math), `shared/model/day-settings.ts` |
+| Org, agents, people | `runtime/org/*`, `runtime/people/*` (`access.ts` incl. the CEO layer, `rpc-ceo.ts` the co-CEO's methods), `runtime/portability/*`, `runtime/patterns/*`, UI `ui/team/*` (`PersonNew.tsx` Add person, `PersonJoin.tsx` a person's device, `AgentWork.tsx`/`WorkNow.tsx`/`agent-work.ts` the Work page, `org-state.ts`) |
 | Prompt and context | `runtime/context/*`, `runtime/modes/*`, `resources/prompts` (incl. `agent-default.md`, `subconscious.md`), `resources/modes` |
-| Subconscious (§5.4) | `runtime/subconscious/*` (`route-turn.ts` the one call before a turn, `look.ts` its hits and context items, `flow.ts` the asked run's loop, `tools.ts` its tools, `service.ts` which call runs when, `wake.ts` the checks, `exchange.ts`, `context-tools.ts`; `verify*.ts`, `widget*.ts` the small side work), `runtime/tools/builtin/subconscious.ts`, `shared/model/subconscious.ts` |
+| Subconscious (§5.4) | `runtime/subconscious/*` (`route-turn.ts` the one call before a turn, `look.ts` its hits and context items, `flow.ts` the asked run's loop, `tools.ts` its tools, `service.ts` which call runs when, `wake.ts` the checks, `exchange.ts`, `context-tools.ts`; `verify*.ts` the result check), `runtime/tools/builtin/subconscious.ts`, `shared/model/subconscious.ts` |
 | Transcript by IDs (§5.5) | `runtime/context/ledger/*`, `runtime/contracts/ledger.ts`, `shared/model/context-ledger.ts`, `runtime/tools/builtin/context.ts`, `runtime/agents/rebuild*.ts`, `runtime/engines/{codex,claude}/rebuild*.ts`, `runtime/engines/claude/transcript.ts`, `runtime/engines/trace-text.ts` |
-| Vectors (§5.3) | `runtime/vectors/*`, `runtime/contracts/vectors.ts`, `runtime/models/embeddings.ts`, `runtime/tools/builtin/vector-{embed,search}.ts`, `shared/model/vectors.ts` |
-| Memory, references, find | `runtime/knowledge/*` (the tree: `memory-tree.ts`, `memory-follow.ts`, `memory-migrate.ts`; `words.ts` the word index, `tree-words.ts` the tree's), `runtime/tools/builtin/memory.ts`, `shared/model/memory.ts`, `runtime/references/*`, `runtime/find/*`, `runtime/work-presence/*` |
+| Vectors (§5.3) | `runtime/vectors/*` (`meaning.ts` the blend and the one queue, `files.ts` added files, `store.ts`), `runtime/contracts/vectors.ts`, `runtime/models/embeddings.ts`, `runtime/tools/builtin/vector-{embed,search}.ts`, `shared/model/vectors.ts` |
+| Memory, references, find | `runtime/knowledge/*` (the tree: `memory-tree.ts`, `memory-follow.ts`; `words.ts` the word index, `tree-words.ts` the tree's, `search.ts noteHits`), `shared/text/normalize.ts` (the one stem), `runtime/tools/builtin/memory.ts`, `shared/model/memory.ts`, `runtime/references/*`, `runtime/find/*`, `runtime/work-presence/*` |
 | Engines | `runtime/engines/*`, `runtime/mcp/*` |
-| Accounts, models, routing, decisions, cost | `runtime/accounts/*` (`legacy.ts`; shared plan logins: `cli-homes.ts`, `adoption.ts`, `dismissed.ts`, `login-file.ts`), `runtime/bridge/logins-1611.ts` (the one-time move into the logins folder), `runtime/models/*`, `runtime/routing/*` (`uses-settings.ts`, `person-turn.ts`), `runtime/decision/*`, `runtime/spend/*`, `shared/model/{models-uses,providers-connect}.ts`, `resources/model-priors.json` |
+| Accounts, models, routing, decisions, cost | `runtime/accounts/*` (shared plan logins: `cli-homes.ts`, `adoption.ts`, `dismissed.ts`, `login-file.ts`), `runtime/models/*`, `runtime/routing/*` (`uses-settings.ts`, `person-turn.ts`), `runtime/decision/*`, `runtime/spend/*`, `shared/model/{models-uses,providers-connect}.ts`, `resources/model-priors.json` |
 | Tools | `runtime/tools/*` (registry, placement incl. `placeCompany`, core sets), `runtime/tools/builtin/*` |
 | Connectors, bridges | `runtime/apps/*`, `runtime/bridges/*` |
 | Skills, secrets | `runtime/skills/*`, `resources/skills/*`, `runtime/secrets/*` (`export.ts`, `units.ts`, `metadata.ts` word index and ranking, `text-capture.ts` keys in chat text), `runtime/find/secrets.ts`, `shared/secrets/token-patterns.ts`, `shared/model/key-values.ts`, UI `ui/settings/SecretRows.tsx`, `ui/settings/secret-catalog.ts` |
 | Devices | `runtime/devices/*` (sync: `runtime/devices/sync/*` – `logins.ts`, `blobs.ts`, `file-io.ts`, `live.ts`; `load.ts`; `rendezvous/phone.ts` and `phone-traffic.ts` the phones' paths), `runtime/remote/*` (`mirror.ts` requests on every own PC), `runtime/phone/*`, `runtime/computer/*`, `runtime/pointers/*`, `main/screen-cursor.ts` (the AI cursor on the screen), `code/services/remote-relay`, UI `ui/settings/DevicesGroup.tsx`, `connect-rows.tsx`, `devices-connection.tsx`, `device-version.ts`, `ui/onboarding/ConnectCard.tsx` |
-| Voice, calls, media | `ui/lib/dictation.ts`, `ui/lib/ogg-opus.ts` (compact pieces), `ui/blocks/ui/live-words.ts` and `prompter.ts` (words while recording), `ui/chat/composer/RecordBar.tsx`, `shared/voice/*`, `runtime/voice/*`, `runtime/calls/*` (`call-log.ts` a call's row, `wiring.ts` start-up and shutdown, `ring.ts` an agent's ring), `runtime/tools/builtin/call-tool.ts` (`chat.call`), `shared/model/call.ts`, `runtime/media/*`, `main/media-*.ts`, UI `ui/chat/composer/*`, `ui/chat/call/*` |
+| Voice, calls, media | `ui/lib/dictation.ts`, `ui/lib/ogg-opus.ts` (compact pieces), `ui/blocks/ui/live-words.ts` and `prompter.ts` (words while recording), `ui/chat/composer/RecordBar.tsx`, `shared/voice/*`, `runtime/voice/*`, `runtime/calls/*` (`call-log.ts` a call's row, `wiring.ts` start-up and shutdown, `ring.ts` an agent's ring), `runtime/tools/builtin/call-tool.ts` (`chat.call`), `shared/model/call.ts`, `runtime/media/*`, `main/media-*.ts` with `main/hidden-jobs.ts` (the one hidden-window runner), UI `ui/chat/composer/*`, `ui/chat/call/*` |
 | Browser | `main/workspace-*.ts` (one shown tab per space `workspace-shown.ts`, preview marks `workspace-marks.ts`), `main/side-driver/*` (`cursor-script.ts` the AI cursor's drawer, `pick-script.ts` the Pin picker), `runtime/browser/*`, `shared/model/{agent-cursor,page-pick}.ts`, UI `ui/workspace/*` (`pin.ts`, `view-zoom.ts`, `browser-pad.ts`), `ui/chat/ChatArea.tsx`, `ui/team/AgentBrowser.tsx` |
 | Shell, header, menus, settings | `ui/shell/*`, `ui/lib/{header,header-model,context-menu,dialog}.tsx`, `ui/lib/backdrop-dim.ts`, `ui/settings/*` (`SecurityPage.tsx`, `search-marks.ts`, `settings-words.ts`), `ui/styles/*`, `main/title-bar.ts` |
 | First run, feedback, repair | `ui/onboarding/*`, `ui/tour/*` (`phone-page.tsx` the phone tour, bundled by `scripts/tour-page.mjs`), `runtime/onboarding/*`, `ui/feedback/*` (`FeedbackOverlay.tsx` the snapshot overlay, `FeedbackPanel.tsx` its dock, `outbox.ts`, `press.ts`), `runtime/feedback/*`, `runtime/repair/*`, `ui/repair/*` |
@@ -2737,6 +3108,7 @@ All commands run in `code/apps/desktop`.
 | End-to-end over real WebSocket RPC | `npm run build && npm run test:e2e` – 39 files; three real-provider tests skip themselves |
 | Live checks on this PC (opt-in) | `npm run test:live` with `WORKFORCE_LIVE=1` (real browser window, mouse/keyboard; own test pages) |
 | Windows package | `npm run package -- --win --x64` (`scripts/package-desktop.mjs`, NSIS) |
+| Electron to the newest stable | `npm run electron:latest` (`scripts/electron-latest.mjs`: exact pin + lock + binary; lists the breaking changes of a crossed major); `-- --check` exits 1 when behind – the release kit's first check step `electron-current`, so every release ships the newest stable Electron and its Chromium |
 
 `--fake` / `WORKFORCE_FAKE_ENGINE=1` is a strict demo mode: one "Demo engine" account on the deterministic fake engine;
 real CLI logins are never detected or used. Typecheck runs in four projects (`tsconfig.shared/runtime/main/ui.json`).

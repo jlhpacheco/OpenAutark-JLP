@@ -13,9 +13,9 @@ import path from 'node:path';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
 
-/** Schema 9: the last migration before the 20s (task_assigned_by) – an early 0.1.x profile. */
-export const OLD_SCHEMA = 9;
-export const OLD_VERSION = '0.1.8';
+/** Schema 103 (db/migrate.ts OLDEST_SCHEMA): the oldest data this version updates – a profile from 0.3.9 (16.11.) on. */
+export const OLD_SCHEMA = 103;
+export const OLD_VERSION = '0.3.6';
 const T = Date.UTC(2026, 8, 30, 10);
 
 /** 1×1 PNG. */

@@ -1,6 +1,7 @@
 // Electron window check of the voice-over recorder (record block with `video` + `cues`; task_2xr88cmc, 17.11.2026) with the
 // demo engine and Chromium's fake microphone in an isolated profile:
-//   * a to-do from an agent's ui block opens on My day with the video on its first frame, the lines listed and Start microphone;
+//   * a to-do from an agent's ui block opens from the Tasks page (For you → its detail's tool) with the video on its first
+//     frame, the lines listed and Start microphone;
 //   * Record counts 3-2-1, then the video plays SILENT while the current line changes with the video's time (the bar and the
 //     pace stand beside it), and the take ends with the video;
 //   * the take is a WAV that starts at the video's first frame (its length is the video's, not the countdown's), plays beside
@@ -18,6 +19,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -55,7 +57,7 @@ test('voice-over: video silent, lines follow its time, the take is a WAV from th
   await size(1280, 900);
   const go = (hash) => page.evaluate((target) => { location.hash = target; }, hash);
   const shot = async (name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('settings.update', { onboarding: { step: 'done' } });
   await rpc.call('events.subscribe', { topics: ['tasks'] });
@@ -102,14 +104,18 @@ test('voice-over: video silent, lines follow its time, the take is a WAV from th
   assert.equal(todo.widget.mode, 'audio', 'a voice-over records the voice only');
   assert.equal(todo.widget.cues.length, 3);
 
-  const openOnHome = async () => {
-    await go('#/home');
-    const item = page.locator(`.day-view .todo-item[data-task-id="${todo.id}"]`);
-    await item.waitFor({ timeout: 20_000 });
-    if ((await item.locator('.todo-open').getAttribute('aria-expanded')) !== 'true') await item.locator('.todo-open').click();
-    return item;
+  /** Opens a to-do from Tasks › For you and returns its detail's tool (beside the list, or in its place at phone width). */
+  const tasksPage = page.locator('.tasks-page:not(.in-pane)');
+  const openOnTasks = async (id) => {
+    await go('#/tasks');
+    const row = tasksPage.locator(`ul[aria-label="For you"] .todo-row[data-task-id="${id}"]`);
+    await row.waitFor({ timeout: 20_000 });
+    await row.locator('.todo-open').click();
+    const tool = tasksPage.locator('.task-detail .todo-tool');
+    await tool.waitFor({ timeout: 20_000 });
+    return tool;
   };
-  const item = await openOnHome();
+  const item = await openOnTasks(todo.id);
   const widget = item.locator('.w-voice');
   await widget.waitFor({ timeout: 20_000 });
   const picture = widget.locator('video.w-voice-video');
@@ -181,10 +187,7 @@ test('voice-over: video silent, lines follow its time, the take is a WAV from th
   assert.ok(second.seq > 0);
   const phoneTodo = await rpc.waitFor('task.upserted', (changed) => changed.assigneeKind === 'human' && changed.widget?.type === 'record' && changed.id !== todo.id && changed.status !== 'done', 90_000);
   await size(390, 860);
-  await go('#/home');
-  const phoneItem = page.locator(`.day-view .todo-item[data-task-id="${phoneTodo.id}"]`);
-  await phoneItem.waitFor({ timeout: 20_000 });
-  if ((await phoneItem.locator('.todo-open').getAttribute('aria-expanded')) !== 'true') await phoneItem.locator('.todo-open').click();
+  const phoneItem = await openOnTasks(phoneTodo.id);
   const phoneWidget = phoneItem.locator('.w-voice');
   await phoneWidget.getByRole('button', { name: 'Start microphone', exact: true }).waitFor({ timeout: 20_000 });
   await phoneWidget.getByRole('button', { name: 'Start microphone', exact: true }).click();

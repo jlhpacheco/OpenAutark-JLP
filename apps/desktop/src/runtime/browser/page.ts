@@ -9,6 +9,7 @@
 import { WorkforceError } from '../../shared/errors.ts';
 import type { MotionStyle } from '../../shared/model/pointer-motion.ts';
 import { moveTo, POINTER_ACTIONS, type PointerMove } from './motion.ts';
+import { isSecretLabel, SECRET_LABEL } from '../../shared/secrets/secret-places.ts';
 
 export interface LocatorLike {
   click(options?: { timeout?: number; button?: 'left' | 'right' | 'middle'; delay?: number }): Promise<void>;
@@ -46,7 +47,7 @@ export interface PageLike {
   getByText(text: string, options?: { exact?: boolean }): LocatorLike;
   getByLabel(text: string, options?: { exact?: boolean }): LocatorLike;
   getByPlaceholder(text: string, options?: { exact?: boolean }): LocatorLike;
-  screenshot(options?: { type?: 'jpeg' | 'png'; quality?: number; fullPage?: boolean; scale?: 'css' | 'device'; timeout?: number }): Promise<Uint8Array>;
+  screenshot(options?: { type?: 'jpeg' | 'png'; quality?: number; fullPage?: boolean; scale?: 'css' | 'device'; timeout?: number; mask?: unknown[]; maskColor?: string }): Promise<Uint8Array>;
   waitForLoadState(state?: 'load' | 'domcontentloaded' | 'networkidle', options?: { timeout?: number }): Promise<void>;
   bringToFront(): Promise<void>;
   close(): Promise<void>;
@@ -57,7 +58,7 @@ export interface PageLike {
   /** browser.eval, browser.wait, password fields: an expression evaluated in the page, awaited when it is a promise. */
   evaluate?(expression: string): Promise<unknown>;
   /** BEFUND §6: the page's frames (the main one first), for the hidden fields of a payment iframe. */
-  frames?(): Array<{ url(): string; evaluate(expression: string): Promise<unknown> }>;
+  frames?(): Array<{ url(): string; evaluate(expression: string): Promise<unknown>; locator?(selector: string): unknown }>;
   waitForURL?(url: (url: URL) => boolean, options?: { timeout?: number; waitUntil?: 'commit' }): Promise<void>;
   viewportSize?(): { width: number; height: number } | null;
 }
@@ -70,6 +71,9 @@ export interface CdpSessionLike {
   detach(): Promise<void>;
 }
 
+/** A profile's cookies and per-site storage as the browser itself hands them out (Playwright's storage state). */
+export interface StorageStateLike { cookies: Array<Record<string, unknown>>; origins: Array<Record<string, unknown>> }
+
 export interface ContextLike {
   pages(): PageLike[];
   newPage(): Promise<PageLike>;
@@ -79,6 +83,9 @@ export interface ContextLike {
   setDefaultTimeout(ms: number): void;
   /** Chromium only (every agent browser is Chrome or Edge); absent in fakes without a live view. */
   newCDPSession?(page: PageLike): Promise<CdpSessionLike>;
+  /** Umzug 21.11.2026: the profile's sign-ins read and set through the browser (devices/sync/share-browser.ts); absent in fakes. */
+  storageState?(options?: { indexedDB?: boolean }): Promise<StorageStateLike>;
+  setStorageState?(state: StorageStateLike): Promise<void>;
 }
 
 export interface BrowserTarget {
@@ -319,11 +326,41 @@ export async function passwordValues(page: PageLike): Promise<string[]> {
   }
 }
 
-/** `text` with `values` masked on its field lines (a snapshot shows a text box's value). */
+const FIELD_LINE = /^\s*[-+−]\s+(textbox|combobox|spinbutton|searchbox)\b/;
+const TEXT_LINE = /^(\s*[-+−]\s+text:\s*)(.+)$/;
+/** A field's value after its name and marks: `textbox "CVC" [ref=e3] [active]: 123`. */
+const FIELD_VALUE = /^(.*\]:\s*)(\S.*)$/;
+/** Hidden values this long are masked on every line (22.11.: a Stripe frame showed the number as a `text:` line under a button). */
+const ANYWHERE_CHARS = 8;
+
+/**
+ * `text` with the page's hidden values masked (a snapshot or its diff shows a text box's value on the field line or on
+ * a `text:` line below it): long ones on every line, short ones (a CVC, an expiry) on field lines and the line below.
+ * 22.11.2026: a text box named like a card, code or password field (shared/secrets/secret-places.ts) shows no value
+ * even when the page could not say which values are hidden (a frame that did not answer in time).
+ */
 export function maskPasswords(text: string, values: readonly string[]): string {
-  if (!values.length) return text;
   const sorted = [...values].sort((a, b) => b.length - a.length);
-  return text.split('\n').map((line) => (/^\s*-\s+(textbox|combobox|spinbutton|searchbox)\b/.test(line) ? sorted.reduce((out, value) => out.split(value).join(PASSWORD_MASK), line) : line)).join('\n');
+  const mask = (line: string, all: boolean) => sorted.reduce((out, value) => (all || value.length >= ANYWHERE_CHARS ? out.split(value).join(PASSWORD_MASK) : out), line);
+  const indent = (line: string) => /^\s*/.exec(line)![0].length;
+  let after: { secret: boolean; indent: number } | undefined;
+  return text.split('\n').map((line) => {
+    const field = FIELD_LINE.exec(line);
+    const below = after;
+    after = undefined;
+    if (field) {
+      const name = /"((?:[^"\\]|\\.)*)"/.exec(line)?.[1];
+      const secret = field[1] !== 'combobox' && isSecretLabel(name);
+      after = { secret, indent: indent(line) };
+      const out = mask(line, true);
+      return secret ? out.replace(FIELD_VALUE, (_all, head: string, value: string) => `${head}${value === PASSWORD_MASK ? value : PASSWORD_MASK}`) : out;
+    }
+    const shown = TEXT_LINE.exec(line);
+    // the field's own value line: deeper in the snapshot, or in a diff (no indent kept) a value without letters
+    const own = !!below && !!shown && (indent(line) > below.indent || (/^\s*[+−]/.test(line) && !/\p{L}/u.test(shown[2])));
+    if (below?.secret && own) return line.replace(TEXT_LINE, (_all, head: string) => `${head}${PASSWORD_MASK}`);
+    return mask(line, own);
+  }).join('\n');
 }
 
 /**
@@ -332,16 +369,25 @@ export function maskPasswords(text: string, values: readonly string[]): string {
  * the main document were masked. Hidden now, in every frame: password fields, fields whose autocomplete names a card,
  * a one-time code or a password, fields named like a card number, CVC or expiry, and every field of a payment
  * provider's frame (Stripe, Adyen, Braintree, PayPal, Mollie, Checkout.com).
+ * 22.11.2026: also a field whose label, aria-label or placeholder names a card, code or password (SECRET_LABEL – the
+ * billing form of 21.11. named its field only by its label), and every hidden field is marked HIDDEN_MARK so a
+ * screenshot paints over it (hiddenBoxes).
  */
 const PAYMENT_FRAME = /(^|\.)(stripe\.com|stripe\.network|adyen\.com|adyenpayments\.com|braintreegateway\.com|braintree-api\.com|paypal\.com|paypalobjects\.com|mollie\.com|checkout\.com)$|^checkoutshopper-/i;
+export const HIDDEN_MARK = 'data-autark-hidden';
 const hiddenExpression = (all: boolean) => `Array.from(document.querySelectorAll('input, textarea, select'), (field) => {
   const type = String(field.type || '').toLowerCase();
   if (['hidden', 'submit', 'button', 'checkbox', 'radio', 'file', 'image', 'reset'].includes(type)) return '';
   const auto = String(field.getAttribute('autocomplete') || '').toLowerCase();
   const named = (String(field.name || '') + ' ' + String(field.id || '') + ' ' + String(field.getAttribute('data-elements-stable-field-name') || '')).toLowerCase();
+  const labels = field.labels ? Array.from(field.labels, (label) => String(label.textContent || '')).join(' ') : '';
+  const said = [field.getAttribute('aria-label'), field.getAttribute('placeholder'), labels].map((part) => String(part || '')).join(' ');
   const hide = ${all ? 'true' : 'false'} || type === 'password' || /(^|\\s)(cc-|one-time-code|current-password|new-password)/.test(auto)
-    || /(card.?number|cardnumber|cc.?num|cvc|cvv|csc|security.?code|exp.?date|expiry|expiration)/.test(named);
-  return hide ? String(field.value || '') : '';
+    || /(card.?number|cardnumber|cc.?num|cvc|cvv|csc|security.?code|exp.?date|expiry|expiration)/.test(named)
+    || new RegExp(${JSON.stringify(SECRET_LABEL.source)}, 'iu').test(said + ' ' + named);
+  if (!hide) return '';
+  if (typeof field.setAttribute === 'function') field.setAttribute('${HIDDEN_MARK}', '');
+  return String(field.value || '');
 }).filter(Boolean).slice(0, 20)`;
 
 /** The values of the page's hidden fields in all its frames (see above; at most 40, read within 1.5 s; [] when the page cannot say). Never logged. */
@@ -361,6 +407,12 @@ export async function hiddenValues(page: PageLike): Promise<string[]> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** 22.11.2026: what a screenshot paints over – the hidden fields of every frame, marked by hiddenValues just now. */
+export async function hiddenBoxes(page: PageLike): Promise<unknown[]> {
+  await hiddenValues(page);
+  return (page.frames?.() ?? []).flatMap((frame) => (frame.locator ? [frame.locator(`[${HIDDEN_MARK}]`)] : []));
 }
 
 /** Host of a page URL ('' for about:blank or invalid). */

@@ -5,18 +5,21 @@
 // browser, the system) counts as finished: its reader is told it is done and the queue moves on – a token
 // per line keeps a late "end" of a cut line from finishing the next one. The queue also tells the capture
 // whether anything is read aloud right now (echo guard for every reader, not only the conversation's own).
-// B-047 D14: with a local voice chosen on the PC (settings.voice.localTts) and voice.speak allowed here, a
-// line is read by the PC's own voice model instead – split into sentences, each one asked of voice.speak
-// while the one before plays (Web Audio), so speaking starts after the first sentence; this device's own
-// voice reads whatever the local voice cannot (no voice chosen, a failed call, audio output not allowed yet):
-// speechSynthesis, or in the Android app (no voices in its WebView) the phone's voice over the native port.
+// B-047 D14 / VOICE 19.11.2026: with voice.speak allowed here, a line is read by the PC's own voice model – whichever
+// it has; the person chose none and gets it anyway (runtime/voice/local/service.ts fetches one by itself), only a
+// system voice picked by name (settings.voice.ttsVoice) keeps the device's voice – split into sentences, each one
+// asked of voice.speak while the one before plays (Web Audio), so speaking starts after the first sentence. This
+// device's own voice reads whatever the PC's voice cannot – speechSynthesis, or in the Android app (no voices in its
+// WebView) the phone's voice over the native port: a refused call (no voice on the PC yet: the next REST_MS of lines
+// go straight to the device's voice), audio output not allowed yet, and a sentence that is not here LATE_MS after it
+// is due (a slow link or a busy PC: the device's voice reads the rest of that line at once, the call never stalls).
 // Owns: the queue, the line tokens, the speaking state, the device-voice engine with the reading
 // voice and profile language, and the local voice engine in front of it. Never: decides what
 // is read or when (the readers do).
 
 import type { VoiceSettings } from '../../../shared/model/system.ts';
 import type { SpokenAudio } from '../../../shared/model/local-speech-models.ts';
-import { pcm16ToFloat } from '../../lib/pcm.ts';
+import { pcm16Samples } from '../../../shared/voice/wav.ts';
 import { hasNativePort, onNative, sendNative } from '../../pwa/native-port.ts';
 import { rpc } from '../../lib/rpc.ts';
 import { can } from '../../lib/session.ts';
@@ -137,6 +140,11 @@ export function synthesisEngine(): SpeechEngine {
   };
 }
 
+/** A sentence of the PC's voice not here this long after it is due: the device's voice reads the rest of the line. */
+export const LATE_MS = 1_500;
+/** After a refused voice.speak the device's voice reads this long without asking the PC (no voice there yet, or it fails). */
+export const REST_MS = 60_000;
+
 /** Longest sentence sent to voice.speak at once (a longer one is cut at a space). */
 export const MAX_SENTENCE = 400;
 /** Pieces shorter than this join the next sentence (one word alone sounds clipped). */
@@ -174,19 +182,24 @@ export interface LocalVoiceDeps {
   play(samples: Float32Array, rate: number, ended: () => void): Promise<() => void>;
   /** Opens the audio output while the reader's tap is still current (a phone allows audio only then). */
   prepare?(): void;
+  now?(): number;
 }
 
 const unbase64 = (text: string) => Uint8Array.from(atob(text), (char) => char.charCodeAt(0));
 
 /**
  * The PC's local voice in front of `fallback`: sentence by sentence through voice.speak (the next one is
- * asked while the current one plays); a failed call or playback hands the rest of the line to `fallback`.
+ * asked while the current one plays); a failed call or playback, or a sentence later than `lateMs` after it is due,
+ * hands the rest of the line to `fallback`; a failed call also rests the PC's voice for REST_MS.
  */
-export function localVoiceEngine(deps: LocalVoiceDeps, fallback: SpeechEngine): SpeechEngine {
+export function localVoiceEngine(deps: LocalVoiceDeps, fallback: SpeechEngine, timing: { lateMs?: number; restMs?: number } = {}): SpeechEngine {
   let line: { cut: boolean; stop: () => void } | null = null;
+  let restUntil = 0;
+  const now = () => deps.now?.() ?? Date.now();
+  const lateMs = timing.lateMs ?? LATE_MS;
   return {
     play(text, reading, ended) {
-      if (!text.trim() || !deps.active()) { line = { cut: false, stop: () => fallback.stop() }; fallback.play(text, reading, ended); return; }
+      if (!text.trim() || now() < restUntil || !deps.active()) { line = { cut: false, stop: () => fallback.stop() }; fallback.play(text, reading, ended); return; }
       // The output is first opened in the call's tap (conversation-audio.ts primeSpeech); this is the second chance
       // for a reader without one – a reply arrives long after any tap, so on a phone this alone may stay suspended.
       try { deps.prepare?.(); } catch { /* play() says whether audio can play */ }
@@ -204,14 +217,18 @@ export function localVoiceEngine(deps: LocalVoiceDeps, fallback: SpeechEngine): 
       };
       if (!parts.length) { finish(); return; }
       let pending = ask(0);
+      pending.catch(() => undefined); // a late sentence's failure is nobody's
       const step = async (index: number): Promise<void> => {
-        let audio: SpokenAudio;
-        try { audio = await pending; } catch { rest(index); return; }
+        let audio: SpokenAudio | 'late';
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const late = new Promise<'late'>((resolve) => { timer = setTimeout(() => resolve('late'), lateMs); });
+        try { audio = await Promise.race([pending, late]); } catch { restUntil = now() + (timing.restMs ?? REST_MS); rest(index); return; } finally { clearTimeout(timer); }
         if (mine.cut) return;
+        if (audio === 'late') { rest(index); return; }
         if (index + 1 < parts.length) { pending = ask(index + 1); pending.catch(() => undefined); }
         const next = () => { if (mine.cut) return; if (index + 1 < parts.length) void step(index + 1); else finish(); };
         if (!audio.audio || !audio.sampleRate) { next(); return; }
-        try { mine.stop = await deps.play(pcm16ToFloat(unbase64(audio.audio)), audio.sampleRate, next); } catch { rest(index); return; }
+        try { mine.stop = await deps.play(pcm16Samples(unbase64(audio.audio)), audio.sampleRate, next); } catch { rest(index); return; }
         if (mine.cut) mine.stop();
       };
       void step(0);
@@ -233,8 +250,11 @@ export function prepareLocalVoice(): void {
   try { output ??= new AudioContext(); void output.resume().catch(() => undefined); } catch { output = null; }
 }
 
+/** A system voice picked by name is the person's choice of the device's voice (a number picks a speaker of the PC's voice). */
+export const systemVoicePicked = (ttsVoice: string | null | undefined): boolean => Boolean(ttsVoice) && !/^\d{1,2}$/.test(ttsVoice ?? '');
+
 const browserLocalVoice: LocalVoiceDeps = {
-  active: () => Boolean(settings.value?.voice?.localTts) && can('voice.speak'),
+  active: () => can('voice.speak') && !systemVoicePicked(settings.value?.voice?.ttsVoice),
   speak: (params) => rpc.call('voice.speak', params),
   prepare: () => prepareLocalVoice(),
   async play(samples, rate, ended) {
@@ -255,7 +275,7 @@ const browserLocalVoice: LocalVoiceDeps = {
 
 const readingFromSettings = (): SpeechReading => ({ voice: settings.value?.voice, language: settings.value?.profile.language });
 
-/** This page's one speech output (the PC's local voice when one is chosen, else speechSynthesis). */
+/** This page's one speech output (the PC's voice, else the device's own). */
 export const deviceSpeech = new DeviceSpeech(localVoiceEngine(browserLocalVoice, synthesisEngine()));
 
 /** A reader's channel of this page's speech output (reading voice and language from Settings by default). */

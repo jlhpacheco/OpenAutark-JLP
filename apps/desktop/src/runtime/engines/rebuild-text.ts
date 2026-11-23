@@ -1,7 +1,7 @@
 // Shared text rules of the native rebuild for Codex and Claude Code: how a ledger item that has
 // no native counterpart in the target CLI reads as text, and the bound of a native tool's output.
-// Owns: the "[ran <tool>: <summary>]" note (with its detail and – B-049 F9 – a script's nested-calls line, noteText)
-// and its user-side output note, a code-mode script's first line,
+// Owns: the record of a call with no native counterpart (with its detail and – B-049 F9 – a script's nested-calls line,
+// recordText), a code-mode script's first line,
 // the condensed item's restore stamp at the end of its text, model families (reasoning replays only within
 // one), and how a failed first turn on a
 // rebuilt session is reported (an ended session, so the executor falls back).
@@ -41,26 +41,6 @@ export function argsSummary(args: unknown): string {
   try { return (JSON.stringify(args) ?? '').slice(0, SUMMARY_CHARS); } catch { return ''; }
 }
 
-/** The assistant-side note of a call the target CLI cannot replay natively. */
-export function ranNote(call: NonNullable<RebuildItem['call']>): string {
-  const summary = argsSummary(call.args);
-  return `[ran ${call.name}${summary ? `: ${summary}` : ''}]`;
-}
-
-/**
- * The whole assistant-side note: the "[ran …]" line, `detail` (an edit's diff, a script's source) and – B-049 F9 – `calls`,
- * the line naming what a code-mode script called inside it (code-mode.ts callsLine).
- */
-export function noteText(call: NonNullable<RebuildItem['call']>, detail?: string, calls?: string): string {
-  return [ranNote(call), detail, calls ? `Calls inside the script: ${calls}.` : ''].filter(Boolean).join('\n');
-}
-
-/** The user-side note with that call's output (and its restore stamp when the item was condensed). */
-export function outputNote(call: NonNullable<RebuildItem['call']>, stamp?: string): string {
-  const failed = call.ok === false ? ' (failed)' : '';
-  return withStamp(`[output of ${call.name}${failed}]\n${boundOutput(call.output || '(no output)')}`, stamp);
-}
-
 /**
  * 17.11.2026 (BEFUND-RUNTIME-JAN §3): a call the target cannot replay natively, as ONE user-side record – what ran and
  * its output. Before, "[ran Write: {…}]" stood as the model's own assistant text; models then "called" tools by writing
@@ -82,7 +62,7 @@ export function recordText(call: NonNullable<RebuildItem['call']>, options: { de
  * (nothing ran). The six real ones (16./17.11.) were each such a line with the call's JSON arguments, and nothing else.
  */
 export function imitatedCall(text: string): boolean {
-  return /^\s*\[(ran|record of an earlier call|output of|its output)\b/.test(text);
+  return /^\s*\[(ran [\w.-]+[:\]]|record of an earlier call\b|output of\b|its output\b)/.test(text); // \"[ran out of …\" is prose
 }
 
 /** A model's family: the provider prefix and the variant suffix dropped ("codex:gpt-6.1-sol-mini" → "gpt-6.1"). */

@@ -1,10 +1,10 @@
 // The parts of an agent's SYSTEM.md, found by their headings: "# How I work" on top (the standard's or the agent's own
 // version), "## My role" (older files: "## Your role") with the agent's role text and "## What I have here" (standing facts
-// and agreements) as the last part. org/hire.ts, onboarding, the bridge and the readers of an agent's own text (a voice
+// and agreements) as the last part. org/hire.ts, onboarding and the readers of an agent's own text (a voice
 // call's brief, a hire's result) share these rules.
 // Owns: the heading names and the split of those parts. Never: reads files or decides what an agent may change.
 
-export const ROLE_HEADING = '## My role';
+const ROLE_HEADING = '## My role';
 const ROLE_HEADINGS: readonly string[] = [ROLE_HEADING, '## Your role'];
 export const HAVE_HEADING = '## What I have here';
 /** The working part on top of every SYSTEM.md (the standards resources/prompts/standard-*.md begin with it). */
@@ -16,12 +16,9 @@ export function isRoleHeading(line: string): boolean {
 }
 
 /** The line index of the role heading, or -1. */
-export function roleLineIndex(lines: readonly string[]): number {
+function roleLineIndex(lines: readonly string[]): number {
   return lines.findIndex(isRoleHeading);
 }
-
-/** A regex matching the role heading as its own line (both forms), for split/test on whole texts. */
-export const ROLE_LINE = /^[ \t]*## (?:My|Your) role[ \t]*$/m;
 
 /** True when the text has a "## What I have here" part. */
 export function hasHavePart(text: string): boolean {

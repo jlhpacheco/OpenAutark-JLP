@@ -38,7 +38,7 @@ test('click by ref: the mouse glides there in real mouseMoved steps, then presse
   assert.ok(dbg.named('Page.addScriptToEvaluateOnNewDocument')[0]!.params.worldName, 'the driver’s script runs in its own world');
   assert.equal(dbg.named('Runtime.addBinding')[0]!.params.executionContextName, 'workforce-side', 'the binding exists only in that world');
 
-  const out = await driver.call({ action: 'act', agent, steps: [{ action: 'click', ref: 's24' }] });
+  const out = await driver.call({ action: 'act', agent, motion: 'glide', steps: [{ action: 'click', ref: 's24' }] }); // glide: the default is a hand (side-driver-cursor.test.ts)
   assert.deepEqual([out.ok, out.done, out.changes], [true, 1, 'No visible changes.']);
   const mouse = dbg.named('Input.dispatchMouseEvent');
   const moves = mouse.filter((call) => call.params.type === 'mouseMoved');

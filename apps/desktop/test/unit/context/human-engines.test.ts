@@ -1,10 +1,13 @@
 // Owner 15.11.2026: the agent's HUMAN.md stands last in the stable prompt under "## From <the person>" (secrets
-// redacted, nothing when it is empty); "My environment now" names the engines connected in the Autark system (signed-in
+// redacted, nothing when it is empty), 19.11.2026 right after the security section; "My environment now" names the engines connected in the Autark system (signed-in
 // accounts that run turns, by provider), "## Now" the one this turn runs in; the stable part says the agent lives in the
 // Autark system.
 // Owns: these assertions only.
 
 import { test } from 'node:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import { fixture, route, VIDEO_MODE } from './fixture.ts';
 import { enginesLine } from '../../../src/runtime/context/environment.ts';
@@ -13,8 +16,8 @@ import type { Account } from '../../../src/shared/model/providers.ts';
 const account = (id: string, provider: Account['provider'], state: Account['state'] = 'ok', enabled = true) =>
   ({ id, provider, label: provider, auth: 'cli', state, enabled, priority: 0, createdAt: 0 }) as unknown as Account;
 
-function setup(human: string, forEveryAgent?: string) {
-  const f = fixture(forEveryAgent === undefined ? {} : { profile: { forEveryAgent } });
+function setup(human: string) {
+  const f = fixture({});
   Object.assign(f.services, {
     agentCore: {
       human: () => human,
@@ -40,15 +43,21 @@ test('an empty HUMAN.md adds nothing', () => {
   assert.ok(!stable.includes('## From '), stable.slice(-300));
 });
 
-test('owner 16.11.2026: the lines for every agent stand last, after the agent\'s own HUMAN.md, secrets redacted', () => {
-  const f = setup('No calls before 10:00.', '  I don\'t solve "I\'m not a robot" checks (CAPTCHAs).\nKey hunter2 stays here.  ');
-  const { stable } = f.context.prompt({ agent: f.vid, mode: VIDEO_MODE, route: route() });
-  assert.ok(stable.endsWith('## From Alex\nNo calls before 10:00.\n\n## From Alex – for every agent\nI don\'t solve "I\'m not a robot" checks (CAPTCHAs).\nKey secret://sec_pw stays here.'), stable.slice(-300));
-  const stableOf = (human: string, every: string) => { const g = setup(human, every); return g.context.prompt({ agent: g.vid, mode: VIDEO_MODE, route: route() }).stable; };
-  const alone = stableOf('', 'Every agent reads this.');
-  assert.ok(alone.endsWith('## From Alex – for every agent\nEvery agent reads this.'), 'without a HUMAN.md only the part for every agent');
-  assert.ok(!alone.includes('## From Alex\n'), alone.slice(-300));
-  assert.ok(!stableOf('', '   ').includes('## From '), 'an empty text adds nothing');
+test('owner 19.11.2026: "What Alex and I agreed" stands before the person\'s own lines; the texts are files or defaults, secrets redacted', () => {
+  const f = setup('No calls before 10:00.');
+  const data = mkdtempSync(path.join(tmpdir(), 'wf-agreed-'));
+  try {
+    mkdirSync(path.join(data, 'security', 'trust'), { recursive: true });
+    writeFileSync(path.join(data, 'security', 'trust', 'money.md'), 'Key hunter2 buys nothing.\n');
+    Object.assign(f.services.paths, { data });
+    const { stable } = f.context.prompt({ agent: f.vid, mode: VIDEO_MODE, route: route() });
+    const at = stable.indexOf('## What Alex and I agreed\nAlex runs this PC in Trust AI mode');
+    assert.ok(at > 0 && at < stable.indexOf('## From Alex\n'), stable.slice(-600));
+    assert.match(stable, /### Spending money\nKey secret:\/\/sec_pw buys nothing\./, 'its own file, redacted');
+    assert.match(stable, /### Bot checks \("I'm not a robot"\)\nChecks like "I'm not a robot" exist/, 'the default text');
+    assert.ok(!stable.includes('{{name}}'));
+    assert.ok(stable.endsWith('## From Alex\nNo calls before 10:00.'), 'HUMAN.md still last');
+  } finally { rmSync(data, { recursive: true, force: true }); }
 });
 
 test('the engines of the system in "My environment now", the turn\'s own in "## Now"', () => {

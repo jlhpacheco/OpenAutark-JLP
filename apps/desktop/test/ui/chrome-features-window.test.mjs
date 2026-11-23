@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -32,11 +33,12 @@ test('Chrome features: history, reopen, keys, zoom, mute, DevTools, Mark a regio
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = `http://127.0.0.1:${server.address().port}`;
-  const launch = () => electron.launch({
+  let launchedAt = 0; // a restart reads the runtime.json of its own start (lib/runtime-info.mjs)
+  const launch = () => { launchedAt = Date.now(); return electron.launch({
     executablePath: path.join(root, 'node_modules/electron/dist', process.platform === 'win32' ? 'electron.exe' : 'electron'),
     args: [root], cwd: root, timeout: 60_000,
     env: testNetworkEnv(profile, { WORKFORCE_FAKE_ENGINE: '1' }),
-  });
+  }); };
   let app = await launch();
   let rpc;
   t.after(async () => {
@@ -55,7 +57,7 @@ test('Chrome features: history, reopen, keys, zoom, mute, DevTools, Mark a regio
   await page.waitForSelector('.shell', { timeout: 60_000 });
   const reconnect = async () => {
     rpc?.close?.();
-    const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+    const info = await runtimeInfo(profile, 60_000, launchedAt);
     rpc = await connect(info.port, info.token, 'cli');
   };
   await reconnect();
@@ -265,15 +267,24 @@ test('Chrome features: history, reopen, keys, zoom, mute, DevTools, Mark a regio
     await strip().getByRole('button', { name: 'New tab', exact: true }).click();
     await page.locator('.new-tab-row', { hasText: name }).first().click();
   };
-  await panel('Activity');
+  /** An app tab the New tab page no longer offers (B-078 cut its Activity and Screen rows; a stored one still opens):
+   *  written into side-tabs.json as the shown tab, as the Video tab below. */
+  const openStored = async (entry) => {
+    const tabs = await until('the layout in its file', async () => { const read = await file('side-tabs.json').catch(() => undefined); return read?.spaces?.global ? read : undefined; });
+    if (!tabs.spaces.global.tabs.some((tab) => tab.id === entry.id)) tabs.spaces.global.tabs.push(entry);
+    tabs.spaces.global.shown = entry.id;
+    await writeFile(path.join(profile, 'side-tabs.json'), `${JSON.stringify(tabs, null, 1)}\n`);
+  };
+  await openStored({ id: 'activity', panel: 'activity' });
   await page.locator('.pane-activity .activity-row').first().waitFor();
   assert.equal(await shownTitle(), 'Activity');
   assert.ok(await page.locator('.activity-row', { hasText: manager.name }).count(), 'the agents are listed');
   await shot('09-activity-light');
   await page.emulateMedia({ colorScheme: 'dark' }); await shot('10-activity-dark'); await page.emulateMedia({ colorScheme: 'light' });
 
-  // ---- Mark a region on the Screen tab (the picture is this PC's screen: no screenshot of it is kept)
-  await panel('Screen');
+  // ---- Mark a region on the Screen tab (the picture is this PC's screen: no screenshot of it is kept; the tab opens from
+  // the computer-use notice – shell/computer-notice.ts – or from side-tabs.json)
+  await openStored({ id: 'screen', panel: 'screen' });
   await page.locator('.pane-screen').waitFor();
   await bar().getByRole('button', { name: 'Browser menu' }).click();
   await page.getByRole('menuitem', { name: 'Mark a region' }).click();

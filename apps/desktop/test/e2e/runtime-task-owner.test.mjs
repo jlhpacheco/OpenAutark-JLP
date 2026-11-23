@@ -32,7 +32,7 @@ test('retries follow the owner; the human cancel stops the work', { timeout: 240
 
   const chat = await client.call('chats.create', { title: 'Hosting', agentIds: [manager.id] });
   await client.call('events.subscribe', { topics: [`chat:${chat.id}`] });
-  await client.call('messages.send', { conversationId: chat.id, body: 'Later [[tool:tasks.create {"title":"Compare hosting offers"}]]' });
+  await client.call('messages.send', { conversationId: chat.id, body: 'Later [[tool:tasks.add {"title":"Compare hosting offers"}]]' });
   const task = await client.waitFor('task.upserted', (item) => item.title === 'Compare hosting offers', 90_000);
   assert.equal(task.assigneeId, manager.id);
   await client.waitFor('run.upserted', (run) => run.agentId === manager.id && run.taskId === task.id, 90_000);
@@ -48,9 +48,9 @@ test('retries follow the owner; the human cancel stops the work', { timeout: 240
     assert.equal(room.settings.direct, true, 'the work moved into a 1:1');
     assert.ok(room.members.some((member) => member.memberId === rhea.id && !member.leftAt), 'Rhea\'s 1:1 with the person');
     assert.ok(!(await client.call('chats.get', { id: chat.id })).members.some((member) => member.memberId === rhea.id && !member.leftAt), 'Rhea is not seated in Hosting');
-    const line = (await client.call('messages.list', { conversationId: room.id, limit: 100 }))
+    const line = (await client.call('messages.list', { conversationId: task.id, limit: 100 })) // a task's lines are in its own thread (Quests round 20.11.2026)
       .find((message) => message.meta?.status?.type === 'handoff' && message.meta.status.details?.taskId === task.id);
-    assert.equal(line?.meta.status.details.to, rhea.id, 'its chat notes the new owner');
+    assert.equal(line?.meta.status.details.to, rhea.id, 'its thread notes the new owner');
     await client.waitFor('run.upserted', (run) => run.agentId === rhea.id && run.taskId === task.id, 90_000);
     await sleep(QUIET_MS);
     assert.equal(turnsOn(task.id, manager.id, at + GRACE_MS), 0, 'no duplicate work by the previous owner');

@@ -57,15 +57,15 @@ test('batch: steps run in order with one change list; it stops at the first fail
   await browser.close();
 });
 
-test('batch: my mouse glides to a pointed step by default (B-081), and the text says so', async () => {
+test('batch: my mouse moves like a hand to a pointed step by default (21.11.2026), and the text says so', async () => {
   const { tools, page, ctx, browser } = await formPage();
   page.boxes.set('aria-ref=e4', { x: 100, y: 200, width: 20, height: 20 });
   await tool(tools, 'browser.batch').run({ steps: [{ action: 'click', ref: 'e4' }] }, ctx);
-  assert.ok(page.moves.length > 3, 'glide: real mouse moves on the way');
+  assert.ok(page.moves.length > 3, 'human: real mouse moves on the way');
   assert.deepEqual(page.moves.at(-1), { x: 110, y: 210 }, "it ends on the element's centre");
   const batch = tool(tools, 'browser.batch');
   const motion = (batch.inputSchema.properties as Record<string, { description: string }>).motion!.description;
-  assert.equal(motion, 'glide (default, at most 300 ms), human or instant.');
+  assert.equal(motion, 'human (default, a hand-like move), glide (at most 300 ms) or instant.');
   assert.doesNotMatch(`${batch.description} ${motion}`, /default for batch|jumps unless/);
   await browser.close();
 });
@@ -95,7 +95,7 @@ test('find: only the matching snapshot lines with refs; the refs count for the n
   await browser.close();
 });
 
-test('act: a change list against the last snapshot; full and a new page give the whole snapshot; glide moves the mouse', async () => {
+test('act: a change list against the last snapshot; full and a new page give the whole snapshot; the default moves the mouse like a hand', async () => {
   const { tools, page, ctx, browser } = await formPage();
   page.boxes.set('aria-ref=e4', { x: 100, y: 200, width: 20, height: 20 });
   page.onAction = () => { page.snapshot = `${FORM}\n- dialog "Terms accepted" [ref=e7]`; };
@@ -103,7 +103,7 @@ test('act: a change list against the last snapshot; full and a new page give the
   assert.match(text, /New dialog: dialog "Terms accepted" \[ref=e7\]/);
   assert.match(text, /Changes since my last snapshot of this tab \(\+1 −0 lines/);
   assert.ok(!text.includes('heading "Sign up"'));
-  assert.ok(page.moves.length > 3, 'glide: real mouse moves on the way');
+  assert.ok(page.moves.length > 3, 'human: real mouse moves on the way');
   assert.deepEqual(page.moves.at(-1), { x: 110, y: 210 }, 'it ends on the element\'s centre');
   page.onAction = () => {};
   const full = textOf(await tool(tools, 'browser.act').run({ action: 'hover', ref: 'e4', full: true, motion: 'instant' }, ctx));

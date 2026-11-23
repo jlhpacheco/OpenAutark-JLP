@@ -9,7 +9,7 @@ import { Priors, relCostOfPrices } from '../../../src/runtime/models/priors.ts';
 import { buildModel, priceFor } from '../../../src/runtime/models/catalog-merge.ts';
 import { feedDue, feedKey, parseFeed, PRICE_FEED_MS, refreshFeed, storedFeed } from '../../../src/runtime/models/price-feed.ts';
 import { listPrice } from '../../../src/runtime/models/pricing.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { clock, memoryDb } from '../store/helpers.ts';
 
 const shipped = Priors.load(path.resolve(import.meta.dirname, '../../../resources/model-priors.json'));

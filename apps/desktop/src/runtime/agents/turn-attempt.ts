@@ -59,7 +59,8 @@ import type { EngineEvent, EngineTurnResult } from '../engines/types.ts';
 import { addCache } from '../engines/shared.ts';
 import { WAKE_NOTE_MAX, failure, type ToolContext } from '../tools/types.ts';
 import { toErrorData, WorkforceError } from '../../shared/errors.ts';
-import { preview, safeRedact } from '../tools/outputs.ts';
+import { preview } from '../tools/outputs.ts';
+import { maskKeyShapes } from '../secrets/redact.ts';
 import { turnCwd } from '../git/records.ts';
 import { accountFailure } from '../accounts/failure.ts';
 import { providerOutage } from '../engines/provider-outage.ts'; // B-059 #184
@@ -258,10 +259,18 @@ export async function runAttempt(services: RuntimeServices, plan: TurnPlan, turn
             boundary(event.callId, false);
             const native = nativeUses.get(event.callId);
             if (native) native.ok = event.ok; // B-059: a failed or declined engine-native call is no activity (turn-types.ts effectful)
+            // This is only Autark's projection; the engine has already handled the native result.
+            // Never persist the original text when either masking step fails.
+            const checked = (value: string, limit = Infinity) => {
+              let masked: string;
+              try { masked = maskKeyShapes(services.secrets.redact(value)); }
+              catch { masked = '[tool output withheld: redaction unavailable]'; }
+              return masked.length > limit ? masked.slice(0, limit) + '…' : masked;
+            };
             services.runs.item(request.runId, { kind: 'tool_result', name: native?.name, data: { // B-059 #182: named by its call
-              callId: event.callId, ok: event.ok, summary: preview(services.secrets, event.summary, 400),
-              preview: preview(services.secrets, [event.summary, event.output].filter(Boolean).join('\n'), 600), // B-080: "exit 1" and what it printed, as our tools' preview
-              ...(event.output ? { output: safeRedact(services.secrets, event.output) } : {}), // B-048 E1 (LEDGER): kept whole by the journal (over 4,000 chars: a blob)
+              callId: event.callId, ok: event.ok, summary: checked(event.summary ?? '', 400),
+              preview: checked([event.summary, event.output].filter(Boolean).join('\n'), 600), // B-080: "exit 1" and what it printed, as our tools' preview
+              ...(event.output ? { output: checked(event.output) } : {}), // B-048 E1 (LEDGER): kept whole by the journal (over 4,000 chars: a blob)
             }, effectStatus: 'none' });
           } else {
             // Our call (MCP hub or dynamic tool); its start may have been missed: a tool still ran.

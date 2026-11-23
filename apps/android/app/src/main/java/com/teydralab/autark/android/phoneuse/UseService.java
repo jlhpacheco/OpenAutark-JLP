@@ -1,15 +1,21 @@
 // Owns: phone use (B-078, D6) – an AccessibilityService that reads nothing until a request asks (its config listens to
 // window changes only, and this class ignores them), then does one step: ui_tree (the active window's tree,
-// ScreenTree), screenshot (Android 11+), tap (ACTION_CLICK on the element there, else – and always inside a WebView – a short press), swipe (a curved,
-// jittered finger path, Gestures), type (ACTION_SET_TEXT on the focused field, Enter between lines; answers what the
-// field reads afterwards, TypedText.readback), key (back, home,
-// recents, notifications, quick_settings, enter), open (an app or a link) and say (16.11.2026: the AI's short line in the
+// ScreenTree), screenshot (Android 11+), tap (always a short press of a finger, Gestures: ACTION_CLICK reported success
+// while nothing happened – in a WebView, and on Samsung's app search, where Konrad's taps on "SimplySign" never opened it
+// on 19.11.2026), swipe (a curved, jittered finger path, Gestures), type (ACTION_SET_TEXT on the focused field, Enter
+// between lines; answers what the field reads afterwards, TypedText.readback), key (back, home, recents, notifications,
+// quick_settings, enter), open (an app by its package or by the name under its icon – AppNames –, or a link) and say
+// (16.11.2026: the AI's short line in the
 // bubble, or with ask its question with ✓ and ✕ – {answer: yes|no|none}, none after ASK_MS; a ✓ makes the job active;
-// KI-Runde 17.11.2026: the question also vibrates once and, with the screen off or the app not in front, is a
-// notification whose ✓ / ✕ answer it the same way – AskNotice, answerAsk).
+// owner 19.11.2026: with `buttons` the AI's own labels, small ones beside the line and bigger ones under it, answered
+// with the tapped label (SayChoices); KI-Runde 17.11.2026: the question also vibrates once and, with the screen off or
+// the app not in front, is a notification whose buttons answer it the same way – AskNotice, answerAsk) and done (owner
+// 19.11.2026: the PC's run is over – the bubble goes at once instead of lingering).
 // Each step shows the bubble (UseBubble, naming the request's agent `by`); the AI's screenshot leaves it out and its own
-// gestures pass through it. Who has the phone is UseState (owner 10.11.2026 16:18, 15.11.2026): the person's touch pauses
-// until 5 s after their last touch, their Pause until Continue, their ✕ ends the job for good. Turning "Use this phone"
+// gestures pass through it. Who has the phone is UseState (owner 10.11.2026 16:18, 15.11.2026, 20.11.2026): their Pause
+// holds until Continue, their ✕ ends the job for good; a touch or typing of the person changes nothing – the AI's next
+// look shows what changed, and a gesture of the AI that Android cancelled under a finger is a plain conflict that says to
+// look again. Turning "Use this phone"
 // on once (UseDisclosure) covers every app – no question per app (owner 10.11.2026). The PC asks through UseLink.
 // While the service is on it also carries the person's own to-do button over every app (TodoButton, shown while this
 // phone is paired); both the AI's screenshot and the to-do button's take the screen without the bubble and the button
@@ -51,6 +57,9 @@ public final class UseService extends AccessibilityService {
     }
 
     private static final int SHOT_WIDTH = 720;
+    /** A gesture Android cancelled (a finger on the glass at the same moment, a window change): a fact and my next step. */
+    static final String CANCELLED = "My gesture did not finish: Android cancelled it part-way. The screen may have changed, so I "
+            + "look again (phone.ui_tree) and repeat it if it is still needed.";
     /** How long the AI's question waits for the person's ✓ or ✕ (the PC waits a little longer). */
     static final long ASK_MS = 60_000;
     private static volatile UseService current;
@@ -62,11 +71,14 @@ public final class UseService extends AccessibilityService {
     private UseBubble bubble;
     /** The running question's answer (phone.say ask), for a tap on its notification; null while none runs. */
     private volatile Consumer<String> asking;
-    private TodoButton todo;
+    private volatile TodoButton todo;
     private final Object shooting = new Object();
 
     /** The service while it is on (Accessibility settings), else null. */
     public static UseService current() { return current; }
+
+    /** The person's to-do button while the service is on (BubblePull: the app's pull brings it out). Main thread. */
+    TodoButton todo() { return todo; }
 
     /** Called when the service turns on or off (UseLink tells the PC). */
     public static synchronized void onChange(Runnable listener) { changed = listener; }
@@ -92,7 +104,6 @@ public final class UseService extends AccessibilityService {
             @Override public void pause() { if (state.pause()) show(); }
             @Override public void resume() { if (state.resume()) show(); }
             @Override public void end() { state.end(); bubble.close(); }
-            @Override public void touched() { if (state.touched(System.currentTimeMillis())) show(); }
         });
         current = this;
         todo = new TodoButton(this);
@@ -122,9 +133,13 @@ public final class UseService extends AccessibilityService {
     /** One step (off the main thread) of the PC's run `job` (null from an older PC) for the agent `by` (null: unnamed);
      *  the result as phoneUse.reply's `result`. */
     public Object run(String op, Map<String, Object> args, String job, String by) throws UseError {
+        if ("done".equals(op)) { state.finished(job); bubble.finished(job); return Json.map(); } // no step: nothing is touched
         if (!UseConsent.agreed(this)) throw new UseError("off", "The person has not yet agreed to the phone-use disclosure in the app.");
         UseState.Refusal refused = state.step(job, System.currentTimeMillis());
-        if ("say".equals(op)) return say(job, by, Json.str(args, "text"), Boolean.TRUE.equals(args.get("ask")), refused);
+        if ("say".equals(op)) {
+            boolean ask = Boolean.TRUE.equals(args.get("ask"));
+            return say(job, by, Json.str(args, "text"), SayChoices.of(args.get("buttons"), ask), SayChoices.asks(args.get("buttons"), ask), refused);
+        }
         if (refused != null) { show(); throw new UseError(refused.code, refused.message); }
         bubble.who(by, job);
         show();
@@ -136,7 +151,7 @@ public final class UseService extends AccessibilityService {
                 case "swipe": swipe(num(args, "x1"), num(args, "y1"), num(args, "x2"), num(args, "y2"), (long) num(args, "durationMs")); return Json.map();
                 case "type": { String now = type(job, Json.str(args, "text")); return now == null ? Json.map() : Json.map("text", now); }
                 case "key": return Json.map("key", key(Json.str(args, "key")));
-                case "open": return Json.map("opened", open(Json.str(args, "url"), Json.str(args, "package")));
+                case "open": return Json.map("opened", open(Json.str(args, "url"), Json.str(args, "package"), Json.str(args, "app")));
                 default: throw new UseError("bad_request", "Unknown step " + op + ".");
             }
         } finally {
@@ -144,20 +159,18 @@ public final class UseService extends AccessibilityService {
         }
     }
 
-    /** The bubble shows who has the phone now: active, paused by a touch (active again when its quiet wait is over),
-     *  held by the person's Pause, or gone after ✕. */
+    /** The bubble shows who has the phone now: active, held by the person's Pause, or gone after ✕. */
     private void show() {
         switch (state.mode()) {
             case ACTIVE: bubble.active(); break;
-            case PAUSED: if (state.byTouch()) bubble.touchPaused(state.quietIn(System.currentTimeMillis()), this::quiet); else bubble.held(); break;
+            case PAUSED: bubble.held(); break;
             default: bubble.close();
         }
     }
 
-    private void quiet() { if (state.quiet(System.currentTimeMillis()) || state.mode() == UseState.Mode.PAUSED) show(); }
-
-    /** phone.say: the AI's line in the bubble, or with `ask` its question until ✓, ✕ or ASK_MS (the step thread waits). */
-    private Map<String, Object> say(String job, String by, String text, boolean ask, UseState.Refusal refused) throws UseError {
+    /** phone.say: the AI's line in the bubble, or as a question (`ask`) with its buttons until one is tapped, ✕ or ASK_MS
+     *  (the step thread waits); the answer is SayChoices.answer of the tapped label, "none" without one. */
+    private Map<String, Object> say(String job, String by, String text, List<String> buttons, boolean ask, UseState.Refusal refused) throws UseError {
         String line = text == null ? "" : text.replaceAll("\\s+", " ").trim();
         if (line.isEmpty()) throw new UseError("bad_request", "phone.say needs a text.");
         if (line.length() > 120) line = line.substring(0, 119) + "…";
@@ -168,23 +181,23 @@ public final class UseService extends AccessibilityService {
         if (!ask) { bubble.said(line); show(); return Json.map("ok", true); }
         AtomicReference<String> answer = new AtomicReference<>();
         CountDownLatch done = new CountDownLatch(1);
-        Consumer<String> reply = (value) -> { if (answer.compareAndSet(null, value)) done.countDown(); };
+        Consumer<String> reply = (label) -> { if (answer.compareAndSet(null, SayChoices.answer(label))) done.countDown(); };
         asking = reply;
-        bubble.ask(line, reply);
-        AskNotice.show(this, line);
+        bubble.ask(line, buttons, reply);
+        AskNotice.show(this, line, buttons);
         try { await(done, ASK_MS); }
         finally { asking = null; AskNotice.cancel(this); answer.compareAndSet(null, "none"); bubble.askDone("yes".equals(answer.get())); }
         if ("yes".equals(answer.get())) { state.agreed(job, System.currentTimeMillis()); show(); }
         return Json.map("answer", answer.get());
     }
 
-    /** The person's ✓ ("yes") or ✕ ("no") on the question's notification (AskNotice), as if tapped in the bubble. */
+    /** The label the person tapped on the question's notification (AskNotice), as if tapped in the bubble. */
     void answerAsk(String value) {
         Consumer<String> reply = asking;
         if (reply != null) reply.accept(value);
     }
 
-    /** The person took the phone (or ended) while this step ran: it stops part-way. */
+    /** The person tapped Pause or ✕ while this step ran: it stops part-way. */
     private UseError interrupted() {
         UseState.Refusal why = state.midStep();
         return new UseError(why.code, why.message);
@@ -244,16 +257,14 @@ public final class UseService extends AccessibilityService {
         }
     }
 
+    /** A finger's short press at (x, y) – what the person's own tap does, in every app. */
     private void tap(String job, float x, float y) throws UseError {
         AccessibilityNodeInfo root = root();
         List<ScreenTree.Node> visited = new ArrayList<>();
-        List<Map<String, Object>> rows = ScreenTree.flatten(new Wrapped(root), visited);
+        ScreenTree.flatten(new Wrapped(root), visited);
         target.tapped(job, str(root.getPackageName()), fieldAt(visited, Math.round(x), Math.round(y)));
-        int index = ScreenTree.clickableAt(rows, Math.round(x), Math.round(y));
-        if (index >= 0 && !ScreenTree.insideWeb(rows, index) && ((Wrapped) visited.get(index)).info.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return;
         int[] screen = screen();
-        Gestures.Stroke press = Gestures.tap(x, y, screen[0], screen[1], random);
-        gesture(press);
+        gesture(Gestures.tap(x, y, screen[0], screen[1], random));
     }
 
     private void swipe(float x1, float y1, float x2, float y2, long durationMs) throws UseError {
@@ -335,29 +346,47 @@ public final class UseService extends AccessibilityService {
         return key;
     }
 
-    private String open(String url, String pkg) throws UseError {
+    private String open(String url, String pkg, String app) throws UseError {
         Intent intent;
-        if (pkg != null && !pkg.isEmpty()) {
+        if ((pkg == null || pkg.isEmpty()) && app != null && !app.trim().isEmpty()) {
+            List<String[]> apps = launcherApps();
+            String[] icon = AppNames.match(apps, app);
+            if (icon == null) throw new UseError("not_found", AppNames.missing(apps, app));
+            pkg = icon[1];
+            intent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClassName(icon[1], icon[2]); // exactly the icon that matched
+        } else if (pkg != null && !pkg.isEmpty()) {
             intent = getPackageManager().getLaunchIntentForPackage(pkg);
-            if (intent == null) throw new UseError("not_found", pkg + " is not installed on this phone.");
+            if (intent == null) throw new UseError("not_found", pkg + " is not installed on this phone; phone.open with app opens an app by the name under its icon.");
         } else if (url != null && (url.startsWith("https://") || url.startsWith("http://"))) {
             intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
         } else {
-            throw new UseError("bad_request", "Give an http(s) link or a package name.");
+            throw new UseError("bad_request", "Give an http(s) link, a package name or an app's name.");
         }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try { startActivity(intent); } catch (RuntimeException error) { throw new UseError("conflict", "Android did not open it: " + error.getMessage()); }
         return pkg != null && !pkg.isEmpty() ? pkg : url;
     }
 
+    /** The launcher's icons: {the name under the icon, package, activity} each (the manifest's launcher query makes them
+     *  visible on Android 11+). */
+    private List<String[]> launcherApps() {
+        android.content.pm.PackageManager packages = getPackageManager();
+        Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        List<String[]> apps = new ArrayList<>();
+        for (android.content.pm.ResolveInfo info : packages.queryIntentActivities(launcher, 0)) {
+            if (info.activityInfo == null) continue;
+            apps.add(new String[] { str(info.loadLabel(packages)), info.activityInfo.packageName, info.activityInfo.name });
+        }
+        return apps;
+    }
+
     // ------------------------------------------------------------------ helpers
 
-    /** The active window. */
     /** Right before each change to the field (also before clearing a placeholder, and again after each Enter): still the
      *  same app in front and still the same field with the input focus? null if so, else what changed. No typing into a
      *  field that went to the background. */
     private String moved(String app, AccessibilityNodeInfo field) {
-        AccessibilityNodeInfo front = getRootInActiveWindow();
+        AccessibilityNodeInfo front = front();
         if (front == null || !app.equals(str(front.getPackageName()))) return "Another app came to the front.";
         AccessibilityNodeInfo focused = front.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
         if (focused == null || !focused.equals(field)) return "The input focus left the field.";
@@ -395,9 +424,35 @@ public final class UseService extends AccessibilityService {
     private static String str(CharSequence value) { return value == null ? "" : value.toString(); }
 
     private AccessibilityNodeInfo root() throws UseError {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
+        AccessibilityNodeInfo root = front();
         if (root == null) throw new UseError("unavailable", "The screen has no readable window right now (locked, or a game drawing itself): phone.screenshot shows it.");
         return root;
+    }
+
+    /** The window in front as the person sees it: the active one – unless that is my own typing window (BubbleTyping,
+     *  one invisible pixel, while the person types into the to-do bubble); then the topmost app window under it, so the
+     *  AI never reads, types into or measures the person's draft. */
+    private AccessibilityNodeInfo front() {
+        AccessibilityNodeInfo active = getRootInActiveWindow();
+        if (active == null || !typingWindow(active)) return active;
+        AccessibilityNodeInfo best = null;
+        int layer = Integer.MIN_VALUE;
+        for (android.view.accessibility.AccessibilityWindowInfo window : getWindows()) {
+            if (window.getType() != android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION || window.getLayer() <= layer) continue;
+            AccessibilityNodeInfo root = window.getRoot();
+            if (root == null || typingWindow(root)) continue;
+            best = root;
+            layer = window.getLayer();
+        }
+        return best;
+    }
+
+    /** My own typing window: this app's, one pixel big. */
+    private boolean typingWindow(AccessibilityNodeInfo root) {
+        if (!getPackageName().equals(str(root.getPackageName()))) return false;
+        Rect bounds = new Rect();
+        root.getBoundsInScreen(bounds);
+        return bounds.width() <= BubbleTyping.SIZE && bounds.height() <= BubbleTyping.SIZE;
     }
 
     private void enter(AccessibilityNodeInfo field) throws UseError {
@@ -414,20 +469,23 @@ public final class UseService extends AccessibilityService {
         GestureDescription description = new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(path, 0, stroke.durationMs)).build();
         CountDownLatch done = new CountDownLatch(1);
         AtomicBoolean ok = new AtomicBoolean(false);
-        bubble.passThrough(true); // the AI's own finger lands on the app below, never on Pause or ✕
+        TodoButton button = todo;
+        bubble.passThrough(true); // the AI's own finger lands on the app below, never on Pause or ✕ or the to-do dot
+        if (button != null) button.passThrough(true);
+        BubbleTyping.aiGesture(stroke.durationMs + 1_000); // its touch is no reason to end the person's typing
         try {
-            state.ownGesture(System.currentTimeMillis(), stroke.durationMs);
             boolean sent = dispatchGesture(description, new GestureResultCallback() {
                 @Override public void onCompleted(GestureDescription gesture) { ok.set(true); done.countDown(); }
-                // Android cancels an injected gesture when a real finger comes down: the person took the phone.
-                @Override public void onCancelled(GestureDescription gesture) { if (state.gestureCancelled(System.currentTimeMillis())) show(); done.countDown(); }
+                // Android cancels an injected gesture when a real finger comes down at the same moment.
+                @Override public void onCancelled(GestureDescription gesture) { done.countDown(); }
             }, null);
             if (!sent) throw new UseError("conflict", "Android did not take the gesture.");
             await(done, stroke.durationMs + 3_000);
         } finally {
             bubble.passThrough(false);
+            if (button != null) button.passThrough(false);
         }
-        if (!ok.get()) throw state.acting() ? new UseError("conflict", "The gesture was interrupted.") : interrupted();
+        if (!ok.get()) throw state.acting() ? new UseError("conflict", CANCELLED) : interrupted();
     }
 
     private int[] screen() {

@@ -24,7 +24,8 @@ export interface SherpaRecognizer {
 export interface SherpaTts {
   sampleRate: number;
   numSpeakers: number;
-  generateAsync(request: { text: string; sid: number; speed: number; generationConfig?: unknown }): Promise<SherpaWave>;
+  /** `enableExternalBuffer` (default true in sherpa) must be false inside Electron: its V8 refuses external ArrayBuffers. */
+  generateAsync(request: { text: string; sid: number; speed: number; generationConfig?: unknown; enableExternalBuffer?: boolean }): Promise<SherpaWave>;
 }
 export interface SherpaVad {
   acceptWaveform(samples: Float32Array): void;

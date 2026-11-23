@@ -27,6 +27,7 @@ import { ModelSetup } from './ModelSetup.tsx';
 import { ModelUses } from './ModelUses.tsx';
 import { openInData, openInTab } from './open-file.ts';
 import { groupAccounts, providerGroup, type ProviderGroup } from './providers.ts';
+import { ScheduledPage } from './ScheduledPage.tsx';
 import { SecretsPage } from './SecretsPage.tsx';
 import { SecurityPage } from './SecurityPage.tsx';
 import { clearSearchMarks, markSearch } from './search-marks.ts';
@@ -78,6 +79,7 @@ const CONTENT: Readonly<Record<SettingsPage, ComponentType>> = {
   general: GeneralPage,
   models: ModelsPage,
   calendar: CalendarPage,
+  scheduled: ScheduledPage,
   secrets: SecretsPage,
   security: SecurityPage,
   apps: AppsPage,

@@ -10,6 +10,7 @@ import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { PathEntry } from '../../shared/api/methods-files.ts';
 import { foldText } from '../../shared/text/normalize.ts';
+import { netHostOf } from './net-hosts.ts';
 
 /** Rows an answer holds at most (the nearest existing folder included, always last). */
 export const NEAR_MAX = 5;
@@ -64,8 +65,10 @@ async function nearestFolder(target: string): Promise<string | undefined> {
 
 type Tip = PathEntry & { score: number };
 
-/** Up to NEAR_MAX existing paths like `target` (absolute), best first, the nearest existing folder last; [] without one. */
+/** Up to NEAR_MAX existing paths like `target` (absolute), best first, the nearest existing folder last; [] without one
+ *  and for a network path (20.11.2026: never a walk through another computer's share – net-hosts.ts). */
 export async function nearPaths(target: string): Promise<PathEntry[]> {
+  if (netHostOf(target)) return [];
   const base = await nearestFolder(target);
   if (!base) return [];
   const parts = path.relative(base, target).split(path.sep).filter(Boolean);

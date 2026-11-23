@@ -132,7 +132,6 @@ test('only the person\'s own scheduled message can be edited, and only with a ru
   const base = { ownerId: 'human', kind: 'message', conversationId: 'chat_1', spec: { at: NOW + H, tz: TZ } } as const;
   assert.equal(editableSchedule(base, NOW, TZ), true);
   assert.equal(editableSchedule({ ...base, ownerId: 'agent_1' }, NOW, TZ), false, 'an agent changes its own');
-  assert.equal(editableSchedule({ ...base, kind: 'routine' }, NOW, TZ), false);
-  assert.equal(editableSchedule({ ...base, kind: 'reminder' }, NOW, TZ), false);
+  assert.equal(editableSchedule({ ...base, kind: 'reminder' }, NOW, TZ), false, 'a reminder is an agent\'s own note');
   assert.equal(editableSchedule({ ...base, spec: { times: ['09:00', '18:00'] } }, NOW, TZ), false);
 });

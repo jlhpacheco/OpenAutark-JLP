@@ -10,7 +10,7 @@ import { brokerLease, brokerState, followBrokerSetup, lockedDesktop, secureDeskt
 import { Bus } from '../../../src/runtime/bus.ts';
 import { createHelper } from '../../../src/runtime/computer/drivers.ts';
 import { WindowsHelper } from '../../../src/runtime/computer/helper.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import { fakeSpawn, testSupervisor } from '../engines/fakes.ts';
 

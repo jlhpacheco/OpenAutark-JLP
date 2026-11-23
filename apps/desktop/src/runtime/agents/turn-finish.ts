@@ -70,24 +70,26 @@ import { writeLastRun } from '../context/last-run.ts'; // B-076
 import { sendsTemperature, turnTemperature } from './turn-attempt.ts'; // B-083
 
 const REPAIR_NS = 'repair_notes';
+import { KvRepo } from '../store/kv.ts';
 
 /** Repair notes (invalid ```ui blocks, blocks that were not posted) are handed to the agent's next turn on that thread (no extra turn). */
 export function takeRepairNotes(services: RuntimeServices, agentId: string, thread: string | undefined): string[] {
   const key = `${agentId}:${thread ?? ''}`;
-  const row = services.db.get<{ value: string }>('SELECT value FROM kv WHERE ns = ? AND key = ?', [REPAIR_NS, key]);
-  if (!row) return [];
-  services.db.run('DELETE FROM kv WHERE ns = ? AND key = ?', [REPAIR_NS, key]);
-  try { return JSON.parse(row.value) as string[]; } catch { return []; }
+  const kv = new KvRepo(services.db);
+  const notes = kv.get<string[]>(REPAIR_NS, key);
+  if (notes === undefined) return [];
+  kv.delete(REPAIR_NS, key);
+  return Array.isArray(notes) ? notes : [];
 }
 
 /** Adds to the notes already waiting (the posted messages' file notes, media/outputs.ts saveOutputNotes, use the same row); the newest six stay. */
 export function saveRepairNotes(services: RuntimeServices, agentId: string, thread: string | undefined, notes: string[]): void {
   if (!notes.length) return;
   const key = `${agentId}:${thread ?? ''}`;
-  let waiting: string[] = [];
-  try { waiting = JSON.parse(services.db.get<{ value: string }>('SELECT value FROM kv WHERE ns = ? AND key = ?', [REPAIR_NS, key])?.value ?? '[]') as string[]; } catch { waiting = []; }
-  services.db.run('INSERT INTO kv (ns, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(ns, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
-    [REPAIR_NS, key, JSON.stringify([...new Set([...waiting.filter((note) => !notes.includes(note)), ...notes])].slice(-6)), services.clock.now()]);
+  const kv = new KvRepo(services.db);
+  const held = kv.get<string[]>(REPAIR_NS, key);
+  const waiting = Array.isArray(held) ? held : [];
+  kv.set(REPAIR_NS, key, [...new Set([...waiting.filter((note) => !notes.includes(note)), ...notes])].slice(-6), services.clock.now());
 }
 
 function runStatus(stop: string): RunStatus {

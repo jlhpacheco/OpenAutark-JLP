@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { WindowsHelper } from '../../../src/runtime/computer/helper.ts';
 import { HELPER_PROTOCOL } from '../../../src/runtime/computer/protocol.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import { fakeSpawn, testSupervisor, type SpawnCall } from '../engines/fakes.ts';
 

@@ -3,7 +3,7 @@
 //   * the chat leaves the main list for the collapsed, muted "Archived" section at the end of the
 //     list, which survives a window reload (the snapshot lists archived chats);
 //   * the archived row's right-click menu offers "Unarchive", which brings it back;
-//   * archived again, the agent still answers there, and its important message (chat.send urgent)
+//   * archived again, the agent still answers there, and its important message (a <chat to … push> block)
 //     brings the chat back by itself with one quiet "Unarchived: …" line;
 //   * screenshots light, dark and 640×480; no renderer errors.
 // Run: npm run test:ui   (needs a fresh build)   SCREENSHOTS=<dir> keeps the screenshots.
@@ -17,6 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -46,7 +47,7 @@ test('Archived: the confirm counts open tasks, the section survives a reload, Un
   await size(1280, 820);
   const shot = async (name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
 
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('events.subscribe', { topics: ['chats', 'tasks'] });
   const manager = (await rpc.call('agents.list')).find((agent) => agent.template === 'manager');
@@ -54,8 +55,8 @@ test('Archived: the confirm counts open tasks, the section survives a reload, Un
   const chat = await rpc.call('chats.create', { title: 'Offsite plan', agentIds: [manager.id] });
   const rowName = `${manager.name} · Offsite plan`; // B-050 K2: a two-member chat is named after the other member
   await rpc.call('events.subscribe', { topics: [`chat:${chat.id}`] });
-  await rpc.call('todos.add', { text: 'Book the train', conversationId: chat.id });
-  await rpc.call('todos.add', { text: 'Ask for the budget', conversationId: chat.id });
+  await rpc.call('tasks.create', { title: 'Book the train', conversationId: chat.id });
+  await rpc.call('tasks.create', { title: 'Ask for the budget', conversationId: chat.id });
 
   const mainRow = page.locator('.chat-list .chat-rows .row-title', { hasText: exactly(rowName) });
   const archivedSection = page.locator('.chat-list .archived-chats');
@@ -97,7 +98,7 @@ test('Archived: the confirm counts open tasks, the section survives a reload, Un
   // Archived again: the agent keeps working there, and its important message brings the chat back.
   await rpc.call('chats.archive', { id: chat.id });
   await mainRow.waitFor({ state: 'detached', timeout: 10_000 });
-  await rpc.call('messages.send', { conversationId: chat.id, body: 'Tell me loudly [[tool:chat.send {"text":"The venue cancelled","urgent":true}]]' });
+  await rpc.call('messages.send', { conversationId: chat.id, body: `Tell me loudly <chat to="${chat.id}" push>The venue cancelled</chat>` });
   const line = await rpc.waitFor('message.created', (message) => message.conversationId === chat.id && message.meta?.status?.type === 'unarchived', 90_000);
   assert.equal(line.body, `Unarchived: important message from ${manager.name}`);
   await mainRow.waitFor({ timeout: 15_000 });

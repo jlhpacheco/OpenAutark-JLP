@@ -1,7 +1,7 @@
 // Chat header (lib/header.tsx): one row above the chat column and its side panel. The title cell: the chat's
 // avatar (a 1:1's other member opens their page; a group's picture toggles the details) and two fixed lines –
 // the chat name, a button that toggles the details panel, and the sub line, always reserved: who is working
-// (LiveLine.tsx → the working popover) or the chat's resting line. Right-click (long press) on the title opens the chat's menu (chat-actions.ts).
+// (LiveLine.tsx – a click opens the lines of the live bar above the composer, LiveBar.tsx) or the chat's resting line. Right-click (long press) on the title opens the chat's menu (chat-actions.ts).
 // Desktop: a segmented row – the title track has one fixed width and right after it sit Call (the chat's voice
 // mode, call/CallHeader.tsx) and Chat tabs (opens and closes the chat's area above the messages, ChatArea.tsx; pressed
 // while open, a dot while an agent's new tab waits there – workspace/attention.ts), so nothing moves when the title, the
@@ -21,7 +21,7 @@ import { isMobile, knownAgentMap } from '../lib/store.ts';
 import { back, go } from '../lib/router.ts';
 import { chatAreaOpen, chatPanel, setChatPanel, toggleChatArea, toggleChatPanel, type ChatPanel } from '../lib/shell-state.ts';
 import { LiveLine } from './LiveLine.tsx';
-import { WorkingPopover, useWorkingPanel } from './WorkingPopover.tsx';
+import { linesOpen, toggleLines } from './LiveBar.tsx';
 import { clock12 } from '../lib/format.ts';
 import { liveNames, liveRuns, liveShort, liveStatus, type LiveEntry } from './live-text.ts';
 import { useCallCell } from './call/CallHeader.tsx';
@@ -46,8 +46,7 @@ function ChatTitle(props: { chat: ConversationSummary }) {
   const status = live ? liveStatus(chat, solo, entries, nameOf) : '';
   const resting = status ? '' : chatSubtitle(chat);
   const open = chatPanel.value === 'details';
-  const working = useWorkingPanel(chat.id);
-  // F21 (16.11.2026): each agent's Stop sits at its line in the live bar above the composer (LiveBar.tsx) and in the popover's rows – one Stop per run in view.
+  const runIds = (chat.live ?? []).map((run) => run.runId); // F21: each agent's Stop sits at its line in the live bar – one Stop per run in view
   const menu = useContextMenu(() => chatMenu(chat));
   const page = partnerPage(partner);
   const onAvatar = page ? () => (page.kind === 'agent' ? go.agent(page.id) : go.person(page.id)) : () => toggleChatPanel(chat.id, 'details');
@@ -61,13 +60,12 @@ function ChatTitle(props: { chat: ConversationSummary }) {
           <span class="chat-title">{chatTitle(chat)}</span>
           <Icon name={open ? 'caret-up' : 'caret-down'} size={12} class="chat-title-caret" />
         </button>
-        <div class="chat-sub" ref={working.anchor} data-clock={clock12 ? '12' : undefined}>
+        <div class="chat-sub" data-clock={clock12 ? '12' : undefined}>
           {status
-            ? <LiveLine text={status} short={liveShort(chat, solo, entries, nameOf)} names={liveNames(chat, solo, entries, nameOf)} open={working.open} onToggle={working.toggle} />
+            ? <LiveLine text={status} short={liveShort(chat, solo, entries, nameOf)} names={liveNames(chat, solo, entries, nameOf)} open={linesOpen(runIds)} onToggle={() => toggleLines(runIds)} />
             : resting && <span class="chat-resting">{resting}</span>}
         </div>
       </div>
-      <WorkingPopover chat={chat} anchor={working.anchor.current} open={working.open} onClose={working.close} />
     </div>
   );
 }

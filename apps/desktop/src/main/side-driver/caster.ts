@@ -25,8 +25,6 @@ import { WorkforceError } from '../../shared/errors.ts';
 import { sameView, type SideCastUpdate, type SideDialog, type SidePage, type SideViewSize } from '../../shared/model/side-view.ts';
 import { castCommands, castNav, castView, endsPress, finite, frameFits, isPress, pageOf, record, tabOf, bad, type CastContents } from './cast-params.ts';
 
-export { CAST_INPUT_METHODS, castCommands, castNav, castView, pageOf, type CastContents } from './cast-params.ts';
-
 /** At most one frame per this many ms goes to the runtime (B-081: up to 10 per second; was 500). */
 export const CAST_FRAME_GAP_MS = 100;
 /** A cast nobody renewed this long ends (the runtime renews it with every pull). */

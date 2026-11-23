@@ -8,7 +8,8 @@
 // 'chat' may rename/pin/mute, change members and (un)archive; hiding a chat stays on the PC, and they edit or delete
 // only messages written by the human (never a person's message). Deleting a chat stays owner-only. A chat has no mode
 // of its own (13.11.2026: the mode belongs to the agent) – settings.mode is not written. B-078: settings.parentId places a chat under
-// another one (null: back on top; chat/children.ts checks it) and chats.thread finds or opens the thread on a message.
+// another one (null: back on top; chat/children.ts checks it) and chats.thread finds or opens the thread on a message –
+// or (Quests 20.11.2026) a task's own thread (tasks/thread.ts); chats.threadNews names the tasks whose thread has unread lines.
 // B-085: messages.send from an agent's own wf (owner scope with agentId) posts as that agent (sendAsAgent).
 // 16.11.2026: the person's messages.send and messages.edit store a pasted key in the secrets catalog first and carry its
 // handle (secrets/text-capture.ts addKeysSaved).
@@ -24,8 +25,8 @@ import { HINT_ID } from '../../../shared/model/model-guide.ts';
 import type { RuntimeServices } from '../../contracts.ts';
 import { chatTitleFor } from '../../chat/titles.ts';
 import { openThread, setParent } from '../../chat/children.ts';
+import { threadNews, threadOf } from '../../tasks/thread.ts';
 import { POST_PRIORITIES, scheduledPost } from '../../schedules/post.ts';
-import { scopeHas } from '../table.ts';
 import {
   bad, id, ids, input, notFound, num, obj, onlyKeys, optBool, optId, optIds, optMemberIds, optNum, optObj, optOneOf, optText, text, type Obj,
 } from '../params.ts';
@@ -207,11 +208,14 @@ export function register(table: HandlerTable): void {
     }
     return ctx.services.chats.update(conversationId, { title: optText(o, 'title', { max: 120 }), pinned: optBool(o, 'pinned'), settings }, HUMAN_ID);
   }, CHAT);
-  table.add('chats.thread', (params, ctx) => { // B-078: the thread on a message (found, or opened with its chat's members)
+  table.add('chats.thread', (params, ctx) => { // B-078: the thread on a message (found, or opened with its chat's members); a task's own thread
     const o = input(params);
-    onlyKeys(o, ['messageId']);
-    return openThread(ctx.services, id(o, 'messageId'), HUMAN_ID);
+    onlyKeys(o, ['messageId', 'taskId']);
+    const taskId = optId(o, 'taskId');
+    const thread = taskId ? threadOf(ctx.services, taskId, HUMAN_ID) : openThread(ctx.services, id(o, 'messageId'), HUMAN_ID);
+    return ctx.services.chats.summary(thread.id);
   }, CHAT);
+  table.add('chats.threadNews', (_params, ctx) => threadNews(ctx.services, HUMAN_ID), CHAT);
   table.add('chats.members', (params, ctx) => {
     const o = input(params);
     const change = { add: optIds(o, 'add', 50), remove: optMemberIds(o, 'remove', 50), lead: optId(o, 'lead') };
@@ -285,13 +289,14 @@ export function register(table: HandlerTable): void {
     const callId = device && log ? log.start(conversationId, device, ctx.signal, typeof speech?.call === 'string' ? speech.call : undefined) : undefined;
     const talker = callId && body.trim() && !attachments.length && !secrets.length && !mentions?.length && !Object.keys(level).length && model === undefined && !ultra ? talkerOf(ctx.services) : undefined;
     const talks = talker?.serves(conversationId, callId) ? talker : undefined; // B-081: as the agent who rang this call
+    const relay = talker && !talks && callId && log?.relays(conversationId, callId) ? true as const : undefined; // owner 19.11.2026: the voice of the PC that holds the call answers it
     const message = ctx.services.chats.send({
-      conversationId, body, attachments, mentions, ...level, ...(talks ? { silent: true } : {}),
+      conversationId, body, attachments, mentions, ...level, ...(talks || relay ? { silent: true } : {}),
       replyTo: optId(o, 'replyTo'), model, effort: optOneOf(o, 'effort', [...EFFORTS, 'auto']), ...(pin ? { pin } : {}),
       clientId: optText(o, 'clientId', { max: 100 }), authorId: HUMAN_ID, authorKind: 'human',
       speech: o.speech as SendMessageInput['speech'], // SM8: validated and capped by the chat service (chat/speech-meta.ts)
       marks: o.marks as SendMessageInput['marks'], // B-082: checked against the body there too (cleanMarks)
-      meta: { ...(secrets.length ? { secrets } : {}), ...(ultra ? { ultra: true as const } : {}), ...(callId && device ? { call: { id: callId, participant: `device:${device.key}`, name: device.name } } : {}) },
+      meta: { ...(secrets.length ? { secrets } : {}), ...(ultra ? { ultra: true as const } : {}), ...(callId && device ? { call: { id: callId, participant: `device:${device.key}`, name: device.name, ...(relay ? { relay } : {}) } } : {}) },
     });
     talks?.heard(message);
     // Writing joins the room (chat service); a room an agent hid moves to the main list too (C1).
@@ -350,15 +355,13 @@ export function register(table: HandlerTable): void {
   }, CHAT);
   table.add('messages.schedule', (params, ctx) => {
     const o = input(params);
-    onlyKeys(o, ['conversationId', 'body', 'spec', 'mentions', 'priority', 'asTask', 'ultra']);
+    onlyKeys(o, ['conversationId', 'body', 'spec', 'mentions', 'priority', 'ultra']);
     const conversationId = id(o, 'conversationId');
     chatOrThrow(ctx.services, conversationId);
     const body = text(o, 'body', { max: MAX_BODY, multiline: true });
     const mentions = optIds(o, 'mentions', 50);
     const spec = optObj(o, 'spec') ?? bad('spec', 'a schedule spec ({at} | {cron} | {everyMs} | {times})');
-    const asTask = optBool(o, 'asTask') === true; // T11: team work each time – needs 'tasks' like tasks.create
-    if (asTask && !scopeHas(ctx.scope, 'tasks')) throw new WorkforceError('forbidden', 'Posting tasks is not allowed on this device.', { details: { param: 'asTask' } });
-    const post = scheduledPost(body, { mentions, priority: optOneOf(o, 'priority', POST_PRIORITIES), asTask, ultra: optBool(o, 'ultra') === true }); // B-050 K4: 'silent' too; B-057: Ultra suggested
+    const post = scheduledPost(body, { mentions, priority: optOneOf(o, 'priority', POST_PRIORITIES), ultra: optBool(o, 'ultra') === true }); // B-050 K4: 'silent' too; B-057: Ultra suggested
     // The scheduler validates the spec (times, cron syntax, limits).
     return ctx.services.scheduler.create({ ownerId: HUMAN_ID, conversationId, spec: spec as ScheduleSpec, ...post });
   }, CHAT);

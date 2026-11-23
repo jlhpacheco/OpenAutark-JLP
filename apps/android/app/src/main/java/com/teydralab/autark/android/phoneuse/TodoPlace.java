@@ -1,7 +1,8 @@
 // Owns: where the to-do button sits (TodoButton) as plain numbers in screen pixels – a drag beyond the touch slop moves
 // it, a drop with the finger at a side edge turns it into the slim tab on that side, the dot and the panel stay whole on
-// the screen, the panel keeps above the keyboard while the person types, and a screenshot's size (longest side at most
-// SHOT_MAX). Pure, so a host test pins it. Never: Android classes.
+// the screen, the panel keeps above the keyboard while the person types, the hide target (✕ at the bottom centre while
+// the dot is dragged) and whether the finger is over it, and a screenshot's size (longest side at most SHOT_MAX). Pure,
+// so a host test pins it. Never: Android classes.
 package com.teydralab.autark.android.phoneuse;
 
 final class TodoPlace {
@@ -41,6 +42,17 @@ final class TodoPlace {
     static int aboveKeyboard(int y, int height, int screenHeight) {
         int bottom = Math.round(screenHeight * ABOVE_KEYBOARD);
         return y + height <= bottom ? y : Math.max(0, bottom - height);
+    }
+
+    /** The hide target's corner: `size` square, centred, `gap` above the bottom edge. Returns {x, y}. */
+    static int[] binCorner(int screenWidth, int screenHeight, int size, int gap) {
+        return new int[] { Math.max(0, (screenWidth - size) / 2), Math.max(0, screenHeight - size - gap) };
+    }
+
+    /** The finger within `radius` of (x, y). */
+    static boolean near(float fingerX, float fingerY, float x, float y, float radius) {
+        float dx = fingerX - x, dy = fingerY - y;
+        return dx * dx + dy * dy <= radius * radius;
     }
 
     /** A screenshot of width × height scaled so its longest side is at most SHOT_MAX: {width, height}. */

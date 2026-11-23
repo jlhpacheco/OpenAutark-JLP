@@ -15,11 +15,11 @@
 import type { RuntimeServices } from '../contracts.ts';
 import type { SleepSpan } from '../../shared/model/calendar.ts';
 import { clockMinutes } from '../../shared/model/day-settings.ts';
-import { addDays } from '../calendar/when.ts';
+import { addDays, wallOf, wallTime } from '../../shared/text/when.ts';
 import { DueTimer, REAL_DUE_TIMERS } from '../people/due-timer.ts';
 import type { Timers } from '../people/join.ts';
 import { KvRepo } from '../store/kv.ts';
-import { dayZone, daySettings, localTime, wallTime } from './clock.ts';
+import { dayZone, daySettings } from './clock.ts';
 
 export type KeepAwakeDeps = Pick<RuntimeServices, 'bus' | 'clock' | 'settings' | 'host' | 'wakes'> & Partial<Pick<RuntimeServices, 'log' | 'dispatcher' | 'db'>>;
 
@@ -42,15 +42,15 @@ export function sleptSince(db: RuntimeServices['db'], since: number): SleepSpan[
 
 /** The night window around `now` ([workEnd, next planAt) in the zone), or undefined during the day. */
 export function nightOf(now: number, tz: string, workEnd: string, planAt: string): { from: number; to: number } | undefined {
-  const local = localTime(now, tz);
+  const local = wallOf(now, tz);
   const end = clockMinutes(workEnd) ?? 20 * 60;
   const plan = clockMinutes(planAt) ?? 6 * 60;
   if (end > plan) {
-    if (local.minutes >= end) return { from: wallTime(local.date, workEnd, tz), to: wallTime(addDays(local.date, 1), planAt, tz) };
-    if (local.minutes < plan) return { from: wallTime(addDays(local.date, -1), workEnd, tz), to: wallTime(local.date, planAt, tz) };
+    if (local.minutes >= end) return { from: wallTime(local.date, end, tz), to: wallTime(addDays(local.date, 1), plan, tz) };
+    if (local.minutes < plan) return { from: wallTime(addDays(local.date, -1), end, tz), to: wallTime(local.date, plan, tz) };
     return undefined;
   }
-  return local.minutes >= end && local.minutes < plan ? { from: wallTime(local.date, workEnd, tz), to: wallTime(local.date, planAt, tz) } : undefined;
+  return local.minutes >= end && local.minutes < plan ? { from: wallTime(local.date, end, tz), to: wallTime(local.date, plan, tz) } : undefined;
 }
 
 export class KeepAwake {
@@ -146,9 +146,10 @@ export class KeepAwake {
 
   /** Today's workEnd when it is still ahead, else tomorrow's. */
   private nextNight(now: number, tz: string, workEnd: string): number {
-    const today = localTime(now, tz).date;
-    const tonight = wallTime(today, workEnd, tz);
-    return tonight > now ? tonight : wallTime(addDays(today, 1), workEnd, tz);
+    const today = wallOf(now, tz).date;
+    const end = clockMinutes(workEnd) ?? 20 * 60;
+    const tonight = wallTime(today, end, tz);
+    return tonight > now ? tonight : wallTime(addDays(today, 1), end, tz);
   }
 
   private hold(now: number, until: number): void {

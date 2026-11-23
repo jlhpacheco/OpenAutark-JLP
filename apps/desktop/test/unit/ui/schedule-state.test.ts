@@ -48,4 +48,7 @@ test('both lists draw the one rule; the agent page folds the paused ones under o
   const chat = readFileSync(path.join(ui, 'chat/details/Schedules.tsx'), 'utf8');
   assert.match(chat, /const state = scheduleState\(schedule\);/);
   assert.match(chat, /none: 'No next run', paused: 'Paused', ended: 'Ended'/);
+  // Quests round 20.11.2026: a chat's schedules are two kinds – a message sent later and an agent's reminder
+  assert.match(chat, /message: \{ icon: 'chat-text', label: 'Send later' \},\s*reminder: \{ icon: 'bell', label: 'Reminder' \},\s*\};/);
+  assert.doesNotMatch(chat, /routine|timer/i);
 });

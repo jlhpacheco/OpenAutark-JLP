@@ -1,33 +1,34 @@
-// CalendarService (B-041 track A1, contract §4): the members' local calendar – events and the time blocks of tasks,
-// slot clicks (calendar.add, runtime/calendar/add.ts), moves (rev-checked; the person's pin: setBy 'person', an agent's
-// own move – tools/builtin/calendar-change.ts – stays setBy 'agent', rules.ts setByOf), the
-// planner's and agents' blocks (upsertBlock: one block per task, never moving a person-set block, never over a timed
-// event or a person-set block), removal, the busy spans the planner plans around, the window with the agents' runs
-// (calendar/agent-runs.ts), the zone and the sources not synced for > 24 h, and check-off ↔ block (a bus listener,
-// calendar/task-link.ts). Every change is sent as 'calendar.upserted' / 'calendar.removed' and handed to the
-// sources' mirror hook (onLocalChange). A block that went with its task (ON DELETE CASCADE) is found by a sweep over
-// the known task blocks and sent as removed too. Built by compose/calendar.ts with the late-bound services record.
-// Owns: calendar rows and their events. Never: task text copies (a block has no title), moves a person-set block
-// for the planner or an agent, writes a read-only source's row, or polls.
+// CalendarService (B-041 track A1, Quests round 20.11.2026): the members' local calendar – appointments (stored rows),
+// the to-dos with a time read from their tasks (calendar/repo.ts todoRow: the person's own, and on the owner's calendar
+// the agents' to-dos on the AI lane), slot clicks (calendar.add, runtime/calendar/add.ts – an appointment, or the
+// person's line as a to-do at that time), moves (rev-checked; an event moved by the person is pinned: setBy 'person'; a
+// to-do row moved moves the to-do's `at`/`minutes`), removal (an event goes; a to-do only loses its time), the busy spans
+// of a member, the window with the agents' runs (calendar/agent-runs.ts), the zone and the sources not synced for > 24 h.
+// Every change of a row – a to-do's time too (a task.upserted listener) – is sent as 'calendar.upserted' /
+// 'calendar.removed' and handed to the sources' mirror hook (onLocalChange). Built by compose/calendar.ts.
+// Owns: calendar rows and their events. Never: task text copies (a to-do row has no title), writes a read-only source's
+// row, or polls.
 
 import { WorkforceError } from '../../shared/errors.ts';
-import { HUMAN_ID, SYSTEM_ID, newId } from '../../shared/ids.ts';
+import { HUMAN_ID, newId } from '../../shared/ids.ts';
 import { LOCAL_SOURCE_ID, type CalendarAddInput, type CalendarEvent, type CalendarList, type CalendarSetBy } from '../../shared/model/calendar.ts';
-import type { TaskView } from '../../shared/model/tasks.ts';
+import type { Task, TaskView } from '../../shared/model/tasks.ts';
 import type { RuntimeServices } from '../contracts.ts';
 import type { CalendarService } from '../contracts/calendar.ts';
 import { addFromSlot } from './add.ts';
 import { agentRuns } from './agent-runs.ts';
-import { CalendarRepo } from './repo.ts';
-import { blockOwner, busySpans, conflicts, setByOf, type Span } from './rules.ts';
-import { linkTasks } from './task-link.ts';
+import { CalendarRepo, todoOwner, todoRow } from './repo.ts';
+import { busySpans, conflicts, setByOf, type Span } from './rules.ts';
 
 export type CalendarDeps = Pick<RuntimeServices, 'db' | 'bus' | 'clock' | 'settings' | 'tasks'>
-  & Partial<Pick<RuntimeServices, 'log' | 'scheduler' | 'org' | 'chats' | 'estimates' | 'subconscious'>>;
+  & Partial<Pick<RuntimeServices, 'log' | 'scheduler' | 'org' | 'chats' | 'subconscious' | 'wakes'>>;
 
 export type LocalChange = CalendarEvent | { removed: string };
 
 const STALE_MS = 24 * 60 * 60_000;
+const MIN = 60_000;
+/** Done to-dos older than this are no longer followed for their removal (the mirror's window looks back 7 days). */
+const FOLLOW_DONE_MS = 60 * 24 * 60 * 60_000;
 
 /** The profile zone all day math uses (the process zone when settings cannot be read). */
 export function profileZone(s: Pick<RuntimeServices, 'settings'>): string {
@@ -39,23 +40,32 @@ export class CalendarServiceImpl implements CalendarService {
   readonly s: CalendarDeps;
   readonly repo: CalendarRepo;
   private readonly listeners = new Set<(change: LocalChange) => void>();
-  /** Task blocks by row id: what a task's cascade can remove without telling us (filled when built). */
-  private readonly known = new Map<string, { ownerId: string; taskId: string }>();
-  /** The same by task id (most tasks have none: their changes cost no query). */
-  private readonly blocked = new Map<string, Set<string>>();
+  /** The to-dos that have a row now, with whose calendar it is in (their row's going is sent as removed). */
+  private readonly shown = new Map<string, string>();
   /** Events made from a slot click lately, by `<by>:<clientId>` (calendar/add.ts: a resend answers the same row). */
   readonly recentEvents = new Map<string, string>();
   private offs: Array<() => void> = [];
 
   constructor(s: CalendarDeps) {
     this.s = s;
-    this.repo = new CalendarRepo(s.db);
-    for (const block of this.repo.taskBlocks()) this.remember(block.id, block.ownerId, block.taskId);
+    this.repo = new CalendarRepo(s.db, () => profileZone(s)); // a day-only to-do's row spans the person's day
   }
 
-  /** Subscribes the check-off listeners (called once by compose/calendar.ts). */
+  /** Follows the to-dos' times (called once by compose/calendar.ts). */
   start(): void {
-    if (!this.offs.length) this.offs = linkTasks(this);
+    if (this.offs.length) return;
+    try {
+      const since = this.s.clock.now() - FOLLOW_DONE_MS;
+      for (const row of this.s.db.all<{ id: string; assignee_kind: string; assignee_id: string | null }>(
+        `SELECT id, assignee_kind, assignee_id FROM tasks WHERE kind = 'todo' AND (("at" IS NOT NULL AND status IN ('open', 'waiting')) OR (status = 'done' AND completed_at > ?))`, [since])) {
+        const owner = todoOwner({ assigneeKind: row.assignee_kind as Task['assigneeKind'], ...(row.assignee_id ? { assigneeId: row.assignee_id } : {}) });
+        if (owner) this.shown.set(row.id, owner);
+      }
+    } catch (error) { this.s.log?.warn('calendar: the to-dos with a time were not read', { error: String(error) }); }
+    this.offs = [
+      this.s.bus.on('task.upserted', (task) => this.todoChanged(task)),
+      this.s.bus.on('task.removed', ({ id }) => { const owner = this.shown.get(id); if (owner) { this.shown.delete(id); this.removed(id, owner, id); } }),
+    ];
   }
 
   stop(): void {
@@ -65,55 +75,43 @@ export class CalendarServiceImpl implements CalendarService {
 
   list(ownerId: string, from: number, to: number, agentId?: string): CalendarList {
     const now = this.s.clock.now();
+    const todos = agentId !== undefined ? this.repo.todosInRange(agentId, from, to) // one agent's lane: its to-dos and runs
+      : ownerId === HUMAN_ID ? this.repo.todosInRange(null, from, to) : []; // the agents work for the owner: their lane
+    const events = agentId === undefined ? this.repo.inRange(ownerId, from, to) : [];
+    const tasks = new Map<string, Task>(todos.map((entry) => [entry.task.id, entry.task]));
+    for (const row of events) if (row.kind === 'todo' && !tasks.has(row.id)) { const task = this.s.tasks.get(row.id); if (task) tasks.set(task.id, task); }
     return {
-      events: agentId === undefined ? this.repo.inRange(ownerId, from, to) : [], // one agent's runs: the agent page needs no rows
-      agentRuns: ownerId === HUMAN_ID ? agentRuns(this.s, from, to, agentId) : [], // the agents work for the owner
+      events: [...events, ...todos.map((entry) => entry.row)].sort((a, b) => a.startAt - b.startAt || a.id.localeCompare(b.id)),
+      tasks: [...tasks.values()],
+      agentRuns: ownerId === HUMAN_ID ? agentRuns(this.s, from, to, agentId) : [],
       tz: profileZone(this.s), staleSources: this.repo.staleSources(ownerId, now - STALE_MS),
     };
   }
 
   add(input: CalendarAddInput, by: string): Promise<{ event: CalendarEvent; task?: TaskView }> {
-    try { return Promise.resolve(addFromSlot(this, input, by)); } catch (error) { return Promise.reject(error); }
-  }
-
-  /** `by` (optional, not in the contract yet): who placed it – an agent's id, else 'system' for the planner. */
-  upsertBlock(taskId: string, startAt: number, endAt: number, setBy: CalendarSetBy, by?: string): CalendarEvent {
-    if (!(endAt > startAt)) throw new WorkforceError('bad_request', 'A block ends after it starts.');
-    const task = this.s.tasks.get(taskId);
-    if (!task) throw new WorkforceError('not_found', 'Task not found.', { details: { taskId } });
-    const ownerId = blockOwner(task);
-    if (!ownerId) throw new WorkforceError('bad_request', 'Only to-dos get a time block.');
-    if (task.status === 'done' || task.status === 'dropped') throw new WorkforceError('conflict', 'This to-do is already finished.');
-    const current = this.repo.byTask(taskId);
-    if (current?.setBy === 'person' && setBy !== 'person') throw new WorkforceError('conflict', 'The person placed this to-do; it stays where they put it.', { details: { eventId: current.id } });
-    if (setBy !== 'person') this.refuseFixed(ownerId, { startAt, endAt }, taskId);
-    const now = this.s.clock.now();
-    if (current) return this.save({ ...current, startAt, endAt, setBy, state: 'planned', rev: current.rev + 1, updatedAt: now }, current.rev);
-    return this.insert({ ...this.fresh(ownerId, 'todo', setBy, by ?? (setBy === 'person' ? ownerId : SYSTEM_ID), startAt, endAt), taskId });
+    try { return addFromSlot(this, input, by); } catch (error) { return Promise.reject(error); }
   }
 
   move(id: string, startAt: number, endAt: number, rev: number, by: string): CalendarEvent {
     if (!(endAt > startAt)) throw new WorkforceError('bad_request', 'An entry ends after it starts.');
     const row = this.writable(id);
     if (row.rev !== rev) throw new WorkforceError('conflict', 'This entry changed meanwhile. Reload and try again.', { details: { id, rev: row.rev } });
-    const task = row.taskId ? this.s.tasks.get(row.taskId) : undefined;
-    const open = task !== undefined && task.status !== 'done' && task.status !== 'dropped';
-    const state = row.state !== 'planned' && open ? 'planned' : row.state; // a moved block of an open to-do plans it again
-    return this.save({ ...row, startAt, endAt, setBy: setByOf(by), state, rev: row.rev + 1, updatedAt: this.s.clock.now() }, rev);
+    if (row.kind === 'todo') {
+      if (row.state === 'done') throw new WorkforceError('bad_request', 'A done to-do stays at the time it was done.');
+      const task = this.s.tasks.update(id, { at: startAt, minutes: Math.max(1, Math.round((endAt - startAt) / MIN)) }, by, rev);
+      return todoRow(task, this.zone()) ?? row;
+    }
+    return this.save({ ...row, startAt, endAt, setBy: setByOf(by), rev: row.rev + 1, updatedAt: this.s.clock.now() }, rev);
   }
 
-  remove(id: string, _by: string): void {
-    this.drop(this.writable(id));
-  }
-
-  blocksFor(taskIds: string[]): Map<string, CalendarEvent> {
-    const out = new Map<string, CalendarEvent>();
-    for (const block of this.repo.byTasks([...new Set(taskIds)])) out.set(block.taskId!, block); // newest last wins
-    return out;
+  remove(id: string, by: string): void {
+    const row = this.writable(id);
+    if (row.kind === 'todo') { this.s.tasks.update(id, { at: null }, by); return; } // the to-do stays, without its time
+    this.drop(row);
   }
 
   busy(ownerId: string, from: number, to: number): Array<{ startAt: number; endAt: number }> {
-    return busySpans(this.repo.inRange(ownerId, from, to));
+    return busySpans(this.repo.inRange(ownerId, from, to).filter((row) => row.state !== 'done'));
   }
 
   onLocalChange(listener: (event: LocalChange) => void): () => void {
@@ -121,12 +119,12 @@ export class CalendarServiceImpl implements CalendarService {
     return () => { this.listeners.delete(listener); };
   }
 
-  // ------------------------------------------------------------- shared by add.ts, task-link.ts and the agent tools
+  // ------------------------------------------------------------- shared by add.ts, team.ts and the agent tools
 
   /** The zone all day math uses. */
   zone(): string { return profileZone(this.s); }
 
-  /** A new local row (not stored). */
+  /** A new local event row (not stored). */
   fresh(ownerId: string, kind: CalendarEvent['kind'], setBy: CalendarSetBy, createdBy: string, startAt: number, endAt: number): CalendarEvent {
     const now = this.s.clock.now();
     return {
@@ -135,9 +133,9 @@ export class CalendarServiceImpl implements CalendarService {
     };
   }
 
-  /** Refuses `span` when it covers a timed event or a block the person set ('conflict', with the first one's time). */
+  /** Refuses `span` when it covers a timed event or a to-do the person placed ('conflict', with the first one's time). */
   refuseFixed(ownerId: string, span: Span, taskId?: string): void {
-    const hit = conflicts(this.repo.inRange(ownerId, span.startAt, span.endAt), span, taskId)[0];
+    const hit = conflicts(this.repo.inRange(ownerId, span.startAt, span.endAt).filter((row) => row.state !== 'done'), span, taskId)[0];
     if (hit) {
       throw new WorkforceError('conflict', hit.kind === 'event' ? 'That time is taken by an appointment in the calendar.' : 'That time is taken by a to-do the person placed.',
         { details: { eventId: hit.id, startAt: hit.startAt, endAt: hit.endAt } });
@@ -146,7 +144,6 @@ export class CalendarServiceImpl implements CalendarService {
 
   insert(event: CalendarEvent): CalendarEvent {
     this.repo.insert(event);
-    if (event.taskId) this.remember(event.id, event.ownerId, event.taskId);
     return this.changed(event);
   }
 
@@ -157,19 +154,7 @@ export class CalendarServiceImpl implements CalendarService {
 
   drop(row: CalendarEvent): void {
     this.repo.delete(row.id);
-    this.removed(row.id, row.ownerId, row.taskId);
-  }
-
-  /** Task blocks that went with their task (or its chat) without a word: sent as removed now. */
-  sweep(): void {
-    if (!this.known.size) return;
-    const alive = this.repo.existing([...this.known.keys()]);
-    for (const [id, block] of [...this.known]) if (!alive.has(id)) this.removed(id, block.ownerId, block.taskId);
-  }
-
-  /** The block of a task when it has one (no query for the many tasks without one). */
-  blockOf(taskId: string): CalendarEvent | undefined {
-    return this.blocked.has(taskId) ? this.repo.byTask(taskId) : undefined;
+    this.removed(row.id, row.ownerId);
   }
 
   // ------------------------------------------------------------- internals
@@ -182,22 +167,23 @@ export class CalendarServiceImpl implements CalendarService {
     return row;
   }
 
+  /** A task changed: its row (new, moved, done) or its going is sent. */
+  private todoChanged(task: Task): void {
+    const row = todoRow(task, this.zone());
+    if (row) { this.shown.set(task.id, row.ownerId); this.changed(row); return; }
+    const owner = this.shown.get(task.id);
+    if (!owner) return;
+    this.shown.delete(task.id);
+    this.removed(task.id, owner, task.id);
+  }
+
   private changed(event: CalendarEvent): CalendarEvent {
     this.s.bus.emit('calendar.upserted', event);
     this.tell(event);
     return event;
   }
 
-  private remember(id: string, ownerId: string, taskId: string): void {
-    this.known.set(id, { ownerId, taskId });
-    const ids = this.blocked.get(taskId) ?? new Set<string>();
-    this.blocked.set(taskId, ids.add(id));
-  }
-
   private removed(id: string, ownerId: string, taskId?: string): void {
-    this.known.delete(id);
-    const ids = taskId ? this.blocked.get(taskId) : undefined;
-    if (ids?.delete(id) && !ids.size) this.blocked.delete(taskId!);
     this.s.bus.emit('calendar.removed', taskId ? { id, ownerId, taskId } : { id, ownerId });
     this.tell({ removed: id });
   }

@@ -4,8 +4,8 @@
 //     'tour', no step line; the feedback video also behind its "Watch how it works" link, tour-window.test.mjs covers the
 //     player) – "Set up a new company" plays the video at once (B-090) and leads to the AI card ("Step 1 of 2"), whose Back returns to the choice; the
 //     sidebar and the frame's header row stay where they always are;
-//   * "Connect to my other PC" opens the Connect card (this PC's Remote ID with "only this network", the
-//     "Connect a PC" row of Settings › Devices) without writing a step; the frame does not move; Back returns to the choice;
+//   * "Connect with an ID" opens the Connect card ("Connect with an ID" of Settings › Devices – Eine-ID: no role, no
+//     ID of its own yet) without writing a step; the frame does not move; Back returns to the choice;
 //   * the AI card is the model setup (settings/ModelSetup.tsx): the rows Claude Code and Codex, the four fixed buttons
 //     Claude plan · Codex plan · API key · Local server, the reserved "Open sign-in page" cell and one status line;
 //     the scan only fills the rows (nothing moves); API key opens its form inline under the buttons (they stay);
@@ -35,6 +35,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -101,7 +102,7 @@ test('first run: choice → AI (model setup, plan flow) → About you → the st
     assert.ok(overflow <= 1, `no horizontal page scroll at ${label} (${overflow}px)`);
   };
 
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   const settings = () => rpc.call('settings.get');
   const manager = (await rpc.call('agents.list')).find((agent) => agent.template === 'manager' && !agent.archivedAt);
@@ -121,18 +122,20 @@ test('first run: choice → AI (model setup, plan flow) → About you → the st
   assert.ok(await setUpButton.isVisible(), 'the first choice');
   assert.ok(await choice.getByRole('button', { name: 'Watch how it works' }).isVisible(), 'the video link');
 
-  // "Connect to my other PC": the Connect card in the cards' column; Back returns to the choice.
-  const connectButton = choice.locator('button.first-run-choice', { hasText: 'Connect to my other PC' });
+  // "Connect with an ID": the Connect card in the cards' column; Back returns to the choice.
+  const connectButton = choice.locator('button.first-run-choice', { hasText: 'Connect with an ID' });
   assert.ok(await connectButton.isVisible(), 'the second choice');
   const connectCard = page.locator('.first-run-card[data-card="first-run-connect"]');
   await expectStable(page, ['.first-run-view > .frame-header', '.sidebar'], async () => {
     await connectButton.click();
     await connectCard.waitFor({ timeout: 10_000 });
   });
-  await connectCard.locator('.remote-id', { hasText: /^\d{3} \d{3} \d{3}$/ }).waitFor({ timeout: 15_000 });
-  await connectCard.locator('.set-row-hint', { hasText: 'only this network (meeting server off)' }).waitFor({ timeout: 10_000 });
-  assert.equal(await connectCard.locator('.remote-connect-row').getByRole('textbox', { name: 'Remote ID or address of the other PC' }).count(), 1);
-  assert.equal(await connectCard.getByRole('button', { name: 'Copy' }).count(), 1);
+  // Eine-ID: one field for a company's ID, my ID or an address, no role; no ID of its own – a company not set up yet has none
+  await connectCard.locator('.remote-connect-row').getByRole('textbox', { name: 'ID or address of the other PC' }).waitFor({ timeout: 15_000 });
+  assert.equal((await connectCard.locator('.remote-connect-row .set-row-label').textContent())?.trim(), 'Connect with an ID');
+  assert.equal(await connectCard.locator('.remote-id').count(), 0, 'no Company ID or My ID before the company exists');
+  assert.equal(await connectCard.getByRole('button', { name: 'Copy' }).count(), 0);
+  assert.equal(await connectCard.getByRole('combobox').count(), 0, 'no role to pick');
   assert.equal((await settings()).onboarding.step, 'tour', 'opening the card writes no step');
   await shot('first-run-00a-connect-light');
   await page.emulateMedia({ colorScheme: 'dark' });
@@ -316,11 +319,11 @@ test('first run: choice → AI (model setup, plan flow) → About you → the st
     await about.getByLabel('Company').fill('Test GmbH');
   });
   assert.equal(await about.locator('textarea').count(), 0, 'no first-request field');
-  // "Your PC": two radio rows, Whole PC checked by default.
+  // "Security" (owner 19.11.2026): two radio rows, Trust AI checked by default.
   const access = about.locator('fieldset.first-run-access');
-  assert.equal(await access.getByRole('radio').count(), 2, 'Whole PC and Careful');
-  assert.equal(await access.getByRole('radio', { name: /^Full access/ }).isChecked(), true, 'Whole PC is the default');
-  assert.equal(await access.getByRole('radio', { name: /^Careful/ }).isChecked(), false);
+  assert.equal(await access.getByRole('radio').count(), 2, 'Trust AI and Secure');
+  assert.equal(await access.getByRole('radio', { name: /^Trust AI/ }).isChecked(), true, 'Trust AI is the default');
+  assert.equal(await access.getByRole('radio', { name: /^Secure/ }).isChecked(), false);
   // 17.11.2026: sharing in the public library is asked here, ticked by default; this run unticks it.
   const share = about.getByRole('checkbox', { name: /^Public library/ });
   assert.equal(await share.isChecked(), true, 'sharing in the public library is on by default and visible');
@@ -350,7 +353,7 @@ test('first run: choice → AI (model setup, plan flow) → About you → the st
   const done = await settings();
   assert.deepEqual([done.profile.name, done.profile.company], ['Test Person', 'Test GmbH']);
   assert.deepEqual(done.onboarding, { completed: true, step: 'done' });
-  assert.notEqual(done.profile.pcAccess, 'careful', 'Whole PC kept (absent = whole)');
+  assert.equal(done.security?.mode, 'trust', 'Start writes the Trust AI defaults');
   assert.equal(done.library?.publish, false, 'unticked: sharing in the public library is off');
   // The spotlight tour opens over the Manager's chat once; Skip ends it (it is a modal dialog over the window).
   const spotlight = page.locator('dialog.spotlight');
@@ -393,7 +396,7 @@ test('first run: choice → AI (model setup, plan flow) → About you → the st
   // My day (Home) after the first run while no model can answer – the status line says so with Connect (the signals
   // are emptied by pushed runtime events and refilled after); Connect leads to Settings › Models.
   await page.evaluate(() => { location.hash = '#/home'; });
-  await page.locator('.day-view').waitFor({ timeout: 10_000 });
+  await page.locator('.main-slot .tasks-page').waitFor({ timeout: 10_000 });
   const demoAccounts = await rpc.call('accounts.list');
   const demoModels = await rpc.call('models.list');
   await page.evaluate(([list]) => { for (const account of list) window.__planFake.event('account.removed', { id: account.id }); window.__planFake.event('models.updated', []); }, [[...demoAccounts, fakeAccount, secondAccount]]); // the faked plans too
@@ -414,7 +417,7 @@ test('first run: choice → AI (model setup, plan flow) → About you → the st
   await shot('first-run-11-settings-models');
   await page.evaluate(([list, all]) => { for (const account of list) window.__planFake.event('account.upserted', account); window.__planFake.event('models.updated', all); }, [demoAccounts, demoModels]);
   await page.evaluate(() => { location.hash = '#/home'; });
-  await page.locator('.day-view').waitFor({ timeout: 10_000 });
+  await page.locator('.main-slot .tasks-page').waitFor({ timeout: 10_000 });
   await page.waitForTimeout(300);
   assert.equal(await page.locator('[data-notice="no-ai"]').count(), 0, 'gone as soon as a model can answer');
 

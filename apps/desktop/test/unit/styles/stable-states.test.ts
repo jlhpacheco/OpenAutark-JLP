@@ -33,6 +33,7 @@ const ALLOWED: Array<{ file: string; selector: string; why: string }> = [
   { file: 'chat.css', selector: '.message:has(.message-author .avatar.working)', why: 'the streaming caret after the last word of a reply being written: it follows the text, no control moves' },
   { file: 'settings.css', selector: '.mode-option.selected .mode-radio::after', why: 'the radio\'s dot inside its fixed 18 px ring (grid-centred), the ring keeps its size' },
   { file: 'mobile.css', selector: '.mobile-shell.pushed .mobile-main:not(:has(> .chat-view))', why: 'the pushed screen\'s kind (a chat brings its own bottom inset), not a state of a control' },
+  { file: 'tasks-detail.css', selector: '.todo-tool .w-record:not(:has(.w-record-dot))', why: 'the owner\'s "the big teleprompter only while recording": the script reads like the notes until Record, then the take\'s own view takes over – a mode of the tool, not a click on a neighbour' },
   { file: 'tasks.css', selector: '.task-message:has(> .task-bubble.compact)', why: 'the kind of the task message (D5: a finished approval to-do or agent-made task is one line like a run step), set by its status, not a click: opening the line keeps the gap' },
 ];
 
@@ -83,10 +84,9 @@ test('every exception names a checked file and says why', () => {
 /** The main views' scroll areas (B-044 §2): a scrollbar that comes with more rows must not narrow the column. */
 const VIEW_SCROLLERS: Array<{ file: string; selector: string }> = [
   { file: 'chat.css', selector: '.message-scroller' }, { file: 'chat.css', selector: '.chat-panel-body' },
-  { file: 'tasks.css', selector: '.tasks-scroll' }, { file: 'tasks.css', selector: '.task-detail-scroll' },
+  { file: 'tasks-page.css', selector: '.tasks-list' }, { file: 'tasks-page.css', selector: '.cal-scroll' }, { file: 'tasks-detail.css', selector: '.detail-body' },
   { file: 'team.css', selector: '.team-scroll, .agent-scroll' },
-  { file: 'day.css', selector: '.day-main' }, { file: 'day.css', selector: '.day-cal-scroll' },
-  { file: 'settings.css', selector: '.settings-body' }, { file: 'app.css', selector: '.offline-body' },
+  { file: 'settings.css', selector: '.settings-body' },
   { file: 'first-run.css', selector: '.first-run-scroll' }, { file: 'shell.css', selector: '.sidebar-body' },
   { file: 'repair.css', selector: '.repair-view' },
   // visual pass, round 2: a dialog's content (lib/dialog.tsx) – a field never shifts when the form starts to scroll

@@ -14,18 +14,23 @@
 // KI-Runde 17.11.2026 (an agent's voice-over made this PC's voice the person's reading voice): a pull whose `choose` says
 // no leaves the settings as they are – a generation's pull passes it (media/generate-local.ts) – and speak uses the chosen
 // voice, else a downloaded one, so a voice-over speaks without becoming the voice that reads to the person.
+// VOICE 19.11.2026 (the owner heard his phone's voice in a call): every device reads with this PC's voice. speak takes the
+// chosen voice, else a downloaded one, else – once per run – fetches the chosen one or the recommended voice for the
+// person's language by itself when the disk keeps VOICE_DISK_SPARE free after it (the line asked meanwhile falls back to
+// the device's voice). Its audio goes out at SPOKEN_RATE (a slow phone link carries ~half the bytes of 44.1 kHz).
+// ensureTurn fetches the conversation page's turn models (Silero VAD, Smart Turn, 9 MB) on every PC.
 // Owns: these rules, the pull jobs and their events, the language choice per model. Never: decodes
 // compressed audio itself, sends audio anywhere, or changes a setting other than localStt / localTts.
 
 import os from 'node:os';
 import type { RuntimeServices } from '../../contracts.ts';
 import { fitLocalSpeech, LOCAL_SPEECH_MODELS, localSpeechModel, SILERO_VAD, SMART_TURN, type LocalSpeechModel, type LocalSpeechModels, type LocalSpeechOffer, type LocalSpeechPull, type SpeechHardware, type SpokenAudio } from '../../../shared/model/local-speech-models.ts';
-import { pcm16Bytes, type MonoAudio } from '../../../shared/voice/wav.ts';
+import { pcm16Bytes, resample, type MonoAudio } from '../../../shared/voice/wav.ts';
 import { WorkforceError } from '../../../shared/errors.ts';
 import { hearFormat, hostDecodes, pcmOf, WHOLE_BYTES } from '../../media/hear-any.ts';
 import { partOf, type HeardPart } from '../transcribe-endpoint.ts';
 import { systemEnvironment } from '../../settings/defaults.ts';
-import { installModel, type DownloadFetch, type InstallDeps } from './download.ts';
+import { diskFree, installModel, type DownloadFetch, type InstallDeps } from './download.ts';
 import { LocalSpeechEngine } from './engine.ts';
 import { decodeRecording, localFormat, localTranscript, type LocalTranscript } from './hear.ts';
 import { isInstalled } from './store.ts';
@@ -34,6 +39,10 @@ const WHERE = 'Settings › Models';
 export const MAX_SPEAK_CHARS = 2_000;
 /** Lines waiting for the local voice at once (every device reads through one model). */
 export const MAX_SPEAKING = 4;
+/** The rate voice.speak sends: speech keeps its sound up to 12 kHz, a 44.1 kHz voice goes out at ~0.54 of the bytes. */
+export const SPOKEN_RATE = 24_000;
+/** Disk that stays free after this PC fetches a voice by itself. */
+export const VOICE_DISK_SPARE = 3_000_000_000;
 
 export interface LocalSpeechDeps {
   services: () => RuntimeServices;
@@ -43,6 +52,8 @@ export interface LocalSpeechDeps {
   hardware?: () => SpeechHardware;
   /** The OS locale (default: Intl, settings/defaults.ts systemEnvironment). */
   systemLocale?: () => string;
+  /** Free bytes on the disk of `dir` (default statfs; undefined = unknown: no voice is fetched by itself). */
+  freeDisk?: (dir: string) => Promise<number | undefined>;
 }
 
 const code = (language: string | undefined) => /^([a-z]{2,3})(?:[-_]|$)/i.exec(language?.trim() ?? '')?.[1]?.toLowerCase();
@@ -118,17 +129,26 @@ export class LocalSpeech {
   ttsModel(): LocalSpeechModel | undefined { return this.chosen('tts'); }
 
   /**
-   * B-084: the chosen voice is not on this PC (the choice came from my other PC through the settings sync): I fetch
-   * it once in the background, so every device of the person hears this PC's voice from then on; the line asked
-   * now still falls back to the device's own voice. One try per model and run of the runtime.
+   * B-084 / VOICE 19.11.2026: no voice on this PC to read with – the chosen one (its choice may have come from my other PC
+   * through the settings sync) or, with none chosen, the voice recommended for the person's language: I fetch it once
+   * per run in the background when the engine loads here and the data folder's disk surely keeps VOICE_DISK_SPARE free after it, so every
+   * device of the person hears this PC's voice from then on; the line asked now falls back to the device's own voice.
+   * The setting stays as it is (speak reads with a downloaded voice anyway). Resolves when the fetch ended or was skipped.
    */
-  private fetchChosenVoice(): void {
+  async fetchVoice(): Promise<void> {
     let id: string | undefined;
     try { id = this.deps.services().settings.get().voice?.localTts; } catch { return; }
-    const model = localSpeechModel(id, 'tts');
+    const model = localSpeechModel(id, 'tts') ?? localSpeechModel(this.offers().find((row) => row.purpose === 'tts' && row.recommended && row.fit !== 'too-big')?.id, 'tts');
     if (!model || this.installed(model) || this.voiceTries.has(model.id)) return;
     this.voiceTries.add(model.id);
-    this.pull(model.id, { auto: true, choose: () => false }).catch(() => undefined);
+    try { this.engine.check(); } catch { return; }
+    // Review fix: measured on the data folder, which always exists (models/speech may not yet); unknown is no room.
+    const free = await (this.deps.freeDisk ?? diskFree)(this.dataDir()).catch(() => undefined);
+    if (free === undefined || free < model.download.bytes + model.sizeMb * 1_000_000 + VOICE_DISK_SPARE) {
+      this.deps.services().log.info('local voice not fetched: disk low or unknown', { model: model.id, free });
+      return;
+    }
+    await this.pull(model.id, { auto: true, choose: () => false }).catch(() => undefined);
   }
 
   /** B-058 G6: the host decodes compressed audio for local hearing (hear-any.ts pcmOf). */
@@ -217,14 +237,20 @@ export class LocalSpeech {
     return { ok: true };
   }
 
-  /** B-082: Smart Turn next to an installed Silero VAD (a PC that pulled its recognizer before Smart Turn was in the catalog); quiet, one log line on failure. */
+  /**
+   * B-082 / VOICE 19.11.2026: the conversation page's turn models (Silero VAD 0.6 MB, Smart Turn 8.7 MB), each when
+   * missing – on every PC, also one that hears through a service and never pulled a recognizer (its pages decided by the
+   * level fallback alone); quiet, one log line per failure.
+   */
   async ensureTurn(): Promise<void> {
-    if (!this.installed(SILERO_VAD) || this.installed(SMART_TURN)) return;
     const s = this.deps.services();
-    try {
-      await this.install(SMART_TURN, { dataDir: s.paths.data, fetch: this.deps.fetch });
-      s.log.info('local speech model installed', { model: SMART_TURN.id, auto: true });
-    } catch (error) { s.log.warn('local speech download failed', { model: SMART_TURN.id, error: String(error) }); }
+    for (const part of [SILERO_VAD, SMART_TURN]) {
+      if (this.installed(part)) continue;
+      try {
+        await this.install(part, { dataDir: s.paths.data, fetch: this.deps.fetch });
+        s.log.info('local speech model installed', { model: part.id, auto: true });
+      } catch (error) { s.log.warn('local speech download failed', { model: part.id, error: String(error) }); }
+    }
   }
 
   /**
@@ -273,7 +299,7 @@ export class LocalSpeech {
   /** voice.speak: one line in the chosen local voice, else a downloaded one (`voice`: the speaker number, '0' …); after `signal` aborted no further sentence is spoken (engine.ts synthesize). */
   async speak(input: { text: string; voice?: string; language?: string; signal?: AbortSignal }): Promise<SpokenAudio> {
     const chosen = this.ttsModel();
-    if (!chosen) this.fetchChosenVoice();
+    if (!chosen) void this.fetchVoice();
     const model = chosen ?? LOCAL_SPEECH_MODELS.find((entry) => entry.purpose === 'tts' && this.installed(entry));
     if (!model) throw new WorkforceError('unavailable', `No local voice is downloaded on this PC (${WHERE}).`);
     const text = input.text.replace(/\s+/g, ' ').trim();
@@ -284,8 +310,10 @@ export class LocalSpeech {
     this.speaking++;
     try {
       const audio = await this.engine.synthesize(model, text, { sid, language: modelLanguage(model, [input.language, this.profileLanguage()], this.systemLocale()), signal: input.signal });
-      const rate = audio.sampleRate || 24_000;
-      return { audio: Buffer.from(pcm16Bytes(audio.samples)).toString('base64'), sampleRate: rate, durationMs: Math.round((audio.samples.length / rate) * 1000) };
+      const from = audio.sampleRate || SPOKEN_RATE;
+      const rate = Math.min(from, SPOKEN_RATE);
+      const samples = resample(audio.samples, from, rate);
+      return { audio: Buffer.from(pcm16Bytes(samples)).toString('base64'), sampleRate: rate, durationMs: Math.round((samples.length / rate) * 1000) };
     } finally { this.speaking--; }
   }
 }

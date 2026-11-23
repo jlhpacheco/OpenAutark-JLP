@@ -37,6 +37,25 @@ test('the authorization address keeps the endpoint query and carries redirect, s
   assert.equal(pair.verifier.length, 43);
 });
 
+test('the bare origin as redirect (Google Calendar\'s form): answered at /, a wrong state is ignored, the timeout ends it', async () => {
+  const loopback = fakeLoopback();
+  const timers = new FakeTimers();
+  const listener = await openLoopback({ ports: [0], path: '', server: loopback.factory, timers });
+  const address = new URL(listener.address('https://accounts.google.com/o/oauth2/v2/auth', { client_id: 'cid', access_type: 'offline' }));
+  assert.equal(address.searchParams.get('redirect_uri'), 'http://127.0.0.1:50000');
+  assert.equal(loopback.hit('/callback?state=x&code=y').status, 404, 'no other path');
+  assert.equal(loopback.hit('/?state=forged&code=stolen').status, 400);
+  assert.equal(loopback.isOpen(), true, 'a forged answer does not end the sign-in');
+  timers.fireAll();
+  await assert.rejects(listener.answer, (error: unknown) => error instanceof WorkforceError && error.code === 'timeout');
+  assert.equal(loopback.isOpen(), false);
+
+  const again = await openLoopback({ ports: [0], path: '', server: loopback.factory, timers });
+  const state = new URL(again.address('https://accounts.google.com/o/oauth2/v2/auth', {})).searchParams.get('state')!;
+  loopback.hit(`/?state=${state}&code=c2`);
+  assert.deepEqual({ code: (await again.answer).code, redirectUri: (await again.answer).redirectUri }, { code: 'c2', redirectUri: 'http://127.0.0.1:50000' });
+});
+
 test('a stray request, another path, POST and a wrong Host header are no answer; the listener keeps waiting', async () => {
   const { loopback, listener, state } = await open();
   assert.equal(loopback.hit('/favicon.ico').status, 404);

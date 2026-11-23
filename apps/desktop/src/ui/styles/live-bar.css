@@ -3,7 +3,15 @@
    "Stopping…", so the line never changes width; a split part's slot stays empty. Same axis and width as the composer and the question
    strip (ask-strip.css); at most four lines show, more scroll inside the bar (a stable gutter), so the messages above
    keep their room. Hover only colours the line. Tokens only – light and dark – and phone width.
-   Owns: .live-bar*. Never: colours outside tokens.css. */
+   Owner 19.11.2026: a 24 px ▾ cell starts each line (LiveBar.tsx); an open line adds its box under it
+   (LiveBarMore.tsx) – the recent steps in a short box that scrolls on its own, then "Watch live" – and the bar may
+   take up to 60 % of the height while a line is open. 20.11.2026: the run's task is a link beside "Watch live"; a click
+   inside an open line fixes the bar's height (an inline style, LiveBar.tsx), so what opens there scrolls inside it.
+   Feedback F20: one agent's own Stop – icon and word (chat/StopRun.tsx), at a live bar line's end and on a Work card.
+   Owns: .live-bar*, .stop-run. Never: colours outside tokens.css. */
+.stop-run { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; border-radius: var(--r-xs); color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(16px, calc(16px * var(--ui-text, 1))); white-space: nowrap; }
+.stop-run:hover:not(:disabled) { background: var(--hover); color: var(--danger); }
+.stop-run:disabled { cursor: default; opacity: .8; }
 .live-bar {
   --col-inset: clamp(16px, 5cqi, 24px);
   display: flex; flex: none; flex-direction: column; box-sizing: border-box; width: min(var(--message-max), calc((100cqi - 2 * var(--col-inset)) / var(--chat-zoom, 1)));
@@ -13,7 +21,7 @@
 .live-bar-row { display: flex; flex: none; align-items: center; gap: 2px; width: 100%; }
 .live-bar-line {
   display: flex; flex: 1 1 auto; align-items: center; gap: 6px; min-width: 0; height: 28px; padding: 0 8px; border-radius: 8px;
-  color: var(--secondary); font-size: 13px; text-align: left; white-space: nowrap;
+  color: var(--secondary); font-size: calc(13px * var(--ui-text, 1)); text-align: left; white-space: nowrap;
 }
 .live-bar-stop { display: flex; flex: none; justify-content: flex-end; width: 92px; }
 .live-bar-stop > .stop-run { height: 28px; border-radius: 8px; }
@@ -22,7 +30,29 @@
 .live-bar-name { flex: 0 0 auto; max-width: 40%; overflow: hidden; color: var(--text); font-weight: 600; text-overflow: ellipsis; } /* 17.11.2026 (Mika): never squeezed by a long text – "Theo", not "T." – only past 40% it is cut */
 .live-bar-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .live-bar-text::before { content: '· '; color: var(--muted); }
-.live-bar-time { flex: none; color: var(--muted); font-size: 12px; }
+.live-bar-time { flex: none; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); }
+.live-bar.open { max-height: min(60vh, 420px); }
+.live-bar-item { display: flex; flex: none; flex-direction: column; }
+.live-bar-caret { display: grid; flex: none; place-items: center; width: 24px; height: 28px; border-radius: 8px; color: var(--muted); }
+.live-bar-caret:hover, .live-bar-caret[aria-expanded="true"] { background: var(--hover); color: var(--text); }
+.live-bar-more { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 6px 26px; }
+.live-bar-steps { max-height: 168px; overflow-y: auto; overscroll-behavior: contain; border-radius: 8px; }
+.live-bar-steps > .run-items { margin: 0; }
+.live-bar-note { margin: 0; padding: 6px 8px; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); }
+.live-bar-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.live-bar-task { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: calc(12px * var(--ui-text, 1)); }
+.live-bar-task span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-bar-watch {
+  display: inline-flex; flex: none; align-self: flex-start; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: 8px; color: var(--text); font-size: calc(13px * var(--ui-text, 1));
+}
+.live-bar-watch:hover { background: var(--hover); }
 @media (prefers-reduced-motion: reduce) { .live-bar-dot { animation: none; } }
-@media (pointer: coarse) { .live-bar-line, .live-bar-stop > .stop-run { height: 34px; } .live-bar { max-height: calc(4 * 34px + 8px); } }
+@media (pointer: coarse) {
+  .live-bar-line, .live-bar-stop > .stop-run, .live-bar-caret, .live-bar-watch { height: 34px; }
+  .live-bar { max-height: calc(4 * 34px + 8px); }
+  .live-bar.open { max-height: min(60vh, 420px); }
+  .live-bar-caret { width: 30px; }
+  .live-bar-more { margin-left: 32px; }
+}
 .mobile-shell .live-bar { width: auto; margin: 0 10px 6px; } /* the phone composer's side margin (mobile.css) */

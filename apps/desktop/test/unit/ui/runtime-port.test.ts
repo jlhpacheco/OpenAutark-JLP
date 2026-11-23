@@ -1,9 +1,8 @@
 // Desktop runtime port: the preload's main-world guard (capture listener that swallows port
 // messages, one-shot claimConnector handing ports to a callback, public connect() rejecting
-// after the claim), the plain contract fallback (connect() → Promise<void>, the port arrives as
-// a PORT_MESSAGE window message), the RuntimePort wrapper (built-ins captured at load: later
-// MessagePort/MessageEvent/Promise/`then` patches never see the live port) and when a runtime
-// status means "reconnect".
+// after the claim), requestPort only through the claimed connector (20.11.2026: the plain contract fallback is gone),
+// the RuntimePort wrapper (built-ins captured at load: later MessagePort/MessageEvent/Promise/`then` patches never see
+// the live port) and when a runtime status means "reconnect".
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,7 +12,7 @@ import type { WorkforceDesktopApi } from '../../../src/shared/api/desktop.ts';
 import { installMainWorld } from '../../../src/preload/main-world.ts';
 import type { PortConnector } from '../../../src/preload/main-world.ts';
 import { RuntimeEpochs, claimConnector, guardPort, requestPort } from '../../../src/ui/lib/runtime-port.ts';
-import type { PortHost, PortMessageEvent, RuntimePort } from '../../../src/ui/lib/runtime-port.ts';
+import type { RuntimePort } from '../../../src/ui/lib/runtime-port.ts';
 
 const TAG = `${PORT_MESSAGE}:0123456789abcdef`;
 
@@ -139,16 +138,6 @@ test('main-world guard: connect() failure and a missing port both reject', async
   await assert.rejects(open(connector), /did not arrive/);
 });
 
-function fakeHost() {
-  const listeners = new Set<(event: PortMessageEvent) => void>();
-  const host: PortHost = {
-    addEventListener: (_type, listener) => { listeners.add(listener); },
-    removeEventListener: (_type, listener) => { listeners.delete(listener); },
-  };
-  const post = (event: PortMessageEvent) => { for (const listener of [...listeners]) listener(event); };
-  return { host, listeners, post };
-}
-
 test('guardPort: only a real MessagePort is wrapped; the wrapper has no prototype and no raw port', () => {
   assert.throws(() => guardPort({ postMessage() {}, start() {} }), /not a MessagePort/);
   assert.throws(() => guardPort(undefined), /not a MessagePort/);
@@ -164,48 +153,8 @@ test('guardPort: only a real MessagePort is wrapped; the wrapper has no prototyp
   }
 });
 
-test('requestPort: resolves with the posted port from this window only', async () => {
-  const { host, listeners, post } = fakeHost();
-  const self = {};
-  const channel = new MessageChannel();
-  const other = new MessageChannel();
-  try {
-    const request = requestPort(async () => {
-      post({ source: {}, data: PORT_MESSAGE, ports: [other.port1] }); // another window
-      post({ source: self, data: 'other', ports: [other.port1] }); // another message
-      post({ source: self, data: PORT_MESSAGE, ports: [channel.port1] });
-    }, host, self);
-    await roundTrip(await request, channel.port2);
-    assert.equal(listeners.size, 0, 'listener removed');
-  } finally {
-    for (const port of [channel.port1, channel.port2, other.port1, other.port2]) port.close();
-  }
-});
-
-test('requestPort: the port may arrive before connect() resolves (main-world wrapper order)', async () => {
-  const { host, post } = fakeHost();
-  const self = {};
-  const channel = new MessageChannel();
-  try {
-    let resolveConnect: () => void = () => {};
-    const request = requestPort(() => new Promise<void>((resolve) => { resolveConnect = resolve; }), host, self, 5);
-    post({ source: self, data: PORT_MESSAGE, ports: [channel.port1] });
-    resolveConnect();
-    await roundTrip(await request, channel.port2);
-  } finally {
-    channel.port1.close();
-    channel.port2.close();
-  }
-});
-
-test('requestPort: connect() failure and a missing port both reject and clean up', async () => {
-  const failing = fakeHost();
-  await assert.rejects(requestPort(async () => { throw new Error('The runtime is not running.'); }, failing.host, {}), /not running/);
-  assert.equal(failing.listeners.size, 0);
-
-  const silent = fakeHost();
-  await assert.rejects(requestPort(async () => undefined, silent.host, {}, 5), /did not arrive/);
-  assert.equal(silent.listeners.size, 0);
+test('requestPort: without a claimed connector it rejects – there is no other way to a port', async () => {
+  await assert.rejects(requestPort(), /connector is not available/);
 });
 
 test('RuntimeEpochs: the boot "up" keeps the port, a restart "up" reconnects', () => {
@@ -227,18 +176,6 @@ test('RuntimeEpochs: the boot "up" keeps the port, a restart "up" reconnects', (
   assert.equal(epochs.status({ state: 'up' }, false), true);
 });
 
-test('requestPort: a port that connect() resolves with is taken at once', async () => {
-  const { host, listeners } = fakeHost();
-  const channel = new MessageChannel();
-  try {
-    await roundTrip(await requestPort(async () => channel.port1, host, {}, 5), channel.port2);
-    assert.equal(listeners.size, 0);
-  } finally {
-    channel.port1.close();
-    channel.port2.close();
-  }
-});
-
 test('RuntimeEpochs: a port opened before the late boot "starting" survives the first "up"', () => {
   // Cold launch: main hands out a port while the runtime boots, then (window loaded) sends
   // 'starting', then 'up'. The port belongs to the booting runtime – no reconnect.
@@ -253,7 +190,7 @@ test('RuntimeEpochs: a port opened before the late boot "starting" survives the 
 });
 
 // Last: claiming sets the UI's module state (requestPort uses the claimed connector from then on).
-test('claimConnector: no connector on the bridge keeps the plain contract; a taken one throws', () => {
+test('claimConnector: no connector on the bridge claims nothing; a taken one throws', () => {
   assert.equal(claimConnector(undefined), false);
   assert.equal(claimConnector({ connect: async () => undefined }), false);
   const { api } = guardedPage();
@@ -265,12 +202,8 @@ test('claimConnector: after the UI claimed it, requestPort gets ports only from 
   const { api, seen, opened, closeAll } = guardedPage();
   try {
     assert.equal(claimConnector(api), true);
-    const { host, listeners } = fakeHost();
-    let publicCalls = 0;
-    const port = await requestPort(() => { publicCalls++; return api.connect(); }, host, {});
+    const port = await requestPort();
     await roundTrip(port, opened[1]);
-    assert.equal(publicCalls, 0, 'the public connect() is not used');
-    assert.equal(listeners.size, 0, 'no window listener needed');
     await assert.rejects(api.connect(), /belongs to the app window/, 'page code cannot open a port any more');
     assert.deepEqual(seen, []);
   } finally { closeAll(); }
@@ -323,11 +256,10 @@ test('RuntimePort: page code patching built-ins after load never sees the live p
   const post = MessagePort.prototype.postMessage;
   const listen = EventTarget.prototype.addEventListener;
   assert.equal(claimConnector(api), true);
-  const { host } = fakeHost();
   const patches = patchBuiltIns();
   let restored = false;
   try {
-    const port = await requestPort(() => api.connect(), host, {});
+    const port = await requestPort();
     const raw = opened.at(-2)!;
     await roundTrip(port, opened.at(-1)!, post, listen);
     port.close();

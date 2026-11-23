@@ -5,7 +5,8 @@
 // places). 16.11.2026: the owner's phone has the same rows (the runtime lets its secure session do them) – a backup and an
 // export go into the PC's data folder, "Back up to…"/"Choose…" (the PC's folder picker) stay in the desktop window, and Open
 // / Show in folder open the PC's folder in the phone's pane sheet (open-file.ts); the phone has no updater of its own, so a
-// waiting update's line says what the PC does with it (General's automatic download). F25 (16.11.2026): every company on this PC updates
+// waiting update's line says what the PC does with it, and its "Download updates automatically" row (20.11.2026: here on
+// every device, beside the version – it was in General on the phone) changes the PC's. F25 (16.11.2026): every company on this PC updates
 // itself (B-072's "updates install from the first company" is gone), and when this start's install did not land, that
 // line is the hint beside the button (shell/update-control.ts).
 // Owns: these rows. Never: claims a restore happened before the start that applied it.
@@ -17,7 +18,7 @@ import { confirm } from '../lib/dialog.tsx';
 import { fileSize, time } from '../lib/format.ts';
 import { bridge } from '../lib/platform.ts';
 import { rpc } from '../lib/rpc.ts';
-import { can } from '../lib/session.ts';
+import { can, canEditOwnerSettings } from '../lib/session.ts';
 import { conversations, preferences, systemInfo, updatePreferences, updateState } from '../lib/store.ts';
 import { Button } from '../lib/ui.tsx';
 import { aboutUpdateAction, autoDownloadApplies, installingText } from '../shell/update-control.ts';
@@ -144,6 +145,7 @@ export function AboutPage() {
   const updates = bridge?.updates;
   const action = updates ? aboutUpdateAction(update, systemInfo.value?.notice) : null; // F25: every company updates itself; a not-landed install says why
   const off = update?.status === 'development';
+  const blocked = updates ? off : systemInfo.value?.packaged !== true; // the PC downloads by itself only as the installed app
   const hint = [updateText(update), action?.hint, !updates && pcUpdateLine(update, preferences.value.autoDownloadUpdates)].filter(Boolean).join(' · ');
   return (
     <Group title="About" id="settings-about">
@@ -152,9 +154,9 @@ export function AboutPage() {
           <Button variant={action.primary ? 'primary' : 'secondary'} class="small" onClick={() => void act(async () => updates.apply(), 'Update failed')}>{action.label}</Button>
         )}
       </Row>
-      {updates && autoDownloadApplies(update) && (
-        <Row label="Download updates automatically" hint="Restarts only when you are idle" disabled={off}>
-          <Toggle label="Download updates automatically" checked={preferences.value.autoDownloadUpdates} disabled={off} onChange={(autoDownloadUpdates) => void act(() => updatePreferences({ autoDownloadUpdates }), 'Could not save')} />
+      {(updates ? autoDownloadApplies(update) : canEditOwnerSettings()) && (
+        <Row label="Download updates automatically" hint={updates ? 'Restarts only when you are idle' : 'On your PC: restarts only when you are idle'} disabled={blocked}>
+          <Toggle label="Download updates automatically" checked={preferences.value.autoDownloadUpdates} disabled={blocked} onChange={(autoDownloadUpdates) => void act(() => updatePreferences({ autoDownloadUpdates }), 'Could not save')} />
         </Row>
       )}
       {can('system.root') && <FolderRows />}

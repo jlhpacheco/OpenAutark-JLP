@@ -13,7 +13,7 @@ import { HUMAN_ID } from '../../../src/shared/ids.ts';
 import type { DecisionRequest, DecisionResult, DecisionService } from '../../../src/runtime/contracts.ts';
 import { Notifications } from '../../../src/runtime/notify/service.ts';
 import { SettingsStore } from '../../../src/runtime/settings/service.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { setReplyMode } from '../../../src/runtime/chat/reply-modes.ts';
 import { NOBODY, PICKED_NOTE } from '../../../src/runtime/chat/responders.ts';
 import { agent, harness, tick } from './harness.ts';

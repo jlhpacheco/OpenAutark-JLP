@@ -1,12 +1,13 @@
 // Electron window check of 21.10. 17:09 (chat without a generic Stop) with the demo engine in an
 // isolated profile. The agent's turn hangs on a native tool ([[hang:bash …]]), so it keeps working:
 //   * the composer always sends, disabled without content; its Plus menu greys nothing out (04.11.2026); no conversation toggle. A 1:1 preview
-//     omits the sender and is named after the agent (B-050 K2: "<agent> · Release"). The live task link opens its detail;
+//     omits the sender and is named after the agent (B-050 K2: "<agent> · Release"). The header's live line opens the
+//     live bar's line, whose task link opens its detail;
 //   * a normal message sent while the agent works goes out and reaches the running turn (journal note
 //     'steered'), the turn is not interrupted;
 //   * the Send button's right-click menu › "Send as important" sends the draft as 'important' at once and it is
 //     steered too;
-//   * the chat header's live line opens the working popover, whose last entry is "Stop all agent work": the turn ends,
+//   * "Stop all agent work" from the command palette: the turn ends,
 //     the status line "Agent work stopped" offers Resume, the composer still has no Stop; Resume removes the line;
 //   * light, dark, 640×480 and phone width (no horizontal page scroll); no renderer errors.
 // Run: npm run test:ui   (needs a fresh build)   SCREENSHOTS=<dir> keeps the screenshots.
@@ -20,6 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -53,8 +55,9 @@ test('Chat without Stop: compose, talk and steer while an agent works; the emerg
   await size(1280, 820);
   const shot = async (name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
   const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
+  await rpc.call('settings.update', { onboarding: { step: 'done' } }); // the task's detail is on the Tasks page, which the first-run layer covers
 
   const manager = (await rpc.call('agents.list')).find((agent) => agent.template === 'manager');
   const chat = await rpc.call('chats.create', { title: 'Release', agentIds: [manager.id] });
@@ -76,13 +79,15 @@ test('Chat without Stop: compose, talk and steer while an agent works; the emerg
   const task = await rpc.call('tasks.create', { conversationId: chat.id, title: 'Ship the release [[hang:bash]]', to: manager.id });
   await taskWorking;
   await page.locator('.chat-header .chat-live').waitFor({ timeout: 15_000 });
-  // 13.11.2026: the task a run works on is one click away in the header's working popover (no live block in the history).
+  // 20.11.2026: the header's live line opens the live bar's line; the task a run works on is a link there (no live block in the history).
   await page.locator('.chat-header .chat-live').click();
-  const taskLink = page.locator('.working-popover .working-task', { hasText: task.title });
+  const taskLink = page.locator('.live-bar .live-bar-task', { hasText: task.title });
   await taskLink.waitFor();
   await taskLink.click();
-  await page.locator('.tasks-detail').waitFor();
-  await page.locator('.tasks-detail input').first().waitFor();
+  // the Tasks page opens the task's detail where the calendar was (Quests round 20.11.2026)
+  const detail = page.locator('.main-slot .tasks-page .task-detail');
+  await detail.waitFor();
+  assert.equal((await detail.locator('.detail-title').textContent())?.trim(), task.title, 'the task link opens its detail');
   await page.evaluate(id => { location.hash = `#/chat/${id}`; }, chat.id);
   await page.locator('.live-bar .live-bar-line').waitFor();
   await shot('no-stop-00-task-link');
@@ -158,10 +163,11 @@ test('Chat without Stop: compose, talk and steer while an agent works; the emerg
   await size(1280, 820);
   await page.waitForTimeout(600);
 
-  // The emergency stop: the last entry of the live line's working popover (B-048 E4.5).
+  // The emergency stop: "Stop all agent work" in the command palette (the tray and its shortcut have it too).
   const stopped = rpc.waitFor('work.state', (state) => state.stopped === true, 15_000);
-  await page.locator('.chat-header .chat-live').click();
-  await page.locator('.working-popover[aria-label="Agent work"]').getByRole('button', { name: /Stop all agent work/ }).click();
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
+  await page.locator('.palette-input').fill('Stop all agent work');
+  await page.locator('.palette-row', { hasText: 'Stop all agent work' }).click();
   await stopped;
   const pill = page.locator('.status-host .status-note[data-notice="work-stop"]');
   await pill.waitFor({ timeout: 10_000 });

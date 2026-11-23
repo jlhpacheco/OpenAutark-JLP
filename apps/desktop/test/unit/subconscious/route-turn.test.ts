@@ -4,7 +4,7 @@
 // field of the schema is one question. A failed, cut or late call sets nothing; a colleague's wake and a task's are labelled so. The
 // service calls once on a person's message, on a colleague's with content when no person wrote, else on the turn's task; the turn
 // waits for it at most ROUTE_WAIT_MS – and only while the lane's recent median is under FAST_MS: on a slow lane the turn starts at
-// once, the call runs beside it only to open what the work needs, and those entries reach the next turn. Nothing runs after a turn,
+// once, the call runs beside it only to pick hits, and its lines reach the next turn (hints.ts). Nothing runs after a turn,
 // and each call leaves one info event with the model that answered and its tokens (hits and context: look.test.ts). An effort decided
 // already – the agent's own step, its task's, its fixed effort – costs no call; a model the agent asked for that waits for its
 // boundary decides no effort; a step set for an earlier message ends on the next turn. The call reads "What I have here" to the end
@@ -19,6 +19,7 @@ import { fixture, model } from '../context/fixture.ts';
 import { account } from '../models/harness.ts';
 import { ROUTE_SYSTEM, routeSystem, routeTurn, standingWords, turnFacts } from '../../../src/runtime/subconscious/route-turn.ts';
 import { FAST_MS, LOOK_MS, PROBE_TURNS, ROUTE_WAIT_MS, SubconsciousImpl } from '../../../src/runtime/subconscious/service.ts';
+import { turnHints } from '../../../src/runtime/subconscious/hints.ts';
 import { pendingRoute, setNextRoute, setTaskRoute } from '../../../src/runtime/agents/next-route.ts';
 import type { StructuredRunner } from '../../../src/runtime/decision/types.ts';
 import { redact } from '../../../src/runtime/system/log.ts';
@@ -70,8 +71,10 @@ function answering(answer: Record<string, unknown> | Error | 'hang', gate?: Prom
   return { runner, calls };
 }
 
-const pick = (effort: string, why = 'a contract the customer signs') => ({ hardest: 'the contract', misread: false, decide: true, effort, why });
+const pick = (effort: string, why = 'a contract the customer signs') => ({ hardest: 'the contract', fixed: false, shows: false, together: true, effort, why });
 type Fields = { properties: Record<string, { description?: string; enum?: string[] }> };
+/** The hit ids a call may pick (its schema's hints enum). */
+const hintIds = (call: Parameters<StructuredRunner>[0]): string[] => (call.schema as { properties: { hints?: { items: { properties: { id: { enum: string[] } } } } } }).properties.hints?.items.properties.id.enum ?? [];
 
 test('the answer lands as my subconscious\'s step for this one turn: its effort with its why – the call names no model, and a model in an answer is never stored', async () => {
   const w = world();
@@ -86,15 +89,27 @@ test('the answer lands as my subconscious\'s step for this one turn: its effort 
   const [call] = brain.calls;
   assert.deepEqual([call.purpose, call.system, call.effort, call.deadlineMs], ['subconscious', ROUTE_SYSTEM, 'low', ROUTE_WAIT_MS]);
   const fields = (call.schema as Fields).properties;
-  assert.deepEqual(Object.keys(fields), ['hardest', 'misread', 'decide', 'effort', 'why'], 'no model among the fields');
+  // Runde „Halb“ 21.11.2026: the three weights of ROUTE_SYSTEM are the answer's own questions (before: misread, decide)
+  assert.deepEqual(Object.keys(fields), ['hardest', 'fixed', 'shows', 'together', 'effort', 'why'], 'no model among the fields');
   for (const [name, field] of Object.entries(fields)) assert.match(field.description ?? '', /^[A-Z][^?]*\?$/, `${name}: one question`);
   assert.match(call.prompt, /^Agent: Ada – bookkeeper \(mode general\)\./);
   assert.ok(call.prompt.includes(`The person's new message:\n${SAID}`), call.prompt);
-  assert.ok(call.prompt.includes("The main AI's coming turn: no turn yet; a new message of the person runs at effort high at least."), call.prompt);
+  assert.ok(call.prompt.includes("The main AI's coming turn: no turn yet."), call.prompt);
+  assert.ok(!call.prompt.includes('effort high at least'), 'no floor for a person\'s line');
   for (const gone of ['The models the turn can run on', 'What a switch costs', 'start model', 'GPT-6.1 Sol', 'GPT-6.1 Luna']) assert.ok(!call.prompt.includes(gone), `the prompt names no model: ${gone}`);
   for (const gone of [/The model follows the kind of work/, /Small:|Middle:|Strongest:/, /Staying on the model/, /reads the whole context uncached/, /the model \(its name exactly as listed\)/]) assert.doesNotMatch(ROUTE_SYSTEM, gone);
   assert.match(ROUTE_SYSTEM, /^I am the main AI's subconscious\. I set the effort a turn runs at/);
   assert.match(ROUTE_SYSTEM, /Each field is one question and I answer each on its own/);
+});
+
+test("Runde „Halb“: the effort text weighs the hardest step over the whole scale – the least it needs, no lean upward, no weight for who wrote; no condensing, no opened entries", () => {
+  assert.match(ROUTE_SYSTEM, /Effort is how long the main AI thinks before each step: too little sends it down a wrong path that later turns follow, too much costs time and money on every step and changes nothing in the result – so I look for the least the hardest step needs\.\n\nI weigh three things/);
+  assert.match(ROUTE_SYSTEM, /low: the way is fixed and the result can be held against what is given\. medium: the way is clear and a miss shows at once when the step runs – the normal for everyday work\. high: /);
+  assert.match(ROUTE_SYSTEM, /max: the result itself is the point – a wording or a decision that has to be the best one – or xhigh fell short\. Neither the length of a message nor who wrote it changes the weight\./);
+  assert.match(ROUTE_SYSTEM, /A hit I pick reaches the main AI as one line of mine: what it changes in this turn, in a sentence/);
+  assert.match(ROUTE_SYSTEM, /so I pick every hit that could change what the turn does and leave those that only share its topic\./);
+  // On the code before 21.11.2026: 461 of 493 efforts were high or xhigh.
+  for (const gone of [/The first reply often settles/, /high – the normal for real work/, /One level up when/, /keep its context lean/, /An entry I open/, /the biggest items still whole/, /whether its job is done/]) assert.doesNotMatch(ROUTE_SYSTEM, gone);
 });
 
 test('an answer without a valid effort sets nothing', async () => {
@@ -173,13 +188,14 @@ test('17.11.2026: the turn waits for the call only while the lane answers fast �
     calls.push(call);
     if (slow) await new Promise<void>((resolve) => setTimeout(resolve, slow));
     const asked = Object.keys((call.schema as Fields).properties);
-    const open = ((call.schema as { properties: { open?: { items: { properties: { id: { enum: string[] } } } } } }).properties.open?.items.properties.id.enum ?? []).slice(0, 1).map((id) => ({ id, changes: 'its invoice rule' }));
-    const structured = { ...(asked.includes('effort') ? pick('xhigh') : {}), ...(asked.includes('open') ? { open } : {}) };
+    const hints = hintIds(call).slice(0, 1).map((id) => ({ id, line: 'Its invoices only as PDF.' }));
+    const structured = { ...(asked.includes('effort') ? pick('xhigh') : {}), ...(asked.includes('hints') ? { hints } : {}) };
     return { text: JSON.stringify(structured), structured, by: 'claude:claude-haiku-5-5', usage: USAGE };
   };
   const impl = new SubconsciousImpl({ services: () => f.services, runner });
   const ask = (name: string) => impl.beforeTurn({ agent: ida, thread: 'main', said: `Was will Lieferant ${name} bei Rechnungen?` });
-  const routes = () => calls.filter((call) => !('items' in (call.schema as Fields).properties));
+  const shown = () => turnHints(f.services, ida.id, 'main').map((hint) => hint.id);
+  const routes = () => calls;
   mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   try {
     // Nothing measured yet: the turn waits. The lane takes 6 s – above FAST_MS.
@@ -190,27 +206,27 @@ test('17.11.2026: the turn waits for the call only while the lane answers fast �
     assert.equal(first, 'waiting', 'the turn waits for its call');
     mock.timers.tick(slow);
     await waiting;
-    assert.equal((first as unknown as { calls: Array<{ tool: string }> }).calls[0].tool, 'knowledge.open');
+    assert.deepEqual(first, { calls: [] }, 'no tool call: its pick is a hint of this turn (the empty trace carries it back if the turn fails)');
+    assert.equal(shown().length, 1, "the pick stands in this turn's \"## From my memory\"");
     assert.equal(step()?.effort, 'xhigh', 'the answer set this turn\'s effort');
 
     // On the code before 17.11.2026 every turn waited up to 12 s on this lane: 9.5 s on average, 30 % cut with nothing.
     const second = await ask('Fjordblick'); // resolves with no timer moved: the turn does not wait
-    assert.equal(second, undefined, 'nothing opened in time, nothing waited for');
+    assert.equal(second, undefined, 'nothing waited for');
+    assert.deepEqual(shown(), [], 'nothing picked in time for this turn');
     assert.equal(step(), undefined, 'no effort set: the turn runs at its settled effort (the step of the turn before ended)');
     await until(() => routes().length === 2, 'the call beside the second turn started');
     const beside = routes()[1];
-    assert.deepEqual(Object.keys((beside.schema as Fields).properties), ['open'], 'beside the turn the call is asked only what to open');
+    assert.deepEqual(Object.keys((beside.schema as Fields).properties), ['hints'], 'beside the turn the call is asked only what to hand over');
     assert.equal(beside.deadlineMs, LOOK_MS);
-    // review 17.11.2026: the call is told its turn runs already and what it opens reaches the next one
-    // review 2: a person's line runs at high at least, so the line names no effort
-    assert.ok(beside.prompt.includes("The main AI's turn has started already; what I open reaches its next turn."), beside.prompt);
-    assert.match(ROUTE_SYSTEM, /An entry I open reaches the main AI – before its turn while that turn waits for me, else at its next turn –/);
+    // review 17.11.2026: the call is told its turn runs already and what it gives reaches the next one
+    assert.ok(beside.prompt.includes("The main AI's turn has started already; the lines I give reach its next turn."), beside.prompt);
     mock.timers.tick(slow);
     await impl.settle();
     assert.equal(step(), undefined, 'a late answer sets no effort');
-    const third = await ask('Seeufer');
-    assert.deepEqual(third?.calls.map((call) => call.tool), ['knowledge.open'], 'what the late call opened reaches the next turn');
-    assert.match(String(third!.calls[0].args.id), /fjordblick/);
+    await ask('Seeufer');
+    assert.equal(shown().length, 1, 'what the late call picked reaches the next turn');
+    assert.match(shown()[0], /fjordblick/);
     await until(() => routes().length === 3, 'the call beside the third turn started');
     mock.timers.tick(slow);
     await impl.settle();
@@ -236,12 +252,12 @@ test('FIXES-3 D2: a turn a running call hands over starts at once at its settled
     calls.push(call);
     await new Promise<void>((resolve) => setTimeout(resolve, 3_000)); // a fast lane: under FAST_MS, measured live 2.2–5.9 s
     const asked = Object.keys((call.schema as Fields).properties);
-    const open = ((call.schema as { properties: { open?: { items: { properties: { id: { enum: string[] } } } } } }).properties.open?.items.properties.id.enum ?? []).slice(0, 1).map((id) => ({ id, changes: 'its invoice rule' }));
-    const structured = { ...(asked.includes('effort') ? pick('xhigh') : {}), ...(asked.includes('open') ? { open } : {}) };
+    const hints = hintIds(call).slice(0, 1).map((id) => ({ id, line: 'Its invoices only as PDF.' }));
+    const structured = { ...(asked.includes('effort') ? pick('xhigh') : {}), ...(asked.includes('hints') ? { hints } : {}) };
     return { text: JSON.stringify(structured), structured, by: 'codex:gpt-6-luna', usage: USAGE };
   };
   const impl = new SubconsciousImpl({ services: () => f.services, runner });
-  const routes = () => calls.filter((call) => !('items' in (call.schema as Fields).properties));
+  const routes = () => calls;
   mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   try {
     // On the code before (real run 18.11.2026, real-calls.md finding 8) this turn waited 2.2–5.9 s for the call.
@@ -250,17 +266,19 @@ test('FIXES-3 D2: a turn a running call hands over starts at once at its settled
     await until(() => routes().length === 1 && handed !== 'waiting', 'the turn does not wait for the call (no timer moved)');
     assert.equal(handed, undefined);
     assert.equal(step(), undefined, 'no effort set: it runs at its settled effort');
-    assert.deepEqual(Object.keys((routes()[0].schema as Fields).properties), ['open'], 'beside the turn the call is asked only what to open');
-    assert.ok(routes()[0].prompt.includes("The main AI's turn has started already; what I open reaches its next turn."));
+    assert.deepEqual(Object.keys((routes()[0].schema as Fields).properties), ['hints'], 'beside the turn the call is asked only what to hand over');
+    assert.ok(routes()[0].prompt.includes("The main AI's turn has started already; the lines I give reach its next turn."));
     mock.timers.tick(3_000);
     await impl.settle();
     const waiting = impl.beforeTurn({ agent: ida, thread: 'main', said: 'Und Lieferant Fjordblick?' }); // a person's line in the chat: it waits on the fast lane
     await until(() => routes().length === 2, 'the call before the next turn started');
     assert.ok('effort' in (routes()[1].schema as Fields).properties, 'that one is waited for and sets the effort');
     mock.timers.tick(3_000);
-    const next = await waiting;
-    assert.deepEqual(next?.calls.map((call) => call.tool).slice(-1), ['knowledge.open'], 'what the call beside opened reaches the next turn');
-    assert.match(String(next!.calls.at(-1)!.args.id), /nordlicht/);
+    await waiting;
+    const next = turnHints(f.services, ida.id, 'main').map((hint) => hint.id);
+    assert.ok(next.some((id) => /nordlicht/.test(id)), 'what the call beside picked reaches the next turn');
+    assert.ok(next.some((id) => /fjordblick/.test(id)), "with that turn's own pick first");
+    assert.match(next[0], /fjordblick/);
   } finally { mock.timers.reset(); }
 });
 
@@ -419,7 +437,7 @@ test("the person's standing words reach the call: What I have here whole, before
   await routeTurn(w.h.services, brain.runner, { agent: w.ada, said: SAID, deadlineMs: ROUTE_WAIT_MS });
   const [{ prompt }] = brain.calls;
   assert.ok(prompt.includes('What the agent has here – its standing facts and agreements (its SYSTEM.md):\n- This PC is my workplace, all of it.\n- Alex 12.11.: Beim Programmieren gerne mit hohem effort.\n'), prompt);
-  assert.ok(prompt.includes("The main AI's coming turn: its last turn ran on GPT-6.1 Sol at effort high; a new message of the person runs at effort high at least."), prompt);
+  assert.ok(prompt.includes("The main AI's coming turn: its last turn ran on GPT-6.1 Sol at effort high."), prompt);
   assert.ok(prompt.indexOf('What the agent has here') < prompt.indexOf("The main AI's coming turn:"), 'the same each turn, so before what changes');
   assert.match(ROUTE_SYSTEM, /in this chat or in the agent's standing facts and agreements – outweighs my weighing/);
   const chat = w.h.chats.create({ agentIds: [ADA], createdBy: 'human' });
@@ -457,11 +475,11 @@ test("FIXES-3 D1: the why is for the person – their language is a fact of the 
   const w = world({ language: 'de' });
   const brain = answering(pick('high'));
   await routeTurn(w.h.services, brain.runner, { agent: w.ada, said: SAID, deadlineMs: ROUTE_WAIT_MS });
-  assert.equal(brain.calls[0].system, `${ROUTE_SYSTEM}\n\nThe person's language is German, so my why is in German.`);
+  assert.equal(brain.calls[0].system, `${ROUTE_SYSTEM}\n\nThe person's language is German, so my why and my lines are in German.`);
   assert.equal(routeSystem(w.h.services), brain.calls[0].system);
   assert.match(brain.calls[0].prompt, /^Agent: Ada – bookkeeper \(mode general\)\.\n/, 'the prompt carries no language line');
   assert.match(ROUTE_SYSTEM, /What wakes a turn is asked of the main AI, which does the work with its own tools; I do none of it and weigh how heavy it is\./);
-  assert.match(ROUTE_SYSTEM, /why – how heavy this turn is for the main AI, in one short sentence the person reads in the run log; the hits I open/);
+  assert.match(ROUTE_SYSTEM, /why – how heavy this turn is for the main AI, in one short sentence the person reads in the run log; and the hits I pick/);
   assert.equal((brain.calls[0].schema as Fields).properties.why.description, 'How heavy is this turn, in one short sentence for the person?');
   const bare = world();
   const plain = answering(pick('high'));

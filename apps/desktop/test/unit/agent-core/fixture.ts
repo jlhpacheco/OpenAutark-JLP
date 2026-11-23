@@ -13,7 +13,7 @@ import { mainSkillRoots, mainSkillsDir, systemFile } from '../../../src/runtime/
 import { RootWatcher, type WatchFn } from '../../../src/runtime/root/watcher.ts';
 import { Org } from '../../../src/runtime/org/service.ts';
 import { SkillLibrary } from '../../../src/runtime/skills/service.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { clock, memoryDb, recordingBus, RESOURCES, tempDir } from '../store/helpers.ts';
 
 export function coreFixture(options: { watch?: WatchFn | false } = {}) {

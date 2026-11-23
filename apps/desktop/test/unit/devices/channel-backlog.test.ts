@@ -6,7 +6,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptSecure, connectSecure, socketPair } from '../../../src/runtime/devices/channel.ts';
+import { acceptSecure, connectSecure } from '../../../src/runtime/devices/channel.ts';
+import { socketPair } from './socket-pair.ts';
 import { DeviceIdentity } from '../../../src/runtime/devices/identity.ts';
 import { systemClock } from '../../../src/runtime/system/clock.ts';
 import { fakeHost, memoryDb } from './fakes.ts';

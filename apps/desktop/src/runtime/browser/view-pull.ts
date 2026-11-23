@@ -168,9 +168,9 @@ export class BrowserPulls {
     }, deps.timers);
   }
 
-  /** One pull of `caller` ('owner' or its device id). */
+  /** One pull of `caller` ('owner', a device id, or '<pc>/<caller there>' for one from another PC – devices/browser-view.ts). */
   pull(caller: string, views: PullViews, request: BrowserPullRequest, signal: AbortSignal): Promise<BrowserPull> {
-    const gapMs = caller === OWNER_CALLER ? OWNER_FRAME_GAP_MS : DEVICE_FRAME_GAP_MS;
+    const gapMs = caller === OWNER_CALLER || caller.endsWith(`/${OWNER_CALLER}`) ? OWNER_FRAME_GAP_MS : DEVICE_FRAME_GAP_MS; // '<pc>/owner': the owner on another PC
     return this.frames.pull(caller, request.agentId, views, { after: request.after, maxBytes: request.maxBytes, waitMs: request.waitMs, gapMs }, signal);
   }
 

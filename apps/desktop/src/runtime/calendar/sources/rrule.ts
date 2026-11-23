@@ -6,7 +6,8 @@
 // SECONDLY …) makes the rule unknown: the caller keeps the first occurrence only.
 // Owns: parsing and expanding that subset. Never: I/O, the clock, or EXDATE / RECURRENCE-ID (ics.ts applies those).
 
-import { addDays, dateOf, daysBetween, daysInMonth, parseIcsTime, splitDate, weekday, type IcsTime } from './ics-time.ts';
+import { dateOf, daysBetween, daysInMonth, parseIcsTime, splitDate, type IcsTime } from './ics-time.ts';
+import { addDays, weekdayOf } from '../../../shared/text/when.ts';
 
 export type Freq = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY';
 export interface ByDay { n?: number; day: number } // day: 0 = Sunday
@@ -92,7 +93,7 @@ function weekdaysIn(year: number, month: number, days: readonly ByDay[]): string
   const last = daysInMonth(year, month);
   for (const by of days) {
     const all: string[] = [];
-    for (let d = 1; d <= last; d++) if (weekday(dateOf(year, month, d)) === by.day) all.push(dateOf(year, month, d));
+    for (let d = 1; d <= last; d++) if (weekdayOf(dateOf(year, month, d)) === by.day) all.push(dateOf(year, month, d));
     if (by.n === undefined) all.forEach((date) => out.add(date));
     else {
       const pick = by.n > 0 ? all[by.n - 1] : all[all.length + by.n];
@@ -108,7 +109,7 @@ function weekdaysInYear(year: number, days: readonly ByDay[]): string[] {
   const total = daysBetween(dateOf(year, 1, 1), dateOf(year + 1, 1, 1));
   for (const by of days) {
     const all: string[] = [];
-    for (let i = 0; i < total; i++) { const date = addDays(dateOf(year, 1, 1), i); if (weekday(date) === by.day) all.push(date); }
+    for (let i = 0; i < total; i++) { const date = addDays(dateOf(year, 1, 1), i); if (weekdayOf(date) === by.day) all.push(date); }
     if (by.n === undefined) all.forEach((date) => out.add(date));
     else { const pick = by.n > 0 ? all[by.n - 1] : all[all.length + by.n]; if (pick) out.add(pick); }
   }
@@ -140,13 +141,13 @@ function periodDates(rule: RRule, start: string, k: number): string[] {
   switch (rule.freq) {
     case 'DAILY': {
       const date = addDays(start, k * rule.interval);
-      const keep = (!rule.byDay || rule.byDay.some((by) => by.day === weekday(date))) && (!rule.byMonthDay || onMonthDay(rule.byMonthDay, date));
+      const keep = (!rule.byDay || rule.byDay.some((by) => by.day === weekdayOf(date))) && (!rule.byMonthDay || onMonthDay(rule.byMonthDay, date));
       dates = keep ? [date] : [];
       break;
     }
     case 'WEEKLY': {
-      const weekStart = addDays(start, -((weekday(start) - rule.wkst + 7) % 7) + k * 7 * rule.interval);
-      const days = rule.byDay?.length ? rule.byDay.map((by) => by.day) : [weekday(start)];
+      const weekStart = addDays(start, -((weekdayOf(start) - rule.wkst + 7) % 7) + k * 7 * rule.interval);
+      const days = rule.byDay?.length ? rule.byDay.map((by) => by.day) : [weekdayOf(start)];
       dates = [...new Set(days.map((day) => addDays(weekStart, (day - rule.wkst + 7) % 7)))];
       break;
     }
@@ -174,7 +175,7 @@ function periodOf(rule: RRule, start: string, date: string): number {
   switch (rule.freq) {
     case 'DAILY': return Math.floor(daysBetween(start, date) / rule.interval);
     case 'WEEKLY': {
-      const weekStart = addDays(start, -((weekday(start) - rule.wkst + 7) % 7));
+      const weekStart = addDays(start, -((weekdayOf(start) - rule.wkst + 7) % 7));
       return Math.floor(daysBetween(weekStart, date) / 7 / rule.interval);
     }
     case 'MONTHLY': return Math.floor(((y - sy) * 12 + (m - sm)) / rule.interval);

@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { BrowserService, type LaunchOptions } from '../../../src/runtime/browser/service.ts';
 import type { CdpSessionLike, ContextLike, DownloadLike, LocatorLike, PageLike } from '../../../src/runtime/browser/page.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 
 /** A tiny JPEG-looking base64 string (starts like every JPEG: FF D8 FF). */
 export const JPEG = (n: number) => `/9j/${'A'.repeat(4 + n)}`;

@@ -1,7 +1,7 @@
 // The PWA in a real mobile-emulated browser against the headless runtime (demo engine, temp
 // profile under test-results/): pairing through the #pair link (the QR code's link – B-075: issued only while a phone can reach
 // the PC, so phone access is on 'The same network' and the browser opens the link on localhost; one tier: the owner's phone
-// has full access), the My day list with an answer, a chat message with the demo reply, the chat's controls on the
+// has full access), the Tasks page's For you with an answer in a to-do's detail, a chat message with the demo reply, the chat's controls on the
 // phone (details, its area of tabs above the composer, the Plus and model menus – no permission chip), Settings › Devices › Notifications on the phone,
 // the tab badge, the service worker, the offline snapshot, a runtime restart on the same address and the locked
 // state after the device is removed in Settings › Devices (B-078 D5: no Phone access switch any more). (Phone access
@@ -63,7 +63,7 @@ const socketLog = (page) => page.evaluate(() => {
   return log ? { forbidden: [...log.forbidden], closes: [...log.closes] } : { forbidden: [], closes: [] };
 });
 
-/** Task ids in the offline snapshot (IndexedDB 'workforce-pwa' / kv / 'todos'), [] when none. */
+/** To-do ids in this device's offline copy (IndexedDB 'workforce-pwa' / kv / 'offline', ui/pwa/offline-cache.ts), [] when none. */
 const snapshotIds = (page) => page.evaluate(() => new Promise((resolve) => {
   const open = indexedDB.open('workforce-pwa', 1);
   open.onupgradeneeded = () => open.result.createObjectStore('kv');
@@ -71,8 +71,8 @@ const snapshotIds = (page) => page.evaluate(() => new Promise((resolve) => {
   open.onsuccess = () => {
     const db = open.result;
     try {
-      const request = db.transaction('kv', 'readonly').objectStore('kv').get('todos');
-      request.onsuccess = () => { db.close(); resolve((request.result?.items ?? []).map((item) => item.id)); };
+      const request = db.transaction('kv', 'readonly').objectStore('kv').get('offline');
+      request.onsuccess = () => { db.close(); resolve((request.result?.todos ?? []).map((item) => item.id)); };
       request.onerror = () => { db.close(); resolve([]); };
     } catch { db.close(); resolve([]); }
   };
@@ -131,10 +131,10 @@ test('PWA on a phone-sized browser: pairing, For you, chat, badge, offline snaps
   const chat = await owner.call('chats.create', { title: 'Phone check', agentIds: [manager.id] });
   await owner.call('events.subscribe', { topics: ['chats', 'tasks', 'org', `chat:${chat.id}`] });
   const choice = await owner.call('tasks.create', { // B-054: a chat-free to-do
-    title: 'Pick a thumbnail', to: 'me', dueAt: Date.now() - 60 * 60_000, // overdue: Needs you
+    title: 'Pick a thumbnail', to: 'me', at: Date.now() - 60 * 60_000, // overdue: it needs the person now (the badge)
     widget: { type: 'choice', question: 'Which thumbnail?', options: ['Bright', 'Dark'] },
   });
-  const note = await owner.call('todos.add', { text: 'Sign the delivery note' });
+  const { task: note } = await owner.call('tasks.quickCreate', { text: 'Sign the delivery note' });
   const link = await owner.call('pwa.link', { name: 'Test phone' });
   const port = Number(new URL(link.url).port);
 
@@ -160,7 +160,9 @@ test('PWA on a phone-sized browser: pairing, For you, chat, badge, offline snaps
     const { forbidden } = await socketLog(page);
     assert.deepEqual(forbidden, [], `no call is refused while the phone boots (${when})`);
   };
-  const item = (task) => page.locator(`.mobile-shell .todo-item[data-task-id="${task.id}"]`);
+  /** A to-do's row on Tasks › For you; a tap opens its detail in the list's place (`detail`, Close goes back). */
+  const item = (task) => page.locator(`.mobile-shell ul[aria-label="For you"] .todo-row[data-task-id="${task.id}"]`);
+  const detail = page.locator('.mobile-shell .tasks-page .task-detail');
   const badgeMatches = async () => {
     const open = countNow(await owner.call('todos.list'), Date.now()); // B-041: the badge counts Needs you
     const want = open === 0 ? '' : open > 99 ? '99+' : String(open);
@@ -179,7 +181,7 @@ test('PWA on a phone-sized browser: pairing, For you, chat, badge, offline snaps
   const paired = await page.evaluate(() => ({ secretInUrl: location.href.includes('pair='), token: Boolean(localStorage.getItem('wf.token')) }));
   assert.equal(paired.secretInUrl, false, 'the pairing secret is removed from the URL');
   assert.equal(paired.token, true, 'a device token is stored');
-  await page.evaluate(() => { location.hash = '#/day'; }); // B-041: the person's own to-dos are on My day; Home lists only Needs you
+  await page.evaluate(() => { location.hash = '#/tasks'; }); // the person's own to-dos: Tasks › For you
   await item(choice).waitFor({ timeout: 30_000 });
   await item(note).waitFor();
 
@@ -196,12 +198,14 @@ test('PWA on a phone-sized browser: pairing, For you, chat, badge, offline snaps
   await shoot('01-for-you', 'dark');
   await page.emulateMedia({ colorScheme: 'light' });
 
-  // 3. For you: answering a choice resolves the to-do for the owner too.
+  // 3. For you: answering a choice in its detail resolves the to-do for the owner too; back on the list it is gone.
   await item(choice).locator('.todo-open').tap();
-  await item(choice).locator('.w-option', { hasText: 'Dark' }).tap();
+  await detail.locator('.todo-tool .w-option', { hasText: 'Dark' }).tap();
   const done = await owner.waitFor('task.upserted', (task) => task.id === choice.id && task.status === 'done', 30_000);
   assert.deepEqual(done.result?.answer, { choice: 'Dark' }, 'the owner sees the phone\'s answer');
-  await item(choice).waitFor({ state: 'detached', timeout: 15_000 });
+  await detail.locator('.detail-top').getByRole('button', { name: 'Close' }).tap();
+  await item(note).waitFor({ timeout: 15_000 });
+  assert.equal(await item(choice).count(), 0, 'answered, it left For you');
   assert.equal(await badgeMatches(), '', 'answered, it leaves the badge');
 
   // 4. Chats → the manager chat → send → the demo reply appears.
@@ -271,11 +275,11 @@ test('PWA on a phone-sized browser: pairing, For you, chat, badge, offline snaps
   await page.emulateMedia({ colorScheme: 'light' });
   clean('this browser');
 
-  // 5. Offline: the snapshot holds the open item and a snoozed one (F04: offline it waits under a
-  //    collapsed "Later (1)"), every loaded asset is cached; stop the PC, reload.
+  // 5. Offline: the snapshot holds the open item and a snoozed one (it waits under For you's "Later"), every loaded
+  //    asset is cached; stop the PC, reload.
   const nap = await owner.call('tasks.create', { title: 'Water the plants', to: 'me' });
   await owner.call('todos.snooze', { id: nap.id, minutes: 60 });
-  await page.evaluate(() => { location.hash = '#/day'; });
+  await page.evaluate(() => { location.hash = '#/tasks'; });
   await item(note).waitFor({ timeout: 15_000 });
   await until(async () => { const ids = await snapshotIds(page); return ids.includes(note.id) && ids.includes(nap.id) && !ids.includes(choice.id); }, 'the offline snapshot of the For-you list');
   let missing = [];
@@ -284,15 +288,15 @@ test('PWA on a phone-sized browser: pairing, For you, chat, badge, offline snaps
   await runtime.stop();
   runtime = undefined;
   await page.reload();
-  await page.locator('.offline-view').waitFor({ timeout: 30_000 });
-  const offlineTitles = await page.locator('.offline-row-title').allTextContents();
-  assert.ok(offlineTitles.some((title) => title.includes('Sign the delivery note')), `the offline list shows the open item: ${offlineTitles.join(' | ')}`);
-  assert.ok(!offlineTitles.some((title) => title.includes('Pick a thumbnail')), 'the answered item is not in the offline list');
-  assert.ok(!offlineTitles.some((title) => title.includes('Water the plants')), 'the snoozed item waits under the collapsed "Later"');
-  await page.locator('.offline-later-toggle', { hasText: 'Later (1)' }).tap();
-  const napRow = page.locator('.offline-later .offline-row', { hasText: 'Water the plants' });
-  await napRow.waitFor({ timeout: 10_000 });
-  assert.match(await napRow.locator('.offline-row-meta').textContent(), /Snoozed/, 'shown as snoozed');
+  // 19.11.2026 (Sicher-Runde D1–D3): the whole frame comes back with the last data – For you's rows, the three tabs – and
+  // one calm status line says the PC is away; no read-only screen, no Forget.
+  await item(note).waitFor({ timeout: 30_000 });
+  assert.equal(await item(choice).count(), 0, 'the answered item is not in the offline copy');
+  assert.equal(await page.locator('.mobile-shell .tab-bar .tab').count(), 3, 'the three tabs stay (Tasks · Chats · Team)');
+  const line = page.locator('.status-note[data-notice="connection"]');
+  await line.waitFor({ timeout: 30_000 });
+  assert.match(await line.locator('.status-text').textContent(), /not reachable · reconnecting by itself · as of /);
+  assert.equal(await line.getByRole('button', { name: /Forget/ }).count(), 0, 'no Forget on the unreachable path');
   await shoot('03-offline', 'light');
   await shoot('03-offline', 'dark');
   await page.emulateMedia({ colorScheme: 'light' });
@@ -302,7 +306,7 @@ test('PWA on a phone-sized browser: pairing, For you, chat, badge, offline snaps
   await page.evaluate(() => window.dispatchEvent(new Event('online'))); // skip the reconnect backoff
   await bootChecked('after restart');
   await item(note).waitFor({ timeout: 30_000 });
-  assert.equal(await page.locator('.offline-view').count(), 0, 'the offline view is gone');
+  await page.locator('.status-note[data-notice="connection"]').waitFor({ state: 'detached', timeout: 30_000 }); // the line goes once the PC answers
   assert.deepEqual(pageErrors, [], 'no uncaught page errors (restart)');
 
   // 7. Removed in Settings › Devices (devices.revoke, D5: access exists exactly while its accepted row exists):
@@ -316,7 +320,7 @@ test('PWA on a phone-sized browser: pairing, For you, chat, badge, offline snaps
   let afterReload = { closes: [] };
   await until(async () => { afterReload = await socketLog(page); return afterReload.closes.some((code) => code === 4401 || code === 4403); }, () => `the reloaded page to be refused (closes: ${afterReload.closes.join(', ') || 'none'})`);
   await page.getByRole('dialog', { name: 'This phone was removed.' }).waitFor({ timeout: 30_000 });
-  assert.equal(await page.locator('.todo-item').count(), 0, 'no live To-do rows once the device is removed');
+  assert.equal(await page.locator('.todo-row').count(), 0, 'no live To-do rows once the device is removed');
   await shoot('04-locked', 'light');
 
   assert.deepEqual(pageErrors, [], 'no uncaught page errors');

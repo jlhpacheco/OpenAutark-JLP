@@ -16,7 +16,7 @@ import { FUNCTION_OF } from '../media/generate.ts';
 import { routesFor } from '../media/generate-route.ts';
 import { GENERATION_KINDS, type GenerationKind } from '../media/providers/types.ts';
 import { functionStatus } from '../models/functions.ts';
-import { chargeOf } from '../models/pricing.ts';
+import { accountCharge } from '../../shared/model/charge.ts';
 import { isInstalled } from '../voice/local/store.ts';
 import type { AbilityFacts, LocalNamed, MakeFact, Named } from './status.ts';
 
@@ -37,14 +37,14 @@ function nameOf(s: Services, modelId: string, accountId: string | undefined): Na
 function accountFor(s: Services, model: ModelInfo): Account | undefined {
   const accounts = quiet(() => s.accounts.candidates(model.engine, model.model), [] as Account[])
     .filter((account) => account.provider === model.provider && (!model.accounts.length || model.accounts.includes(account.id)));
-  return accounts.find((account) => chargeOf(account) !== 'paid') ?? accounts[0];
+  return accounts.find((account) => accountCharge(account) !== 'paid') ?? accounts[0];
 }
 
 /** A connected model that sees images (general models only), one on a free connection first. */
 function visionModel(s: Services): Named | undefined {
   const seeing = quiet(() => s.catalog.list(), [] as ModelInfo[]).filter((model) => model.available && model.caps.vision === true && !model.functions?.length);
   const paired = seeing.map((model) => ({ model, account: accountFor(s, model) })).filter((entry) => entry.account);
-  const pick = paired.find((entry) => chargeOf(entry.account!) !== 'paid') ?? paired[0];
+  const pick = paired.find((entry) => accountCharge(entry.account!) !== 'paid') ?? paired[0];
   return pick ? { model: pick.model.name, via: pick.account!.label } : undefined;
 }
 

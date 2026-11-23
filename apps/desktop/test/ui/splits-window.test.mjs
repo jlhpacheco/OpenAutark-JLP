@@ -8,9 +8,11 @@
 //      #2 answers → gathered;
 //   3. "Launch check" chat: #1 hangs ([[hang:bash]] – running until stopped), #2 answers, #3 waits for #1 (after).
 // Checked:
-//   (a) chat: the parent's agents.split step "Split · 2 of 3 done" collapsed, opening/closing its rows on click (header,
-//       message list, composer and the step line keep their boxes); a failed row opens its error; the running group's
-//       ONE live block ("1 of 3 parts working", spinner / done / waiting slots); a part row opens its own steps;
+//   (a) Team › agent › Work › Activity log (a run is no row in the chat since 13.11.2026): the parent's agents.split step
+//       "Split · 2 of 3 done", open from the start as columns – a lane per part, the failed one ends with its error –,
+//       closing/opening it moves nothing above; the running group in its chat: the live bar's part line ("1 of 3 parts
+//       working" in the header), its group's rows (spinner / done / waiting, the asked effort, one model name); a part
+//       row opens its own steps and the rows above it stay;
 //   (b) Team sidebar: the Manager row shows the running split count in its reserved cell; the caret opens reports and
 //       split rows below the agent (split rows are not team rows); open/close moves nothing above;
 //   (c) #/team/<agent>/split/<split>: title, status, error of the failed part, brief, answer of a done part, a running
@@ -36,6 +38,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -83,11 +86,11 @@ function layoutProblems() {
   const shown = (el) => el.getClientRects().length > 0;
   const wide = (el, label) => { if (shown(el) && el.scrollWidth > el.clientWidth + 1) out.push(`${label} scrolls sideways (${el.scrollWidth} > ${el.clientWidth})`); };
   wide(document.documentElement, 'html');
-  for (const sel of ['.shell', '.mobile-shell', '.message-scroller', '.agent-scroll', '.team-nav', '.team-rows', '.team-splits']) for (const el of document.querySelectorAll(sel)) wide(el, sel);
+  for (const sel of ['.shell', '.mobile-shell', '.message-scroller', '.agent-scroll', '.team-nav', '.team-rows', '.team-splits', '.live-bar']) for (const el of document.querySelectorAll(sel)) wide(el, sel);
   // Boxes that do not scroll: their children stay inside (scrollWidth would also count the phone's invisible 44 px hit
   // rings – mobile.css ::after – around the last button of a row); row lists may hang 4 px to the left, so their hover
   // background runs past the text that lines up (chat.css .live-steps, splits.css).
-  for (const sel of ['.agent-column', '.split-rows', '.split-facts', '.split-live', '.composer', '.composer-actions']) {
+  for (const sel of ['.agent-column', '.split-rows', '.split-facts', '.live-bar-parts', '.composer', '.composer-actions']) {
     for (const el of document.querySelectorAll(sel)) {
       if (!shown(el)) continue;
       const box = el.getBoundingClientRect();
@@ -97,7 +100,7 @@ function layoutProblems() {
       }
     }
   }
-  for (const head of document.querySelectorAll('.split-row-head, .team-split-row, .run-item.split-step > .run-item-head, .split-live > .message-author, .split-branch-line')) {
+  for (const head of document.querySelectorAll('.split-row-head, .team-split-row, .run-item.split-step > .run-item-head, .live-bar-row, .split-branch-line')) {
     if (!shown(head)) continue;
     const box = head.getBoundingClientRect();
     const kids = [...head.children].filter((kid) => shown(kid) && kid.getBoundingClientRect().width > 0);
@@ -108,7 +111,7 @@ function layoutProblems() {
       if (next && next.top < r.bottom - 0.5 && r.right > next.left + 0.5) out.push(`${kid.className} overlaps ${kids[index + 1].className} in ${head.className}`);
     });
   }
-  for (const el of document.querySelectorAll('.split-row-model, .split-row-time, .team-split-time, .team-split-count, .split-live .working-model, .split-page-name, .split-facts dd, .split-branch, .split-branch-cell, .run-item.split-step .run-item-target')) {
+  for (const el of document.querySelectorAll('.split-row-model, .split-row-time, .team-split-time, .team-split-count, .split-page-name, .split-facts dd, .split-branch, .split-branch-cell, .run-item.split-step > .run-item-head .run-item-target')) {
     if (shown(el) && el.scrollWidth > el.clientWidth + 1) out.push(`${el.className || el.tagName} cut: "${el.textContent?.trim()}" (${el.scrollWidth} > ${el.clientWidth})`);
   }
   return out;
@@ -157,7 +160,7 @@ test('splits: step line, live block, sidebar rows, split page, worktree merge an
   const go = async (hash, ready) => { await page.evaluate((h) => { location.hash = h; }, hash); await page.locator(ready).first().waitFor({ timeout: 20_000 }); };
   await size(1280, 800);
 
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   const manager = (await rpc.call('agents.list')).find((agent) => agent.template === 'manager');
   await rpc.call('agents.create', { name: 'Quill', role: 'Writer', managerId: manager.id });
@@ -214,66 +217,73 @@ test('splits: step line, live block, sidebar rows, split page, worktree merge an
   const g3 = await group(G3, (g) => g.splits[0].status === 'running' && g.splits[1].status === 'done', 'group 3 runs #1 and finished #2');
   assert.match(g3.splits[2].status, /^(pending|queued)$/);
 
-  // (a) The chat: the parent's step line, collapsed; it opens and closes its rows in place.
-  const fixed = ['.chat-header', '.chat-header .chat-title-button', '.message-scroller', '.composer'];
-  await go(`#/chat/${launch.id}`, '.message-scroller');
-  const replies = await rpc.call('messages.list', { conversationId: launch.id, limit: 100 });
-  const reply1 = replies.find((m) => m.runId === g1.parentRunId);
-  assert.ok(reply1, 'the parent answered in the chat with the run that split');
-  const msg = page.locator(`[data-message-id="${reply1.id}"]`);
-  await msg.locator('.run-disclosure-toggle').click();
-  const step = msg.locator('.run-item.split-step');
-  await step.waitFor({ timeout: 15_000 });
-  const stepHead = msg.locator('.run-item.split-step > .run-item-head');
-  await page.waitForFunction((id) => document.querySelector(`[data-message-id="${id}"] .run-item.split-step .run-item-target`)?.textContent === '· 2 of 3 done', reply1.id, { timeout: 15_000 });
+  // (a) Team › agent › Work › Activity log (13.11.2026: a run is no row in the chat; F11: the log is on the Work page):
+  // group 1's Split line "Split · 2 of 3 done", open from the start as columns – a lane per part, the failed part's end
+  // line with its error; closing and opening it move nothing above.
+  const STEP1 = `.agent-log .run-item.split-step:has(> .run-item-head[title="${G1}"])`;
+  const openLog = async () => {
+    await go(`#/team/${manager.id}/work`, '.agent-log .log-turn');
+    await page.locator(STEP1).waitFor({ timeout: 15_000 });
+    await page.locator(STEP1).scrollIntoViewIfNeeded();
+  };
+  await openLog();
+  const step = page.locator(STEP1);
+  const stepHead = step.locator(':scope > .run-item-head');
+  await page.waitForFunction((sel) => document.querySelector(`${sel} > .run-item-head .run-item-target`)?.textContent === '· 2 of 3 done', STEP1, { timeout: 15_000 });
   assert.equal((await stepHead.locator('.run-item-verb').textContent())?.trim(), 'Split');
-  assert.equal(await stepHead.getAttribute('aria-expanded'), 'false', 'collapsed by default');
-  assert.equal(await step.locator('.split-row').count(), 0);
-  await stepHead.scrollIntoViewIfNeeded();
-  await shot('splits-01-chat-step-collapsed-light');
-  const stepId = `[data-message-id="${reply1.id}"] .run-item.split-step > .run-item-head`;
-  await expectStable(page, [...fixed, stepId], async () => { await stepHead.click(); await step.locator('.split-row').nth(2).waitFor({ timeout: 10_000 }); });
-  assert.deepEqual((await step.locator('.split-row-title').allTextContents()).map((s) => s.trim()), ['#1 Read the release notes', '#2 Check the changelog links', '#3 Verify the version numbers']);
-  assert.deepEqual(await step.locator('.split-row').evaluateAll((rows) => rows.map((row) => row.className.replace('split-row ', ''))), ['status-done', 'status-done', 'status-failed']);
-  assert.match((await step.locator('.split-row').nth(1).locator('.split-row-model').textContent()) ?? '', /· Low$/, 'the asked effort in the model slot');
-  const heads = await step.locator('.split-row-head').evaluateAll((list) => list.map((h) => Math.round(h.getBoundingClientRect().height)));
-  assert.ok(heads.every((h) => h === 24), `fixed 24 px rows (${heads})`);
-  await expectStable(page, [...fixed, stepId], async () => { await step.locator('.split-row-head').nth(2).click(); await step.locator('.split-row-error').waitFor({ timeout: 10_000 }); });
-  assert.match((await step.locator('.split-row-error').textContent()) ?? '', /could not complete/i, 'the failed part shows its error');
-  await noProblems('chat 1280×800');
-  await shot('splits-02-chat-step-open-light');
+  assert.equal(await stepHead.getAttribute('aria-expanded'), 'true', 'open from the start, as columns');
+  const lanes = step.locator('.split-step-body.columns');
+  await lanes.locator('.split-lane.status-failed .split-row-error').waitFor({ timeout: 15_000 });
+  assert.deepEqual([...new Set((await lanes.locator('.split-lane-title').allTextContents()).map((s) => s.trim()))],
+    ['#1 Read the release notes', '#2 Check the changelog links', '#3 Verify the version numbers'], 'a lane per part');
+  assert.deepEqual([...new Set(await lanes.locator('.split-lane').evaluateAll((list) => list.map((lane) => lane.className.replace('split-lane ', ''))))].sort(),
+    ['status-done', 'status-failed']);
+  assert.match((await lanes.locator('.split-lane.status-failed .split-lane-end').textContent()) ?? '', new RegExp(`^Failed · .*back to ${manager.name}$`));
+  assert.match((await lanes.locator('.split-lane.status-failed .split-row-error').textContent()) ?? '', /could not complete/i, 'the failed part shows its error');
+  const aboveTurns = await step.evaluate((el) => {
+    const rows = [...document.querySelectorAll('.agent-log .log-turn')];
+    const index = rows.indexOf(el.closest('.log-turn'));
+    rows.slice(0, index).forEach((other, i) => other.setAttribute('data-test-run', `above-${i}`));
+    return index;
+  });
+  const logFixed = ['.agent-header', '.agent-log .agent-section-title', ...Array.from({ length: aboveTurns }, (_, i) => `[data-test-run="above-${i}"]`), `${STEP1} > .run-item-head`];
+  await noProblems('log 1280×800');
+  await shot('splits-01-log-step-light');
   await theme('dark');
-  await shot('splits-03-chat-step-open-dark');
+  await shot('splits-02-log-step-dark');
   await theme('light');
-  await expectStable(page, [...fixed, stepId], async () => { await stepHead.click(); await step.locator('.split-row').first().waitFor({ state: 'detached', timeout: 5_000 }); });
+  await expectStable(page, logFixed, async () => { await stepHead.click(); await lanes.waitFor({ state: 'detached', timeout: 5_000 }); });
+  await expectStable(page, logFixed, async () => { await stepHead.click(); await lanes.locator('.split-lane').first().waitFor({ timeout: 5_000 }); });
 
-  // The running group: ONE live block, its slots: spinner, done, waiting; a row opens its own steps.
-  const live = page.locator(`.working-message.split-live[data-group-id="${g3.id}"]`);
-  await live.waitFor({ timeout: 15_000 });
-  assert.equal(await page.locator('.working-message.split-live').count(), 1, 'one live block per running group');
-  assert.equal((await live.locator('.working-model').textContent())?.trim(), '1 of 3 parts working');
+  // The running group in its chat: its part's line in the live bar (the header's live line "1 of 3 parts working" opens
+  // it); open, the group's rows – spinner, done, waiting –, the running part's model with its asked effort ("· High")
+  // and one model name in every row; a part row opens its own steps and the rows above it stay (the bar keeps its height).
+  const partLine = page.locator('.live-bar .live-bar-item', { has: page.locator('.live-bar-text', { hasText: '#1 Draft the landing copy' }) });
+  const live = partLine.locator('.live-bar-parts');
+  const openBar = async () => {
+    await go(`#/chat/${launch.id}`, '.message-scroller');
+    await page.waitForFunction(() => /1 of 3 parts working/.test(document.querySelector('.chat-sub .chat-live')?.getAttribute('title') ?? ''), null, { timeout: 20_000 });
+    await partLine.waitFor({ timeout: 10_000 });
+    if ((await partLine.locator('.live-bar-caret').getAttribute('aria-expanded')) !== 'true') await page.locator('.chat-sub .chat-live').click();
+    await live.locator('.split-row').nth(2).waitFor({ timeout: 15_000 });
+  };
+  const chatFixed = ['.chat-header', '.chat-header .chat-title-button', '.composer'];
+  await go(`#/chat/${launch.id}`, '.message-scroller');
+  await expectStable(page, chatFixed, openBar);
+  assert.equal(await page.locator('.live-bar .live-bar-parts').count(), 1, 'one line per running group in the bar');
   assert.deepEqual(await live.locator('.split-icon').evaluateAll((icons) => icons.map((i) => i.className.replace('split-icon ', ''))), ['running', 'done', 'waiting']);
   assert.equal(await live.locator('.split-icon.running .spinner').count(), 1);
   // The running part names the model it runs on (the live activity's – its run row gets the model only when it ends).
-  await page.waitForFunction((sel) => /^\S.* · High$/.test(document.querySelector(`${sel} .split-row:nth-child(1) .split-row-model`)?.textContent ?? ''),
-    `.working-message.split-live[data-group-id="${g3.id}"]`, { timeout: 10_000 });
+  await page.waitForFunction(() => /^\S.* · High$/.test(document.querySelector('.live-bar-parts .split-row:nth-child(1) .split-row-model')?.textContent ?? ''), null, { timeout: 10_000 });
   const models = (await live.locator('.split-row-model').allTextContents()).map((s) => s.trim());
   assert.equal(models[0].split(' · ')[0], models[1].split(' · ')[0], `the same model name in every row (${models.join(' | ')})`);
-  await live.scrollIntoViewIfNeeded();
-  const liveId = `.working-message.split-live[data-group-id="${g3.id}"]`;
-  // The live block is the list's last entry and the list sticks to its end (MessageList.tsx): what opens there pushes
-  // the block up by its height – the frame stays, and the opened row stays in view.
-  await expectStable(page, fixed, async () => {
+  const heads = await live.locator('.split-row-head').evaluateAll((list) => list.map((h) => Math.round(h.getBoundingClientRect().height)));
+  assert.ok(heads.every((h) => h === 24), `fixed 24 px rows (${heads})`);
+  await expectStable(page, [...chatFixed, '.message-scroller', '.live-bar-parts .split-row:nth-child(1) > .split-row-head', '.live-bar-parts .split-row:nth-child(2) > .split-row-head'], async () => {
     await live.locator('.split-row-head').nth(1).click();
     await live.locator('.split-row-body .run-items').waitFor({ timeout: 15_000 });
   });
-  const inView = await page.evaluate((sel) => {
-    const head = document.querySelector(`${sel} .split-row:nth-child(2) > .split-row-head`).getBoundingClientRect();
-    const list = document.querySelector('.message-scroller').getBoundingClientRect();
-    return head.top >= list.top - 0.5 && head.bottom <= list.bottom + 0.5;
-  }, liveId);
-  assert.ok(inView, 'the opened part row stays in view');
-  await noProblems('live block 1280×800');
+  await noProblems('live bar 1280×800');
   await shot('splits-04-chat-live-light');
   await theme('dark');
   await shot('splits-05-chat-live-dark');
@@ -392,24 +402,18 @@ test('splits: step line, live block, sidebar rows, split page, worktree merge an
   }), 'the open part\'s sidebar row is in view after the page changed to it');
   await shot('splits-17-split-running-light');
 
-  // (e) Smaller windows and the phone: the chat with the open step and the live block, the failed part's page.
+  // (e) Smaller windows and the phone: the log with the open Split line, the chat with the bar's open part line, the
+  // failed part's page.
   for (const [w, h, name] of [[640, 480, '640x480'], [390, 844, 'phone']]) {
     await size(w, h);
-    await go(`#/chat/${launch.id}`, '.message-scroller');
-    const small = page.locator(`[data-message-id="${reply1.id}"]`);
-    await small.locator('.run-disclosure-toggle').waitFor({ timeout: 15_000 });
-    if (await small.locator('.run-disclosure-toggle').getAttribute('aria-expanded') !== 'true') await small.locator('.run-disclosure-toggle').click();
-    const smallHead = small.locator('.run-item.split-step > .run-item-head');
-    await smallHead.waitFor({ timeout: 15_000 });
-    if (await smallHead.getAttribute('aria-expanded') !== 'true') await smallHead.click();
-    await small.locator('.split-row').nth(2).waitFor({ timeout: 10_000 });
-    await small.locator('.run-item.split-step').scrollIntoViewIfNeeded();
-    await noProblems(`chat step ${name}`);
+    await openLog();
+    await noProblems(`log step ${name}`);
+    await shot(`splits-18-log-step-${name}-light`);
+    await openBar();
+    await partLine.scrollIntoViewIfNeeded();
+    await noProblems(`live bar ${name}`);
     const chipWords = await page.locator('.composer .model-chip .chip-label').evaluate((el) => Math.round(el.getBoundingClientRect().width));
-    assert.ok(chipWords >= 40, `with the Ultra cell the model chip keeps room for its words at ${name} (${chipWords} px)`);
-    await shot(`splits-18-chat-step-${name}-light`);
-    await page.locator(liveId).scrollIntoViewIfNeeded();
-    await noProblems(`live block ${name}`);
+    assert.ok(chipWords >= 40, `the model chip keeps room for its words at ${name} (${chipWords} px)`);
     await shot(`splits-19-chat-live-${name}-light`);
     await theme('dark');
     await shot(`splits-20-chat-live-${name}-dark`);

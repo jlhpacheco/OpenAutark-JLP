@@ -1,7 +1,7 @@
 // people.list (B-050 K10): the people of the organisation as agents may reach them – the owner ('human') and every
 // colleague (per_…) who is not revoked, with name, title, manager and whether they joined yet. It is the directory
 // each person sees too (people/rpc-base.ts people.list): no devices, invites, scopes or chats, so it holds nothing
-// of any chat. chat.direct, chat.create and chat.add_members take these ids.
+// of any chat. chat.direct, chat.create and chat.update (add) take these ids.
 // B-078 (D20): per person also where they are reachable – their own PC linked here (its name, online or not) – and
 // whether I reach a calendar of theirs (calendar/members.ts: on their PC, here, or none); on an employee's PC one more
 // line names the company ('owner') the same way. F13: the CEOs – the owner and anyone with the role 'ceo' – carry
@@ -35,7 +35,7 @@ const listPeople = defineTool<Record<string, never>>({
   async run(_args, ctx) {
     const people = ctx.services.people?.list().filter((person) => person.status !== 'revoked') ?? [];
     const company = reach(ctx, OWNER_ALIAS);
-    const companyRow = company.pc ? [{ id: OWNER_ALIAS, name: 'The owner of the company this PC works in', ...company }] : [];
+    const companyRow = company.pc && !people.some((person) => person.id === OWNER_ALIAS) ? [{ id: OWNER_ALIAS, name: 'The owner of the company this PC works in', ...company }] : [];
     if (!people.length && !companyRow.length) return text('Only the person I work for ("human") – no colleagues in the organisation yet. Their calendar is here.');
     return json([...people.slice(0, 200).map((person) => ({
       id: person.id, name: person.id === HUMAN_ID ? authorName(ctx, HUMAN_ID) : person.name, ...(person.role === 'ceo' ? { role: 'ceo' } : {}), ...(person.title ? { title: person.title } : {}),

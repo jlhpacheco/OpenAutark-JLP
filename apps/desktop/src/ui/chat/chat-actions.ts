@@ -19,6 +19,7 @@ import { archiveNote, listSection } from './archive.ts';
 import { openContextMenu } from '../lib/context-menu.tsx';
 import { orderChats } from './list-order.ts';
 import { leaveChat, leaveShown, type LeaveEnv } from './leave.ts';
+import { isThread } from './threads.ts';
 
 type Patch = { title?: string; pinned?: boolean; settings?: Partial<ConversationSummary['settings']> };
 
@@ -81,8 +82,8 @@ if (typeof document !== 'undefined') {
 /** B-078: the chats `chat` can go under – every top chat of its list section, not threads, not itself, without a parent. */
 export function parentChoices(chat: ConversationSummary, all: readonly ConversationSummary[]): ConversationSummary[] {
   const section = listSection(chat);
-  if (!section || chat.settings.anchorId || all.some((other) => other.settings.parentId === chat.id && !other.settings.anchorId)) return [];
-  return orderChats(all.filter((other) => other.id !== chat.id && !other.settings.parentId && !other.settings.anchorId && listSection(other) === section), chatTitle);
+  if (!section || isThread(chat) || all.some((other) => other.settings.parentId === chat.id && !isThread(other))) return [];
+  return orderChats(all.filter((other) => other.id !== chat.id && !other.settings.parentId && !isThread(other) && listSection(other) === section), chatTitle);
 }
 
 /** How many of the most active parents come first in "Put under"; every other one follows A–Z (the menu scrolls). */
@@ -128,7 +129,7 @@ export function chatMenu(chat: ConversationSummary, options: { open?: boolean } 
   const edit: MenuItem[] = editable ? [
     ...(chat.settings.direct ? [] : [{ label: 'Rename…', onSelect: () => void rename(chat) }]), // the default 1:1 is named after the other member
     ...(chat.settings.direct ? [] : [{ label: 'Change image…', onSelect: () => changeImage(chat) }]),
-    ...(chat.settings.parentId && !chat.settings.anchorId ? [{ label: 'Top level', onSelect: () => void setParent(chat, null) }]
+    ...(chat.settings.parentId && !isThread(chat) ? [{ label: 'Top level', onSelect: () => void setParent(chat, null) }]
       : parentChoices(chat, conversations.peek()).length ? [{ label: 'Put under…', onSelect: () => putUnder(chat) }] : []),
   ] : [];
   const last: MenuItem[] = [

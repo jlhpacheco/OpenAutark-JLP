@@ -1,6 +1,7 @@
-// vector.embed and vector.search as tools: found through tools.find (no core tool), offered in every mode – and only while a
-// chosen embedding model can serve (14.11.2026: without one they could only answer that none is there) –, short specs,
-// plain result texts; models-uses knows the use.
+// vector.embed and vector.search as tools: found through tools.find (no core tool), offered in every mode with or without an
+// embedding model (20.11.2026: meaning is a ranking inside the one word search – without a model the word hits come with one
+// line saying so), short specs; vector.search routes memory places to the knowledge search and added files to services.vectors,
+// merges by score and lets the best hits' own texts search on (hops); plain result texts; models-uses knows the use.
 // Owns: these assertions only. Never: real models.
 
 import { test } from 'node:test';
@@ -10,11 +11,14 @@ import { setup } from './helpers.ts';
 import { BASE_CORE } from '../../../src/runtime/tools/core-sets.ts';
 import { builtinTools, registerBuiltinTools } from '../../../src/runtime/tools/builtin/index.ts';
 import { moreToolsSection } from '../../../src/runtime/tools/builtin/tools-meta.ts';
+import { searchByMeaning } from '../../../src/runtime/tools/builtin/vector-search.ts';
 import { Registry } from '../../../src/runtime/tools/registry.ts';
 import { ModeLibrary } from '../../../src/runtime/modes/service.ts';
+import { NO_MODEL } from '../../../src/runtime/vectors/meaning.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import type { ToolContext, ToolOutput } from '../../../src/runtime/tools/types.ts';
-import type { VectorService } from '../../../src/runtime/contracts/vectors.ts';
+import type { KnowledgeHit, KnowledgeQuery } from '../../../src/shared/model/knowledge.ts';
+import type { VectorSearchInput } from '../../../src/shared/model/vectors.ts';
 import { chosenFor, OFFABLE_USES, servesUse, useValue } from '../../../src/shared/model/models-uses.ts';
 
 const tools = builtinTools();
@@ -24,85 +28,100 @@ const find = (name: string) => {
   return tool;
 };
 const textOf = (output: ToolOutput) => output.content.map((part) => ('text' in part ? part.text : '')).join('');
+const note = (id: string, title: string, body: string, score: number) => ({ item: { id, title, body }, score, why: '' }) as unknown as KnowledgeHit;
 
-function ctx(vectors: Partial<VectorService>): ToolContext {
-  return { services: { vectors, paths: { data: 'C:/data', workspace: process.cwd() } } } as unknown as ToolContext;
+function services(over: { chosen?: boolean; notes?: (query: KnowledgeQuery) => KnowledgeHit[]; files?: (input: VectorSearchInput) => Awaited<ReturnType<RuntimeServices['vectors']['search']>> }) {
+  const asked: { notes: KnowledgeQuery[]; files: VectorSearchInput[] } = { notes: [], files: [] };
+  const s = {
+    vectors: {
+      available: () => over.chosen === true,
+      search: async (input: VectorSearchInput) => { asked.files.push(input); return over.files?.(input) ?? { hits: [], searched: { places: input.in, embeddedFiles: 0 } }; },
+    },
+    knowledge: { search: async (query: KnowledgeQuery) => { asked.notes.push(query); return over.notes?.(query) ?? []; } },
+    paths: { data: 'C:/data', workspace: process.cwd() },
+  } as unknown as RuntimeServices;
+  return { s, asked };
 }
 
-test('both tools are on demand, in every mode, with a short spec, and need a chosen embedding model', () => {
+const ctx = (s: RuntimeServices) => ({ services: s, agent: { id: 'ag_a' } }) as unknown as ToolContext;
+
+test('both tools are on demand, in every mode, with a short spec, and work without a chosen model', () => {
   for (const name of ['vector.embed', 'vector.search']) {
     const tool = find(name);
     assert.ok(!(name in BASE_CORE));
     assert.equal(tool.modes, undefined);
-    assert.equal(tool.requires, 'embeddings');
+    assert.equal(tool.requires, undefined);
     const size = tool.description.length + JSON.stringify(tool.inputSchema).length;
-    assert.ok(size < 700, `${name} spec is ${size} characters`);
+    assert.ok(size < 800, `${name} spec is ${size} characters`);
   }
 });
 
-test('without a chosen embedding model neither is offered, listed under More tools or run; with one both are', async () => {
+test('without a chosen model both are offered and listed; vector.search answers with the word hits and one line saying so', async () => {
   const h = setup();
-  const services = h.services as RuntimeServices;
-  services.modes = new ModeLibrary({ resources: path.resolve('resources'), clock: h.clock }) as unknown as RuntimeServices['modes'];
-  let chosen = false;
-  let searched = 0;
-  services.vectors = { available: () => chosen, search: async (input: { in: string[] }) => { searched++; return { hits: [], searched: { places: input.in, embeddedFiles: 0 } }; } } as unknown as RuntimeServices['vectors'];
-  const registry = new Registry({ services: () => services });
-  services.tools = registry;
+  const base = h.services as RuntimeServices;
+  base.modes = new ModeLibrary({ resources: path.resolve('resources'), clock: h.clock }) as unknown as RuntimeServices['modes'];
+  const { s } = services({ notes: () => [note('company:a.md', 'Invoice rule', 'On the 3rd.', 1)] });
+  base.vectors = s.vectors;
+  base.knowledge = s.knowledge;
+  base.paths = { ...base.paths, data: 'C:/data' };
+  const registry = new Registry({ services: () => base });
+  base.tools = registry;
   registerBuiltinTools(registry);
-  const mode = services.modes.get('general');
-  const offered = () => registry.specsFor(h.tom, mode).map((spec) => spec.name);
-  const more = () => moreToolsSection(registry.specsFor(h.tom, mode), new Set(['tools.call']));
-  const base: Omit<ToolContext, 'services'> = { agent: h.tom, runId: 'run_1', mode: 'general', signal: new AbortController().signal, status: () => {} };
-
-  assert.ok(!offered().some((name) => name.startsWith('vector.')), 'a tool that cannot work is not offered');
-  assert.doesNotMatch(more(), /vector\./, 'nor named under More tools');
-  assert.match(more(), /knowledge\.find|memory\.browse/, 'the rest of the list stays');
-  const refused = await registry.call('vector.search', { query: 'invoice', in: ['memory'] }, base, 'c1');
-  assert.equal(refused.isError, true);
-  // KI-Runde 17.11.2026: the refusal says why, so a model that knows nothing else can act on it.
-  assert.match(textOf(refused), /^vector\.search needs an embedding model, and none that can serve is chosen in Settings\./);
-  assert.equal(searched, 0, 'a call by an old name runs nothing');
-
-  chosen = true;
-  assert.ok(offered().includes('vector.search') && offered().includes('vector.embed'));
-  assert.match(more(), /vector\.embed – .* · vector\.search – /);
-  const ran = await registry.call('vector.search', { query: 'invoice', in: ['memory'] }, base, 'c2');
+  const mode = base.modes.get('general');
+  const offered = registry.specsFor(h.tom, mode).map((spec) => spec.name);
+  assert.ok(offered.includes('vector.search') && offered.includes('vector.embed'));
+  assert.match(moreToolsSection(registry.specsFor(h.tom, mode), new Set(['tools.call'])), /vector\.embed – .* · vector\.search – /);
+  const ran = await registry.call('vector.search', { query: 'invoice', in: ['memory'] }, { agent: h.tom, runId: 'run_1', mode: 'general', signal: new AbortController().signal, status: () => {} }, 'c1');
   assert.equal(ran.isError, undefined, textOf(ran));
-  assert.equal(searched, 1, 'the same call runs once the model is chosen');
+  const body = textOf(ran);
+  assert.ok(body.startsWith(NO_MODEL), body);
+  assert.match(body, /^1 hits\.$/m);
+  assert.match(body, /1\.00 memory\/company\/a\.md\n {2}Invoice rule: On the 3rd\./);
 });
 
-test('vector.search passes memory places through, resolves files and prints hits and the note', async () => {
-  let given: { query: string; in: string[]; k?: number } | undefined;
-  const output = await find('vector.search').run({ query: ' invoice ', in: ['memory/company', 'C:/work/notes'], limit: 3 }, ctx({
-    search: async (input) => {
-      given = input;
-      return { hits: [{ path: 'memory/company/a.md', chunk: 0, lines: [2, 9], snippet: 'the  invoice', score: 0.612 }], searched: { places: input.in, embeddedFiles: 4 }, note: 'Nothing embedded under C:/work/notes – embed it first with vector.embed.' };
-    },
-  }));
-  assert.equal(given?.query, 'invoice');
-  assert.equal(given?.in[0], 'memory/company');
-  assert.equal(given?.k, 3);
-  const body = textOf(output);
-  assert.match(body, /Nothing embedded under/);
-  assert.match(body, /^1 hits\.$/m);
-  assert.doesNotMatch(body, /embedded files/, 'no count of what is embedded in any context');
-  assert.match(body, /0\.61 memory\/company\/a\.md:2-9\n {2}the invoice/);
+test('vector.search: memory places go to the knowledge search, files to services.vectors, merged by score; no count of what is stored', async () => {
+  const { s, asked } = services({
+    chosen: true,
+    notes: () => [note('company:a.md', 'Invoice rule', 'the  invoice', 0.612)],
+    files: (input) => ({ hits: [{ path: 'C:/work/notes/b.md', chunk: 2, lines: [2, 9], snippet: 'invoice b', score: 1 }], searched: { places: input.in, embeddedFiles: 4 }, note: 'Some of these files changed since vector.embed read them; vector.embed reads them again.' }),
+  });
+  const body = textOf(await find('vector.search').run({ query: ' invoice ', in: ['memory/company', 'C:/work/notes'], limit: 3 }, ctx(s)));
+  assert.deepEqual(asked.notes.map((query) => [query.text, query.folders, query.limit]), [['invoice', ['memory/company'], 3]]);
+  assert.equal(asked.files[0].in.length, 1);
+  assert.equal(asked.files[0].k, 3);
+  assert.match(body, /changed since vector\.embed read them/);
+  assert.doesNotMatch(body, /No embedding model/);
+  assert.doesNotMatch(body, /embedded files|4 files/, 'no count of what is stored in any context');
+  assert.match(body, /^2 hits\.\n1\.00 C:\/work\/notes\/b\.md:2-9\n {2}invoice b\n0\.61 memory\/company\/a\.md\n {2}Invoice rule: the invoice/m);
   assert.match(body, /memory\/ is /);
 });
 
-test('vector.embed reports counts, what was left out and when to call again', async () => {
-  const output = await find('vector.embed').run({ paths: ['memory'] }, ctx({
-    available: () => true,
-    embed: async (paths) => {
-      assert.deepEqual(paths, ['memory']);
-      return { embedded: 2, reembedded: 1, unchanged: 3, skipped: [{ path: 'x/node_modules', reason: 'dependencies, caches or app data' }], remaining: 5 };
+test('hops: the best hits\' own texts search on; a hit found so scores the product along its path and names it', async () => {
+  const { s } = services({
+    chosen: true,
+    notes: (query) => (query.text === 'invoice'
+      ? [note('company:a.md', 'Invoice rule', 'Invoices go out on the 3rd.', 1)]
+      : [note('company:a.md', 'Invoice rule', 'Invoices go out on the 3rd.', 1), note('company:b.md', 'Third', 'The 3rd is the deadline for the bank.', 0.6), note('company:c.md', 'Far', 'loose', 0.2)]),
+  });
+  const plain = await searchByMeaning(s, undefined, { query: 'invoice', in: ['memory'] });
+  assert.deepEqual(plain.hits.map((hit) => hit.path), ['memory/company/a.md']);
+  const hopped = await searchByMeaning(s, undefined, { query: 'invoice', in: ['memory'], hops: 1 });
+  assert.deepEqual(hopped.hits.map((hit) => [hit.path, hit.score, hit.via]), [['memory/company/a.md', 1, undefined], ['memory/company/b.md', 0.6, 'memory/company/a.md']]);
+});
+
+test('vector.embed reports counts, what was left out, when to call again and what still gets its meaning', async () => {
+  const { s } = services({});
+  Object.assign(s.vectors, {
+    embed: async (paths: string[]) => {
+      assert.equal(paths.length, 1);
+      return { embedded: 2, reembedded: 1, unchanged: 3, skipped: [{ path: 'x/node_modules', reason: 'dependencies, caches or app data' }], remaining: 5, waiting: 7 };
     },
-  }));
-  const body = textOf(output);
-  assert.match(body, /Embedded 2, re-embedded 1, already embedded 3/);
+  });
+  const body = textOf(await find('vector.embed').run({ paths: ['C:/work'] }, ctx(s)));
+  assert.match(body, /Added 2, read again 1, already added 3/);
   assert.match(body, /x\/node_modules: dependencies/);
   assert.match(body, /5 files not finished: call vector\.embed again/);
+  assert.match(body, /7 pieces get their meaning in the background; their words are found already/);
 });
 
 test('the use: auto by default, can be off, knows embedding models by name', () => {

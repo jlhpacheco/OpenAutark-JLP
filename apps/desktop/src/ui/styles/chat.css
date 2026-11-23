@@ -26,9 +26,9 @@
 .chat-row-open::before { content: ''; position: absolute; inset: 0; }
 .chat-row-open:focus-visible { outline: none; }
 .chat-row-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.row-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 20px; }
-.row-time { flex: none; color: var(--muted); font-size: 11px; }
-.row-preview { display: block; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; line-height: 18px; }
+.row-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(14px * var(--ui-text, 1)); line-height: max(20px, calc(20px * var(--ui-text, 1))); }
+.row-time { flex: none; color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); }
+.row-preview { display: block; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); }
 .row-preview.draft { color: var(--secondary); font-style: italic; }
 .chat-row.active .row-preview { color: var(--secondary); }
 .row-pin { flex: none; opacity: .5; }
@@ -37,7 +37,7 @@
 .unread-slot { display: flex; flex: none; justify-content: flex-end; width: 24px; }
 .unread-badge {
   display: inline-grid; place-items: center; flex: none; min-width: 24px; height: 18px; padding: 0 5px;
-  border-radius: 9px; background: var(--badge-bg); color: var(--badge-fg); font-size: 11px; font-weight: 600; line-height: 1;
+  border-radius: 9px; background: var(--badge-bg); color: var(--badge-fg); font-size: calc(11px * var(--ui-text, 1)); font-weight: 600; line-height: 1;
 }
 .chat-row:has(.unread-badge) .row-time { color: var(--badge-bg); }
 /* B-050 K4: an important unread message turns the badge (and the row's time) red – colour only, same box */
@@ -53,12 +53,12 @@
 .search-hits > .search-hit { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 14px 8px 20px; text-align: left; color: var(--text); }
 .search-hits > .search-hit:hover { background: var(--hover); }
 /* message hits: who · which chat and the time on a quiet line, the text (searched words marked) under it */
-.search-hit-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; color: var(--muted); font-size: 12px; line-height: 16px; }
+.search-hit-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(16px, calc(16px * var(--ui-text, 1))); }
 .search-hit-where { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.search-hit-head > time { flex: none; font-size: 11px; }
-.search-hit-text { display: -webkit-box; overflow: hidden; color: var(--text); font-size: 13px; line-height: 18px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+.search-hit-head > time { flex: none; font-size: calc(11px * var(--ui-text, 1)); }
+.search-hit-text { display: -webkit-box; overflow: hidden; color: var(--text); font-size: calc(13px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
 .chat-list .team-activity { margin-top: 14px; } /* the chat list's folded section, not Team › Activity (team/ActivityView.tsx) */
-.section-toggle { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 36px; padding: 0 16px 0 20px; color: var(--muted); font-size: 12px; text-align: left; }
+.section-toggle { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 36px; padding: 0 16px 0 20px; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); text-align: left; }
 .section-toggle:hover { color: var(--secondary); }
 
 /* ---------------------------------------------------------------- chat view */
@@ -75,8 +75,9 @@
   position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; background: var(--surface);
   container: chat-column / inline-size;
 }
-/* 17.11.2026: the chat text size (chat/text-zoom.ts, Ctrl +/−/0 on the desktop) – the chat's own parts, never its tab area */
-.chat-column > :not(.chat-area) { zoom: var(--chat-zoom, 1); }
+/* 17.11.2026: the chat text size (lib/text-size.ts, Ctrl +/−/0 on the desktop) – the chat's own parts, never its tab area;
+   21.11.2026: it is the Text size, so inside the zoomed parts the labels and text sizes read 1 (no double growth) */
+.chat-column > :not(.chat-area) { --ui-text: 1; --text-size: 1; zoom: var(--chat-zoom, 1); }
 /* 18.11.2026 (Mika, window check): inside the zoomed parts 100cqi is still the chat column's real width, which CSS zoom then scaled – at 120 % with a pane open the lines ran past the column's right edge. The widths below divide by the zoom, so they end at the column's edge. */
 .message-column, .composer-area {
   --col-inset: clamp(16px, 5cqi, 24px);
@@ -98,7 +99,7 @@
   background: var(--line); pointer-events: none;
 }
 .chat-panel-top { display: flex; flex: none; align-items: center; gap: 8px; height: 44px; padding: 0 8px 0 var(--panel-x); }
-.chat-panel-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 13px; font-weight: 600; }
+.chat-panel-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: calc(13px * var(--ui-text, 1)); font-weight: 600; }
 .chat-panel-body { flex: 1 1 auto; min-height: 0; overflow: hidden auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 /* 619 = 340 px chat column (the room shell.css keeps for the chat) + the panel's 280 px minimum; the
    sidebar never narrows for the panel (decision 3), so without that room the panel lies over the messages */
@@ -127,7 +128,7 @@
 .chat-head-text { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 20px 16px; row-gap: 2px; flex: 1 1 auto; min-width: 0; container: chat-sub / inline-size; } /* the sub line's width */
 .chat-title-button {
   display: inline-flex; align-items: center; gap: 7px; justify-self: start; min-width: 0; max-width: calc(100% + 6px); height: 26px;
-  margin: -3px 0 -3px -6px; padding: 0 6px; border-radius: var(--r-sm); color: var(--text); font-size: 14px; font-weight: 500; line-height: 20px;
+  margin: -3px 0 -3px -6px; padding: 0 6px; border-radius: var(--r-sm); color: var(--text); font-size: calc(14px * var(--ui-text, 1)); font-weight: 500; line-height: max(20px, calc(20px * var(--ui-text, 1)));
 }
 .chat-title-button:hover { background: var(--hover); }
 .chat-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -137,9 +138,9 @@
    tint (their button look) and, for the keyboard, a 1 px ring inside that tint – never a ring across the title above. */
 .chat-sub {
   display: grid; grid-template-columns: minmax(0, 1fr); align-items: center;
-  min-width: 0; height: 16px; color: var(--muted); font-size: 12px; line-height: 16px; white-space: nowrap;
+  min-width: 0; height: 16px; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(16px, calc(16px * var(--ui-text, 1))); white-space: nowrap;
 }
-.chat-live { grid-column: 1; justify-self: start; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; line-height: 16px; text-align: left; }
+.chat-live { grid-column: 1; justify-self: start; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(16px, calc(16px * var(--ui-text, 1))); text-align: left; }
 .chat-resting { grid-column: 1; justify-self: start; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .chat-sub > button { height: 16px; padding: 0 4px; border-radius: var(--r-xs); }
 .chat-sub > button.chat-live { margin-left: -4px; max-width: calc(100% + 4px); } /* its text starts where the title's does */
@@ -157,18 +158,15 @@
   .chat-live::after { content: attr(data-names); }
 }
 
-/* The working popover's task line (WorkingPopover.tsx). */
-.working-task { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; margin: 6px 0; font-size: 12px; }
-.working-task span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* a call in the log is an event line like .status-line.toggle (size, colour, caret column, hover); call.css owns the
    call row itself (.call-transcript, the card and the toggle's place in it) */
-.call-transcript-toggle { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; min-height: 24px; padding: 0 6px 0 2px; border-radius: 6px; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: left; }
+.call-transcript-toggle { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; min-height: 24px; padding: 0 6px 0 2px; border-radius: 6px; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: 1.5; text-align: left; }
 .call-transcript-toggle:hover { background: var(--hover); color: var(--secondary); }
 .call-transcript-toggle > span { min-width: 0; overflow-wrap: anywhere; }
-.call-transcript-toggle > time { flex: none; opacity: .8; font-size: 11px; }
+.call-transcript-toggle > time { flex: none; opacity: .8; font-size: calc(11px * var(--ui-text, 1)); }
 .call-transcript-body { padding: 8px 0 0 19px; border-left: 1px solid var(--line); }
-.call-line { margin: 0 0 8px; font-size: 13px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
-.call-line time { font-size: 11px; }
+.call-line { margin: 0 0 8px; font-size: calc(13px * var(--ui-text, 1)); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.call-line time { font-size: calc(11px * var(--ui-text, 1)); }
 
 /* ---------------------------------------------------------------- message list */
 /* the scroller spans the column (its scrollbar at the column's right edge, a matching gutter on the left);
@@ -187,7 +185,7 @@
 /* ---------------------------------------------------------------- messages */
 .message { position: relative; margin: 0 0 var(--msg-gap); line-height: 1.6; overflow-wrap: anywhere; user-select: text; }
 .message-author { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 6px; }
-.author-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 13px; font-weight: 600; line-height: 20px; text-align: left; }
+.author-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: calc(13px * var(--ui-text, 1)); font-weight: 600; line-height: max(20px, calc(20px * var(--ui-text, 1))); text-align: left; }
 button.author-name:hover { text-decoration: underline; text-underline-offset: 2px; }
 .message-content { min-width: 0; }
 /* own messages: right, bubble on --hover, no name; time below */
@@ -202,7 +200,7 @@ button.author-name:hover { text-decoration: underline; text-underline-offset: 2p
 .message.human .message-content:has(:is(.b-table, .b-stats, .b-chart, .b-timeline, .b-compare, .b-tabs)) { width: 90%; }
 .message.human .message-actions { justify-content: flex-end; }
 .message.human.important .message-content { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 45%, transparent); }
-.message-actions { display: flex; align-items: center; gap: 6px; min-height: 26px; margin-top: 4px; color: var(--muted); font-size: 11px; }
+.message-actions { display: flex; align-items: center; gap: 6px; min-height: 26px; margin-top: 4px; color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); }
 .message-actions time { font-variant-numeric: tabular-nums; }
 /* F30: Copy and Reply in the meta row (MessageActions.tsx MessageTools) – always there in the row's 26 px, so nothing
    moves; seen while the message is hovered or holds the focus, always on touch. A finger gets a larger hit area
@@ -213,15 +211,15 @@ button.author-name:hover { text-decoration: underline; text-underline-offset: 2p
 @media (hover: none) { .message-tool.icon-button { opacity: 1; } }
 @media (pointer: coarse) { .message-tool.icon-button { position: relative; } .message-tool.icon-button::after { content: ''; position: absolute; inset: -10px -4px; } }
 /* F30: Select text (SelectText.tsx) – the message's text for the phone's own selection handles and copy bar */
-.select-text-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.6; user-select: text; -webkit-user-select: text; -webkit-touch-callout: default; }
+.select-text-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: calc(15px * var(--ui-text, 1)); line-height: 1.6; user-select: text; -webkit-user-select: text; -webkit-touch-callout: default; }
 /* B-050: a silent message's struck-through bell; K6: the model a person's message asked for (pin when pinned) */
 .silent-marker { flex: none; opacity: .8; }
 .message-model { display: inline-flex; align-items: center; gap: 3px; min-width: 0; max-width: 180px; color: var(--muted); }
 .message-model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .important-marker { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
-.message-failure { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; color: var(--danger); font-size: 12px; }
+.message-failure { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; color: var(--danger); font-size: calc(12px * var(--ui-text, 1)); }
 .message-failure.state-stopped { color: var(--muted); }
-.message-failure .text-button { padding: 0 2px; color: var(--secondary); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
+.message-failure .text-button { padding: 0 2px; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); text-decoration: underline; text-underline-offset: 2px; }
 .message-failure .text-button:hover { color: var(--text); }
 .message.human:has(.message-failure) .message-failure { justify-content: flex-end; }
 .task-message { margin: 0 0 var(--msg-gap); }
@@ -243,15 +241,15 @@ button.author-name:hover { text-decoration: underline; text-underline-offset: 2p
    text starts after the disclosure caret's column (19 px), with a caret (a burst, a call) or without */
 .status-line {
   display: flex; align-items: center; gap: 8px; max-width: 100%; min-height: 24px; margin: 0 0 12px; padding-left: 19px;
-  color: var(--muted); font-size: 12px; line-height: 1.5; text-align: left;
+  color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: 1.5; text-align: left;
 }
 .status-line > span:not(.status-count) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.status-line time { flex: none; opacity: .8; font-size: 11px; }
+.status-line time { flex: none; opacity: .8; font-size: calc(11px * var(--ui-text, 1)); }
 .status-line.toggle { width: fit-content; padding: 0 6px 0 2px; margin-left: -2px; border-radius: 6px; }
 .status-line.toggle:hover { background: var(--hover); color: var(--secondary); }
 /* B-080: a task's line opens the task (MessageItem.tsx StatusLineRow) – only an underline on hover, nothing moves */
 .status-line.open:hover > span:not(.status-count) { text-decoration: underline; text-underline-offset: 3px; }
-.status-count { flex: none; margin-left: -4px; font-size: 11px; } /* "+4" belongs to the line's text: closer to it than to the time */
+.status-count { flex: none; margin-left: -4px; font-size: calc(11px * var(--ui-text, 1)); } /* "+4" belongs to the line's text: closer to it than to the time */
 /* a single line without a caret marks the caret's column with a quiet dot (where a caret's point is), so
    every event line starts at the column's edge and its text at the same x */
 .status-line:not(.toggle, .nested) { position: relative; }
@@ -277,12 +275,12 @@ button.author-name:hover { text-decoration: underline; text-underline-offset: 2p
 .attachment-audio { display: block; width: min(100%, 360px); height: 40px; }
 .attachment-files { display: flex; flex-wrap: wrap; gap: 6px; }
 .file-chip { display: inline-flex; align-items: center; max-width: 100%; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
-.file-chip-open { display: inline-flex; align-items: center; gap: 7px; min-width: 0; min-height: 36px; padding: 6px 10px; color: var(--text); font-size: 13px; }
+.file-chip-open { display: inline-flex; align-items: center; gap: 7px; min-width: 0; min-height: 36px; padding: 6px 10px; color: var(--text); font-size: calc(13px * var(--ui-text, 1)); }
 .file-chip-open:hover { color: var(--text); }
 .file-chip:hover { background: var(--hover); }
 .file-chip-open .icon { opacity: .7; }
 .file-chip-name { min-width: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-chip-size { flex: none; color: var(--muted); font-size: 11px; }
+.file-chip-size { flex: none; color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); }
 .file-chip > .icon-button.small { margin-right: 3px; }
 
 /* ---------------------------------------------------------------- new chat dialog */
@@ -291,7 +289,7 @@ button.author-name:hover { text-decoration: underline; text-underline-offset: 2p
 .agent-choice:hover { background: var(--hover); }
 .agent-choice-text { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; line-height: 1.35; }
 .agent-choice-text > span, .agent-choice-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-choice-text small { color: var(--muted); font-size: 12px; }
+.agent-choice-text small { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); }
 .check-circle {
   display: grid; place-items: center; flex: none; width: 20px; height: 20px;
   border: 1.5px solid var(--field); border-radius: 50%; color: var(--surface);
@@ -302,7 +300,7 @@ button.author-name:hover { text-decoration: underline; text-underline-offset: 2p
 /* ---------------------------------------------------------------- catch-up
    the "New messages" divider and the "↓ N new" pill (UnreadDivider.tsx) */
 .unread-block { margin: 0 0 var(--msg-gap); scroll-margin-top: 8px; }
-.unread-divider { display: flex; align-items: center; gap: 10px; min-height: 20px; color: var(--badge-bg); font-size: 12px; font-weight: 600; }
+.unread-divider { display: flex; align-items: center; gap: 10px; min-height: 20px; color: var(--badge-bg); font-size: calc(12px * var(--ui-text, 1)); font-weight: 600; }
 .unread-divider::before, .unread-divider::after { content: ''; flex: 1 1 auto; height: 1px; background: color-mix(in srgb, var(--badge-bg) 40%, transparent); }
 /* zero-height sticky dock at the end of the column: the pill floats at the bottom of the visible part */
 .new-pill-dock { position: sticky; bottom: 12px; z-index: 2; display: flex; align-items: flex-end; justify-content: center; height: 0; pointer-events: none; }
@@ -315,7 +313,7 @@ button.author-name:hover { text-decoration: underline; text-underline-offset: 2p
 .reply-quote { display: flex; align-items: center; gap: 4px; min-width: 0; margin-bottom: 6px; }
 .reply-quote-jump {
   display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; padding: 2px 10px; border-left: 2px solid var(--field);
-  border-radius: 0 var(--r-xs) var(--r-xs) 0; color: var(--muted); font-size: 12px; line-height: 1.45; text-align: left;
+  border-radius: 0 var(--r-xs) var(--r-xs) 0; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: 1.45; text-align: left;
 }
 .reply-quote-jump:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--secondary); }
 .reply-quote-jump:disabled { cursor: default; font-style: italic; }
@@ -323,7 +321,7 @@ button.author-name:hover { text-decoration: underline; text-underline-offset: 2p
 .reply-quote-author { color: var(--secondary); font-weight: 600; }
 .reply-quote.in-composer { margin: 0 0 8px; }
 .reply-quote.in-composer .reply-quote-jump { background: var(--hover); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
-.edited-marker { color: var(--muted); font-size: 11px; }
+.edited-marker { color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); }
 .message.human .message-content.editing { width: 90%; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--focus) 55%, var(--line)); }
 .message-edit { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .message-edit-input {
@@ -331,17 +329,17 @@ button.author-name:hover { text-decoration: underline; text-underline-offset: 2p
   border: 0; outline: none; background: transparent; color: var(--text); font: inherit; line-height: 1.6;
 }
 .message-edit-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
-.message-edit-hint { flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: 11px; }
+.message-edit-hint { flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); }
 .message-edit-actions .button { min-height: 30px; padding: 4px 12px; }
 @media (hover: none) { .message-edit-hint { display: none; } }
 @media (pointer: coarse) { .message-edit-actions .button { min-height: 44px; } .reply-quote .icon-button.small { width: 44px; height: 44px; } }
-.author-tag { flex: none; padding: 0 6px; border-radius: var(--r-xs); background: var(--hover); color: var(--muted); font-size: 11px; line-height: 18px; }
+.author-tag { flex: none; padding: 0 6px; border-radius: var(--r-xs); background: var(--hover); color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); }
 /* "Remember why…" (chat/RememberWhy.tsx): the quoted message, one text field */
 .remember-why .remember-quote { margin: 0 0 14px; padding-left: 10px; border-left: 2px solid var(--line); color: var(--secondary); overflow-wrap: anywhere; }
 .remember-why .remember-why-text { width: 100%; resize: vertical; }
 /* A key still in a message's text (chat/message-keys.ts): masked, one quiet line – Show/Hide in a fixed cell, Save as secret */
-.message-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; color: var(--muted); font-size: 12px; line-height: 18px; }
-.message-keys .text-button { padding: 0 2px; color: var(--secondary); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
+.message-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); }
+.message-keys .text-button { padding: 0 2px; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); text-decoration: underline; text-underline-offset: 2px; }
 .message-keys .text-button:hover { color: var(--text); }
 .message-keys .message-keys-show { min-width: 34px; text-align: left; }
 .message.human .message-keys { justify-content: flex-end; }

@@ -29,6 +29,8 @@ import { RpcError, type RpcClient } from './rpc.ts';
 import { runCodexTurn, retryAfterFrom, setTurnModel, type TurnControl } from './turn.ts';
 import { dropThread } from './terminals.ts'; // L3 / C4: a thread nobody resumes leaves with its background commands
 import { threadIsolation, trustKeys, turnAccess } from './isolation.ts';
+import { codexSecure } from './approvals.ts';
+import { securityMode, type SecurityLookup } from './native-gate.ts';
 import { imageThread, openAgentThread, startHelperThread, untilStopped } from './helper-thread.ts';
 import { ERR, ToolNames, nearestEffort, sameFolder, str } from '../shared.ts';
 import { normalizeCodexLimits } from '../../accounts/limits.ts';
@@ -67,6 +69,8 @@ export interface CodexEngineDeps {
   realpath?: (dir: string) => Promise<string>;
   /** Variables every agent shell gets (I02: gitSafeEnv; applied after Codex's KEY/SECRET/TOKEN excludes). */
   shellEnv?: Record<string, string>;
+  /** Sicher-Runde 19.11.2026: services.security – Secure mode's sandbox and approval gate for agent turns (approvals.ts codexSecure). */
+  security?: SecurityLookup;
 }
 
 export class CodexEngine implements Engine {
@@ -83,6 +87,7 @@ export class CodexEngine implements Engine {
   private readonly warming = new Map<string, Promise<void>>(); // account → its running prewarm
   private readonly creating = new Map<string, Promise<CodexServer>>(); // B-057: account → its server being set up (concurrent first turns share it)
   private readonly fresh = new Set<string>(); // rebuilt threads before their first turn
+  private readonly modes = new Map<string, string>(); // thread id → the security mode its last turn ran under (Sicher-Runde)
   private readonly cut = new Set<string>(); // threads that lost their tail in a failed revert: they cannot continue
   constructor(deps: CodexEngineDeps) {
     this.deps = deps;
@@ -182,10 +187,13 @@ export class CodexEngine implements Engine {
     // KI-Runde 17.11.2026: `keep` (a call's voice) stays on its lean helper thread for every line of the call.
     const helper = (!ref || input.keep === true) && !input.mcp && input.tools.length === 0;
     const open = untilStopped(rpc, input.signal, () => server.beginTurn()); // B-075: the turn's signal also ends the open; B-080: the server stays up meanwhile
+    const mode = securityMode(this.deps.security);
     try {
       if (ref) {
         threadId = ref;
         if (this.cut.delete(threadId)) return { text: '', stop: 'error', error: { code: 'conflict', message: 'Codex could not continue this session.', details: { rebase: true } } };
+        // Sicher-Runde: loaded under another security mode – it leaves memory and is resumed (history kept), so no "for the session" approval of that mode carries over.
+        if (loaded.has(threadId) && (this.modes.get(threadId) ?? mode) !== mode) { await rpc.request('thread/unsubscribe', { threadId }).catch(() => undefined); loaded.delete(threadId); }
         if (!loaded.has(threadId)) {
           // After a process restart the thread must be resumed (dynamic tools persist with it: live 23.10., codex 0.163 – e2e/runtime-real-restart).
           try {
@@ -218,6 +226,7 @@ export class CodexEngine implements Engine {
       if (error instanceof RpcError && error.rpcCode === RPC_TIMEOUT) return { text: '', stop: 'error', error: { ...ERR.timeout(), message: 'Codex did not open the session in time.' } };
       return { text: '', stop: 'error', error: { ...ERR.unavailable('Codex could not open the session.'), ...(error instanceof RpcError ? {} : { details: { local: true } }) } }; // B-080: a closed connection is ours
     }
+    if (loaded.has(threadId)) this.modes.set(threadId, mode); // a helper thread leaves after its turn
     const control: TurnControl = { threadId, rpc, signal: input.signal };
     this.running.set(input.runId, control);
     const watcher = (limits: AccountLimits) => { try { input.onEvent({ type: 'limits', limits }); } catch { /* isolate */ } };
@@ -228,10 +237,11 @@ export class CodexEngine implements Engine {
       const refused = hasTrace(input.trace) ? await injectTrace(open, threadId, input.trace.calls, input.runId) : undefined; // B-080: until the turn's signal, the server held
       // The thread's instructions are the stable prompt only: the live context (time, task …) is the first block of every turn's input.
       const rebuilt = ref ? this.fresh.delete(threadId) : false;
+      const access = turnAccess(input, this.deps.cwd);
       let result: EngineTurnResult = await runCodexTurn({
         server, rpc, threadId, input: refused ? { ...input, input: [traceInput(input.trace!.calls), ...input.input] } : input,
         effort, names, control, now: this.now, context: input.system.volatile,
-        access: turnAccess(input, this.deps.cwd),
+        access, secure: codexSecure(this.deps.security, { agentId: input.agentId, runId: input.runId }, access, input.signal), // Sicher-Runde 19.11.2026: Secure mode
         summary: helper ? 'none' : 'auto', // D5: an agent turn shows its reasoning summaries; a helper turn pays for none
         helper, // a silent helper turn is cut (turn.ts HELPER_SILENT_MS)
       });
@@ -416,14 +426,7 @@ export class CodexEngine implements Engine {
     return work;
   }
 
-  async realtime(account: Account): Promise<RealtimeLink> { const server = await this.server(account); const rpc = await server.rpc(); return { request: (method, params, ms) => rpc.request(method, params, ms), onNotification: (listener) => rpc.onNotification(listener), hold: () => server.beginTurn(), thread: await this.settings({ cwd: this.deps.cwd }) }; } // owner 07.11.2026: the account's server for a dictation heard by the plan's voice (Engine.realtime)
-  /** Stops servers idle for 10 min (also self-timed; this is the registry's sweep hook). */
-  async disposeIdle(now = this.now()): Promise<void> {
-    for (const [id, server] of this.servers) {
-      if (server.running && server.idle(now)) { await server.dispose(); this.loaded.delete(id); }
-    }
-  }
-
+  async realtime(account: Account): Promise<RealtimeLink> { const server = await this.server(account); const rpc = await server.rpc(); return { request: (method, params, ms) => rpc.request(method, params, ms), hold: () => server.beginTurn() }; } // owner 07.11.2026: the account's server for a request of the plan's dictation (Engine.realtime)
   async dispose(): Promise<void> {
     await Promise.all([...this.servers.values()].map((server) => server.dispose()));
     this.servers.clear();

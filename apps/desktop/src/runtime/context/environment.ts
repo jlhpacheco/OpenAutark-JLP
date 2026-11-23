@@ -223,7 +223,7 @@ const named = (names: string[]): string => `${names.slice(0, MAX_PLACES).join(',
  * "Companies on this PC: Teydra lab (this one), company-2 · Linked PCs: laptop (online)" – only where there is
  * more than one company or a linked PC; with several companies, where tools.call is offered, how to act in another one.
  */
-export function companiesLine(services: RuntimeServices, offered: ReadonlySet<string>): string {
+export function companiesLine(services: RuntimeServices, offered: ReadonlySet<string>, agent?: Pick<Agent, 'homes'>): string {
   const companies = safe(() => listCompanies(services.host.app), []);
   const pcs = safe(() => linkedPcs(services), []);
   if (companies.length < 2 && !pcs.length) return '';
@@ -232,7 +232,12 @@ export function companiesLine(services: RuntimeServices, offered: ReadonlySet<st
     const how = companies.length > 1 && offered.has(CALL_TOOL) ? ' – tools.call with company: "<name>" runs a tool in another one' : '';
     parts.push(`Companies on this PC: ${named(companies.map((company) => `${cleanLabel(company.label)}${company.current ? ' (this one)' : ''}`))}${how}`);
   }
-  if (pcs.length) parts.push(`Linked PCs: ${named(pcs.map((pc) => `${cleanLabel(pc.name)} (${pc.online ? 'online' : 'offline'})`))}`);
+  // Umzug 21.11.2026: one clause on where I run – my record goes with me, and what happens while my PC is off (part 2:
+  // I wait for it unless I am at home on several PCs – agents.update homes – and one of them holds my complete record).
+  const moves = !agent ? '' : ` – my record goes with me to the PC I work on; while mine is off ${agent.homes?.length
+    ? 'a PC I am at home on goes on with me from my complete record'
+    : 'I wait for it – agents.update homes names the PCs that go on with me'}`;
+  if (pcs.length) parts.push(`Linked PCs: ${named(pcs.map((pc) => `${cleanLabel(pc.name)} (${pc.online ? 'online' : 'offline'})`))}${moves}`);
   return `${parts.join(' · ')}.`;
 }
 
@@ -341,7 +346,7 @@ export function environmentNow(services: RuntimeServices, input: { agent: Agent;
   const lines = [
     diskLine(services, disk), // B-080: the agent can make room while it keeps working
     enginesLine(services), // owner 15.11.2026: which engines the system has (the turn's own: "## Now")
-    companiesLine(services, offered), // B-075
+    companiesLine(services, offered, input.agent), // B-075
     phonesLine(services, offered), // KI-Runde 17.11.2026
     signInLine(services, offered),
     appsLine(services, input.agent, offered), // B-052 M6

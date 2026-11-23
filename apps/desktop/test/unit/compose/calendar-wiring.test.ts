@@ -50,11 +50,11 @@ test('createCalendar starts every My day part; stopCalendar leaves no listener a
   const power = countSubscriptions(s.host, 'onPower');
   const wakes = countSubscriptions(s.wakes, 'onChange');
   createCalendar(s);
-  assert.ok(s.calendar && s.calendarSources && s.estimates && s.day, 'every service is on RuntimeServices');
-  assert.ok(bus.live() >= 4, `task-link, focus, morning and keep-awake listen on the bus (${bus.live()})`);
-  assert.ok(power.live() >= 3, 'the sources, the morning run and keep-awake hear resume/unlock');
+  assert.ok(s.calendar && s.calendarSources, 'every service is on RuntimeServices');
+  assert.ok(bus.live() >= 3, `the calendar's to-do rows and keep-awake listen on the bus (${bus.live()})`);
+  assert.ok(power.live() >= 2, 'the sources and keep-awake hear resume/unlock');
   assert.equal(wakes.live(), 1, 'keep-awake follows the wake queue');
-  assert.ok(timers.armed() >= 2, 'the sources\' start sync and the morning run are armed');
+  assert.ok(timers.armed() >= 1, 'the sources\' start sync is armed');
   stopCalendar(s);
   assert.deepEqual([bus.live(), power.live(), wakes.live(), timers.armed()], [0, 0, 0, 0]);
   stopCalendar(s); // twice is harmless

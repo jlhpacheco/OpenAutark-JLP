@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { AppPhones, FIELD_MAX, OLD_APP_SAY, PHONE_USE_OFF, safeNode } from '../../../src/runtime/phone/app-driver.ts';
+import { AppPhones, FIELD_MAX, OLD_APP_OPEN, OLD_APP_SAY, PHONE_USE_OFF, safeNode } from '../../../src/runtime/phone/app-driver.ts';
 import { mergedPhones } from '../../../src/runtime/phone/drivers.ts';
 import type { PhoneUseRequest } from '../../../src/shared/api/methods-phone.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
@@ -212,50 +212,50 @@ test('each step names its agent as by (folded, at most 60 characters); without o
 
 test('say: a line goes as op say within the step limit; a question waits up to 75 s and brings back yes, no or none', async () => {
   const { phones, requests, reply, timers } = rig();
-  const line = phones.say(undefined, '  Sending Anna\nthe photo ', false, { job: 'run_abc', by: 'Felix' });
+  const line = phones.say(undefined, '  Sending Anna\nthe photo ', undefined, { job: 'run_abc', by: 'Felix' });
   await tick();
   assert.deepEqual({ op: requests[0].op, args: requests[0].args, job: requests[0].job, by: requests[0].by }, { op: 'say', args: { text: 'Sending Anna the photo' }, job: 'run_abc', by: 'Felix' });
   reply('dev_phone0000001', requests[0].id, { result: { ok: true } });
   assert.deepEqual(await line, { serial: 'dev_phone0000001' });
 
-  const long = phones.say(undefined, 'y'.repeat(200), false);
+  const long = phones.say(undefined, 'y'.repeat(200), undefined);
   await tick();
   assert.equal((requests[1].args.text as string).length, 120, 'one bubble line at most');
   assert.ok((requests[1].args.text as string).endsWith('…'));
   timers.fire(20_000);
   await assert.rejects(long, (error: unknown) => error instanceof WorkforceError && error.code === 'timeout' && /within 20 s/.test(error.message));
 
-  const asked = phones.say(undefined, 'May I use the phone for 2 minutes?', true, { job: 'run_abc' });
+  const asked = phones.say(undefined, 'May I use the phone for 2 minutes?', ['✓'], { job: 'run_abc' });
   await tick();
   assert.deepEqual(requests[2].args, { text: 'May I use the phone for 2 minutes?', ask: true });
   timers.fire(60_000);
   reply('dev_phone0000001', requests[2].id, { result: { answer: 'yes' } }); // still waiting after the step limit
   assert.deepEqual(await asked, { serial: 'dev_phone0000001', answer: 'yes' });
 
-  const no = phones.say(undefined, 'Now?', true);
+  const no = phones.say(undefined, 'Now?', ['✓']);
   await tick();
   reply('dev_phone0000001', requests[3].id, { result: { answer: 'no' } });
   assert.equal((await no).answer, 'no');
-  const odd = phones.say(undefined, 'Now?', true);
+  const odd = phones.say(undefined, 'Now?', ['✓']);
   await tick();
-  reply('dev_phone0000001', requests[4].id, { result: { answer: 'maybe' } });
-  assert.equal((await odd).answer, 'none', 'anything else is no answer');
+  reply('dev_phone0000001', requests[4].id, { result: { answer: 'Later' } });
+  assert.equal((await odd).answer, 'Later', 'a button of mine answers with its label');
 
-  const silent = phones.say(undefined, 'Now?', true);
+  const silent = phones.say(undefined, 'Now?', ['✓']);
   await tick();
   timers.fire(74_999);
   timers.fire(75_000);
   await assert.rejects(silent, (error: unknown) => error instanceof WorkforceError && error.code === 'timeout' && /within 75 s/.test(error.message));
-  await assert.rejects(phones.say(undefined, ' \n ', false), (error: unknown) => error instanceof WorkforceError && error.code === 'bad_request');
+  await assert.rejects(phones.say(undefined, ' \n ', undefined), (error: unknown) => error instanceof WorkforceError && error.code === 'bad_request');
 });
 
 test('say on an app older than 0.3.15 ("Unknown step say.") reads as OLD_APP_SAY; the phone\'s other refusals pass through', async () => {
   const { phones, requests, reply } = rig();
-  const old = phones.say(undefined, 'Hello', true);
+  const old = phones.say(undefined, 'Hello', ['✓']);
   await tick();
   reply('dev_phone0000001', requests[0].id, { error: { code: 'bad_request', message: 'Unknown step say.' } });
   await assert.rejects(old, (error: unknown) => error instanceof WorkforceError && error.code === 'unavailable' && error.message === OLD_APP_SAY);
-  const ended = phones.say(undefined, 'Hello', false, { job: 'run_abc' });
+  const ended = phones.say(undefined, 'Hello', undefined, { job: 'run_abc' });
   await tick();
   reply('dev_phone0000001', requests[1].id, { error: { code: 'ended', message: 'The person ended my phone use for this task with ✕.' } });
   await assert.rejects(ended, (error: unknown) => error instanceof WorkforceError && error.message.includes('✕'));
@@ -273,11 +273,64 @@ test('drivers: say goes to the app phone even while ADB has a ready phone; an AD
     pair: async () => ({ address: '' }), connect: async () => ({ address: '', already: false }), disconnect: async () => ({ serial: '', was: false }), discover: async () => [], attached: () => [], installed: () => false,
   };
   const merged = mergedPhones(adb, phones);
-  const said = merged.say(undefined, 'Hello', false);
+  const said = merged.say(undefined, 'Hello', undefined);
   await tick();
   assert.equal(requests[0].op, 'say');
   reply('dev_phone0000001', requests[0].id, { result: { ok: true } });
   await said;
-  await merged.say('192.168.1.20:5555', 'Hello', false);
+  await merged.say('192.168.1.20:5555', 'Hello', undefined);
   assert.deepEqual(adbCalls, ['say 192.168.1.20:5555']);
+});
+
+// Owner 19.11.2026: my own buttons in the bubble, and the bubble goes when my run is over.
+test('say with buttons sends my labels (folded, distinct, at most 8) with ask for older apps, and brings back the tapped one', async () => {
+  const { phones, requests, reply } = rig();
+  const asked = phones.say(undefined, 'Send now?', ['  Send  now ', 'Send now', 'Later', ...'abcdefgh'.split('')], { job: 'run_abc' });
+  await tick();
+  assert.deepEqual(requests[0].args, { text: 'Send now?', ask: true, buttons: ['Send now', 'Later', 'a', 'b', 'c', 'd', 'e', 'f'] });
+  reply('dev_phone0000001', requests[0].id, { result: { answer: 'Later' } });
+  assert.equal((await asked).answer, 'Later');
+  const yes = phones.say(undefined, 'May I?', ['✓']);
+  await tick();
+  assert.deepEqual(requests[1].args, { text: 'May I?', ask: true }, '✓ alone is the plain ask');
+  reply('dev_phone0000001', requests[1].id, { result: {} });
+  assert.equal((await yes).answer, 'none', 'no label is no answer');
+});
+
+test('a run that used the phone sends done once when it ends; other runs and running states send nothing', async () => {
+  const { bus, phones, requests, reply } = rig();
+  const step = phones.key(undefined, 'back', { job: 'run_abc' });
+  await tick();
+  reply('dev_phone0000001', requests[0].id, { result: { key: 'back' } });
+  await step;
+  bus.emit('run.upserted', { id: 'run_abc', status: 'running' } as never);
+  bus.emit('run.upserted', { id: 'run_other', status: 'done' } as never);
+  assert.equal(requests.length, 1);
+  bus.emit('run.upserted', { id: 'run_abc', status: 'done' } as never);
+  assert.equal(requests.length, 2);
+  assert.deepEqual({ deviceId: requests[1].deviceId, op: requests[1].op, args: requests[1].args, job: requests[1].job }, { deviceId: 'dev_phone0000001', op: 'done', args: {}, job: 'run_abc' });
+  bus.emit('run.upserted', { id: 'run_abc', status: 'done' } as never);
+  assert.equal(requests.length, 2, 'once');
+  reply('dev_phone0000001', requests[1].id, { error: { code: 'bad_request', message: 'Unknown step done.' } }); // an older app: nobody waits
+});
+
+// Konrad 19.11.2026 guessed SimplySign's package twice and never opened it: an app opens by the name under its icon.
+test('open with app sends the name; an app that knows only packages says so in my words', async () => {
+  const { phones, requests, reply } = rig();
+  const named = phones.open(undefined, { app: 'SimplySign' });
+  await tick();
+  assert.equal(requests[0].op, 'open');
+  assert.deepEqual(requests[0].args, { app: 'SimplySign' });
+  reply('dev_phone0000001', requests[0].id, { result: { opened: 'com.assecods.certum.simplysign' } });
+  assert.equal(await named, 'com.assecods.certum.simplysign');
+
+  const old = phones.open(undefined, { app: 'SimplySign' });
+  await tick();
+  reply('dev_phone0000001', requests[1].id, { error: { code: 'bad_request', message: 'Give an http(s) link or a package name.' } });
+  await assert.rejects(old, (error: unknown) => error instanceof WorkforceError && error.code === 'unavailable' && error.message === OLD_APP_OPEN);
+
+  const missing = phones.open(undefined, { app: 'Banking' });
+  await tick();
+  reply('dev_phone0000001', requests[2].id, { error: { code: 'not_found', message: 'No app named "Banking" is on this phone. Its apps: Chrome, WhatsApp.' } });
+  await assert.rejects(missing, (error: unknown) => error instanceof WorkforceError && error.code === 'not_found' && /Its apps: Chrome/.test(error.message));
 });

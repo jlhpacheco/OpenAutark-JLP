@@ -55,7 +55,6 @@ import { chatChoice } from '../routing/policies.ts';
 import { suggestedAt, suggestionWhen } from '../chat/suggestion-fresh.ts';
 import { temperatureText } from '../../shared/model/runs.ts';
 import { ultraNote } from './split-section.ts'; // B-057 S17: the note of a message that suggested Ultra
-import { uiBlocksOf } from '../../shared/blocks/parse.ts';
 import { chatTitleFor } from '../chat/titles.ts';
 import '../contracts/people.ts';
 import { hasMarks, markedForAgent, MARKS_LEGEND } from '../../shared/voice/marks.ts';
@@ -281,18 +280,6 @@ export function lineIndex(messages: readonly Message[]): { byId: Map<string, Mes
 /** A line someone wrote: a text, or the person's answer to an ask block (B-076: read like a text). */
 const isLine = (message: Pick<Message, 'kind'>): boolean => message.kind === 'text' || message.kind === 'answer';
 
-/** The question or title of the ask block `key` ("<message id>:<index>") names in `asking`; undefined when it names none. */
-function askedIn(asking: Message, key: string | undefined): string | undefined {
-  if (!key) return undefined;
-  const match = /^(.+):(\d+)$/.exec(key);
-  const blocks = uiBlocksOf(asking.body);
-  // the key is "<message id>:<index>", or the block's own id
-  const found = match && match[1] === asking.id ? blocks.find((item) => item.index === Number(match[2])) : blocks.find((item) => (item.block as { id?: unknown }).id === key);
-  const block = found?.block as Record<string, unknown> | undefined;
-  const text = [block?.question, block?.title, block?.label].find((value) => typeof value === 'string' && value.trim());
-  return typeof text === 'string' ? excerpt(text.trim(), 160) : undefined;
-}
-
 /** C6: whom a reply answers (another kind of message only when the quoted one is not among the lines). */
 export function replyLine(ctx: RenderContext, message: Message, byId: ReadonlyMap<string, Message>): string | undefined {
   const asked = message.kind === 'answer' ? message.meta.answer?.question : undefined;
@@ -300,10 +287,9 @@ export function replyLine(ctx: RenderContext, message: Message, byId: ReadonlyMa
   if (!message.replyTo) return asked ? `(answer to the ask ${quote(asked)})` : undefined;
   if (!isLine(message) && byId.has(message.replyTo)) return undefined;
   const quoted = sameChat(ctx, message.replyTo, message.conversationId, byId);
-  // Review fix (two asks in one message): an answer names the ask it answers, not the asking message's first line; an
-  // answer stored before B-076 finds its block by the key "<message id>:<index>".
-  const question = asked ?? (message.kind === 'answer' && quoted ? askedIn(quoted, message.meta.answer?.blockKey) : undefined);
-  if (quoted && question) return `(answer to ${quoted.authorId === ctx.agentId ? 'my' : `${authorName(ctx, quoted)}'s`} ask ${quote(question)})`;
+  // Review fix (two asks in one message): an answer names the ask it answers (its stored question), not the asking
+  // message's first line.
+  if (quoted && asked) return `(answer to ${quoted.authorId === ctx.agentId ? 'my' : `${authorName(ctx, quoted)}'s`} ask ${quote(asked)})`;
   return quoted ? `(reply to ${authorName(ctx, quoted)}: ${quote(previewText(quoted.body, quoted.attachments, 120))})` : '(reply to a deleted message)';
 }
 

@@ -1,6 +1,7 @@
 // First-run layer, pure rules (src/ui/onboarding/first-run-model.ts): when the layer shows, the card order
 // (B-085: the choice card first, then AI, About you – no voice, team or permission card; the AI card goes back to the
-// choice), whether any model can answer and the About card's profile write (name, company, PC access).
+// choice), whether any model can answer and the About card's profile write (name, company; the security mode's write is
+// security-model.test.ts).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -33,15 +34,11 @@ test('B-085: the choice, then two cards in order – AI, About you; AI goes back
   assert.deepEqual([stepText(TOUR_STEP), stepText('ai'), stepText('about')], ['', 'Step 1 of 2', 'Step 2 of 2'], 'no step text on the choice card');
 });
 
-test('About you writes the trimmed name and company and the PC access, only what changed', () => {
+test('About you writes the trimmed name and company, only what changed', () => {
   assert.deepEqual(profilePatch({ name: '', company: '' }, '  Ada ', ' Lovelace GmbH '), { name: 'Ada', company: 'Lovelace GmbH' });
   assert.deepEqual(profilePatch({ name: 'Ada', company: 'X' }, 'Ada', 'Y'), { company: 'Y' });
   assert.equal(profilePatch({ name: 'Ada', company: '' }, ' Ada', ''), undefined, 'nothing changed: no write');
   assert.equal(profilePatch(undefined, 'a'.repeat(300), '')?.name?.length, 120, 'within the setting\'s limit');
-  assert.deepEqual(profilePatch({ name: 'Ada', company: '' }, 'Ada', '', 'careful'), { pcAccess: 'careful' });
-  assert.equal(profilePatch({ name: 'Ada', company: '' }, 'Ada', '', 'whole'), undefined, 'absent is whole: no write');
-  assert.deepEqual(profilePatch({ name: 'Ada', company: '', pcAccess: 'careful' }, 'Ada', '', 'whole'), { pcAccess: 'whole' }, 'set up again: back to whole');
-  assert.equal(profilePatch({ name: 'Ada', company: '', pcAccess: 'careful' }, 'Ada', ''), undefined, 'Back without the choice keeps it');
 });
 
 test('the public-library tick writes only a change: left ticked nothing, unticked publish false', () => {
@@ -77,6 +74,6 @@ test('B-085: the first screen is the choice card, not the feedback video; the vi
   assert.ok(!/TourPlayer/.test(firstRun.replace(/^\/\/.*$/gm, '')), 'no player in the layer');
   assert.match(firstRun, /<ChoiceCard key="choice" onConnect=\{connect\} \/>/);
   const choice = readFileSync(path.join(root, 'ChoiceCard.tsx'), 'utf8');
-  for (const text of ['Set up a new company', 'Connect to my other PC', 'Watch how it works', 'openTour']) assert.ok(choice.includes(text), text);
+  for (const text of ['Set up a new company', 'Connect with an ID', 'Watch how it works', 'openTour']) assert.ok(choice.includes(text), text);
   assert.match(readFileSync(path.join(root, 'AiCard.tsx'), 'utf8'), /previousStep\('ai'\)[\s\S]*>Back</, 'the AI card has Back');
 });

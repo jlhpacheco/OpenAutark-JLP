@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -40,7 +41,7 @@ test('caption edges share the existing header row', { timeout: 180_000 }, async 
     try { await fn(); } catch (error) { console.error(error); throw error; }
   });
   await page.waitForSelector('.shell', { timeout: 60_000 });
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   const agent = await rpc.call('agents.create', { name: 'Ava' });
   const chat = await rpc.call('chats.create', { title: 'Header clearance', agentIds: [agent.id] });

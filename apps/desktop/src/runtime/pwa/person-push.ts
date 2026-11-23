@@ -2,11 +2,12 @@
 // reaches their devices (PushService.sendToPerson – only devices holding that person's live token) – not their own
 // lines, not quiet ones (status lines, silent messages), each message once, when it is final (an agent's answer
 // streams first); and a task notice for them ('person.notice': work given to them, its due time, the end of work they
-// gave – runtime/tasks/give.ts tell). No phone switch gates it.
+// gave – runtime/tasks/give.ts tell). No phone switch gates it. A line in a task's thread is titled with its task
+// (tasks/thread.ts); its tap opens the task.
 // Owns: those rules. Never: pushes to the owner (notify/service.ts does) or to a person outside the chat.
 
 import type { RuntimeServices } from '../contracts.ts';
-import type { Message } from '../../shared/model/chat.ts';
+import { isTaskThread, type Message } from '../../shared/model/chat.ts';
 import { isPersonId } from '../../shared/model/people.ts';
 import { previewText } from '../../shared/text/chat-names.ts';
 import type { PushService } from './push.ts';
@@ -14,7 +15,7 @@ import type { PushService } from './push.ts';
 /** Message ids pushed lately (an edited final message is not pushed again). */
 const REMEMBERED = 500;
 
-type Deps = Pick<RuntimeServices, 'bus' | 'chats' | 'log'>;
+type Deps = Pick<RuntimeServices, 'bus' | 'chats' | 'log'> & Partial<Pick<RuntimeServices, 'tasks'>>;
 
 /** The people (not the author) who are members of the message's chat right now. */
 function recipients(s: Deps, message: Message): string[] {
@@ -37,7 +38,10 @@ export function pushPeopleMessages(s: Deps, push: Pick<PushService, 'sendToPerso
     sent.add(message.id);
     if (sent.size > REMEMBERED) sent.delete(sent.values().next().value as string);
     let title = 'New message';
-    try { title = s.chats.get(message.conversationId)?.title || title; } catch { /* the default title */ }
+    try {
+      const id = message.conversationId;
+      title = (isTaskThread(id) ? s.tasks?.get(id)?.title : s.chats.get(id)?.title) || title;
+    } catch { /* the default title */ }
     const body = previewText(message.body, message.attachments ?? []);
     for (const personId of people) {
       push.sendToPerson(personId, { kind: message.priority === 'important' ? 'important' : 'reply', title, body, conversationId: message.conversationId })

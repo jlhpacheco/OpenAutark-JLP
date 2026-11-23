@@ -45,7 +45,6 @@ export function formatMark(mark: UncertainMark): string {
   return `${MARK_OPEN}${fields.join('|')}${MARK_CLOSE}`;
 }
 
-const MARK = /⟦\?([^⟧]*)⟧/g;
 const number = (value: string) => { const n = Number.parseFloat(value.replace('%', '').replace(',', '.')); return Number.isFinite(n) ? n : undefined; };
 
 /** One mark's inside ("reading|pct|alts|heard"). */
@@ -60,11 +59,6 @@ function parseInner(inner: string): UncertainMark {
     }),
     ...(heard.trim() ? { heard: heard.trim() } : {}),
   };
-}
-
-/** The marks in a text, in order. */
-export function parseMarks(text: string): UncertainMark[] {
-  return [...text.matchAll(MARK)].map((match) => parseInner(match[1]));
 }
 
 /** The text with every mark replaced by its reading and the dictation tags removed (what was most likely said). */

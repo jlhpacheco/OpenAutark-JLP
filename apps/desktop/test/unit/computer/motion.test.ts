@@ -21,7 +21,7 @@ import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import type { ToolContext } from '../../../src/runtime/tools/types.ts';
 import { validate } from '../../../src/runtime/tools/validate.ts';
 import { PointerHub } from '../../../src/runtime/pointers/hub.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import { planMotion } from '../../../src/shared/model/pointer-motion.ts';
 import { POINTER_PATH_MAX } from '../../../src/shared/model/pointers.ts';

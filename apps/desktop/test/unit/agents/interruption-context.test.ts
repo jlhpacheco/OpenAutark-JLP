@@ -93,7 +93,7 @@ test('a changed task is input; ownership bookkeeping alone is not', async () => 
   recordTurnInput(h.services, h.plan, h.request({ runId: 'run_old' }), h.original.seq);
   h.fail();
   h.clock.advance(1000);
-  h.plan.task = { ...task, nextAt: h.clock.now() + 60_000, ledger: { ...task.ledger, stalls: 1 } };
+  h.plan.task = { ...task, ledger: { ...task.ledger, movedAt: h.clock.now() } };
   assert.equal(h.context(), undefined);
   h.plan.task = { ...task, notes: 'November instead' };
   assert.match(h.context()!, /cut off at [^(]+\(Internet connection lost\)/, 'a changed task is new input');
@@ -180,6 +180,31 @@ test('merged notes keep per-event attribution; app retries are never the AI\'s o
   assert.doesNotMatch(lines.join('\n'), /Note from the app|My own scheduled note|retry/);
   const task = { id: 'task_1', title: 'Montagstest 16.11.: Lumo auf Felix\' echtem Android-Handy (Chrome) vorbereiten und prüfen' };
   assert.match(noteLines({ reason: 'task', notes: [{ text: 'I continue this task.', at: 0 }] }, 'UTC', task)[0], /^\[note · [^·]+ · task_1 "Montagstest 16\.11\.: Lumo auf Felix' echtem Android-Handy \(C…"\] I continue/);
+  const reminder = noteLines({ reason: 'schedule', notes: [{ text: 'Look again', at: 0 }], origin: { source: 'schedule:sch_1' } as never }, 'UTC', task, 'Weekly invoice');
+  assert.match(reminder[0], /^\[note · [^·]+ · task_1 "Montagstest[^"]*"\] Look again$/, 'a reminder about a quest or to-do names it, not the schedule');
+  const merged = noteLines({ reason: 'task', notes: [{ text: 'Look again', at: 0, reason: 'schedule' }, { text: 'Felix wrote', at: 0 }] }, 'UTC', task, undefined, 'Now:\nMontagstest · task_1');
+  assert.match(merged[0], /\] Look again\nNow:\nMontagstest · task_1$/, 'FIXREAL 5: the snapshot follows the reminder\'s note');
+  assert.match(merged[1], /\] Felix wrote$/, 'once, under the reminder only');
+});
+
+test('FIXREAL 5: a reminder about a quest brings the quest as it stands now in its own input text – whatever the live block keeps', async () => {
+  const h = setup();
+  h.services.runs = new Journal({ db: h.db, bus: h.bus, clock: h.clock });
+  const quest = h.tasks.create({ kind: 'quest', title: 'Einkauf prüfen', doneWhen: 'einkauf.txt ist noch da', assigneeKind: 'agent', assigneeId: h.tom.id, createdBy: h.tom.id });
+  h.tasks.create({ title: 'Datei ansehen', parentId: quest.id, assigneeKind: 'agent', assigneeId: h.tom.id, createdBy: h.tom.id });
+  const request = h.request({ runId: 'run_note', reason: 'schedule', taskId: quest.id, notes: [{ text: 'Jetzt prüfen, ob einkauf.txt noch da ist.', at: h.clock.now(), reason: 'schedule' }], origin: { source: 'schedule:sch_1', label: 'Reminder' } });
+  const plan = (await planTurn(h.services, request))!;
+  const turn = await buildTurn(h.services, plan, request, h.route, []);
+  const text = turn.input.map((part) => part.type === 'text' ? part.text : '').join('');
+  assert.ok(text.includes(`"Einkauf prüfen"] Jetzt prüfen, ob einkauf.txt noch da ist.\nNow:\nEinkauf prüfen · ${quest.id} – done when einkauf.txt ist noch da.\nPerson: 0 open\nMe:\n  - "Datei ansehen" · task_`), text);
+
+  // FIXREAL second round 3: a live block that carries the quest's section this turn (a new session) – the note does not repeat it.
+  const current = { name: 'task', text: `## Current quest\n${quest.id} · open\nNow:\nEinkauf prüfen · ${quest.id} – done when einkauf.txt ist noch da.` };
+  h.services.context.prompt = (() => ({ stable: 'stable', volatile: current.text, sections: [current] })) as never;
+  const once = await buildTurn(h.services, plan, request, h.route, []);
+  const input = once.input.map((part) => part.type === 'text' ? part.text : '').join('');
+  assert.ok(input.includes('"Einkauf prüfen"] Jetzt prüfen, ob einkauf.txt noch da ist.') && !input.includes('\nNow:\n'), input);
+  assert.ok(once.prompt.volatile.includes('## Current quest'), 'one copy – in the live block');
 });
 
 for (const changed of [true, false]) test(`a same-run failover explains ${changed ? 'new input during the failed attempt' : 'a long reconnect wait'}`, async () => {

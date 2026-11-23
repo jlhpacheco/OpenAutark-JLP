@@ -11,13 +11,18 @@
 // answer without text) throws a user-safe WorkforceError and transcribe.ts goes on with this PC's model as before.
 // The login: the one place the app reads a plan token (owner-visible exception to the old "never read tokens" rule,
 // docs/DECISIONS.md B-088): the access token and the account id of the plan's CODEX_HOME auth.json are read per
-// request, kept in memory only and sent nowhere but to chatgpt.com, the issuer. The app never refreshes a token itself
-// (refresh tokens rotate, a second client would log Codex out): on a rejection the account's own Codex server is
-// asked to refresh (account/read refreshToken) and the file is read once more.
+// request, kept in memory only and sent nowhere but to chatgpt.com, the issuer – and, since STIMME 21.11.2026 (owner:
+// "transcribing via Codex does not have to go over the PC"), to the person's own paired phone over its secure link
+// (phoneLogin, RPC voice.planLogin: the access token, the account id and the token's own expiry, never the refresh
+// token), whose app sends a dictation to the same endpoint itself and keeps the login in memory until it expires. The
+// app never refreshes a token itself (refresh tokens rotate, a second client would log Codex out): on a rejection – here
+// or on the phone, which then asks for a fresh login – the account's own Codex server is asked to refresh (account/read
+// refreshToken) and the file is read once more.
 // The answer names the uploaded audio as an asset with a 30-day lifetime (asset_ttl, measured 10.11.2026): the ChatGPT
 // side keeps the take that long, like a dictation made in ChatGPT itself. The owner was told on 10.11.2026.
-// Owns: reading the login, the request and the one refresh-and-retry. Never: logs, returns or stores a token, an
-// account id or the answer's asset pointer; refreshes a token itself; sends audio anywhere but the one endpoint.
+// Owns: reading the login, the request, the one refresh-and-retry and the phone's copy of the login. Never: logs or
+// stores a token, an account id or the answer's asset pointer, or returns them to anyone but phoneLogin's caller;
+// refreshes a token itself; sends audio anywhere but the one endpoint.
 
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -26,7 +31,7 @@ import type { Account } from '../../shared/model/providers.ts';
 import type { FileRef } from '../../shared/model/system.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import { defaultHome } from '../accounts/cli-homes.ts';
-import { chargeOf } from '../models/pricing.ts';
+import { accountCharge } from '../../shared/model/charge.ts';
 import { endpointHeard, uploadOf, uploadWay, type FetchFn, type Heard } from './transcribe-endpoint.ts';
 
 export const PLAN_TRANSCRIBE_URL = 'https://chatgpt.com/backend-api/transcribe';
@@ -35,6 +40,10 @@ export const PLAN_TRANSCRIBE_MS = 45_000;
 /** The account's own server refreshes its login within this (account/read refreshToken). */
 export const PLAN_REFRESH_MS = 20_000;
 const AUTH_FILE_MAX_BYTES = 256 * 1024;
+/** A login whose token names no expiry goes to the phone for this long. */
+export const PHONE_LOGIN_UNKNOWN_MS = 10 * 60_000;
+/** A token this close to its expiry is refreshed before it goes to the phone. */
+export const PHONE_LOGIN_MARGIN_MS = 60_000;
 
 /** The plan's transcription of one take (this module's default; tests replace it). */
 export type PlanTranscription = (s: RuntimeServices, ref: FileRef, language: string | undefined, fetch?: FetchFn) => Promise<Heard>;
@@ -50,7 +59,7 @@ export type PlanTranscription = (s: RuntimeServices, ref: FileRef, language: str
 function planLogins(s: Pick<RuntimeServices, 'accounts'>): Account[] {
   let accounts: Account[];
   try { accounts = s.accounts.list(); } catch { return []; }
-  return accounts.filter((account) => account.provider === 'codex' && chargeOf(account) === 'plan').sort((a, b) => a.priority - b.priority);
+  return accounts.filter((account) => account.provider === 'codex' && accountCharge(account) === 'plan').sort((a, b) => a.priority - b.priority);
 }
 
 const usable = (account: Account) => account.enabled && account.state !== 'needs_login' && account.state !== 'disabled';
@@ -122,3 +131,39 @@ export const planTranscribe: PlanTranscription = async (s, ref, language, fetchF
     }
   }
 };
+
+/** The plan login as the person's own phone gets it (RPC voice.planLogin): `expiresAt` from the token's own exp. */
+export interface PhoneLogin { token: string; accountId?: string; expiresAt: number }
+
+/** The token's own expiry (a JWT's exp, in ms), or undefined when it names none. */
+export function tokenExpiry(token: string): number | undefined {
+  const payload = token.split('.')[1];
+  if (!payload) return undefined;
+  try {
+    const exp = (JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { exp?: unknown } | null)?.exp;
+    return typeof exp === 'number' && Number.isFinite(exp) && exp > 0 ? exp * 1000 : undefined;
+  } catch { return undefined; }
+}
+
+/**
+ * The plan login for the person's own phone (the caller checked it is that phone): read like a dictation here; `fresh`
+ * – the phone's copy was rejected – or a token about to expire is refreshed by the account's own Codex server first.
+ * Throws a user-safe error (no login, no refresh) and the phone sends its take to the PC as before.
+ */
+export async function phoneLogin(s: RuntimeServices, fresh: boolean, now: number): Promise<PhoneLogin> {
+  const account = planAccount(s);
+  if (!account) throw new WorkforceError('unavailable', 'No ChatGPT plan login is signed in here.');
+  const refreshed = async () => {
+    if (!await refresh(s, account)) throw new WorkforceError('unavailable', 'The ChatGPT plan login could not be refreshed here.');
+    return readLogin(account);
+  };
+  let login = fresh ? await refreshed() : await readLogin(account);
+  let expiry = login && tokenExpiry(login.token);
+  if (login && !fresh && expiry !== undefined && expiry - now < PHONE_LOGIN_MARGIN_MS) {
+    login = await refreshed();
+    expiry = login && tokenExpiry(login.token);
+  }
+  if (!login) throw new WorkforceError('unavailable', 'The ChatGPT plan login has no usable token here.');
+  if (expiry !== undefined && expiry - now < PHONE_LOGIN_MARGIN_MS) throw new WorkforceError('unavailable', 'The ChatGPT plan login here has expired.');
+  return { token: login.token, ...(login.accountId ? { accountId: login.accountId } : {}), expiresAt: expiry ?? now + PHONE_LOGIN_UNKNOWN_MS };
+}

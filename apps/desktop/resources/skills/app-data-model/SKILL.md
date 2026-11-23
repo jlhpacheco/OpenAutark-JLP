@@ -62,7 +62,7 @@ Skill `chat-bridge` builds a whole channel from this.
   `## This chat`), so everyone in the chat finds it there; `global` is the person's own across chats.
   I also have my own area on my agent page (`agent:<agent id>`), which I keep myself – e.g. notes or a
   file I want the person to find there; `browser.show` with `where: 'agent'` puts a page in it.
-  A tab is `{"id":"web-…","url":"…"}` or a panel `{"id":"day","panel":"day"}`. When I edit the file, the window follows.
+  A tab is `{"id":"web-…","url":"…"}` or a panel `{"id":"tasks","panel":"tasks"}` (the Tasks page). When I edit the file, the window follows.
   With linked CEO PCs every area is the same on all of them and on the phone: a website running on another PC is a
   panel `{"id":"remote:<device>:<web id there>","panel":"remote","device":"<device id>","tab":"<web id there>","url":"…"}`
   (its live picture; closing it closes the page on its PC), and a file, folder or media tab of another PC keeps its form
@@ -81,7 +81,7 @@ tab. Editing it reloads the open tab; deleting it removes it. It runs in a frame
 <h3>Open tasks</h3><ul id="list"></ul>
 <script>
   async function draw() {
-    const tasks = await wf.rpc('tasks.list', { status: ['open', 'working'] });
+    const tasks = await wf.rpc('tasks.list', { status: ['open'] });
     list.replaceChildren(...tasks.map((task) => Object.assign(document.createElement('li'), { textContent: task.title })));
   }
   wf.ready.then(draw);

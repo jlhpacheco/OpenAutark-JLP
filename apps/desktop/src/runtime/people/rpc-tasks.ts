@@ -5,16 +5,18 @@
 // theirs (they own it, made it or gave it) and finish what they own – recorded as theirs ('reported_by_human', by their
 // id), never as the owner's answer or approval; a form asking for a password or key is never theirs to answer (secrets
 // go into the owner's vault). Ids are seen from the person's perspective.
-// tasks.quickCreate (the to-do button, the task composer): one quick task with the person's own uploads as files –
-// for themselves ("me"), an agent, a branch or a team they may give to, or, without a target, for the one owner Autark
-// picks among those (people/task-rules.ts decides).
+// tasks.quickCreate (the Tasks page's line, the to-do button): one quick task with the person's own uploads as files –
+// their own to-do at once, sorted by their assistant (in a quest they read, at a time and length; "Only me": they do it,
+// it is never handed to an agent) or, with Send to…, for an agent, a branch or a
+// team they may give to (people/task-rules.ts decides). A quest is made with tasks.create (kind), a to-do moved into one
+// or timed with tasks.update (parentId, at, minutes).
 // F13: a CEO reads the company's work (people/access.ts readsTask) and changes, gives on and drops it like the owner;
 // they finish as done what is not another human's to-do (people answer their own).
 // Owns: these person variants. Never: the owner's handlers, or a change to work that is not theirs.
 
 import { WorkforceError } from '../../shared/errors.ts';
 import type { Person } from '../../shared/model/people.ts';
-import type { TaskFilter, TaskStatus, TaskView } from '../../shared/model/tasks.ts';
+import { TASK_KINDS, type TaskFilter, type TaskStatus, type TaskView } from '../../shared/model/tasks.ts';
 import type { TaskPatch } from '../tasks/service.ts';
 import { formsOf } from '../secrets/capture.ts';
 import { MAX_DECLINE_REASON, declineAnswer } from '../tasks/decline.ts';
@@ -29,6 +31,7 @@ import { mayChange } from './task-rules.ts';
 
 const STATUSES: readonly TaskStatus[] = ['open', 'waiting', 'done', 'dropped'];
 const MAX_NOTES = 50_000;
+const MAX_MINUTES = 24 * 60;
 
 function readable(ctx: HandlerContext, person: Person, taskId: string): TaskView {
   const task = ctx.services.tasks.get(taskId);
@@ -79,7 +82,7 @@ export function registerPersonTasks(table: HandlerTable): void {
   table.addPerson('tasks.create', async (params, ctx) => {
     const person = caller(ctx);
     const o = input(params);
-    onlyKeys(o, ['conversationId', 'title', 'notes', 'plan', 'to', 'dueAt', 'priority', 'doneWhen', 'parentId', 'clientId']);
+    onlyKeys(o, ['conversationId', 'kind', 'title', 'notes', 'plan', 'to', 'at', 'minutes', 'priority', 'doneWhen', 'parentId', 'clientId']);
     const conversationId = optId(o, 'conversationId');
     const chat = conversationId ? ctx.services.chats.get(conversationId) : undefined;
     const reads = chat ? chatAccess(ctx.services.db, person.id, chat) : undefined;
@@ -89,8 +92,9 @@ export function registerPersonTasks(table: HandlerTable): void {
     if (parentId) readable(ctx, person, parentId);
     const priority = optNum(o, 'priority', { min: 0, max: 2 });
     const view = await ctx.services.tasks.createTo({
-      ...(conversationId ? { conversationId } : {}), title: text(o, 'title', { max: 300 }), notes: optText(o, 'notes', { max: MAX_NOTES, allowEmpty: true, multiline: true }),
-      plan: optStrings(o, 'plan', { maxItems: 20, max: 300 }), dueAt: optNum(o, 'dueAt', { min: 0 }),
+      ...(conversationId ? { conversationId } : {}), kind: optOneOf(o, 'kind', TASK_KINDS), minutes: optNum(o, 'minutes', { min: 1, max: MAX_MINUTES }),
+      title: text(o, 'title', { max: 300 }), notes: optText(o, 'notes', { max: MAX_NOTES, allowEmpty: true, multiline: true }),
+      plan: optStrings(o, 'plan', { maxItems: 20, max: 300 }), at: optNum(o, 'at', { min: 0 }),
       priority: priority === undefined ? undefined : ([0, 1, 2] as const)[priority], doneWhen: optText(o, 'doneWhen', { max: 2000, multiline: true }),
       parentId, clientId: optText(o, 'clientId', { max: 100 }), createdBy: person.id,
     }, toOf(person, o));
@@ -99,7 +103,7 @@ export function registerPersonTasks(table: HandlerTable): void {
   table.addPerson('tasks.quickCreate', async (params, ctx) => {
     const person = caller(ctx);
     const o = input(params);
-    onlyKeys(o, ['text', 'attachments', 'target', 'priority', 'dueAt', 'clientId']);
+    onlyKeys(o, ['text', 'attachments', 'target', 'priority', 'at', 'minutes', 'quest', 'private', 'clientId']);
     const raw = optObj(o, 'target');
     if (raw) onlyKeys(raw, ['kind', 'id'], 'target');
     const kind = raw ? oneOf(raw, 'kind', ['me', 'agent', 'branch', 'team'] as const) : undefined; // a colleague: through tasks.create
@@ -107,9 +111,14 @@ export function registerPersonTasks(table: HandlerTable): void {
     const attachments = attachmentsOf(ctx.services, o.attachments);
     if (attachments.some((file) => !uploadedBy(ctx.services.db, person.id, file.fileId))) bad('attachments', 'files you uploaded');
     const priority = optNum(o, 'priority', { min: 0, max: 2 });
+    const minutes = optNum(o, 'minutes', { min: 1, max: MAX_MINUTES });
+    const onlyMe = optBool(o, 'private');
+    const quest = optId(o, 'quest');
+    if (quest) readable(ctx, person, quest);
     const { task } = await quickCreate(ctx.services, {
       text: optText(o, 'text', { max: 8000, multiline: true, allowEmpty: true }) ?? '', attachments, ...(target ? { target } : {}),
-      priority: priority === undefined ? undefined : ([0, 1, 2] as const)[priority], dueAt: optNum(o, 'dueAt', { min: 0 }), clientId: optText(o, 'clientId', { max: 100 }),
+      priority: priority === undefined ? undefined : ([0, 1, 2] as const)[priority], at: optNum(o, 'at', { min: 0 }), clientId: optText(o, 'clientId', { max: 100 }),
+      ...(minutes !== undefined ? { minutes } : {}), ...(quest ? { quest } : {}), ...(onlyMe !== undefined ? { private: onlyMe } : {}),
     }, person.id);
     return { task: viewTaskFor(ctx.services, person.id, task) };
   });
@@ -119,11 +128,13 @@ export function registerPersonTasks(table: HandlerTable): void {
     onlyKeys(o, ['id', 'rev', 'patch']);
     const task = changeable(readable(ctx, person, id(o)), person);
     const raw = input(o.patch);
-    onlyKeys(raw, ['title', 'notes', 'dueAt', 'priority', 'doneWhen', 'plan', 'status'], 'patch');
+    onlyKeys(raw, ['title', 'notes', 'at', 'minutes', 'priority', 'doneWhen', 'plan', 'status', 'parentId'], 'patch');
     const patch: TaskPatch = {};
     if ('title' in raw) patch.title = text(raw, 'title', { max: 300 });
     if ('notes' in raw) patch.notes = optText(raw, 'notes', { max: MAX_NOTES, allowEmpty: true, multiline: true }) ?? '';
-    if ('dueAt' in raw) patch.dueAt = optNum(raw, 'dueAt', { min: 0 });
+    if ('at' in raw) patch.at = optNum(raw, 'at', { min: 0 }) ?? null;
+    if ('minutes' in raw) patch.minutes = optNum(raw, 'minutes', { min: 1, max: MAX_MINUTES }) ?? null;
+    if ('parentId' in raw) { const quest = optId(raw, 'parentId'); if (quest) readable(ctx, person, quest); patch.parentId = quest ?? null; }
     if ('priority' in raw) { const value = optNum(raw, 'priority', { min: 0, max: 2 }) ?? 0; patch.priority = ([0, 1, 2] as const)[value]; }
     if ('doneWhen' in raw) patch.doneWhen = optText(raw, 'doneWhen', { max: 2000, multiline: true });
     if ('plan' in raw) patch.plan = optStrings(raw, 'plan', { maxItems: 20, max: 300 }) ?? [];

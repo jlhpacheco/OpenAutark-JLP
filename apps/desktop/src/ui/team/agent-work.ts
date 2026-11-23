@@ -2,12 +2,11 @@
 // shows what the agent does right now, only its really active tasks, and the run live):
 //   * Now – one card per run of the agent in the live activity (store `activity`), in start order; a split's parts sit
 //     on the card of the run that split, or – once that run ended and the parts still work – on one card of their own;
-//   * Active tasks – its open tasks that really are at work: a turn runs on one now, or it moved (a status change, a
-//     new plan or fact, a give, a finished piece, a turn that moved it – ledger.movedAt) within the last 24 h. An open
-//     task that has not moved for longer is "older open", its waiting ones apart – both folded on the page; done and
-//     dropped never (the store holds only unfinished tasks). The planned look (nextAt) decides nothing here: every
-//     unfinished task has one (runtime/tasks/next.ts), a stalled one at most a day ahead, so it would keep every task
-//     "active". Each list the newest move first;
+//   * Active tasks – its open quests and to-dos (a to-do in anyone's quest too) that really are at work: a turn runs on
+//     one now, or it moved (a status change, a new plan or fact, a give, a finished to-do, a turn that moved it –
+//     ledger.movedAt) within the last 24 h. An open one that has not moved for longer is "older open", its waiting ones
+//     apart – both folded on the page; done and dropped never. Each list the newest move first. Agent work has no time
+//     (Quests round 20.11.2026): a line says where the task sits among the quests (questLine), never a date;
 //   * the last run while nothing runs, from the activity log's loaded page;
 //   * whether the page sits at its end, so the log follows new steps there and stays put when scrolled up.
 // Owns: those rules. Never: imports the store, rpc or the DOM, or says more than the runtime reported.
@@ -37,7 +36,7 @@ export function nowCards(active: readonly AgentActivity[], agentId: string): Now
   return [...cards.values()].sort((a, b) => a.startedAt - b.startedAt);
 }
 
-type Listed = Pick<Task, 'status' | 'assigneeKind' | 'assigneeId' | 'ledger' | 'startedAt' | 'createdAt'> & { running?: boolean };
+type Listed = Pick<Task, 'status' | 'assigneeKind' | 'assigneeId' | 'ledger' | 'createdAt'> & { running?: boolean };
 
 /** How long a move keeps an open task among the active ones. */
 export const ACTIVE_MS = 24 * 3600_000;
@@ -62,6 +61,21 @@ export function planProgress(plan: readonly string[] | undefined): string | unde
   if (!plan?.length) return undefined;
   const done = plan.filter((line) => line.startsWith('✓')).length;
   return `${done} of ${plan.length} ${plan.length === 1 ? 'step' : 'steps'}`;
+}
+
+type Placed = Pick<Task, 'id' | 'kind' | 'parentId' | 'status' | 'title'>;
+
+/**
+ * Where a task sits among the quests: a quest's "Quest · 2 of 5 to-dos done" (its dropped to-dos left out), a to-do's
+ * "In <quest>"; undefined for a to-do without a quest or whose quest is not among `every` (every task known, by id).
+ */
+export function questLine(task: Placed, every: ReadonlyMap<string, Placed>): string | undefined {
+  if (task.kind === 'quest') {
+    const todos = [...every.values()].filter((entry) => entry.parentId === task.id && entry.status !== 'dropped');
+    return `Quest · ${todos.filter((entry) => entry.status === 'done').length} of ${todos.length} ${todos.length === 1 ? 'to-do' : 'to-dos'} done`;
+  }
+  const quest = task.parentId ? every.get(task.parentId) : undefined;
+  return quest ? `In ${quest.title}` : undefined;
 }
 
 /** The last run that ended among the log's loaded runs (start order), for the idle line. */

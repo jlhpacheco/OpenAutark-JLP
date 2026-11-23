@@ -8,6 +8,7 @@
 // plus a counter that moves only when the old port is gone: runtime restart or stop, or a port
 // that arrived too late and was closed); main hands out one live port per lease (ipc.ts).
 // Feedback 16.11.2026: the caption controls' dimming (setTitleBarDim) and the feedback shortcut's steps (onFeedbackKey).
+// Owner 19.11.2026: voiceLive (main keeps a hidden window's page at full speed), bubbleCall and onEndCall (the bubble's call).
 // Owns: IPC calls/listeners (incl. the window's 'online' event, B-044), envelope unwrapping and the lease. Never: holds business state,
 // logic or secrets – every action is checked again in main (sender trust + argument validation).
 
@@ -50,7 +51,6 @@ const pageId = randomHex(16); // a reload runs this preload again: a new page, a
 let leaseCount = 0;
 /** The data the preload posts with a real port: only the main-world wrapper knows it. */
 const PORT_TAG = `${PORT_MESSAGE}:${randomHex(16)}`;
-let guarded = false; // the main-world wrapper is installed (else the plain contract applies)
 
 interface PendingConnect { resolve(): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
 const connects: PendingConnect[] = [];
@@ -73,7 +73,7 @@ ipcRenderer.on(IPC.runtimePort, (event, reason: unknown) => {
     pending.reject(new Error(reason === 'in_use' ? 'The runtime connection is already open.' : 'The runtime is not running.'));
     return;
   }
-  window.postMessage(guarded ? PORT_TAG : PORT_MESSAGE, '*', [port]);
+  window.postMessage(PORT_TAG, '*', [port]);
   pending.resolve();
 });
 
@@ -134,7 +134,6 @@ const api: WorkforceDesktopApi = {
     state: () => invoke<UpdateState>(IPC.updateGet),
     apply: () => invoke<UpdateState>(IPC.updateApply),
     defer: () => invoke<UpdateState>(IPC.updateDefer),
-    setAutoDownload: enabled => invoke<UpdateState>(IPC.updateAutoDownload, enabled === true),
     setReady: ready => { ipcRenderer.send(IPC.updateReady, ready === true); },
   },
   onUpdate: listener => listen<[UpdateState]>(IPC.updateState, listener),
@@ -156,13 +155,9 @@ const api: WorkforceDesktopApi = {
   clipboard: { writeText: text => invoke<void>(IPC.clipboardWrite, text) },
   openExternal: url => invoke<void>(IPC.openExternal, url),
   onNavigate: listener => listen<[NavigateRequest]>(IPC.navigate, listener),
+  voiceLive: on => { ipcRenderer.send(IPC.voiceLive, on === true); },
+  bubbleCall: call => { ipcRenderer.send(IPC.bubbleCall, call ? { conversationId: String(call.conversationId), title: String(call.title) } : null); },
+  onEndCall: listener => listen<[unknown]>(IPC.bubbleEnd, id => { if (typeof id === 'string') listener(id); }),
 };
 
-try {
-  contextBridge.executeInMainWorld({ func: installMainWorld, args: [api, PORT_MESSAGE, PORT_TAG, PORT_ARRIVAL_MS] });
-  guarded = true;
-} catch (error) {
-  // Without the wrapper the port travels as plain PORT_MESSAGE and nothing guards it.
-  console.error('[workforce] main-world bridge failed; exposing the plain API without the port guard', error);
-}
-if (!guarded) contextBridge.exposeInMainWorld('workforce', api);
+contextBridge.executeInMainWorld({ func: installMainWorld, args: [api, PORT_MESSAGE, PORT_TAG, PORT_ARRIVAL_MS] }); // the one way window.workforce exists

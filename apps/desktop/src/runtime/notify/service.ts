@@ -21,6 +21,7 @@ import type { Bus } from '../bus.ts';
 import type { ConversationSettings } from '../../shared/model/chat.ts';
 import type { Clock, Logger, NotificationChannel, NotificationInput, NotificationService, SettingsService } from '../contracts.ts';
 import type { Host } from '../host.ts';
+import { wallOf } from '../../shared/text/when.ts';
 import { levelAllows, levelForcesPush, toastFor } from './levels.ts';
 
 export interface NotifyDeps {
@@ -46,19 +47,6 @@ const ALWAYS: ReadonlySet<string> = new Set(['todo', 'blocker', 'important']);
 /** Same tag within this window is not pushed twice (bursts of status changes). */
 const DEDUPE_MS = 3000;
 
-/** Minutes since local midnight in `timeZone` for epoch `ms`. */
-export function localMinutes(ms: number, timeZone: string): number {
-  let parts: Intl.DateTimeFormatPart[];
-  try {
-    parts = new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(ms);
-  } catch {
-    parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(ms);
-  }
-  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? 0);
-  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? 0);
-  return hour * 60 + minute;
-}
-
 /** Quiet hours may span midnight ("22:00"–"07:00"). from === to means no quiet time. */
 export function inQuietHours(ms: number, timeZone: string, quiet?: { from: string; to: string }): boolean {
   if (!quiet) return false;
@@ -69,7 +57,7 @@ export function inQuietHours(ms: number, timeZone: string, quiet?: { from: strin
   const from = toMinutes(quiet.from);
   const to = toMinutes(quiet.to);
   if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) return false;
-  const now = localMinutes(ms, timeZone);
+  const now = wallOf(ms, timeZone).minutes;
   return from < to ? now >= from && now < to : now >= from || now < to;
 }
 

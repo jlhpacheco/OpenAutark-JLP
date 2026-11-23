@@ -2,11 +2,11 @@
 // seats, floor, call history and recap went) in an isolated test profile with the demo engine, Chromium's fake
 // microphone fed with silence (no utterance is cut, nothing is sent) and a localhost fake speech-to-text server
 // (registered as a local 'vllm' account, like e2e/runtime-speech.test.mjs):
-//   * the call cell "Talk" in a first and then a second chat starts the voice conversation: the status line over the
-//     main zone shows one line per chat ("<chat> · listening" / "on hold"), each with End; the cell turns "End voice"
-//     in the same box – the header's cells do not move;
-//   * opening the first chat makes it the listening one (the focused chat listens);
-//   * End on the second leaves one conversation; the cell's "End voice" ends the last and its line goes;
+//   * the call cell "Talk" in a first and then a second chat starts the voice conversation: the open chat's shows on
+//     its call card ("Connecting…" / "Listening · 0:05", Hang up – B-085), the other chat's in the status line over the
+//     main zone ("<chat> · on hold", with End); the cell turns "End voice" in the same box – the header's cells do not move;
+//   * opening the first chat makes it the listening one (the focused chat listens; the other goes on hold in the line);
+//   * End on the other chat's line leaves one conversation; the cell's "End voice" ends the last and its card goes;
 //   * a dictation in the composer ends the running conversations first (one microphone);
 //   * each conversation is a call of this PC in its chat: one bubble "Call · <time> · running" that shows how long it ran
 //     once it ended (its row: meta.call with participant 'device:pc'); talking again is a new call;
@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -75,13 +76,13 @@ test('call cell: two voice conversations, the focused chat listens, End per chat
   const page = await app.firstWindow();
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => { if (message.type() === 'error' && !/Autofill|DevTools|Electron Security Warning/i.test(message.text())) errors.push(message.text()); });
+  page.on('console', (message) => { if (message.type() === 'error' && !/Autofill|DevTools|Electron Security Warning/i.test(message.text())) errors.push(`${message.text()}${message.location()?.url ? ` (${message.location().url})` : ''}`); });
   await page.waitForSelector('.shell', { timeout: 60_000 });
   const size = (width, height) => app.evaluate(({ BrowserWindow }, [w, h]) => { const [win] = BrowserWindow.getAllWindows(); win.setMinimumSize(320, 480); win.setSize(w, h); }, [width, height]);
   await size(1280, 820);
   const shot = async (name) => { await page.waitForTimeout(400); await page.screenshot({ path: path.join(shots, `${name}.png`) }); };
 
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('settings.update', { onboarding: { step: 'done' } });
   await rpc.call('accounts.add', { provider: 'vllm', label: 'Local whisper', baseUrl: `http://127.0.0.1:${speech.port}/v1` });
@@ -108,16 +109,26 @@ test('call cell: two voice conversations, the focused chat listens, End per chat
     assert.fail(`timed out: ${what} (${JSON.stringify(await lineTexts())})`);
   };
   const headerCells = ['.chat-header [data-cell="call"]', '.chat-header .frame-header-title', '.chat-header [data-cell="browser"]', '.composer', '.message-scroller'];
+  // B-085: the open chat's call shows on its call card (chat/call/CallCard.tsx) – the status line keeps only the others
+  const card = page.locator('.chat-view .call-card');
+  const cardSays = async (pattern, what) => {
+    for (const end = Date.now() + 20_000; Date.now() < end; await page.waitForTimeout(200)) {
+      const text = (await card.locator('.call-status').textContent().catch(() => ''))?.trim() ?? '';
+      if (pattern.test(text)) return text;
+    }
+    assert.fail(`timed out: ${what} (${await card.locator('.call-status').textContent().catch(() => 'no card')})`);
+  };
+  const LISTENS = /^(Connecting…|Listening( · \d+:\d{2})?)$/;
 
-  // Talk in the first chat: the voice conversation starts; the cell turns "End voice" in its box.
+  // Talk in the first chat: the voice conversation starts on the chat's call card; the cell turns "End voice" in its box.
   await open(plan);
   await talk.waitFor({ timeout: 15_000 });
   await expectStable(page, headerCells, async () => {
     await talk.click();
     await endVoice.waitFor({ timeout: 20_000 });
   });
-  const one = await waitLines((now) => now.length === 1 && /Launch plan · (starting|listening)/.test(now[0]), 'the first chat talks');
-  assert.equal(one.length, 1);
+  await cardSays(LISTENS, 'the first chat talks on its card');
+  assert.deepEqual(await lineTexts(), [], 'the open chat\'s call is no status line');
   // The call is one bubble in the chat, written by this PC (B-085: a compact card whose accessible name is the title;
   // its toggle reads "Transcript").
   const bubbles = page.locator('.message-scroller .call-transcript');
@@ -132,13 +143,15 @@ test('call cell: two voice conversations, the focused chat listens, End per chat
   assert.equal((await callRows())[0]?.meta.call.participant, 'device:pc');
   await shot('call-00-one');
 
-  // Talk in the second chat: two lines, the newer one listens, the older one waits on hold; End per chat.
+  // Talk in the second chat: the newer one listens on its card, the older one waits on hold in the status line; End
+  // per chat (the line's End, the card's Hang up).
   await open(research);
   await talk.click();
   await endVoice.waitFor({ timeout: 20_000 });
-  const both = await waitLines((now) => now.length === 2 && now.some((text) => /Launch plan · on hold/.test(text)), 'both chats, the older one on hold');
-  assert.ok(both.some((text) => /Research · (starting|listening)/.test(text)), `the newer one listens: ${both.join(' | ')}`);
-  assert.equal(await voiceLines.getByRole('button', { name: 'End', exact: true }).count(), 2, 'End per chat');
+  await waitLines((now) => now.length === 1 && /Launch plan · on hold$/.test(now[0]), 'the older chat on hold in the status line');
+  await cardSays(LISTENS, 'the newer one listens on its card');
+  assert.equal(await voiceLines.getByRole('button', { name: 'End', exact: true }).count(), 1, 'End on the other chat\'s line');
+  assert.equal(await card.getByRole('button', { name: 'Hang up', exact: true }).count(), 1, 'Hang up on the open chat\'s card');
   await shot('call-01-two-light');
   const geometry = await page.evaluate(() => {
     const line = document.querySelector('.status-host .status-note[data-notice^="voice:"]').getBoundingClientRect();
@@ -152,7 +165,8 @@ test('call cell: two voice conversations, the focused chat listens, End per chat
 
   // The focused chat listens: opening Launch plan makes it the listening one.
   await open(plan);
-  await waitLines((now) => now.some((text) => /Launch plan · (listening|starting)/.test(text)) && now.some((text) => /Research · on hold/.test(text)), 'the opened chat listens');
+  await waitLines((now) => now.length === 1 && /Research · on hold$/.test(now[0]), 'the other chat on hold');
+  await cardSays(LISTENS, 'the opened chat listens on its card');
 
   await size(420, 860);
   await page.waitForTimeout(600);
@@ -174,26 +188,31 @@ test('call cell: two voice conversations, the focused chat listens, End per chat
   await size(1280, 820);
   await page.waitForTimeout(600);
 
-  // End on Research's line leaves one; the cell's "End voice" ends the last and the line goes.
+  // End on Research's line leaves the open chat's conversation on its card; the cell's "End voice" ends the last and the
+  // card goes.
   await voiceLines.filter({ hasText: 'Research' }).getByRole('button', { name: 'End', exact: true }).click();
-  const left = await waitLines((now) => now.length === 1, 'one conversation left');
-  assert.match(left[0], /Launch plan/);
+  await waitLines((now) => now.length === 0, 'Research ended: no line left');
+  await cardSays(LISTENS, 'one conversation left, the open chat\'s');
   await expectStable(page, headerCells, async () => {
     await endVoice.click();
     await talk.waitFor({ timeout: 10_000 });
   });
-  await voiceLines.first().waitFor({ state: 'detached', timeout: 10_000 });
+  await card.waitFor({ state: 'detached', timeout: 10_000 });
   await waitTitles((now) => now.length === 1 && /^Call · .+ · \d+:\d{2}$/.test(now[0]), 'the ended call shows how long it ran');
 
   // A dictation ends a running conversation first (one microphone).
   await talk.click();
-  await waitLines((now) => now.length === 1, 'talking again');
+  await cardSays(LISTENS, 'talking again');
   await page.locator('.composer button[aria-label="Dictate"]').click();
-  await waitLines((now) => now.length === 0, 'the dictation ended the conversation');
+  await card.waitFor({ state: 'detached', timeout: 20_000 }); // the dictation ended the conversation
+  assert.deepEqual(await lineTexts(), [], 'and no line stands for it');
   await page.locator('.composer button[aria-label="Stop dictation"]').click({ timeout: 10_000 }).catch(() => undefined);
   await talk.waitFor({ timeout: 15_000 });
   await waitTitles((now) => now.length === 2 && now.every((title) => /^Call · .+ · \d+:\d{2}$/.test(title)), 'talking again was a second call, ended by the dictation');
   assert.ok((await callRows()).every((row) => typeof row.meta.call.endedAt === 'number'));
 
-  assert.deepEqual(errors, [], 'no renderer errors');
+  // B-082: a conversation loads its turn models from app://app/turn/ and leaves out one that is not downloaded – that
+  // route answers 404 then (main/protocols/handlers.ts), as in this fresh profile; the detector keeps its level fallback
+  const notDownloaded = /^Failed to load resource: the server responded with a status of 404 \(Not Found\) \(app:\/\/app\/turn\/(silero_vad|smart-turn-v3\.2-cpu)\.onnx\)$/;
+  assert.deepEqual(errors.filter((text) => !notDownloaded.test(text)), [], 'no renderer errors');
 });

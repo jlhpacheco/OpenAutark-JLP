@@ -12,9 +12,9 @@ import assert from 'node:assert/strict';
 import { startRuntime } from './lib/runtime-client.mjs';
 
 const PARTS = [
-  { title: 'Alpha check', brief: 'Report the marker alpha-check-ok.', context: 'brief' },
-  { title: 'Beta check', brief: 'Report the marker beta-check-ok.', context: 'brief', returns: 'The marker only' },
-  { title: 'Gamma check', brief: 'Report the marker gamma-check-ok.', context: 'brief', model: 'same' },
+  { title: 'Alpha check', brief: 'Report the marker alpha-check-ok.', context: 'brief', needs: 'check' },
+  { title: 'Beta check', brief: 'Report the marker beta-check-ok.', context: 'brief', needs: 'check', returns: 'The marker only' },
+  { title: 'Gamma check', brief: 'Report the marker gamma-check-ok.', context: 'brief', needs: 'check', model: 'same' },
 ];
 const GOAL = 'Check alpha, beta and gamma in parallel';
 

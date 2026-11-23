@@ -51,11 +51,6 @@ export function originLabel(origin: ExternalOrigin): string {
   return origin.kind === 'library' ? `public library ${origin.source}` : origin.kind === 'project' ? 'home project' : 'outside this app';
 }
 
-/** A text from outside, cleaned and under its marker. */
-export function externalText(text: string, origin: ExternalOrigin): string {
-  return `${externalMarker(origin)}\n\n${stripInvisible(text).text.replace(/\r\n?/g, '\n').trim()}`;
-}
-
 const SENTENCE = /^(.{12,}?[.!?])(\s|$)/s;
 
 /** The first heading and the first sentence of a Markdown body, one line (≤ `max`): the description of a text that has none. */

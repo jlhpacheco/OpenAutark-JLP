@@ -56,7 +56,7 @@ public final class PhoneRoutesTest {
     /** 17.11.2026: Due notices share one tag and group: one title keeps its text, more say how many (each title once, the newest five). */
     private static void dueNotices() {
         check(PhoneRoutes.isDue("todo", "Due: Call the tax office") && !PhoneRoutes.isDue("todo", "Ida: Check") && !PhoneRoutes.isDue("reply", "Due: x") && !PhoneRoutes.isDue("todo", null));
-        check("due".equals(PhoneRoutes.DUE_TAG) && PhoneRoutes.DUE_SHOW_MS == 20_000);
+        check("due".equals(PhoneRoutes.DUE_TAG) && PhoneRoutes.DUE_SHOW_MS == 6_000);
         String[] one = PhoneRoutes.dueGroup(null, "Due: Call the tax office", "notes");
         check("Due: Call the tax office".equals(one[0]) && "notes".equals(one[1]) && "Call the tax office".equals(one[2]));
         String[] two = PhoneRoutes.dueGroup(one[2], "Due: Recording", "");

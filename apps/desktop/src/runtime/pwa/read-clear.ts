@@ -13,7 +13,8 @@
 
 import { HUMAN_ID } from '../../shared/ids.ts';
 import type { RuntimeServices } from '../contracts.ts';
-import { heldSubs, localSubs, ownerHeld, ownKey, pushTo, type PushFetch } from '../devices/sync/held-push.ts';
+import { heldSubs, localSubs, ownerHeld, ownKey, pushTo } from '../devices/sync/held-push.ts';
+import type { PushFetch } from './push.ts';
 import { pushTarget } from './push.ts';
 
 /** The last notice pushed for a chat, as far as an older service worker needs it to replace it in place. */

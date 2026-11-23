@@ -15,7 +15,7 @@ import { AccountRepo } from '../../../src/runtime/accounts/repo.ts';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
 import { Bus } from '../../../src/runtime/bus.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import type { Account, EngineId, LimitWindow, ProviderId } from '../../../src/shared/model/providers.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import { agent, mode, standardSetup } from '../models/harness.ts';

@@ -1,6 +1,7 @@
-// What the main AI sees of the subconscious (owner 01.11.2026): only real tool calls with their output, as if it had made
-// them itself – e.g. vector.search {query, in} with the hits the subconscious picked, its own tool (the one the main AI can call) with a note. An empty
-// trace shows nothing at all and the main AI's next model turn simply follows; there is no hint text in any prompt.
+// The calls a turn's trace carries into the main AI's history as real tool calls with their output (owner 01.11.2026) – what a run
+// kept for the thread, e.g. timeout decisions a native turn could not take in, or a note under the subconscious's own tool. An empty
+// trace shows nothing. Runde „Halb“ 21.11.2026: the entries the subconscious picks before a turn are no calls any more – they reach
+// the turn as one-line hints in its live block ("## From my memory", subconscious/hints.ts).
 // Owns: the trace shape, its size cap and the ids of its calls. Never: runs anything or knows an engine's wire format.
 
 /** The name a note of the subconscious stands under in the main AI's history: the tool it has in its list. */

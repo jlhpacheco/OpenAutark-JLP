@@ -4,24 +4,20 @@
 // and how the draft goes out – "Send as important", "Send silently" and "Schedule…" (which switches the composer into schedule mode, composer/ScheduleBar.tsx;
 // the Send button's right-click menu has the same three, slash.ts sendMenuItems). In schedule mode the first two read
 // "Schedule as important" / "Schedule silently" and "Schedule…" is ticked. Owner 04.11.2026: no entry is ever greyed out.
-// While a take runs the menu starts with "Discard dictation" (two deliberate clicks, nothing moves).
+// While a take records or is transcribed the + turns into an × that cancels it (PlusCancel.tsx, feedback FCMWNSOZ
+// 20.11.2026) – one click, the menu stays closed.
 // Owns: the menu. Never: uploads or sends itself (callbacks do).
 
 import { useRef, useState } from 'preact/hooks';
 import type { ConversationSummary } from '../../../shared/model/chat.ts';
-import { Icon, Menu } from '../../lib/ui.tsx';
+import { Menu } from '../../lib/ui.tsx';
 import type { MenuItem } from '../../lib/ui.tsx';
 import { can } from '../../lib/session.ts';
 import { sendMenuItems, type SendActions } from './slash.ts';
-
-/** The Plus menu's first entry while a take runs – throws the take away (the draft stays as it is). */
-export function discardDictationItem(discard: () => void): MenuItem {
-  return { label: 'Discard dictation', description: 'The words of this take are not kept', danger: true, onSelect: discard };
-}
+import { PlusCancel } from './PlusCancel.tsx';
+import { takeCancel } from './voice.ts';
 
 export interface PlusActions extends SendActions {
-  /** A take runs – the menu offers to discard it. */
-  discardDictation?: () => void;
   secret?: () => void;
   pickFiles: () => void;
   pickImages: () => void;
@@ -46,13 +42,13 @@ export function PlusMenu(props: { chat: ConversationSummary; actions: PlusAction
     ...(can('secrets.capture') && actions.secret ? [{ label: 'Secret', onSelect: actions.secret }] : []),
     ...(can('tasks.create') ? [{ label: 'Task', onSelect: actions.makeTask }] : []),
   ];
+  const cancel = takeCancel(props.chat.id);
   return (
     <>
-      <button ref={ref} type="button" class="icon-button composer-plus" aria-label="Add" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <Icon name="plus" size={20} />
-      </button>
-      <Menu anchor={ref.current} open={open} onClose={() => setOpen(false)} placement="top-start" width={260} label="Add"
-        sections={[...(actions.discardDictation ? [{ items: [discardDictationItem(actions.discardDictation)] }] : []), { items }, { items: sendMenuItems(actions) }]} />
+      <PlusCancel buttonRef={ref} class="composer-plus" label="Add" expanded={open} onClick={() => setOpen(!open)}
+        cancel={cancel && { label: cancel.label, run: () => { setOpen(false); cancel.run(); } }} />
+      <Menu anchor={ref.current} open={open && !cancel} onClose={() => setOpen(false)} placement="top-start" width={260} label="Add"
+        sections={[{ items }, { items: sendMenuItems(actions) }]} />
     </>
   );
 }

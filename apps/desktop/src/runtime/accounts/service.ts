@@ -29,18 +29,17 @@
 // 16.11.2026: a plan's home lives once per PC in its logins folder, shared by every company there (cli-homes.ts): a login
 // made in another company is adopted at the next detect (adoption.ts), remove drops only this company's row, a sign-out
 // signs the login out for all of them (the mark is the home's, so another company's check does not report it as
-// unexpected); the homes of before move there once at the start (bridge/logins-1611.ts).
+// unexpected).
+// 21.11.2026: one login, one plan – two rows of the same login merge into one on this PC (twins.ts), at the start and on every
+// account change.
 // Owns: the accounts table (via AccountRepo) and account.upserted / account.removed / usage.updated.
 // Never: reads provider tokens itself (cli-homes.ts and logins.ts copy login files), stores key values (SecretService does),
 // deletes a plan's home, or rotates mid-turn.
 
 import os from 'node:os';
-import path from 'node:path';
-import { moveLoginHomes } from '../bridge/logins-1611.ts';
 import type { AccountService as AccountServiceContract } from '../contracts.ts';
 import { DECISION_PROVIDER, MEDIA_ONLY_PROVIDERS, type Account, type AccountLimits, type DetectionReport, type EngineId, type ProviderId, type UsageSummary } from '../../shared/model/providers.ts';
 import { AccountRepo } from './repo.ts';
-import { migrateOldAccounts } from './legacy.ts';
 import { detect as scan } from './detect.ts';
 import { engineFor, selectCandidates } from './candidates.ts';
 import { mergeLimits } from './limits.ts';
@@ -54,7 +53,9 @@ import { DismissedLogins, dismissalKeys, serverKey } from './dismissed.ts';
 import { ProviderFile } from './provider-file.ts';
 import { Adoption, CLI_PROVIDERS } from './adoption.ts';
 import { AcpPlans } from './acp-plans.ts';
-import { CliHomes, signedOut } from './cli-homes.ts';
+import { CliHomes, defaultHome, loginFiles, signedOut, whoseLogin } from './cli-homes.ts';
+import { loginIn } from './login-file.ts';
+import { twinMerges, type HomeLogin } from './twins.ts';
 import { AcpLaunches, acpProvider } from '../engines/acp/providers.ts';
 import { Resets } from './resets.ts';
 import { testEndpoint, type EndpointTestInput } from './endpoint-test.ts';
@@ -93,13 +94,13 @@ export class AccountServiceImpl implements AccountServiceContract {
   private readonly signingOut = new Set<string>();
   /** Accounts that took the default home's newer login and wait for the check that reads it: their sign-out reports are stale. */
   private readonly retaking = new Set<string>();
+  private merging = false;
   /** Keeps plan readings current (started by the runtime; explicit calls work without it). */
   readonly monitor: AccountMonitor;
 
   constructor(deps: AccountServiceDeps) {
     this.deps = deps;
     this.repo = new AccountRepo(deps.db);
-    migrateOldAccounts(deps.db, deps.log); // once: older decision accounts become normal connections (legacy.ts)
     this.dismissed = new DismissedLogins(deps.db, () => this.now());
     this.monitor = new AccountMonitor({ accounts: this, bus: deps.bus, clock: deps.clock, log: deps.log });
     const { data, temp } = deps.paths;
@@ -114,10 +115,6 @@ export class AccountServiceImpl implements AccountServiceContract {
       repo: this.repo, dismissed: this.dismissed, save: (account: Account) => this.save(account), blank: (provider: ProviderId, patch: Partial<Account>) => this.blank(provider, patch),
     };
     this.homes = new CliHomes({ ...store, accounts: deps.paths.accounts, env: deps.env, homeDir: deps.homeDir, login: (id, away) => this.login(id, { page: true, away }), require: (id) => this.require(id), mkdir: deps.mkdir });
-    // bridge: this company's homes of before (<data>/accounts) move into this PC's logins folder, before anything uses them
-    if (deps.paths.data) void moveLoginHomes({ db: deps.db, repo: this.repo, legacy: path.join(deps.paths.data, 'accounts'), logins: deps.paths.accounts, log: deps.log });
-    // once: a Codex account from before that runs in the default home moves into a home of its own with a copy of its login
-    for (const account of this.repo.list()) if (account.provider === 'codex' && account.auth === 'cli' && !account.home) this.repo.save(this.homes.found(account));
     this.adoption = new Adoption({
       ...store, found: (account) => this.homes.found(account), shared: () => this.homes.shared(), checkOnce: (id) => this.monitor.checkOnce(id), env: () => this.env(), now: () => this.now(), demo: deps.demo,
       scan: () => scan({ finder: deps.finder, supervisor: deps.supervisor, env: deps.env, now: () => this.now(), cwd, launches: this.launches, version: deps.version, ...deps.detectDeps }),
@@ -126,15 +123,36 @@ export class AccountServiceImpl implements AccountServiceContract {
     this.resets = new Resets({ get: (id) => this.repo.get(id), engine: () => this.deps.engines().get('codex'), check: (id) => this.monitor.checkNow(id) });
     if (deps.settings) {
       this.file = new ProviderFile({
-        ...store, db: deps.db, settings: deps.settings, now: () => this.now(), log: deps.log, forget: (account) => this.forget(account),
+        ...store, db: deps.db, settings: deps.settings, now: () => this.now(), forget: (account) => this.forget(account),
         check: (id) => { if (this.checking) void this.monitor.checkNow(id); },
       });
-      // once: API connections from before the file; a file that cannot be written now must not stop the start, they move at the next
-      try { this.file.moveOld(); } catch (error) { deps.log?.warn('API connections not moved into settings.json', { error: String(error) }); }
       this.file.sync();
       deps.bus.on('settings.updated', () => this.file!.sync());
       this.checking = true;
     }
+    this.mergeTwins(); // an installation from before may hold them already
+    deps.bus.on('account.upserted', (account) => { if (account.auth === 'cli' && account.email) this.mergeTwins(); });
+  }
+
+  /** One login, one plan (twins.ts): a twin row goes on this PC only, the kept one runs on the home with the newest login. */
+  private mergeTwins(): void {
+    if (this.merging) return;
+    this.merging = true;
+    try {
+      for (const { keep, home, drop } of twinMerges(this.repo.list(), (account) => this.held(account))) {
+        for (const twin of drop) this.forget(twin, keep.id);
+        if (home !== keep.home) this.save({ ...this.require(keep.id), home });
+      }
+    } catch (error) { this.deps.log?.warn('plan twins not merged', { error: String(error) }); }
+    finally { this.merging = false; }
+  }
+
+  private held(account: Account): HomeLogin {
+    const home = account.home ?? defaultHome(account.provider, this.env(), this.deps.homeDir ?? os.homedir());
+    const file = loginFiles(account.provider)[0];
+    if (!home || !file) return { at: 0 };
+    const who = whoseLogin(account.provider, home);
+    return { ...(who ? { who } : {}), at: loginIn(account.provider, home, file)?.at ?? 0 };
   }
 
   /** The ACP engine's resolver (createEngineRegistry `acp`): the agent an ACP plan account starts; undefined when its CLI is missing. */
@@ -282,11 +300,12 @@ export class AccountServiceImpl implements AccountServiceContract {
     this.forget(account);
   }
 
-  private forget(account: Account): void {
+  /** `twinOf`: the row that stays for this login (mergeTwins) – no linked PC loses its row. */
+  private forget(account: Account, twinOf?: string): void {
     this.resets.forget(account.id);
     this.repo.remove(account.id);
-    for (const key of dismissalKeys(account)) this.dismissed.add(key); // detection must not add it back; "Add again" undoes this
-    this.deps.bus.emit('account.removed', { id: account.id });
+    for (const key of dismissalKeys(account)) this.dismissed.add(key); // detection must not add it back (a twin's login is the kept row's); "Add again" undoes this
+    this.deps.bus.emit('account.removed', { id: account.id, ...(twinOf ? { twinOf } : {}) });
   }
 
   async install(provider: 'claude' | 'codex'): Promise<void> {

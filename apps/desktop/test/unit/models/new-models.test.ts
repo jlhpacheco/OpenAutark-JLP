@@ -1,15 +1,13 @@
 // A provider's new model is there by itself (owner 09.11.2026: "automatisch geladen, automatisch gefunden, automatisch
 // verwendet"): a version newer than every curated one takes its predecessor's prior (models/priors.ts forNewer), cooling
-// accounts are listed too (catalog-merge.ts isListable), a started catalog lists again on its own (catalog.ts), and
-// Claude Code updates itself (engines/claude/cli-update.ts) – live, 2.1.303 knew no Fable 5.2 and 2.1.321 did.
+// accounts are listed too (catalog-merge.ts isListable) and a started catalog lists again on its own (catalog.ts). Claude Code
+// and Codex keep themselves current (engines/cli-update.ts) – its tests are test/unit/engines/cli-update.test.ts.
 // Owns: these assertions only.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Priors } from '../../../src/runtime/models/priors.ts';
-import { claudeBusy, keepClaudeCodeCurrent, updateClaudeCode } from '../../../src/runtime/engines/claude/cli-update.ts';
 import { account, setup, standardSetup } from './harness.ts';
-import { fakeFinder, fakeSpawn, testSupervisor, type SpawnCall } from '../engines/fakes.ts';
 
 const PRIORS = Priors.parse({
   version: 'test', categories: {},
@@ -96,85 +94,4 @@ test('a started catalog lists every account again on its own', async () => {
   } finally {
     catalog.stop();
   }
-});
-
-/** updateClaudeCode with a fake `claude update` that prints `out` and exits with `code`. */
-function updater(out: string, code = 0, finder: Record<string, string | null> = { claude: '/bin/claude' }, accounts = [{ provider: 'claude', enabled: true }]) {
-  const { spawn, calls } = fakeSpawn((call: SpawnCall) => setImmediate(() => { call.child.stdout.write(out); call.child.exit(code); }));
-  const supervisor = testSupervisor(spawn);
-  const log = { infos: [] as string[], warns: [] as string[], info(msg: string) { this.infos.push(msg); }, warn(msg: string) { this.warns.push(msg); } };
-  let updated = 0;
-  const deps = { supervisor, finder: fakeFinder(finder), log, onUpdated: () => { updated++; }, env: {}, testProfile: false, accounts: () => accounts as { provider: 'claude' | 'codex'; enabled: boolean; deviceId?: string }[] };
-  return { deps, calls, log, supervisor, updated: () => updated };
-}
-
-test('Claude Code updates itself with its own updater; a new version lists the Claude accounts again', async () => {
-  const r = updater('Current version: 2.1.303\nNew version available: 2.1.321\nSuccessfully updated from 2.1.303 to version 2.1.321\n');
-  assert.equal(await updateClaudeCode(r.deps), 'updated');
-  assert.deepEqual(r.calls.map((call) => [call.command, ...call.args]), [['/bin/claude', 'update']]);
-  assert.equal(r.updated(), 1);
-  assert.deepEqual(r.log.infos, ['Claude Code updated']);
-
-  const same = updater('Current version: 2.1.321\nClaude Code is up to date (2.1.321)\n');
-  assert.equal(await updateClaudeCode(same.deps), 'current');
-  assert.equal(same.updated(), 0);
-
-  const failed = updater('npm ERR! EBUSY', 1);
-  assert.equal(await updateClaudeCode(failed.deps), 'failed');
-  assert.deepEqual(failed.log.warns, ['Claude Code update failed']);
-});
-
-test('no update while a Claude process of the runtime runs, without Claude Code, or in demo mode', async () => {
-  const busy = updater('Successfully updated');
-  busy.supervisor.spawn({ command: '/bin/claude', args: ['-p'], owner: 'claude:run_1', kind: 'heavy' });
-  assert.ok(claudeBusy(busy.supervisor));
-  assert.equal(await updateClaudeCode(busy.deps), 'busy');
-  assert.equal(busy.calls.length, 1, 'only the turn ran');
-
-  const none = updater('Successfully updated', 0, { claude: null });
-  assert.equal(await updateClaudeCode(none.deps), 'missing');
-  const demo = updater('Successfully updated');
-  assert.equal(await updateClaudeCode({ ...demo.deps, demo: true }), 'missing');
-  assert.equal(none.calls.length + demo.calls.length, 0);
-});
-
-test('the PC\'s Claude Code is updated only for a profile with a Claude account in use here, never for a test profile (FIXES-4 G3)', async () => {
-  const runs = async (accounts: { provider: 'claude' | 'codex'; enabled: boolean; deviceId?: string }[], env: NodeJS.ProcessEnv = {}) => {
-    const r = updater('Successfully updated', 0, { claude: '/bin/claude' }, accounts);
-    const outcome = await updateClaudeCode({ ...r.deps, env });
-    return { outcome, calls: r.calls.length };
-  };
-  assert.deepEqual(await runs([{ provider: 'claude', enabled: true }]), { outcome: 'updated', calls: 1 });
-  assert.deepEqual(await runs([]), { outcome: 'unused', calls: 0 }, 'no Claude account');
-  assert.deepEqual(await runs([{ provider: 'claude', enabled: false }, { provider: 'codex', enabled: true }]), { outcome: 'unused', calls: 0 }, 'every Claude account off');
-  assert.deepEqual(await runs([{ provider: 'claude', enabled: true, deviceId: 'dev_other' }]), { outcome: 'unused', calls: 0 }, 'a Claude account of another PC');
-  const profile = updater('Successfully updated');
-  assert.equal(await updateClaudeCode({ ...profile.deps, testProfile: true }), 'unused', 'a test profile');
-  assert.equal(profile.calls.length, 0);
-});
-
-test('the test profile is read from the runtime\'s own env, not from the env the update process gets (review R2)', async () => {
-  const before = process.env.WORKFORCE_TEST_DATA;
-  process.env.WORKFORCE_TEST_DATA = 'C:\\profile';
-  try {
-    const r = updater('Successfully updated');
-    const { testProfile: _, ...deps } = r.deps;
-    assert.equal(await updateClaudeCode({ ...deps, env: { PATH: '/bin' } }), 'unused');
-    assert.equal(r.calls.length, 0);
-  } finally {
-    if (before === undefined) delete process.env.WORKFORCE_TEST_DATA; else process.env.WORKFORCE_TEST_DATA = before;
-  }
-});
-
-test('a Claude account that arrives after the first attempt gets the update at the next short retry (review R1)', async () => {
-  const accounts: { provider: 'claude' | 'codex'; enabled: boolean }[] = [];
-  const r = updater('Successfully updated', 0, { claude: '/bin/claude' }, accounts);
-  const stop = keepClaudeCodeCurrent({ ...r.deps, firstAfterMs: 1, retryMs: 30, everyMs: 60 * 60_000 });
-  try {
-    await new Promise((resolve) => setTimeout(resolve, 15));
-    assert.equal(r.calls.length, 0, 'no account at the first attempt');
-    accounts.push({ provider: 'claude', enabled: true });
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    assert.equal(r.calls.length, 1);
-  } finally { stop(); }
 });

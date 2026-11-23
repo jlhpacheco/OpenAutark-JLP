@@ -74,12 +74,6 @@ export function withEntries(file: ConnectorFile, text: string, servers: readonly
 /** The file with a new entry `name` (made free). */
 export const withEntry = (file: ConnectorFile, text: string, name: string, entry: Json): string => withEntries(file, text, [{ name, entry }]);
 
-/** The file without the entry `name`. */
-export function withoutEntry(file: ConnectorFile, text: string, name: string): string {
-  const { root, entries } = parsed(file, text);
-  const { [name]: _gone, ...rest } = entries;
-  return written(file, root, rest);
-}
 
 /** The entry `name` changed by `patch`; a key set to undefined leaves it. */
 export function patchedEntry(file: ConnectorFile, text: string, name: string, patch: Json): string {
@@ -89,8 +83,6 @@ export function patchedEntry(file: ConnectorFile, text: string, name: string, pa
   return written(file, root, { ...entries, [name]: { ...entry, ...patch } });
 }
 
-/** On or off: the keys the runtime reads ("disabled": true; an "enabled" of another tool goes). */
-export const switchPatch = (on: boolean): Json => ({ disabled: on ? undefined : true, enabled: undefined });
 
 /** An HTTP header that carries a token by its handle. */
 export const tokenHeaders = (secretId: string): Json => ({ Authorization: `Bearer secret://${secretId}` });

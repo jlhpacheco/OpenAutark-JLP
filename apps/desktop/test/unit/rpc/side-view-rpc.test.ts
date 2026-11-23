@@ -1,5 +1,6 @@
 // B-076: the RPC side.* (src/runtime/rpc/handlers/side-view.ts): without `device`, or with this PC's own id, a call
-// serves this PC's tabs; with another PC's id it goes over the link (devices.call) with the caller here as `via` – the
+// serves this PC's tabs; with another PC's id it goes over the link (21.11.2026: pane/relay.ts callPc – an unlinked PC
+// through the company's PC as pane.relay) with the caller here as `via` – the
 // owner or the phone's id – and frames in parts of at most 1 MiB; input is checked before anything leaves; a reply
 // without a state is refused. The owner and a phone holding 'todo' on a secure transport reach them, nobody else.
 // Owns: these assertions only. Never: a real link, Electron or a socket.
@@ -12,19 +13,33 @@ import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import type { ClientScope } from '../../../src/shared/api/protocol.ts';
 import type { HostOps } from '../../../src/shared/api/host-bridge.ts';
 import { SIDE_PART_BYTES } from '../../../src/shared/model/side-view.ts';
+import { DevicesRepo } from '../../../src/runtime/devices/repo.ts';
+import { memoryDb } from '../devices/fakes.ts';
+import { record } from '../devices/sync-net.ts';
+
+/** This PC's devices: dev_b one of the CEO's own PCs (`company`: this PC an employee's, dev_boss the company it joined). */
+function linked(company = false) {
+  const db = memoryDb();
+  const repo = new DevicesRepo(db);
+  repo.upsert(record('dev_self', { self: true, name: 'office-pc' }));
+  repo.upsert(record('dev_b'));
+  if (company) repo.upsert(record('dev_boss', { joinedAs: 'employee' }));
+  return db;
+}
 
 const TAB = 'web-2222';
 const OWNER: ClientScope = { kind: 'owner' } as ClientScope;
 const PHONE: ClientScope = { kind: 'device', deviceId: 'dev_phone', capabilities: ['todo', 'chat'], secure: true } as ClientScope;
 const code = (error: unknown) => (error as { code?: string }).code;
 
-function rig(reply: unknown = { state: { tab: TAB, pc: 'other-pc', at: 5 } }) {
+function rig(reply: unknown = { state: { tab: TAB, pc: 'other-pc', at: 5 } }, company = false) {
   const table = new HandlerTable();
   register(table);
   const calls: Array<{ device: string; method: string; params: unknown }> = [];
   const navs: Array<HostOps['sideNav']['args']> = [];
   const casts: Array<HostOps['sideCast']['args']> = [];
   const services = {
+    db: linked(company),
     devices: {
       self: () => ({ id: 'dev_self', name: 'office-pc' }),
       call: async (device: string, method: string, params: unknown) => { calls.push({ device, method, params }); return method === 'side.pullPart' ? { data: 'PART' } : method === 'side.pull' ? reply : { ok: true }; },
@@ -98,7 +113,7 @@ test('the owner and a phone holding todo on a secure transport reach side.*; a p
 test('side.open with another PC\'s id opens the page in that PC\'s pane over the link; without it, in this one', async () => {
   const r = rig();
   const opened: unknown[] = [];
-  const services = { devices: { self: () => ({ id: 'dev_self', name: 'office-pc' }), call: async (device: string, method: string, params: unknown) => { r.calls.push({ device, method, params }); return { ok: true, tab: 'web-9999' }; } },
+  const services = { db: linked(), devices: { self: () => ({ id: 'dev_self', name: 'office-pc' }), call: async (device: string, method: string, params: unknown) => { r.calls.push({ device, method, params }); return { ok: true, tab: 'web-9999' }; } },
     host: { sideBrowser: async (args: unknown) => { opened.push(args); return { ok: true, tab: 'web-1234' }; } } } as unknown as RuntimeServices;
   const call = async (params: unknown): Promise<unknown> => r.table.get('side.open')!.handler(params as never, { scope: OWNER, services, extras: {} as never, topics: new Set(), signal: new AbortController().signal, secure: true } as unknown as HandlerContext);
   assert.deepEqual(await call({ url: 'https://calendar.example/', device: 'dev_b' }), { ok: true, tab: 'web-9999' });
@@ -108,4 +123,13 @@ test('side.open with another PC\'s id opens the page in that PC\'s pane over the
   assert.equal(opened.length, 1);
   await assert.rejects(call({ url: 'javascript:alert(1)', device: 'dev_b' }), (error: unknown) => code(error) === 'bad_request');
   assert.equal(r.calls.length, 1, 'a bad address never leaves this PC');
+});
+
+test("21.11.2026: on an employee's PC a colleague's PC (no link here) is asked through the company's PC", async () => {
+  const r = rig(undefined, true);
+  await r.run('side.nav', { device: 'dev_colleague', tab: TAB, action: 'reload' });
+  assert.deepEqual(r.calls, [{ device: 'dev_boss', method: 'pane.relay', params: { to: 'dev_colleague', method: 'side.nav', params: { tab: TAB, action: 'reload' } } }]);
+  await r.run('side.nav', { device: 'dev_b', tab: TAB, action: 'back' });
+  assert.deepEqual(r.calls[1], { device: 'dev_b', method: 'side.nav', params: { tab: TAB, action: 'back' } }, 'a linked PC directly');
+  await assert.rejects(rig().run('side.nav', { device: 'dev_colleague', tab: TAB, action: 'reload' }), (error: unknown) => code(error) === 'unavailable', 'no link, no company: nobody to ask');
 });

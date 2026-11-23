@@ -1,7 +1,8 @@
 // B-078 roster between my own devices (devices/sync/roster.ts): my other PC learns every device this PC knows with the
 // same relation – a PC through the mesh (my employer's PC as an employer, my employee's PC with its person), a phone as
 // a client row with its token hash –; a removal wins over an older pairing and a newer pairing over a removal; the
-// roster comes only from my own PCs; held push subscriptions follow the sender's own list; device.sibling stores a
+// roster comes only from my own PCs and, in rhythm, only when it changed since that PC took it; held push subscriptions
+// follow the sender's own list; device.sibling stores a
 // person's other PC with the same person (one notice) or another PC of my employer, and each of my PCs is introduced
 // once over every employer/employee link. Removals follow introductions, an introduction never relabels a linked PC, a
 // sibling goes with the PCs that introduced it, and a removed person's or an expired phone is nobody's push target.
@@ -80,6 +81,24 @@ test('my other PC learns every device with the same relation: my employer, my em
   const calls = net.calls.filter((call) => call.method === ROSTER_METHOD).length;
   await a.roster.flush();
   assert.equal(net.calls.filter((call) => call.method === ROSTER_METHOD).length, calls, 'an unchanged roster is not sent again');
+});
+
+test('22.11.2026: a catch-up in rhythm sends the roster only when it changed since that PC took it; a link-up sends it whole again', async () => {
+  const net = new Net();
+  const a = pc(net, 'alpha');
+  const b = pc(net, 'beta');
+  mine(a, b);
+  const sent = () => net.calls.filter((call) => call.method === ROSTER_METHOD && call.from === a.id).length;
+  await a.roster.linkUp(b.id);
+  assert.equal(sent(), 1);
+  await a.roster.linkUp(b.id, true);
+  assert.equal(sent(), 1, 'nothing new: nothing sent');
+  a.repo.upsert(device(id('phone2'), { kind: 'phone', role: 'client', publicKey: undefined })); // a change no event told
+  await a.roster.linkUp(b.id, true);
+  assert.equal(sent(), 2, 'the next round brings it');
+  assert.equal(b.repo.get(id('phone2'))?.kind, 'phone');
+  await a.roster.linkUp(b.id);
+  assert.equal(sent(), 3, 'a link-up sends it whole again');
 });
 
 test('a removal wins over an older pairing, a pairing after the removal wins over it; only my own PCs send a roster', async () => {

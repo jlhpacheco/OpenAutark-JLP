@@ -15,7 +15,7 @@ import type { Host } from '../../../src/runtime/host.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import type { ToolContext, ToolDef } from '../../../src/runtime/tools/types.ts';
 import { deviceTools, runRemoteTool, watched } from '../../../src/runtime/devices/tools.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { HUMAN_ID, SYSTEM_ID } from '../../../src/shared/ids.ts';
 import type { ComputerActivityState } from '../../../src/shared/model/computer.ts';
 import { memoryDb, recordingBus } from '../store/helpers.ts';

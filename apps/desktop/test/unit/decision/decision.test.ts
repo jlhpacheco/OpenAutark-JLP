@@ -17,7 +17,7 @@ function stub(id: string, answer: (request: DecisionRequest) => DecisionResult |
   return { backend, seen };
 }
 
-const choice: DecisionRequest = { type: 'choice', question: 'Which widget?', options: ['record', 'timer'], purpose: 'widget' };
+const choice: DecisionRequest = { type: 'choice', question: 'Which widget?', options: ['record', 'timer'], purpose: 'other' };
 
 test('the first available backend answers; a failure falls through; "none" is always offered', async () => {
   const down = stub('a', () => new Error('down'));

@@ -57,15 +57,15 @@ function portConnection(port: PortMainLike): RpcConnection {
   };
 }
 
-/** Main's own port is marked `main` (secrets.fillLogin answers it alone); the window's is owner scope marked `window` (16.11.2026: the Security log names the person only there). */
+/** Main's own port is marked `main` (secrets.fillLogin answers it alone); both it and the window's are the person (`person`, FX1 19.11.2026: the person's own methods and the Security log's name take only these and the person token). */
 function serve(port: PortMainLike, client: 'desktop' | 'main'): void {
   if (!runtime && !repair) { pendingPorts.push({ port, client }); return; }
-  if (runtime) runtime.attach(portConnection(port), client === 'main' ? { kind: 'owner', main: true } : { kind: 'owner', window: true });
+  if (runtime) runtime.attach(portConnection(port), client === 'main' ? { kind: 'owner', main: true, person: true } : { kind: 'owner', person: true });
   else repair!.attach(portConnection(port));
   port.start();
 }
 
-async function boot(token: string, app: AppInfo): Promise<void> {
+async function boot(token: string, app: AppInfo, personToken?: string): Promise<void> {
   const host = createElectronHost(bridge, app);
   journal = new BootJournal({ dataDir: app.dataDir });
   const outcome = await guardedBoot({
@@ -79,6 +79,7 @@ async function boot(token: string, app: AppInfo): Promise<void> {
       resourcesDir: path.join(app.resourcesDir, 'resources'),
       staticDir: path.join(app.resourcesDir, 'app', 'ui'),
       launchToken: token,
+      ...(personToken ? { personToken } : {}), // FX1: a test profile's only (the window and main are their ports)
       version: app.version,
       fakeEngine: process.env.WORKFORCE_FAKE_ENGINE === '1',
       // A test profile and another company (B-072) keep the agents' files too (never the person's ~/Workforce).
@@ -97,7 +98,7 @@ parentPort.on('message', (event) => {
   switch (message.type) {
     case 'init':
       if (booting) return;
-      booting = boot(message.token, message.app).catch((error) => {
+      booting = boot(message.token, message.app, message.personToken).catch((error) => {
         console.error('runtime failed to start', error);
         process.exit(1);
       });

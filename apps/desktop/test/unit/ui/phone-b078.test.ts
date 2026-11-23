@@ -9,12 +9,12 @@ import { nextBack } from '../../../src/ui/pwa/back.ts';
 import { isAndroidApp } from '../../../src/ui/pwa/native.ts';
 import { EDGE_PX, OWNS_SIDEWAYS, SWIPED_MESSAGE, chatSwipe, swipeTurn } from '../../../src/ui/workspace/phone-swipe.ts';
 import { readFileSync } from 'node:fs';
-import { incomingText, phoneDot, phoneQrHint, PHONE_IN_USE_MS } from '../../../src/ui/settings/connect-text.ts';
+import { incomingText, phoneDot, PHONE_IN_USE_MS, PHONE_QR_HINT } from '../../../src/ui/settings/connect-text.ts';
 import type { RemoteIncoming } from '../../../src/shared/model/remote.ts';
 
 const none = { overlay: false, sheet: false, area: false };
 
-test('Back closes layers first, then goes up, and is done on My day', () => {
+test('Back closes layers first, then goes up, and is done on Tasks', () => {
   assert.equal(nextBack({ view: 'chat', id: 'c1' }, { ...none, overlay: true, sheet: true }), 'overlay');
   assert.equal(nextBack({ view: 'chat', id: 'c1' }, { ...none, sheet: true, area: true }), 'sheet');
   assert.equal(nextBack({ view: 'chat', id: 'c1' }, { ...none, area: true }), 'area');
@@ -28,7 +28,7 @@ test('Back closes layers first, then goes up, and is done on My day', () => {
   assert.deepEqual(nextBack({ view: 'chats' }, none), { view: 'home' });
   assert.deepEqual(nextBack({ view: 'team' }, none), { view: 'home' });
   assert.equal(nextBack({ view: 'home' }, none), false);
-  assert.equal(nextBack({ view: 'day' }, none), false);
+  assert.equal(nextBack({ view: 'tasks' }, none), false, 'the Tasks page is the tab root, like Home');
 });
 
 test('a swipe counts only away from the edges, clearly sideways and long enough', () => {
@@ -64,10 +64,9 @@ test('the Android app is told by its user agent', () => {
 test('Settings › Devices: the phone asks in its own words; its dot needs no switch', () => {
   const phone = { role: 'phone', name: 'Pixel 8', code: '4821' } as unknown as RemoteIncoming;
   assert.deepEqual(incomingText(phone), { label: 'Phone Pixel 8 asks to connect', hint: 'Accept only if the phone shows the code 4821' });
-  assert.deepEqual(incomingText({ role: 'employee', name: 'Tower', code: '1234' }), { label: 'Tower wants to connect as an employee', hint: 'Accept only if Tower shows the code 1234' });
-  assert.match(phoneQrHint(false), /^This PC · in the Autark app on Android scan this or type these digits/, 'F17: the digits are this PC\'s own');
-  assert.match(phoneQrHint(true), /I was invited/);
-  assert.match(phoneQrHint(false), /on an iPhone in the web app from openautark\.com, added to the Home Screen from Safari/, '16.11.: the iPhone way too');
+  assert.deepEqual(incomingText({ role: 'employee', name: 'Tower', code: '1234' }), { label: 'Tower wants to join as a new member', hint: 'Accept only if Tower shows the code 1234' });
+  assert.match(PHONE_QR_HINT, /^This PC · in the Autark app on Android scan this or type these digits/, 'F17: the digits are this PC\'s own');
+  assert.match(PHONE_QR_HINT, /on an iPhone in the web app from openautark\.com, added to the Home Screen from Safari/, '16.11.: the iPhone way too');
   assert.equal(phoneDot({ lastSeenAt: 1_000 }, 1_000 + PHONE_IN_USE_MS - 1), 'online');
   assert.equal(phoneDot({ lastSeenAt: 1_000 }, 1_000 + PHONE_IN_USE_MS), 'offline');
   assert.equal(phoneDot({}), 'offline');

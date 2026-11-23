@@ -15,7 +15,7 @@ import { modelDir } from '../../../src/runtime/voice/local/store.ts';
 import { SMALL_MODEL_MB } from '../../../src/runtime/voice/local/engine.ts';
 import { MAX_WINDOWS, mergeSounds, setSoundTagger, SoundTagger, soundTagger, soundsText, spanText, tagWindows, timeText, type SoundEvent, type TaggerAddon } from '../../../src/runtime/media/sounds.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { tempDir } from '../store/helpers.ts';
 import { decodedSpan, fakeAddon, installFakeTagger, RATE, toneThenSilence } from './sounds-fixture.ts';
 

@@ -6,6 +6,7 @@
 // Owns: these formatting rules and DAY_MS. Never: reads settings (callers pass the zone), or dates in
 // prompts that must stay cache-stable (only volatile sections and tool results use this).
 
+import { wallOf } from '../../shared/text/when.ts';
 import { validZone } from '../context/time.ts';
 
 const MINUTE = 60_000;
@@ -25,20 +26,9 @@ export function ageText(then: number, now: number): string {
   return `${years} year${years === 1 ? '' : 's'} ago`;
 }
 
-const dayFormats = new Map<string, Intl.DateTimeFormat>();
-
 /** The day of a timestamp, YYYY-MM-DD, in `zone` (the profile zone; unknown or undefined = the process zone). */
 export function dayText(at: number, zone: string | undefined): string {
-  const key = zone ?? '';
-  let format = dayFormats.get(key);
-  if (!format) {
-    format = new Intl.DateTimeFormat('en-GB', { timeZone: validZone(zone), year: 'numeric', month: '2-digit', day: '2-digit' });
-    if (dayFormats.size > 16) dayFormats.clear();
-    dayFormats.set(key, format);
-  }
-  const parts: Record<string, string> = {};
-  for (const part of format.formatToParts(at)) parts[part.type] = part.value;
-  return `${parts.year}-${parts.month}-${parts.day}`;
+  return wallOf(at, zone).date;
 }
 
 /** The weekday of a timestamp in `zone`, in English: a relative time in a person's words ("this week") needs it next to the day. */

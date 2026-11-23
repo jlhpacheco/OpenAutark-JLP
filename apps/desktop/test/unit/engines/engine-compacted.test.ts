@@ -7,7 +7,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CodexEngine } from '../../../src/runtime/engines/codex/engine.ts';
-import { ClaudeEngine, type FileOps } from '../../../src/runtime/engines/claude/engine.ts';
+import { ClaudeEngine } from '../../../src/runtime/engines/claude/engine.ts';
+import { nodeFiles, type FileOps } from '../../../src/runtime/engines/claude/rebuild.ts';
 import { ClaudeStreamParser } from '../../../src/runtime/engines/claude/stream.ts';
 import { account, fakeFinder, fakeSpawn, testSupervisor, turnInput } from './fakes.ts';
 
@@ -77,7 +78,7 @@ test('claude: a main-thread system/compact_boundary sets result.compacted; a sub
       setImmediate(() => child.exit(0));
     };
   });
-  const files: FileOps = { writeFile: async () => {}, readFile: async () => new Uint8Array(), rm: async () => {}, mkdir: async () => {} };
+  const files: FileOps = { ...nodeFiles, writeFile: async () => {}, readFile: async () => new Uint8Array(), rm: async () => {}, mkdir: async () => {} };
   let n = 0;
   const e = new ClaudeEngine({ supervisor: testSupervisor(spawn), finder: fakeFinder({ claude: '/bin/claude' }), tempDir: '/tmp/wf', files, uuid: () => `00000000-0000-4000-8000-00000000000${++n}` });
   const plain = await e.run(turnInput({ model: 'claude-opus-5-5', account: account({ provider: 'claude' }) }).input);

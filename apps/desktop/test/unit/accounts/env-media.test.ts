@@ -2,14 +2,14 @@
 // generation on an 'env' account get a spend estimate for the permission/budget gate, and automatic
 // media routing ranks it behind free connections (skipped while routing.allowPaidFallback is off):
 // media/generate.ts (mediaTarget) and models/functions.ts (paid) decide 'paid' with
-// models/pricing.ts chargeOf.
+// shared/model/charge.ts accountCharge.
 // Owns: these assertions only. Never: a real provider, key or network.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { estimateUsd, mediaTarget, type GenerateServices } from '../../../src/runtime/media/generate.ts';
 import { functionStatus } from '../../../src/runtime/models/functions.ts';
-import { chargeOf } from '../../../src/runtime/models/pricing.ts';
+import { accountCharge } from '../../../src/shared/model/charge.ts';
 import type { Account, ModelFunction, ModelInfo } from '../../../src/shared/model/providers.ts';
 import { row } from './harness.ts';
 
@@ -32,7 +32,7 @@ function services(accounts: Account[], models: ModelInfo[], allowPaidFallback: b
 }
 
 test('image and speech on an environment key are paid calls with a spend estimate for the gate', () => {
-  assert.equal(chargeOf(env), 'paid');
+  assert.equal(accountCharge(env), 'paid');
   const s = services([env], [model(env, 'gpt-image-1', 'image'), model(env, 'tts-1', 'tts')], true);
   const image = mediaTarget(s, 'image');
   const speech = mediaTarget(s, 'tts');

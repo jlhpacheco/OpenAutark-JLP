@@ -5,32 +5,46 @@
 // posted a message into that chat during this run (a message carrying its runId) – that second way only POST_CHAT_MS
 // after its last post there (Konrad 17.11.2026: a run that posted into sixteen chats over a day is not "working" in
 // all sixteen). A run with no chat of its own (a schedule's) shows in the chat of its last post for as long as it runs.
+// Owner 19.11.2026 ("irgendwann wird es nicht mehr schön synchronisiert, ob die KI gerade arbeitet"): a chat whose
+// person's line was folded into the running turn (a run note with steered.conversationId – one context per agent)
+// counts for as long as the run runs, since the work goes on for that person there.
+// Owner 20.11.2026 (FCMWNRKJ, Konrad: "Felix setzt jetzt um" – "da müsste es weitergehen", and nothing showed Felix
+// working): work an agent's turn gave away from a chat counts there too, for as long as it runs – a run on a task whose
+// giving turn was in that chat (TaskLedger.givenIn: tasks.add or tasks.update for a colleague), a part of a split
+// group on such a task (`handedChat`). So the person sees in the chat they asked in that the work goes on, and by whom.
 // Nothing else – a chat nothing comes from right now shows nothing.
 // Fed by what this PC runs: the dispatcher's activity snapshot (agent.activity: the running runs and parts, their note,
-// model · effort), the run journal (run.item: the step it is on – itemStep, thoughtStep, and the agent's own sentence:
+// model · effort, and `fold` for a context fold, which the bar names instead of its step), the run journal (run.item: the step it is on – itemStep, thoughtStep, and the agent's own sentence:
 // the first sentence of its newest working note 'Update' outside its <chat> blocks, which stays the step until its next one, so the bar says in
-// the agent's words what it is on instead of its newest tool label – KI-Runde 17.11.2026) and posted messages
+// the agent's words what it is on instead of its newest tool label – KI-Runde 17.11.2026; after SAID_HOLD_MS its tool
+// steps show again, so a long stretch of work never reads as one old sentence – owner 19.11.2026) and posted messages
 // (message.created). A chat whose entries changed gets its summary announced again (`announce`: conversation.upserted
 // with ConversationSummary.live) – the first change after a quiet moment at once, further ones together after GAP_MS –
 // so windows, phones and runtime readers all read the same list. Feedback F10 (16.11.2026): what the person's other PCs
 // run comes in as their whole live state (devices/sync/live.ts, sync.live: `snapshot()` there, `setRemote` here – each
-// entry marked with its PC's `deviceId`) and is merged into the same list; it leaves with the next state of that PC or
-// when its link goes. `onChange` tells the sync when this PC's own work changed. One ChatLive per runtime, found by its
+// entry marked with its PC's `deviceId`) and is merged into the same list; it leaves with the next state of that PC,
+// when that PC's state stops coming (the sync drops it LIVE_TTL_MS after its last message) or when its link goes.
+// `onChange` tells the sync when this PC's own work changed. One ChatLive per runtime, found by its
 // bus (chatLiveOf), so the RPC side adds the other PCs' runs to what windows and phones hear (allActivity).
-// Owns: that rule, each running run's current step and the chats it posted into, the other PCs' last live state, and
-// the announcements. Never: writes a message or a run, keeps anything after its run ended, or copies a tool's input or
+// Owns: that rule, each running run's current step, the chats it posted into and the chat its work was given from, the
+// other PCs' last live state, and the announcements. Never: writes a message or a run, keeps anything after its run ended, or copies a tool's input or
 // output (only the step label).
 
 import type { Bus } from '../bus.ts';
+import type { Db } from '../db/database.ts';
+import { SplitRepo } from '../store/splits.ts';
+import { TaskRepo } from '../tasks/repo.ts';
 import type { LiveRun, LiveStep } from '../../shared/model/chat.ts';
 import type { AgentActivity, RunItem } from '../../shared/model/runs.ts';
 import { chatBlocks } from '../agents/chat-out.ts';
-import { firstSentence, oneLine, reasoningHeadline, stepLabel, stepText, type StepKind } from '../../shared/text/step-label.ts';
+import { firstSentence, oneLine, parsedArgs, reasoningHeadline, stepLabel, stepText, type StepKind } from '../../shared/text/step-label.ts';
 
 /** At most one announcement of a chat per this many ms. */
 export const GAP_MS = 500;
 /** A chat a run only posted into counts as one it works for this long after its last post there. */
 export const POST_CHAT_MS = 3 * 60_000;
+/** The agent's own sentence stays the step this long against its tool steps (its next sentence replaces it at once). */
+export const SAID_HOLD_MS = 60_000;
 
 /** A step's target (the journal keeps the longer one). */
 const TARGET_MAX = 100;
@@ -41,11 +55,6 @@ const KINDS: ReadonlySet<string> = new Set<StepKind>([
 ]);
 
 const str = (value: unknown): string => (typeof value === 'string' ? value : '');
-
-function parsedArgs(value: unknown): unknown {
-  if (typeof value !== 'string') return value;
-  try { return JSON.parse(value); } catch { return {}; }
-}
 
 /** A tool call's step: the step the runtime journaled (engine-native calls), else its label from name, arguments and summary. */
 export function itemStep(call: Pick<RunItem, 'name' | 'data'>): LiveStep {
@@ -77,8 +86,18 @@ export function stepOf(item: RunItem): string | undefined {
   return undefined;
 }
 
-/** `said`: the step is the agent's own sentence – only its next sentence replaces it. */
-interface Work { activity: AgentActivity; step?: string; said?: boolean; posted: Map<string, number>; lastPosted?: string }
+/** `said`: when the step became the agent's own sentence – only its next sentence replaces it within SAID_HOLD_MS.
+ *  `steered`: the chats whose lines were folded into this run. `handed`: the chat its work was given away from. */
+interface Work { activity: AgentActivity; step?: string; said?: number; posted: Map<string, number>; lastPosted?: string; steered?: Set<string>; handed?: string }
+
+/** The chat a running run's work was given away from: its task's giving turn's chat (a part's: its group's task's). */
+export type HandedChat = (activity: AgentActivity) => string | undefined;
+
+/** HandedChat from the task and split stores (chat/service.ts passes it with its db). */
+export function handedChat(db: Db, activity: AgentActivity): string | undefined {
+  const taskId = activity.taskId ?? (activity.split ? new SplitRepo(db).getGroup(activity.split.groupId)?.taskId : undefined);
+  return taskId ? new TaskRepo(db).get(taskId)?.ledger.givenIn : undefined;
+}
 
 /** One running run as it travels to the person's other PCs (sync.live): its activity, its step and the chats it shows in. */
 export interface LiveShare { activity: AgentActivity; step?: string; chats: string[] }
@@ -91,17 +110,25 @@ function entryOf(work: Pick<Work, 'activity' | 'step'>): LiveRun {
     ...(work.step ? { step: work.step } : {}), ...(a.note ? { note: a.note } : {}),
     ...(a.modelName ?? a.model ? { model: a.modelName ?? a.model } : {}), ...(a.effort ? { effort: a.effort } : {}),
     ...(a.temperature !== undefined ? { temperature: a.temperature, temperatureSent: a.temperatureSent === true } : {}),
-    ...(a.taskId ? { taskId: a.taskId } : {}), ...(a.split ? { split: { ...a.split } } : {}),
+    ...(a.taskId ? { taskId: a.taskId } : {}), ...(a.split ? { split: { ...a.split } } : {}), ...(a.fold ? { fold: true as const } : {}),
   };
 }
 
 /** The chats a running run shows in at `at` (the rule in the header). */
 function chatsOf(work: Work, at: number): string[] {
   const origin = work.activity.conversationId;
-  if (!origin) return work.lastPosted ? [work.lastPosted] : [];
-  const out = [origin];
-  for (const [chat, postedAt] of work.posted) if (chat !== origin && at - postedAt < POST_CHAT_MS) out.push(chat);
+  const out = origin ? [origin] : work.lastPosted ? [work.lastPosted] : [];
+  for (const chat of work.steered ?? []) if (!out.includes(chat)) out.push(chat);
+  if (work.handed && !out.includes(work.handed)) out.push(work.handed);
+  if (!origin) return out;
+  for (const [chat, postedAt] of work.posted) if (!out.includes(chat) && at - postedAt < POST_CHAT_MS) out.push(chat);
   return out;
+}
+
+/** The chat whose person's line a run note folded into the running turn (dispatch-steer.ts), if it is one. */
+function steeredChat(item: RunItem): string | undefined {
+  const steered = item.kind === 'note' ? item.data.steered as { conversationId?: unknown } | undefined : undefined;
+  return typeof steered?.conversationId === 'string' && steered.conversationId ? steered.conversationId : undefined;
 }
 
 const sameChats = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((chat) => b.includes(chat));
@@ -134,22 +161,35 @@ export class ChatLive {
   private readonly bus: Bus;
   private readonly announce: (chatId: string) => void;
   private readonly gapMs: number;
+  private readonly handedOf?: HandedChat;
 
-  /** `announce`: the chat's entries changed (the chat service sends its summary). */
-  constructor(bus: Bus, announce: (chatId: string) => void, gapMs = GAP_MS) {
+  /** `announce`: the chat's entries changed (the chat service sends its summary); `handedOf`: where a run's work was given away from. */
+  constructor(bus: Bus, announce: (chatId: string) => void, gapMs = GAP_MS, handedOf?: HandedChat) {
     this.bus = bus;
     this.announce = announce;
     this.gapMs = gapMs;
+    this.handedOf = handedOf;
     lives.set(bus, this);
     this.offs = [
       bus.on('agent.activity', ({ active }) => this.activity(active)),
       bus.on('run.item', (item) => {
         const work = this.runs.get(item.runId);
-        const step = work ? stepOf(item) : undefined;
-        if (!work || !step || step === work.step || (work.said && !isSaid(item))) return;
+        if (!work) return;
+        const at = Date.now();
+        const folded = steeredChat(item);
+        if (folded && !work.steered?.has(folded)) {
+          const before = chatsOf(work, at);
+          (work.steered ??= new Set()).add(folded);
+          this.changed([...new Set([...before, ...chatsOf(work, at)])]);
+          this.moved();
+          return;
+        }
+        const step = stepOf(item);
+        const said = isSaid(item);
+        if (!step || step === work.step || (work.said !== undefined && !said && at - work.said < SAID_HOLD_MS)) return;
         work.step = step;
-        work.said = isSaid(item);
-        this.changed(chatsOf(work, Date.now()));
+        work.said = said ? at : undefined;
+        this.changed(chatsOf(work, at));
         this.moved();
       }),
       bus.on('message.created', (message) => {
@@ -200,6 +240,33 @@ export class ChatLive {
     this.changed([...chats].filter((chat) => sig(before, chat) !== sig(after, chat)));
   }
 
+  /** The chat's entries are announced again (a Stop found nothing running for a line its bar still showed). */
+  refresh(chatId: string): void {
+    this.changed([chatId]);
+  }
+
+  /** A run that is over by every account (a Stop found it ended, or its PC stopped it): it leaves every bar now – this
+   *  PC's entry or another PC's share – instead of with the next activity or that PC's next state. */
+  drop(runId: string): void {
+    const at = Date.now();
+    const chats = new Set<string>();
+    const work = this.runs.get(runId);
+    if (work) {
+      for (const chat of chatsOf(work, at)) chats.add(chat);
+      this.runs.delete(runId);
+      this.dropExpiries(runId);
+    }
+    for (const [deviceId, shares] of this.remote) {
+      const kept = shares.filter((share) => share.activity.runId !== runId);
+      if (kept.length === shares.length) continue;
+      for (const share of shares) if (share.activity.runId === runId) for (const chat of share.chats) chats.add(chat);
+      if (kept.length) this.remote.set(deviceId, kept);
+      else this.remote.delete(deviceId);
+    }
+    this.changed([...chats]);
+    if (work) this.moved();
+  }
+
   /** The other PCs' running runs, each with its PC's `deviceId`. */
   remoteActivity(): AgentActivity[] {
     return [...this.remote].flatMap(([deviceId, shares]) => shares.map((share) => ({ ...share.activity, deviceId })));
@@ -238,7 +305,12 @@ export class ChatLive {
       if (entry.deviceId) continue; // another PC's run never counts as this PC's
       const work = this.runs.get(entry.runId);
       if (work && JSON.stringify(entryOf(work)) === JSON.stringify(entryOf({ ...work, activity: entry })) && work.activity.conversationId === entry.conversationId) continue;
-      const next: Work = { activity: entry, posted: work?.posted ?? new Map(), ...(work?.lastPosted ? { lastPosted: work.lastPosted } : {}), ...(work?.step ? { step: work.step } : {}), ...(work?.said ? { said: true } : {}) };
+      const handed = work && work.activity.taskId === entry.taskId ? work.handed : this.handed(entry);
+      const next: Work = {
+        activity: entry, posted: work?.posted ?? new Map(), ...(work?.lastPosted ? { lastPosted: work.lastPosted } : {}),
+        ...(work?.step ? { step: work.step } : {}), ...(work?.said !== undefined ? { said: work.said } : {}), ...(work?.steered ? { steered: work.steered } : {}),
+        ...(handed ? { handed } : {}),
+      };
       for (const chat of [...(work ? chatsOf(work, at) : []), ...chatsOf(next, at)]) chats.add(chat);
       this.runs.set(entry.runId, next);
       moved = true;
@@ -247,10 +319,19 @@ export class ChatLive {
     if (moved) this.moved();
   }
 
-  /** A chat the run only posted into stops counting POST_CHAT_MS after its last post: announce it then (a run with no chat of its own keeps its last one). */
+  /** The chat `entry`'s work was given away from, when it is another than its own (read once per run and task). */
+  private handed(entry: AgentActivity): string | undefined {
+    try {
+      const chat = this.handedOf?.(entry);
+      return chat && chat !== entry.conversationId ? chat : undefined;
+    } catch { return undefined; } // a store that cannot be read shows the run where it runs
+  }
+
+  /** A chat the run only posted into stops counting POST_CHAT_MS after its last post: announce it then (a run with no
+   *  chat of its own keeps its last one; a folded-in chat keeps counting). */
   private expireLater(runId: string, work: Work, chat: string): void {
     const origin = work.activity.conversationId;
-    if (!origin || chat === origin) return;
+    if (!origin || chat === origin || work.steered?.has(chat)) return;
     const key = `${runId}|${chat}`;
     const old = this.expiries.get(key);
     if (old) clearTimeout(old);

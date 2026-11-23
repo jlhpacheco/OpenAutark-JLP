@@ -3,7 +3,7 @@
 // a small static server – localhost is a secure context), the real meeting server (services/remote-relay), a headless
 // runtime whose devices.relay points at it, and Chromium with iPhone emulation (WebKit is not installed here). The phone
 // types the PC's Remote ID, both screens show the same code, the PC accepts, the PC's own UI renders through the tunnel
-// and the service worker, a chat line reaches the PC, a reload comes back from IndexedDB without pairing, F29: a
+// and the service worker, the feedback video plays once (F15) and is closed, a chat line reaches the PC, a reload comes back from IndexedDB without pairing, F29: a
 // tampered copy of main.js never runs and a script the PC does not list shows "Autark stopped a file", the edge
 // swipe calls the layered Back, and Forget removes the phone on the PC and returns to the start. The app runs on an
 // origin of its own (127.0.0.1, the site on localhost). What stays unverified: real iOS (WebKit's service
@@ -120,6 +120,12 @@ test('the iPhone web app pairs by Remote ID and shows the PC\'s own UI through t
   assert.deepEqual({ metas: frame.metas, media: frame.media }, { metas: 1, media: '' }, 'one theme-color the PC UI\'s theme drives');
   assert.equal(frame.html, 'rgba(0, 0, 0, 0)', 'the shell colours nothing outside its frame: the PC UI\'s body colours the page');
 
+  // F15 (16.11.2026): the first start after pairing plays the feedback video once, in a modal sheet; the person closes it.
+  const tour = phone.locator('dialog.tour-dialog[open]');
+  await tour.waitFor({ timeout: 30_000 });
+  await phone.keyboard.press('Escape');
+  await tour.waitFor({ state: 'detached' });
+
   await phone.evaluate((id) => { location.hash = `#/chat/${id}`; }, chat.id);
   const input = phone.locator('textarea.composer-input');
   await input.waitFor({ timeout: 30_000 });
@@ -131,6 +137,7 @@ test('the iPhone web app pairs by Remote ID and shows the PC\'s own UI through t
   await phone.reload();
   await phone.locator('.mobile-shell').waitFor({ timeout: 90_000 });
   assert.equal(await phone.locator('.hs-title', { hasText: 'Connect to your PC' }).count(), 0);
+  assert.equal(await tour.count(), 0, 'the feedback video plays only once');
 
   // F29: the PC's list of its UI files is kept; a tampered copy in the phone's cache never runs (the worker fetches the
   // PC's own file again), and a script the PC does not list is refused with the shell's screen.

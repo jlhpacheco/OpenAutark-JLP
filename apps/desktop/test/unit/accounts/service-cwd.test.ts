@@ -13,7 +13,7 @@ import { engineCwd } from '../../../src/runtime/system/paths.ts';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
 import { Bus } from '../../../src/runtime/bus.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import type { AccountCheck, Engine } from '../../../src/runtime/engines/types.ts';
 import type { EngineId } from '../../../src/shared/model/providers.ts';
 import { fakeFinder, fakeSpawn, testSupervisor, tick } from '../engines/fakes.ts';
@@ -34,7 +34,7 @@ function setup(check: (id: EngineId) => Promise<AccountCheck> = async () => ({ s
     db, bus: new Bus((error) => { throw error; }), clock: new ManualClock(), paths: PATHS, env: { PATH: '/usr/bin' }, homeDir: path.join(DATA, 'home'),
     finder: fakeFinder({ codex: '/bin/codex', claude: '/bin/claude', kimi: '/bin/kimi' }), supervisor: testSupervisor(spawn), terminal: { platform: 'win32' },
     secrets: { save: async () => ({ id: 'none' }), read: async () => undefined, remove: () => {} },
-    engines: () => ({ get: engine, all: () => [], disposeIdle: async () => {} }), mkdir: async () => {}, signInUrlMs: 0,
+    engines: () => ({ get: engine, all: () => [] }), mkdir: async () => {}, signInUrlMs: 0,
     detectDeps: { fetch: async () => { throw new Error('offline'); }, probeTimeoutMs: 1 },
   });
   return { service, calls };

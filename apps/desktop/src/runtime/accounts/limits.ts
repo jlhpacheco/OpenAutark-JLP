@@ -78,13 +78,6 @@ export function normalizeCodexLimits(value: unknown, now: number): AccountLimits
   return Object.hasOwn(value, 'rateLimitResetCredits') ? { windows, readAt: now, resets: normalizeCodexResets(value.rateLimitResetCredits) } : { windows, readAt: now };
 }
 
-/** True when a Codex limits payload says the limit is reached right now. */
-export function codexLimitReached(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  const snapshots = [value.rateLimits, ...(isRecord(value.rateLimitsByLimitId) ? Object.values(value.rateLimitsByLimitId) : [])];
-  return snapshots.some((s) => isRecord(s) && typeof s.rateLimitReachedType === 'string');
-}
-
 const CLAUDE_WINDOWS: Array<[string, number, string | undefined]> = [
   ['five_hour', 300, undefined], ['seven_day', 10080, undefined], ['seven_day_opus', 10080, 'opus'],
   ['seven_day_sonnet', 10080, 'sonnet'], ['seven_day_oauth_apps', 10080, 'oauth-apps'],
@@ -129,7 +122,7 @@ export function parseClaudeRateLimitEvent(value: unknown, now: number): { reject
     const scaled = raw === undefined ? 100 : raw <= 1 ? raw * 100 : raw;
     if (scaled >= 0 && scaled <= 100) {
       const used = rejected ? 100 : Math.min(scaled, 99);
-      limits = { windows: [{ name: windowName(minutes, known?.[2]), windowMinutes: minutes, usedPercent: used, resetsAt }], readAt: now };
+      limits = { windows: [{ name: windowName(minutes, known?.[2]), windowMinutes: minutes, usedPercent: used, resetsAt }], readAt: now, partial: true };
     }
   }
   return { rejected, resetsAt, limits };
@@ -152,10 +145,17 @@ function mergeResets(previous: LimitResets | undefined, next: AccountLimits): Li
   return resets.available === previous.available || credits.length === resets.available ? { ...resets, credits } : resets;
 }
 
-/** Merges a partial reading into previous limits (same-named windows replaced; resets by mergeResets). */
+/**
+ * Merges a reading into previous limits (same-named windows replaced; resets by mergeResets). 21.11.2026 (owner: "nur wenn
+ * es mitgesendet wird, dann 5-Stunden-Limit"): a whole reading (not `partial`) that carries account-wide windows names all
+ * of them – an account-wide window it leaves out (a plan without a 5-hour limit, or one that dropped it) is gone, never kept
+ * from an older reading. Model windows ("weekly-opus") still merge: a Codex push carries only its main bucket.
+ */
 export function mergeLimits(previous: AccountLimits | undefined, next: AccountLimits): AccountLimits {
-  if (!previous) return next;
-  const byName = new Map(previous.windows.map((w) => [w.name, w]));
+  const { partial, ...reading } = next;
+  if (!previous) return reading;
+  const whole = !partial && next.windows.some((w) => !windowScope(w.name));
+  const byName = new Map(previous.windows.filter((w) => !whole || windowScope(w.name)).map((w) => [w.name, w]));
   for (const w of next.windows) byName.set(w.name, w);
   const resets = mergeResets(previous.resets, next);
   return { windows: [...byName.values()], readAt: next.readAt, ...(resets ? { resets } : {}) };

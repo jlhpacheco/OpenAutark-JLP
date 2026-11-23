@@ -7,7 +7,8 @@
 
 import { DeviceIdentity } from '../../../src/runtime/devices/identity.ts';
 import { DeviceMesh, type Timers } from '../../../src/runtime/devices/mesh.ts';
-import { SILENT_CLOSE, socketPair, type SocketLike } from '../../../src/runtime/devices/channel.ts';
+import { SILENT_CLOSE, type SocketLike } from '../../../src/runtime/devices/channel.ts';
+import { socketPair } from './socket-pair.ts';
 import { DevicesRepo } from '../../../src/runtime/devices/repo.ts';
 import type { Logger } from '../../../src/runtime/contracts.ts';
 import { ManualClock, fakeHost, memoryDb, recordingBus, silentLog } from './fakes.ts';

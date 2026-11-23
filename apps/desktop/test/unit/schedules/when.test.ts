@@ -1,7 +1,8 @@
 // Tests for how the agents' one `when` shape becomes a ScheduleSpec (B-044, src/runtime/schedules/when.ts,
 // parseWhen in src/runtime/tools/builtin/util.ts): { at } with an ISO time (a zone-less one in the
-// profile time zone), an ISO duration or a relative form; { repeat } with every (anchored at its start),
-// times, cron, weekday names, a window, start, until (a date is its whole local day), count and ifMissed;
+// profile time zone), an ISO duration, a relative form or one phrase in words (in the schedule's zone); { repeat } with
+// every (anchored at its start), times, cron, weekday names, a window, start, until (a day – ISO or words – is its
+// whole local day), count and ifMissed;
 // refusals in plain words; the rule's words and zone-offset ISO times of the tool results; the old spellings ({ once },
 // a bare string) are refused by the schema, naming the right one.
 // Owns: these assertions only. Never: real clocks or a real scheduler.
@@ -9,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseWhen } from '../../../src/runtime/tools/builtin/util.ts';
-import { WHEN_SCHEMA, isoIn, parseEvery, parsePoint, ruleWords, specFromWhen } from '../../../src/runtime/schedules/when.ts';
+import { WHEN_SCHEMA, isoIn, parseEvery, ruleWords, specFromWhen } from '../../../src/runtime/schedules/when.ts';
 import { validate } from '../../../src/runtime/tools/validate.ts';
 
 const T0 = Date.UTC(2026, 9, 17, 9, 0, 0); // Sat 17 Oct 2026, 11:00 in Berlin
@@ -40,13 +41,24 @@ test('parseWhen: empty, zero and unreadable input gives undefined', () => {
   }
 });
 
-test('parsePoint: a time without a zone is in the given zone (DST-correct); with a zone or relative as parseWhen', () => {
-  assert.equal(parsePoint('2026-10-18T09:00', T0, TZ), Date.UTC(2026, 9, 18, 7, 0), 'CEST');
-  assert.equal(parsePoint('2026-10-26 09:00:30', T0, TZ), Date.UTC(2026, 9, 26, 8, 0, 30), 'CET, a space and seconds');
-  assert.equal(parsePoint('2026-10-26', T0, TZ), Date.UTC(2026, 9, 25, 23, 0), 'a date: local midnight');
-  assert.equal(parsePoint('2026-10-18T09:00Z', T0, TZ), Date.UTC(2026, 9, 18, 9, 0), 'an explicit zone wins');
-  assert.equal(parsePoint('+2h', T0, TZ), T0 + 2 * H);
-  assert.equal(parsePoint('2026-10-18T25:00', T0, TZ), undefined);
+test('every point is read by the one time reader in the schedule zone: zone-less ISO (DST-correct), zoned, relative, words', () => {
+  const at = (value: string, tz = TZ) => { const spec = specFromWhen({ at: value }, T0, tz); return typeof spec === 'string' ? undefined : spec.at; };
+  assert.equal(at('2026-10-18T09:00'), Date.UTC(2026, 9, 18, 7, 0), 'CEST');
+  assert.equal(at('2026-10-26 09:00:30'), Date.UTC(2026, 9, 26, 8, 0, 30), 'CET, a space and seconds');
+  assert.equal(at('2026-10-26'), Date.UTC(2026, 9, 25, 23, 0), 'a date: local midnight');
+  assert.equal(at('2026-10-18T09:00Z'), Date.UTC(2026, 9, 18, 9, 0), 'an explicit zone wins');
+  assert.equal(at('+2h'), T0 + 2 * H);
+  assert.equal(at('2026-10-18T25:00'), undefined);
+  assert.equal(at('morgen um 9'), Date.UTC(2026, 9, 18, 7, 0), 'words: Berlin wall time');
+  assert.equal(at('tomorrow 9:00', 'America/New_York'), Date.UTC(2026, 9, 18, 13, 0), "words in the schedule's own zone");
+  assert.equal(at('morgen oder Montag'), undefined, 'two phrases are no point');
+  const start = specFromWhen({ repeat: { times: ['09:00'], start: 'Montag' } }, T0, TZ) as { at: number };
+  assert.equal(start.at, Date.UTC(2026, 9, 18, 22, 0), 'start in words: the start of that day');
+  const until = specFromWhen({ repeat: { times: ['09:00'], until: 'Freitag' } }, T0, TZ) as { until: number };
+  assert.equal(until.until, Date.UTC(2026, 9, 23, 22, 0) - 1, 'until a day in words: that whole local day');
+  const untilClock = specFromWhen({ repeat: { times: ['09:00'], until: 'Freitag um 18 Uhr' } }, T0, TZ) as { until: number };
+  assert.equal(untilClock.until, Date.UTC(2026, 9, 23, 16, 0), 'until a day with a time: that moment');
+  assert.equal(specFromWhen({ repeat: { times: ['09:00'], until: '2026-02-30' } }, T0, TZ), 'Cannot read "until": "2026-02-30".');
   assert.equal(parseEvery('30m'), 30 * M);
   assert.equal(parseEvery('2 hours'), 2 * H);
   assert.equal(parseEvery('1d'), D);

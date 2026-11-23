@@ -1,6 +1,6 @@
-// Quick tasks (the person's task composer): one line of work becomes one plain task (runtime/tasks/quick.ts) – for an
-// agent, a manager's branch, a team, a person of the organisation, the person themselves ('me'), or (no target) the
-// team, where Autark picks one owner now (tasks/give.ts pickOwner).
+// The person's line (Quests round 20.11.2026, runtime/tasks/quick.ts – the one intake): their own to-do at once, in a
+// quest, at a time they confirmed; their assistant sorts it. Bridge until the old composer goes: a target other than
+// 'me' hands the line straight to an agent, a manager's branch, a team or a person of the organisation.
 // Joins Methods by module augmentation.
 // Owns: the shapes only. Never: behaviour or a second task store.
 
@@ -18,7 +18,7 @@ export interface QuickTaskTarget {
   id: string;
 }
 
-/** `tasks.quickCreate`: one line of work for the company; without a target Autark picks its owner now. */
+/** `tasks.quickCreate`: the person's line – their to-do now, sorted by their assistant (target: the bridge, see the header). */
 export interface QuickTaskParams {
   text: string;
   /** Files uploaded with files.upload (kept with the task). */
@@ -27,18 +27,26 @@ export interface QuickTaskParams {
   priority?: 0 | 1 | 2;
   /** The space a chat-free task belongs to. */
   spaceId?: string;
-  dueAt?: number;
+  at?: number;
+  /** How long the person needs (with at: its length on the calendar). */
+  minutes?: number;
+  /** The quest the to-do goes into. */
+  quest?: string;
+  /** "Only me": the person does it themselves; the AI keeps it in view and never takes it over. */
+  private?: boolean;
   /** Idempotency key: a retried post returns the task the first one made. */
   clientId?: string;
 }
 
 export interface QuickTaskResult {
   task: TaskView;
+  /** The assistant that was woken to sort it, when one was. */
+  assistantId?: string;
 }
 
 declare module '../api/methods.ts' {
   interface Methods {
-    /** 'tasks': a quick task (runtime/tasks/quick.ts). A person target: the owner only, straight into the 1:1 chat with her. */
+    /** 'tasks': the person's line (runtime/tasks/quick.ts) – their to-do now, their assistant woken to sort it ("Only me" too, never handed on). */
     'tasks.quickCreate': { params: QuickTaskParams; result: QuickTaskResult };
   }
 }

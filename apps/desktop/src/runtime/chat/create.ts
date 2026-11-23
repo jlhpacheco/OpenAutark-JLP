@@ -40,11 +40,12 @@ export function createConversation(deps: CreateDeps, input: Parameters<ChatServi
   if (!agentIds.length && !withHuman && !people.length) throw new WorkforceError('bad_request', 'A chat needs at least one member.');
   const title = input.title?.trim() ?? '';
   const conversation: Conversation = {
-    id: newId('ch', now),
+    id: input.id ?? newId('ch', now),
     // B-050 K2: without a given title a chat stays untitled – each viewer sees the other members' names
     // (shared/text/chat-names.ts displayTitle) until a first human message names it (chat/service.ts deriveTitle).
+    // A given id is a task's thread (tasks/thread.ts): named by its task (chat/titles.ts), never by a first line.
     title,
-    titleNamed: Boolean(title),
+    titleNamed: Boolean(title) || input.id !== undefined,
     createdBy: input.createdBy,
     pinned: false,
     // F-52: people without the owner – marked as the people's chat until the owner joins.

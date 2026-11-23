@@ -15,7 +15,8 @@ import { VoiceSessions } from '../../../src/shared/voice/conversation.ts';
 import type { VoiceSessionView } from '../../../src/shared/voice/conversation.ts';
 import { ConversationCapture, PRE_ROLL_MS } from '../../../src/ui/chat/composer/conversation-audio.ts';
 import { BargeInDetector, echoCancelled } from '../../../src/ui/lib/barge-in.ts';
-import { pcm16ToFloat, rms } from '../../../src/ui/lib/pcm.ts';
+import { rms } from '../../../src/ui/lib/pcm.ts';
+import { pcm16Samples } from '../../../src/shared/voice/wav.ts';
 import type { TurnModels } from '../../../src/ui/lib/turn-detect.ts';
 
 const BLOCK_MS = 85; // the browser capture's block (browserCapture): the detector frames it itself
@@ -52,7 +53,7 @@ function rig(options: { aec?: boolean; bargeIn?: () => boolean; speaking?: () =>
 }
 
 /** The take's samples (16 kHz floats after the 44-byte WAV header). */
-const pcmOf = async (blob: Blob) => pcm16ToFloat(new Uint8Array(await blob.arrayBuffer()).subarray(44));
+const pcmOf = async (blob: Blob) => pcm16Samples(new Uint8Array(await blob.arrayBuffer()).subarray(44));
 
 test('a take starts with the pre-roll before the voice, ends after the silence and goes to the loop as a WAV; a take the loop moved past is dropped', async () => {
   const r = rig();

@@ -18,11 +18,15 @@
 // member, missing files, a failed post) is told to the running turn at once (attach: engine.steer), besides the repair note.
 // A call turn's blocks to the call's chat are not posted here: the outbox keeps them (held), mid-turn ones too, and the
 // turn's end joins them to its call line (agents/turn-finish.ts).
+// Quests 20.11.2026: `to="task_…"` is that task's own thread (tasks/thread.ts) – made, or joined, when I write there; an
+// unknown task gets the repair note instead.
 
 import type { RuntimeServices } from '../contracts.ts';
-import type { Message } from '../../shared/model/chat.ts';
+import { isTaskThread, type Message } from '../../shared/model/chat.ts';
 import { appTodosOf, uiBlocksOf } from '../../shared/blocks/parse.ts';
 import { importFiles } from '../media/outputs.ts';
+import { imitatedCall } from '../engines/rebuild-text.ts';
+import { threadOf } from '../tasks/thread.ts';
 
 export type ChatLevel = 'normal' | 'push' | 'quiet';
 
@@ -157,6 +161,8 @@ export class ChatOutbox {
       const key = blockKey(block);
       if (!block.body || !block.to.length || this.seen.has(key)) continue;
       this.seen.add(key);
+      // 20.11.2026 (feedback 33b2e3af): a block that only imitates a call ("[ran …]") never reaches a chat, like a final text.
+      if (imitatedCall(block.body)) { this.note(`My <chat to="${block.to.join(' ')}"> block only imitated a tool call ("[ran …]") and was not posted: nothing of it ran; a tool runs only as a real tool call.`, live); continue; }
       if (this.skip && block.to.includes(this.skip)) this.held.push(block);
       this.queue = this.queue.then(() => this.post(block, live, key)).catch((error) => {
         this.services.log.warn('chat block not posted', { runId: this.runId, error: String(error) });
@@ -170,9 +176,18 @@ export class ChatOutbox {
     try { return this.services.chats.members(conversationId).some((member) => member.memberId === this.agentId && !member.leftAt); } catch { return false; }
   }
 
+  /** A task's thread: made or joined now (tasks/thread.ts); why not, in my words, when there is no such task. */
+  private joinThread(taskId: string): string | undefined {
+    try { threadOf(this.services, taskId, this.agentId); return undefined; } catch (error) {
+      return `My <chat to="${taskId}"> block was not posted: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
   private async post(block: ChatBlock, live: boolean, key: string): Promise<void> {
     for (const conversationId of block.to) {
       if (conversationId === this.skip) continue;
+      const refused = isTaskThread(conversationId) && !this.member(conversationId) ? this.joinThread(conversationId) : undefined;
+      if (refused) { this.note(refused, live); continue; }
       if (!this.member(conversationId)) { this.note(notMemberNote(conversationId), live); continue; }
       const files = block.files.length ? await importFiles(this.services, this.agentId, block.files, conversationId) : undefined;
       if (files?.errors.length) this.note(`Files of my block to ${conversationId}: ${files.errors.join(' ')} The text went out without them.`, live);

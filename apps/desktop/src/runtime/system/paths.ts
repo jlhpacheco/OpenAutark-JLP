@@ -59,7 +59,7 @@ export function enginePromptDir(paths: Pick<Paths, 'data'>): string {
 
 /**
  * Where this app's own CLI homes lie: the plans' homes (Paths.accounts) and <data>/accounts, where a home of before that
- * does not move stays (macOS Claude Code, Kimi Code, a move refused – bridge/logins-1611.ts).
+ * did not move to the logins folder on 16.11.2026 stays (macOS Claude Code, Kimi Code, a move refused).
  */
 export function homeRoots(paths: { data?: string; accounts?: string }): string[] {
   return [paths.accounts, paths.data === undefined ? undefined : path.join(paths.data, 'accounts')].filter((dir): dir is string => dir !== undefined);

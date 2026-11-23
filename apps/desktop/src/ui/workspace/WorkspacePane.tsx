@@ -2,7 +2,7 @@
 // on a wide window its tab strip is the window's title row), a chat's area above its messages (chat/ChatArea.tsx) or an
 // agent's own area on its agent page (team/AgentBrowser.tsx). The
 // tab strip on top (TabStrip.tsx), under it the address row (BrowserHeader.tsx) and the shown tab – a website (BrowserPage.tsx, a blank tab
-// there is the new-tab page) or one of the app's own panels: My day, Work, Activity, a chat's Notes, a Media item or the
+// there is the new-tab page) or one of the app's own panels: the Tasks page, Activity, a chat's Notes, a Media item or the
 // library, a chat's Video work, this PC's Screen, an agent's own browser (which brings its own toolbar in the address row's
 // place), a file or folder by its path, a view from <data>/pages, a website running on another PC (RemoteWebTab.tsx,
 // B-076: its live picture, with its own toolbar in the address row's place). Its parts read the space from SpaceContext
@@ -13,10 +13,9 @@
 
 import { useEffect } from 'preact/hooks';
 import { Boundary } from '../blocks/Boundary.tsx';
-import { DayPanel } from '../day/DayPanel.tsx';
+import { TasksPage } from '../tasks/TasksPage.tsx';
 import { agentName } from '../lib/store.ts';
 import { Icon } from '../lib/ui.tsx';
-import { WorkIndex } from '../tasks/WorkIndex.tsx';
 import { ActivityView } from '../team/ActivityView.tsx';
 import { BrowserHeader } from './BrowserHeader.tsx';
 import { BrowserLive } from './BrowserLive.tsx';
@@ -43,8 +42,7 @@ import { VideoView } from './VideoView.tsx';
 
 function AppTabView(props: { entry: AppEntry }) {
   const { entry } = props;
-  if (entry.kind === 'day') return <div class="pane-view pane-scroll"><DayPanel /></div>;
-  if (entry.kind === 'work') return <WorkIndex />;
+  if (entry.kind === 'tasks') return <TasksPage scope="pane" />; // the Tasks page, narrow, with its own selection
   if (entry.kind === 'activity') return <ActivityView />;
   if (entry.kind === 'agent') {
     return (

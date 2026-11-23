@@ -1,14 +1,13 @@
-// A new knowledge item from what a caller gives: texts redacted, scope and kind checked, the reserved tags kept honest.
+// A new knowledge item from what a caller gives: texts redacted, scope and kind checked, tags without repeats.
 // Owns: that check and the item's defaults. Never: stores anything.
 
 import { WorkforceError } from '../../shared/errors.ts';
 import { newId } from '../../shared/ids.ts';
 import type { KnowledgeItem } from '../../shared/model/knowledge.ts';
-import { normalizeReservedTags } from './reserved.ts';
 import { normalScopeId, scopeIdHint } from './scope-id.ts';
 
 const SCOPES: ReadonlySet<string> = new Set(['global', 'space', 'agent', 'conversation', 'website', 'app', 'mode', 'reference']);
-export const KINDS: ReadonlySet<string> = new Set(['fact', 'preference', 'experience', 'procedure', 'plan', 'observation', 'note', 'reference']);
+export const KINDS: ReadonlySet<string> = new Set(['fact', 'preference', 'experience', 'procedure', 'plan', 'note', 'reference']);
 
 export type SaveInput = Partial<KnowledgeItem> & { title: string; body: string; scope: KnowledgeItem['scope']; createdBy: string };
 
@@ -30,8 +29,7 @@ export function buildItem(input: SaveInput, env: { now: number; redact: (text: s
     kind,
     title,
     body,
-    // Only a real runtime summary keeps the reserved compaction tag (reserved.ts).
-    tags: normalizeReservedTags({ kind, scope: input.scope, scopeId, source, tags: [...new Set(input.tags ?? [])] }),
+    tags: [...new Set(input.tags ?? [])],
     source: source.ref ? { ...source, ref: env.redact(source.ref) } : source,
     confidence: Math.max(0, Math.min(1, input.confidence ?? 0.7)),
     pinned: input.pinned ?? false,

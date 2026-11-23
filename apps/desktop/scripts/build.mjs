@@ -1,9 +1,9 @@
 // Builds the app into ./app with esbuild (one bundle per process).
 //   node scripts/build.mjs            all targets
-//   node scripts/build.mjs --only ui  one target (main, preload, runtime, cli, wf, meet, ui, hosted)
+//   node scripts/build.mjs --only ui  one target (main, preload, runtime, cli, wf, meet, sleeper, ui, hosted)
 //   node scripts/build.mjs --dev      inline sourcemaps, no minify
 // Output layout (loaded by Electron and electron-builder):
-//   app/main.cjs  app/preload.cjs  app/runtime.mjs  app/runtime-cli.mjs  app/wf.mjs  app/meet.mjs  app/ui/**
+//   app/main.cjs  app/preload.cjs  app/runtime.mjs  app/runtime-cli.mjs  app/wf.mjs  app/meet.mjs  app/sleeper.mjs  app/ui/**
 
 import { build } from 'esbuild';
 import { cp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
@@ -58,6 +58,8 @@ const targets = {
     ...common, entryPoints: [path.join(root, '..', '..', 'services', 'remote-relay', 'src', 'main.ts')], outfile: 'app/meet.mjs',
     platform: 'node', format: 'esm', target: 'node24', banner: esmBanner, nodePaths: [path.join(root, 'node_modules')],
   }),
+  // 19.11.2026: the wake helper – Autark.exe run as Node (ELECTRON_RUN_AS_NODE) while the app is closed (main/sleeper.ts).
+  sleeper: () => build({ ...common, entryPoints: ['src/runtime/devices/sleeper-main.ts'], outfile: 'app/sleeper.mjs', platform: 'node', format: 'esm', target: 'node24', banner: esmBanner }),
   ui: async () => {
     const app = await build({
       ...common,

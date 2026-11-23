@@ -15,7 +15,7 @@ import * as pages from '../../../src/ui/workspace/pages.ts';
 import { watchPhoneTabs } from '../../../src/ui/workspace/phone-tabs.ts';
 
 const web1 = { id: 'remote:dev_pc:web-1', panel: 'remote', device: 'dev_pc', tab: 'web-1', url: 'https://one.example/' };
-const day = { id: 'day', panel: 'day' };
+const day = { id: 'tasks', panel: 'tasks' };
 let pc: SideSpaces = { global: { shown: web1.id, tabs: [web1, day] } };
 const sets: Array<{ spaces: SideSpaces; closed: string[] }> = [];
 const heard = new Map<string, (data: unknown) => void>();
@@ -43,15 +43,15 @@ test('a blank tab shown on the PC leaves the phone\'s shown tab, and the phone s
   await settle();
   assert.equal(pages.shownOf('global'), web1.id, 'the phone stays where it is');
   assert.equal(sets.length, 0, 'and sends nothing that would pull the PC\'s blank tab away');
-  pages.selectPage('day');
+  pages.selectPage('tasks');
   assert.equal(sets.length, 1);
-  assert.equal(sets[0]!.spaces.global?.shown, 'day', 'a tab the person chooses here still goes');
+  assert.equal(sets[0]!.spaces.global?.shown, 'tasks', 'a tab the person chooses here still goes');
 });
 
 test('a tab change while the connection is down sends nothing; the reconnect brings the PC\'s newer tabs', async () => {
   const before = sets.length;
   rpc.status.value = 'closed';
-  pages.selectPage(pages.shownOf('global') === 'day' ? web1.id : 'day'); // another tab, tapped while the phone is offline
+  pages.selectPage(pages.shownOf('global') === 'tasks' ? web1.id : 'tasks'); // another tab, tapped while the phone is offline
   assert.equal(sets.length, before, 'nothing waits to be replayed as a stale whole space');
   const file = { id: 'file:/srv/new.md', panel: 'file', path: '/srv/new.md' };
   const other = { id: 'remote:dev_b:web-9', panel: 'remote', device: 'dev_b', tab: 'web-9', url: 'https://b.example/' };
@@ -60,10 +60,10 @@ test('a tab change while the connection is down sends nothing; the reconnect bri
   for (const read of opened) read();
   await settle();
   assert.equal(sets.length, before, 'the reconnect sends nothing either');
-  assert.deepEqual(pages.tabsOf('global').map((tab) => tab.id), [web1.id, 'day', file.id, other.id]);
+  assert.deepEqual(pages.tabsOf('global').map((tab) => tab.id), [web1.id, 'tasks', file.id, other.id]);
   assert.equal(pages.shownOf('global'), file.id);
-  pages.selectPage('day');
+  pages.selectPage('tasks');
   assert.equal(sets.length, before + 1);
-  assert.deepEqual(sets.at(-1)!.spaces.global?.tabs.map((tab) => tab.id), [web1.id, 'day', file.id, other.id], 'the next change starts from the PC\'s newer tabs');
+  assert.deepEqual(sets.at(-1)!.spaces.global?.tabs.map((tab) => tab.id), [web1.id, 'tasks', file.id, other.id], 'the next change starts from the PC\'s newer tabs');
   assert.deepEqual(sets.at(-1)!.closed, []);
 });

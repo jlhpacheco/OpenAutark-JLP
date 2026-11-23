@@ -4,4 +4,4 @@
 
 .details-notes { width: 100%; }
 .details-notes-text { display: flex; flex-direction: column; min-width: 0; }
-.details-notes-meta { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.details-notes-meta { overflow: hidden; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); text-overflow: ellipsis; white-space: nowrap; }

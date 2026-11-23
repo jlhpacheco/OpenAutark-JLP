@@ -5,6 +5,7 @@
 // Owns: start/ready handshake, request ids, per-request timeouts, restart after a hang or crash, a short
 // cool-down after repeated start failures, and the helper's "the person moved the mouse mid-path" as a
 // 'conflict' with details.humanActive (B-055, HUMAN_ACTIVE).
+// Sicher-Runde 19.11.2026: withGuardConfig keeps the helper's guard (Autark's windows, the allowed apps) current.
 // Never: retries a request by itself (an input action must never run twice) or polls.
 
 import type { Logger } from '../contracts.ts';
@@ -203,4 +204,38 @@ export class WindowsHelper implements HelperClient {
     this.pending.clear();
     for (const entry of entries) entry.reject(error);
   }
+}
+
+/** What the helper's Guard holds (security/policy.ts guardConfig): Autark's process ids and the apps input may reach (null: all). */
+export interface HelperGuard { appPids: number[]; apps: string[] | null }
+
+const OPEN_GUARD = JSON.stringify({ appPids: [], apps: null });
+/** Input reaches no app: what the helper holds when the guard could not be worked out (fail closed). */
+export const CLOSED_GUARD: HelperGuard = { appPids: [], apps: [] };
+
+/**
+ * Sicher-Runde 19.11.2026: `inner` with the helper's guard kept current – before a call, 'config' goes first when the
+ * helper is (re)starting or the guard changed since it was last sent (a fresh helper starts open, so an open guard is
+ * sent only to clear an earlier one). `guard` undefined: nothing is sent (no security service wired). A guard that
+ * throws closes input to every app (CLOSED_GUARD); a 'config' the helper refuses fails the call, so nothing runs open.
+ */
+export function withGuardConfig(inner: HelperClient, guard: () => HelperGuard | undefined): HelperClient {
+  let sent: string | undefined;
+  return {
+    call: async <T>(op: HelperOp, args?: Record<string, unknown>, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<T> => {
+      if (op !== 'config') {
+        let wanted: HelperGuard | undefined;
+        try { wanted = guard(); } catch { wanted = CLOSED_GUARD; }
+        if (!inner.running()) sent = undefined; // a fresh helper holds no guard
+        const key = wanted ? JSON.stringify(wanted) : undefined;
+        if (key !== undefined && key !== (sent ?? OPEN_GUARD)) {
+          await inner.call('config', { ...wanted }, { signal: options?.signal });
+          sent = key;
+        }
+      }
+      return inner.call<T>(op, args, options);
+    },
+    running: () => inner.running(),
+    dispose: () => inner.dispose(),
+  };
 }

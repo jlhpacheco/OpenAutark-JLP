@@ -22,14 +22,14 @@ test('a phone without its PC\'s pane keeps its tabs over a reload; one that read
   assert.deepEqual(pages.tabsOf('global').map((tab) => tab.id), ['screen'], 'the tabs kept before the reload are back');
   assert.equal(pages.shownOf('global'), 'screen');
 
-  pages.openAgentBrowser('ag_ada'); // Watch on My day
+  pages.openAgentBrowser('ag_ada'); // Watch on a to-do
   const watched = pages.tabsOf('global').at(-1)!;
   assert.equal(watched.kind, 'agent');
   assert.deepEqual((JSON.parse(store.get(APP_TABS)!) as { global: Array<{ id: string }> }).global.map((tab) => tab.id), ['screen', watched.id], 'kept for the next start');
   assert.equal(store.get(CHOSEN), watched.id);
 
   pages.linkPhone({ device: 'dev_pc', send: () => undefined });
-  pages.acceptLayout({ global: { tabs: [{ id: 'day', panel: 'day' }] } });
-  pages.selectPage('day');
+  pages.acceptLayout({ global: { tabs: [{ id: 'tasks', panel: 'tasks' }] } });
+  pages.selectPage('tasks');
   assert.equal(store.size, 0, 'the PC\'s pane is not kept on the device');
 });

@@ -1,11 +1,10 @@
 // B-047 D14 audio for local speech (src/shared/voice/wav.ts): WAV reading in every PCM/float encoding and
-// channel count, raw PCM16, band-limited resampling (no aliasing when 48 kHz goes to 16 kHz), WAV writing
-// and a page's decoded take as a 16 kHz WAV.
+// channel count, raw PCM16, band-limited resampling (no aliasing when 48 kHz goes to 16 kHz) and WAV writing.
 // Owns: these assertions only. Never: the native addon or a real recording.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { encodeWav, parseWav, pcm16Bytes, pcm16Samples, resample, wavFromDecoded } from '../../../src/shared/voice/wav.ts';
+import { encodeWav, parseWav, pcm16Bytes, pcm16Samples, resample } from '../../../src/shared/voice/wav.ts';
 
 /** A WAV with arbitrary fields (format tag, bits, channels) and interleaved raw sample bytes. */
 function rawWav(format: number, bits: number, channels: number, rate: number, body: Uint8Array, extensible = false): Uint8Array {
@@ -67,13 +66,4 @@ test('resample keeps speech-band tones and removes what 16 kHz cannot hold (no a
   assert.ok(Math.abs(rms(up.subarray(200, -200)) - 0.3536) < 0.02, 'upsampling keeps the level');
   const same = tone(440, 16_000);
   assert.equal(resample(same, 16_000, 16_000), same);
-});
-
-test('wavFromDecoded mixes a decoded take to mono and writes 16 kHz', () => {
-  const left = tone(500, 48_000, 0.1);
-  const right = new Float32Array(left.length);
-  const wav = parseWav(wavFromDecoded({ numberOfChannels: 2, sampleRate: 48_000, length: left.length, getChannelData: (channel) => (channel ? right : left) }));
-  assert.equal(wav.sampleRate, 16_000);
-  assert.equal(wav.samples.length, Math.round(left.length / 3));
-  assert.ok(Math.abs(rms(wav.samples.subarray(100, -100)) - rms(left) / 2) < 0.02, 'half the level: one silent channel');
 });

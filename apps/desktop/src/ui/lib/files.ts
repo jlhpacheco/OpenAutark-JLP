@@ -30,7 +30,8 @@ export interface UploadRpc {
   call<M extends UploadMethod>(method: M, params: ParamsOf<M>): Promise<ResultOf<M>>;
 }
 
-function toBase64(bytes: Uint8Array): string {
+/** Base64 of bytes, built in slices (one String.fromCharCode call per 32 KB). */
+export function toBase64(bytes: Uint8Array): string {
   let binary = '';
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(binary);

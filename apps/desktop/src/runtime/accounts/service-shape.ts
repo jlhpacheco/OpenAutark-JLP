@@ -46,7 +46,7 @@ declare module '../contracts/models.ts' {
 export interface AccountServiceDeps {
   /**
    * `accounts`: this PC's logins folder (the plans' homes); `data` → the empty engine folder CLIs start in (system/paths.ts
-   * engineCwd) and the homes of before in <data>/accounts (bridge/logins-1611.ts); without it temp, else the OS temp.
+   * engineCwd); without it temp, else the OS temp.
    */
   db: Db; bus: Bus; clock: Clock; paths: Pick<Paths, 'accounts'> & Partial<Pick<Paths, 'data' | 'temp'>>; log?: Logger;
   engines: () => EngineRegistry; // lazy: the registry also depends on this service (apiKey)

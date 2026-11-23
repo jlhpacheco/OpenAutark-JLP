@@ -281,5 +281,20 @@ test('Settings › Models: a found plan login is offered (Use / Not here); On/Of
   assert.deepEqual((await calls()).at(-1), { method: 'accounts.remove', params: { id: 'acc-gemini' } });
 
   await fits('1280 end');
+  // Width alone does not activate coarse-pointer CSS. Verify the touch targets in the emulated mode.
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+    await size(390, 844);
+    await page.waitForFunction(() => matchMedia('(pointer: coarse)').matches);
+    const targets = group.locator('.account-power, .account-extra-switch, .account-share-switch, .account-remove');
+    assert.ok(await targets.count() > 0);
+    const tooSmall = await targets.evaluateAll((nodes) => nodes.filter((node) => {
+      const box = node.getBoundingClientRect();
+      return box.width > 0 && box.height < 44;
+    }).map((node) => node.className));
+    assert.deepEqual(tooSmall, [], 'touch targets are at least 44 px high');
+    await fits('390 coarse pointer');
+  } finally { await cdp.detach(); }
   assert.deepEqual(errors, [], 'no renderer errors');
 });

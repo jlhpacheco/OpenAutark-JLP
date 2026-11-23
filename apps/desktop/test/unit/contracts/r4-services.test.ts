@@ -12,7 +12,7 @@ import { MediaService } from '../../../src/runtime/media/service.ts';
 import { Portability } from '../../../src/runtime/portability/service.ts';
 import { applyPendingRestore } from '../../../src/runtime/portability/restore.ts';
 import { Bridges } from '../../../src/runtime/bridges/service.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import { clock, memoryDb, recordingBus, tempDir } from '../store/helpers.ts';
 

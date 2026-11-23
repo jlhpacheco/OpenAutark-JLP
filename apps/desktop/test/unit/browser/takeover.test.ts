@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { keepPasswords, PERSON_USING, Takeovers, type TakeoverEnded } from '../../../src/runtime/browser/takeover.ts';
 import { startBrowserView } from '../../../src/runtime/browser/view.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { cleanup, fakeBrowser, recordingBus, tick } from './view-fakes.ts';
 
 after(cleanup);

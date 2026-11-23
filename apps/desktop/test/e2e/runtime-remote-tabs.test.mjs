@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { startRuntime } from './lib/runtime-client.mjs';
+import { startRuntime, connectYes } from './lib/runtime-client.mjs';
 
 const A_ENV = { WORKFORCE_DISCOVERY_TARGETS: '127.0.0.2,127.0.0.3' };
 const B_ENV = { WORKFORCE_DISCOVERY_TARGETS: '127.0.0.3,127.0.0.2' };
@@ -40,7 +40,7 @@ test('a tab opened on A shows on B as A\'s remote tab; closing it on B closes it
 
   const aId = (await a.client.call('remote.state')).self.deviceId;
   const bId = (await b.client.call('remote.state')).self.deviceId;
-  await b.client.call('remote.connect', { target: (await a.client.call('remote.state')).self.remoteId });
+  await connectYes(b.client, (await a.client.call('remote.state')).self.myId);
   const incoming = await until(() => a.client.call('remote.state').then((state) => state.incoming), (list) => list.length === 1, 'the request on A');
   await a.client.call('remote.decide', { id: incoming[0].id, accept: true });
   await until(() => a.client.call('devices.list').then((list) => list.find((device) => device.id === bId)?.status), (status) => status === 'online', 'A to list B online');

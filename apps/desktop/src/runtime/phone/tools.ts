@@ -5,7 +5,8 @@
 // phone-access (the app) and phone-adb (adb) say how each is set up. Every output of an action says to look again (no
 // blind chains); phone.type through the app shows what the field reads afterwards instead (masked like any readback).
 // Each step names the agent (`by`) for the app's bubble; phone.say (feedback 16.11.2026 F16) puts my
-// line or question (✓ / ✕) there, so the person sees what I do without opening the app and answers with one tap.
+// line or question (✓ / ✕, or my own buttons – owner 19.11.2026) there, so the person sees what I do without opening
+// the app and answers with one tap.
 // KI-Runde 17.11.2026: each description opens with what the prompt's one-line list must carry – phone.say the ask,
 // phone.key the app phone's keys with notifications (what just arrived, an SMS code), phone.ui_tree that it reads the screen.
 // Owns: schemas, summaries, output formatting. Never: repeats a pairing code in a summary or an output.
@@ -17,7 +18,7 @@ import { imageOutput } from '../computer/tools.ts';
 import { notConnected, pairThenConnect } from './connect.ts';
 import { movingKey } from './adb-args.ts';
 import { typedText } from '../secrets/handles.ts';
-import { PHONE_SAY_MAX } from '../../shared/api/methods-phone.ts';
+import { PHONE_BUTTON_MAX, PHONE_SAY_BUTTONS_MAX, PHONE_SAY_MAX } from '../../shared/api/methods-phone.ts';
 import { FIELD_MAX } from './app-driver.ts';
 import type { PhoneDriver, PhoneStepOptions, PhoneWireless } from './driver.ts';
 
@@ -29,6 +30,8 @@ const VERIFY = 'Not verified – I read phone.ui_tree before the next step.';
 const MASKED = 'The phone got the stored value; phone.ui_tree shows it as its secret:// handle (masked), not as typed text.';
 const ADDRESS = { type: 'string', minLength: 3, maxLength: 260, description: 'host:port shown on the phone.' };
 const short = (value: unknown) => String(value ?? '').slice(0, 80);
+/** A say is a question with ask or with buttons. */
+const asks = (args: { ask?: boolean; buttons?: unknown }) => args.ask === true || Array.isArray(args.buttons);
 
 const where = (ctx: ToolContext) => ctx.deviceId ?? 'this PC';
 const phone = (summary: string, ctx: ToolContext, reversible: boolean) => ({ summary, resource: where(ctx), reversible, external: false });
@@ -190,44 +193,57 @@ export function phoneTools(adb: Phone): ToolDef[] {
     },
   });
 
-  const open = defineTool<{ url?: string; package?: string; serial?: string }>({
+  const open = defineTool<{ url?: string; package?: string; app?: string; serial?: string }>({
     name: 'phone.open',
-    description: 'Opens a link or an installed app on the phone.',
+    description: 'Opens a link or an installed app on the phone – an app by the name under its icon (app) or by its package.',
     inputSchema: {
       type: 'object',
-      properties: { url: { type: 'string', maxLength: 4000, description: 'A private link as its secret:// handle works.' }, package: { type: 'string', maxLength: 200, description: 'e.g. com.whatsapp.' }, serial: SERIAL },
+      properties: {
+        url: { type: 'string', maxLength: 4000, description: 'A private link as its secret:// handle works.' },
+        app: { type: 'string', maxLength: 100, description: 'The name under the icon, e.g. WhatsApp (Autark app).' },
+        package: { type: 'string', maxLength: 200, description: 'e.g. com.whatsapp.' },
+        serial: SERIAL,
+      },
       additionalProperties: false,
     },
     category: 'device', remote: true, requires: 'device',
-    describe: (args, ctx) => phone(`Open ${short(args.url ?? args.package)} on the phone`, ctx, false), // a link can start an action in an app
+    describe: (args, ctx) => phone(`Open ${short(args.url ?? args.package ?? args.app)} on the phone`, ctx, false), // a link can start an action in an app
     async run(args, ctx) {
-      if (!args.url && !args.package) return failure('Give url or package.');
+      if (!args.url && !args.package && !args.app) return failure('Give url, app or package.');
       const link = args.url === undefined ? undefined : await typedText(ctx, args.url); // a stored private link opens by its handle
-      const opened = await adb.open(args.serial, { url: link?.text, package: args.package }, step(ctx));
+      const opened = await adb.open(args.serial, { url: link?.text, package: args.package, app: args.app }, step(ctx));
       const named = link !== undefined && link.text !== args.url;
       return json({ opened: named ? args.url : opened, ...(named ? { masked: MASKED } : {}), note: VERIFY });
     },
   });
 
-  const say = defineTool<{ text: string; ask?: boolean; serial?: string }>({
+  const say = defineTool<{ text: string; ask?: boolean; buttons?: string[]; serial?: string }>({
     name: 'phone.say',
-    description: "Asks the person for a moment of their phone with ✓ and ✕, or shows my line on it. With ask: true my question appears on the phone with the Autark app and I get yes, no or none (no tap within 60 s); ✓ gives me the phone for this task. Without ask the line shows what I do there. While they use the phone and my steps can wait, one question gets their decision in a tap; going straight ahead works too, since a touch of theirs pauses me only until 5 s after it.",
+    description: "Asks the person on their phone, or shows my line there, in the Autark app's bubble: keywords or one short sentence. Without ask or buttons the line shows what I do. ask: true gives my question ✓ and ✕; buttons gives it my own short answers (✕ always stays). I get the tapped button – yes for ✓, no for ✕ – or none after 60 s; ✓ gives me the phone for this task. Their own taps meanwhile leave my steps running, so a question is for what I need their answer to.",
     inputSchema: {
       type: 'object',
-      properties: { text: { type: 'string', minLength: 1, maxLength: PHONE_SAY_MAX, description: 'One short line.' }, ask: { type: 'boolean' }, serial: SERIAL },
+      properties: {
+        text: { type: 'string', minLength: 1, maxLength: PHONE_SAY_MAX, description: 'Keywords or one short sentence.' },
+        ask: { type: 'boolean' },
+        buttons: { type: 'array', maxItems: PHONE_SAY_BUTTONS_MAX, items: { type: 'string', minLength: 1, maxLength: PHONE_BUTTON_MAX }, description: 'My answers to tap, a word or a few each ("✓", "Later", "Send the invoice first").' },
+        serial: SERIAL,
+      },
       required: ['text'],
       additionalProperties: false,
     },
     category: 'device', remote: true, requires: 'device',
     // A line in the bubble changes nothing on the phone; my next line or the job's end replaces it.
-    describe: (args, ctx) => phone(args.ask ? `Ask on the phone: "${short(args.text)}"` : `Show "${short(args.text)}" on the phone`, ctx, true),
+    describe: (args, ctx) => phone(asks(args) ? `Ask on the phone: "${short(args.text)}"` : `Show "${short(args.text)}" on the phone`, ctx, true),
     async run(args, ctx) {
-      ctx.status(args.ask ? 'asking on the phone' : 'writing on the phone');
-      const said = await adb.say(args.serial, args.text, args.ask === true, step(ctx));
-      if (!args.ask) return text("The bubble shows my line until my next one or the end of this task's phone use.");
+      const question = asks(args);
+      ctx.status(question ? 'asking on the phone' : 'writing on the phone');
+      const buttons = Array.isArray(args.buttons) ? args.buttons : question ? ['✓'] : undefined;
+      const said = await adb.say(args.serial, args.text, buttons, step(ctx));
+      if (!question) return text("The bubble shows my line until my next one or the end of this task's phone use.");
       if (said.answer === 'yes') return text('The person answered ✓: the phone is mine for this task now. I look at the screen (phone.ui_tree) before my first step.');
       if (said.answer === 'no') return text('The person answered ✕ – not now: they keep the phone for the moment. What I needed from it I ask them for in our chat, and I go on with other work.');
-      return text('No answer within 60 s – the person did not tap. My phone steps run as usual; a touch of theirs pauses me until 5 s after it.');
+      if (said.answer && said.answer !== 'none') return { ...text(`The person tapped "${said.answer}".`), structured: { answer: said.answer } };
+      return text('No answer within 60 s – the person did not tap. My phone steps run as usual.');
     },
   });
 

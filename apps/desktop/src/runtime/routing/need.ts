@@ -5,8 +5,7 @@
 //                  none: the same tier with a clearly better fit for the work (STRONGER_MARGIN)
 //   cheaper      – a lower real cost than `from` (relCost × the account's cost factor, score.ts
 //                  marginalCost; a plan's quota counts nearly free), ranked in 'economy'
-//   faster       – a higher known output speed (≥ FASTER_RATIO) where both are known, else a lower tier that
-//                  is not a local runtime, ranked in 'economy'
+//   faster       – a lower tier that is not a local runtime, ranked in 'economy'
 //   vision       – reads images
 //   long_context – a larger context window than `from` (unknown `from`: at least LONG_CONTEXT_MIN);
 //                  the window the engine or the curated caps report
@@ -26,8 +25,6 @@ export const MODEL_NEEDS: readonly ModelNeed[] = ['stronger', 'cheaper', 'faster
 
 /** Same tier counts as stronger only with a category strength at least this much higher. */
 export const STRONGER_MARGIN = 0.1;
-/** A measured output speed at least this many times `from`'s counts as faster. */
-export const FASTER_RATIO = 1.2;
 /** Without a known window of `from`, a long context means at least this many tokens. */
 export const LONG_CONTEXT_MIN = 400_000;
 
@@ -53,10 +50,6 @@ export function needMet(reason: string, need: ModelNeed): boolean {
   return reason.includes(NEED_TEXT[need]) || reason.includes(raisedText(need));
 }
 
-export function isModelNeed(value: unknown): value is ModelNeed {
-  return typeof value === 'string' && (MODEL_NEEDS as readonly string[]).includes(value);
-}
-
 /** The cost mode the candidates of a need are ranked in. */
 export function needCostMode(need: ModelNeed, current: CostMode): CostMode {
   if (need === 'stronger') return 'best';
@@ -65,12 +58,7 @@ export function needCostMode(need: ModelNeed, current: CostMode): CostMode {
 
 /** Context window of a model: the engine's or the curated one. */
 export function contextOf(model: ModelInfo): number | undefined {
-  const value = model.caps.contextTokens ?? model.scores?.contextTokens;
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
-}
-
-function speedOf(model: ModelInfo): number | undefined {
-  const value = model.scores?.outputTokensPerSecond;
+  const value = model.caps.contextTokens;
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
@@ -109,14 +97,8 @@ export function needCandidates<T extends { model: ModelInfo; accounts: Account[]
       const limit = base ? input.cost(base) : from ? (from.relCost ?? Infinity) : Infinity;
       return fit.filter((entry) => input.cost(entry) < limit - 1e-9);
     }
-    case 'faster': {
-      const speed = from ? speedOf(from) : undefined;
-      return fit.filter((entry) => {
-        const own = speedOf(entry.model);
-        if (speed !== undefined && own !== undefined) return own >= speed * FASTER_RATIO;
-        return entry.model.tier !== 'local' && (!from || tierRank(entry.model.tier) < tierRank(from.tier));
-      });
-    }
+    case 'faster':
+      return fit.filter((entry) => entry.model.tier !== 'local' && (!from || tierRank(entry.model.tier) < tierRank(from.tier)));
     case 'vision':
       return fit.filter((entry) => entry.model.caps.vision === true);
     case 'long_context': {

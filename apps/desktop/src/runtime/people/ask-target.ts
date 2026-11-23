@@ -2,7 +2,7 @@
 // agent's message or a task with a widget lands on the For you of the human who wrote last before it – a person of the
 // organisation who is still a member, or the owner. A form that asks for a password or key always goes to the owner
 // (people/task-rules.ts rule 4). In chats without people nothing changes (the owner). Agents name a person themselves
-// with tasks.create {to}.
+// with tasks.add {for}.
 // Owns: that choice (SQL reads only). Never: creates or assigns tasks.
 
 import type { Db } from '../db/database.ts';

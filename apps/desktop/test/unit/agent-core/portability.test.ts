@@ -17,7 +17,7 @@ import { migrate } from '../../../src/runtime/db/migrate.ts';
 import { Org } from '../../../src/runtime/org/service.ts';
 import { applyPendingRestore } from '../../../src/runtime/portability/restore.ts';
 import { SkillLibrary } from '../../../src/runtime/skills/service.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { RESOURCES, recordingBus } from '../store/helpers.ts';
 import { portabilityFixture, SECRET_VALUE, type PortabilityFixture } from '../portability/fixture.ts';
 

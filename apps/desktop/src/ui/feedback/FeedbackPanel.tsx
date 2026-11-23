@@ -1,10 +1,11 @@
 // B-055 Q4: the feedback form – since feedback 16.11.2026 (F11, F15) the slim dock at the bottom of the snapshot
-// overlay (FeedbackOverlay.tsx), three rows of fixed height: the attachments (the overlay's screenshot box and paint
-// tools, "Recording", an attached crash report – FeedbackRows.tsx –, the always reserved message slot (role=alert), the
-// team's Inbox), then the close arrow (the draft stays), one field with the mic inside it that grows with its text (tap
-// to toggle, hold to talk – it keeps adding text) and one action: Send where this build can send, else Save
-// (delivery.ts), and the privacy note. No categories. The report carries one image: the screenshot with its marks
-// flattened into one JPEG at Send (paint-image.ts flatten – never the raw shot of a painted draft). The draft lives in
+// overlay (FeedbackOverlay.tsx), three rows of fixed height: the attachments (the overlay's Screenshot chip, photos and
+// Undo, an attached crash report – FeedbackRows.tsx –, the always reserved message slot (role=alert), the team's
+// Inbox), then the close arrow (the draft stays), one field with the + (Add photo) and the mic inside it that grows with
+// its text (tap to toggle, hold to talk – it keeps adding text) and one action: Send where this build can send, else Save
+// (delivery.ts), and the privacy note. No categories. Owner 21.11.2026: the + adds photos (several, beside the window
+// shot – never in its place); the report carries every image of the draft, each flattened with its marks into one JPEG
+// at Send within its share of the image budget (draft.ts draftImages, paint-image.ts flatten – never a raw painted image). The draft lives in
 // draft.ts, so closing keeps it; a sent report clears it. After a Save or an unconfirmed Send the dock says what
 // happened in one line; when the send was not confirmed, the action cell of that line reads "Send again" (not Close)
 // and sends the same saved report.
@@ -13,8 +14,10 @@
 // form at once and the status line says "Feedback sent · No. …" for 4 s (F11); a report the PC could not be reached
 // for waits in this page and goes on the next connect (the line says so); only a failure keeps the form open with
 // "Send again". The report carries no kind (the person's report has no category), the device it was written on
-// (client.ts), the dictation's recordings while "Recording" is on and an attached Android crash report
-// (FeedbackRows.tsx); a recording or a crash report alone is enough to send.
+// (client.ts) and an attached Android crash report (FeedbackRows.tsx); a crash report alone is enough to send.
+// Owner 20.11.2026: a report is its words – a dictation goes as its transcript (`dictated`), never as a recording. While
+// a take records or is transcribed (the field's mic or the cell's talk) the + turns 45° into × in one motion and cancels
+// it: its words never reach the field. The mic cell only shows the state.
 // Owns: the dock's form and submitting it. Never: starts an app change, requests a login, opens a browser or discards
 // a failed submission.
 
@@ -25,37 +28,41 @@ import { errorText } from '../lib/rpc.ts';
 import { bridge } from '../lib/platform.ts';
 import { isMobile, settings } from '../lib/store.ts';
 import { isPhoneApp } from '../pwa/native.ts';
-import { useDictation } from './bridge.ts';
+import { pickedImage, useDictation } from './bridge.ts';
 import { currentClient } from './client.ts';
-import { appendDraftText, canSubmit, clearDraft, feedbackDraft, reportText, sentDraft, shownDraft, updateDraft } from './draft.ts';
+import { addPhotos, appendDraftText, canSubmit, clearDraft, draftImages, feedbackDraft, photoRoom, reportText, sentDraft, shownDraft, updateDraft } from './draft.ts';
 import type { FeedbackDraft } from './draft.ts';
-import { announceSent, canSendAgain, closesAtOnce, doneText, heldText, notSentLine, sendAgainLabel, sendLabel, sendReport, useFeedbackSending } from './delivery.ts';
-import { talkError, talkState } from './FeedbackButton.tsx';
+import { announceSent, canSendAgain, closesAtOnce, doneText, heldText, notSentLine, PHOTO_ADD, PHOTO_HINT, sendAgainLabel, sendLabel, sendReport, useFeedbackSending } from './delivery.ts';
+import { cancelTalk, talkError, talkState } from './FeedbackButton.tsx';
 import { FeedbackInboxEntry } from './FeedbackInbox.tsx';
 import { FeedbackPrivacyNote } from './FeedbackPrivacy.tsx';
-import { CrashRow, RecordingRow } from './FeedbackRows.tsx';
+import { CrashRow } from './FeedbackRows.tsx';
+import { PlusCancel } from '../chat/composer/PlusCancel.tsx';
 import { announce, draftOf, feedbackOutbox, newClientId } from './outbox.ts';
 import type { OutboxEntry, Outcome, ReportLine } from './outbox.ts';
 import { flatten } from './paint-image.ts';
 import { here, snapshotSettled } from './popover-state.ts';
+import { FEEDBACK_IMAGES_MAX, imageBudget } from '../../shared/model/feedback-delivery.ts';
 
 /** How long the form waits for the PC before it says the report waits in this page (the delivery goes on). */
 const FORM_WAIT_MS = 15_000;
 
-/** The report's one image as a JPEG data URL: the screenshot with its marks flattened in (none: re-encoded as it is). */
-async function imageOf(draft: FeedbackDraft): Promise<string | undefined> {
-  return draft.withShot && draft.shot ? flatten(draft.shot, draft.marks) : undefined;
+/** The report's images as JPEG data URLs, each with its marks flattened in (unpainted: re-encoded) within its budget share. */
+async function imagesOf(draft: FeedbackDraft): Promise<string[]> {
+  const images = draftImages(draft);
+  const budget = imageBudget(images.length);
+  return Promise.all(images.map((image) => flatten(image.src, image.marks, budget)));
 }
 
 /** The outbox entry of what the draft holds now (only what the checkboxes let go). */
 async function entryOf(draft: FeedbackDraft, send: boolean): Promise<OutboxEntry> {
-  const image = await imageOf(draft);
+  const images = await imagesOf(draft);
   return {
     clientId: newClientId(), at: Date.now(), send, text: reportText(draft),
     where: draft.where.view ? draft.where : here(),
     client: currentClient(settings.peek()?.profile.language),
-    ...(image ? { image } : {}),
-    audio: draft.withAudio ? [...draft.audio] : [],
+    ...(images.length ? { images } : {}),
+    ...(draft.dictated && draft.text.trim() ? { dictated: true as const } : {}),
     ...(draft.withDiagnostics && draft.diagnostics ? { clientDiagnostics: draft.diagnostics } : {}),
   };
 }
@@ -78,11 +85,8 @@ function fitField(area: HTMLTextAreaElement | null): void {
   area.style.height = `${area.scrollHeight + area.offsetHeight - area.clientHeight}px`;
 }
 
-/**
- * The dock. `tools`: the overlay's screenshot box and paint tools (the first cells of the attachments row); `note`: a
- * message of theirs for the message slot; `onInbox`: the team's inbox opens (the overlay closes).
- */
-export function FeedbackForm(props: { onClose: () => void; onInbox: () => void; tools?: ComponentChildren; note?: string | null }) {
+/** The dock. `tools`: the overlay's screenshot box and paint tools (the first cells of the attachments row); `onInbox`: the team's inbox opens (the overlay closes). */
+export function FeedbackForm(props: { onClose: () => void; onInbox: () => void; tools?: ComponentChildren }) {
   const draft = shownDraft(); // while a send is on its way: the draft as sent (17.11.2026)
   const sending = useFeedbackSending(); // undefined until known: "Save" (never sends) meanwhile
   const [submittingNow, setBusy] = useState(false);
@@ -94,6 +98,7 @@ export function FeedbackForm(props: { onClose: () => void; onInbox: () => void; 
   const submitting = useRef(false);
   const mounted = useRef(true);
   const field = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const dictation = useDictation(appendDraftText, settings.value?.profile.language);
 
   useEffect(() => {
@@ -186,13 +191,25 @@ export function FeedbackForm(props: { onClose: () => void; onInbox: () => void; 
 
   const listening = dictation.state === 'listening';
   const transcribing = dictation.state === 'transcribing' || talkState.value === 'transcribing';
-  const message = error ?? dictation.error ?? talkError.value ?? props.note ?? null;
+  const taking = listening || transcribing || talkState.value === 'listening'; // a take runs: the + is its ×
+  const message = error ?? dictation.error ?? talkError.value ?? null;
+  const picked = async (input: HTMLInputElement) => {
+    const files = [...(input.files ?? [])];
+    input.value = ''; // the same file again is a new choice
+    if (!files.length) return;
+    try {
+      const room = photoRoom(feedbackDraft.peek());
+      addPhotos(await Promise.all(files.slice(0, room).map(pickedImage)));
+      setError(files.length > room ? `A report carries at most ${FEEDBACK_IMAGES_MAX} images.` : null);
+    } catch (err) {
+      setError(errorText(err));
+    }
+  };
   const phone = isMobile.value;
   return (
     <div class="feedback-dock" role="group" aria-label="Feedback">
       <div class="feedback-dock-row">
         {props.tools}
-        {(dictation.available || draft.audio.length > 0) && <RecordingRow draft={draft} disabled={busy} />}
         <CrashRow draft={draft} disabled={busy} />
         {!phone && <p class="feedback-message" role="alert" title={message ?? undefined}>{message}</p>}
         <FeedbackInboxEntry shown onOpen={props.onInbox} />
@@ -202,6 +219,10 @@ export function FeedbackForm(props: { onClose: () => void; onInbox: () => void; 
           <Icon name="arrow-down" size={18} />
         </button>
         <div class="feedback-input">
+          <PlusCancel class="feedback-plus" iconSize={18} disabled={(busy || !photoRoom(draft)) && !taking}
+            cancel={taking ? { label: 'Cancel dictation – its words are not kept', run: () => { dictation.cancel(); cancelTalk(); } } : undefined}
+            label={`${PHOTO_ADD} – ${PHOTO_HINT.toLowerCase()}`} onClick={() => picker.current?.click()} />
+          <input ref={picker} type="file" accept="image/*" multiple hidden onChange={(event) => void picked(event.currentTarget)} />
           <textarea
             ref={field}
             class="set-textarea"

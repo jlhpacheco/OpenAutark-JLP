@@ -20,5 +20,6 @@ test('the PC window shows the setting; a phone keeps to its own light/dark whate
 
 test('Settings › General: the Theme row only in the PC window', () => {
   const general = readFileSync(new URL('../../../src/ui/settings/GeneralPage.tsx', import.meta.url), 'utf8');
-  assert.match(general, /\{bridge && \( \/\/ feedback 16\.11\.2026 F15[^\n]*\n\s+<Group title="Appearance">/); // [^\n]* takes a \r too
+  // The group stays for the text size and the rest; only the Theme row sits behind the PC-window check.
+  assert.match(general, /<Group title="Appearance">\s*\{bridge && \( \/\/ feedback 16\.11\.2026 F15[^\n]*\n\s+<Row label="Theme"/); // [^\n]* takes a \r too
 });

@@ -3,7 +3,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LevelHistory, meterLevel, PCM_RATE, Pcm16Encoder, pcm16ToFloat, rms, wavFile } from '../../../src/ui/lib/pcm.ts';
+import { LevelHistory, meterLevel, PCM_RATE, Pcm16Encoder, rms, wavFile } from '../../../src/ui/lib/pcm.ts';
+import { pcm16Samples } from '../../../src/shared/voice/wav.ts';
 import { PCM_TAP, registerPcmTap } from '../../../src/ui/lib/pcm-worklet.ts';
 
 function samples(values: number[]): Float32Array {
@@ -35,7 +36,7 @@ test('rms of a block', () => {
 // ------------------------------------------------------------------ D13: clean audio, level meter
 
 const tone = (hz: number, rate: number, seconds: number) => Float32Array.from({ length: Math.round(rate * seconds) }, (_, i) => 0.5 * Math.sin(2 * Math.PI * hz * i / rate));
-const levelOf = (bytes: Uint8Array) => rms(pcm16ToFloat(bytes).subarray(200)); // past the filter's start
+const levelOf = (bytes: Uint8Array) => rms(pcm16Samples(bytes).subarray(200)); // past the filter's start
 
 test('Pcm16Encoder lowPass: 48 kHz → 16 kHz keeps speech and suppresses what nearest-sample decimation folds into it (regression)', () => {
   const alias = tone(12_000, 48_000, 0.5); // 12 kHz folds to 4 kHz at 16 kHz

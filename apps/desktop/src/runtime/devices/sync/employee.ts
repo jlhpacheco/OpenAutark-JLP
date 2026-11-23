@@ -8,7 +8,10 @@
 // only those rows, checked on its own data like a line from the person's phone (a finished text line of theirs, a
 // chat they are in that is not archived, an edit only of their own text line; the task assigned to the person
 // here and in the row); anything else is left out quietly, so nothing answers it and nothing repeats.
-// B-078 (D20): on a PC that is only the person's seat there (seatAt), their own open to-dos (not "Only me") travel to
+// 21.11.2026 (owner: "natürlich sieht man alle anderen Agenten"): every agent of the company reaches that PC without its
+// setup, and a chat the person starts there with company agents goes to the company once (startedWith), so those agents
+// answer it; then it is the company's like one that came from it.
+// B-078 (D20): on a PC that is only the person's seat there (seatAt), their own open to-dos ("Only me" ones too – it hides nothing) travel to
 // the company too, as tasks assigned to them there,
 // and a status change of their task runs the task service's path on the CEO's PC (heldStatus, moveStatus), as from
 // their phone: the follow-ups and wakes happen there.
@@ -37,7 +40,11 @@ const IDS: Readonly<Record<string, readonly string[]>> = {
   conversations: ['created_by'],
   messages: ['author_id'],
   tasks: ['created_by', 'assigned_by'],
+  agents: ['created_by', 'person_manager_id'], // 21.11.2026: on the person's PC their own personal manager is theirs ('human')
 };
+
+/** 21.11.2026: what an agent runs with – it stays on the company's PCs; the person's PC only names the agent. */
+const SETUP = ['instructions', 'model_policy', 'permissions', 'budget'];
 
 /** A JSON column with `change` applied; the same text when nothing changed. */
 function mapJson(value: unknown, change: (parsed: unknown) => unknown): unknown {
@@ -63,6 +70,7 @@ export function asPerson<T extends Unit>(item: T, personId: string, toPerson: bo
       return Array.isArray(pair) ? { ...(settings as object), directPair: pair.map(map) } : settings;
     });
   }
+  if (item.t === 'agents' && toPerson) for (const column of SETUP) delete row[column];
   if (item.t === 'messages') {
     row.mentions = mapJson(row.mentions, (list) => (Array.isArray(list) ? list.map(map) : list));
     row.meta = mapJson(row.meta, (meta) => {
@@ -86,9 +94,9 @@ export function asPerson<T extends Unit>(item: T, personId: string, toPerson: bo
   return { ...item, row };
 }
 
-/** On an employee's PC: a chat or task that came from `peer` (marked when it arrives, unmarked when it goes). */
+/** On an employee's PC: a chat, task or (21.11.2026) agent that came from `peer` (marked when it arrives, unmarked when it goes). */
 export function markOrigin(db: Db, item: Unit, peer: string, now: number): void {
-  if (item.t !== 'conversations' && item.t !== 'tasks') return;
+  if (item.t !== 'conversations' && item.t !== 'tasks' && item.t !== 'agents' && item.t !== 'accounts') return; // 22.11.2026: a plan's too (plan-peers.ts)
   const kv = new KvRepo(db);
   const key = `${item.t}/${item.id}`;
   if (item.gone) kv.delete(ORIGIN, key);
@@ -97,8 +105,27 @@ export function markOrigin(db: Db, item: Unit, peer: string, now: number): void 
 
 const cameFrom = (db: Db, key: string) => new KvRepo(db).get<string>(ORIGIN, key);
 
-/** A to-do of the person's own on their PC that their company sees too: open and not "Only me". */
-const ownOpen = (row: Wire) => !Number(row.private ?? 0) && !['done', 'dropped', 'cancelled'].includes(String(row.status));
+/** 22.11.2026: the PC of the company a plan here came from (on an employee's PC and their other PCs); undefined for a plan of this company's own. */
+export function planFrom(db: Db, accountId: string): string | undefined {
+  try { return cameFrom(db, `accounts/${accountId}`); } catch { return undefined; }
+}
+
+/** A plan row on its way to my own PCs with the company it came from (as when it goes on live), so they share it the same way (plan-peers.ts). */
+export function withPlanOrigin<T extends Unit>(db: Db, item: T): T {
+  const company = item.t === 'accounts' && item.row ? planFrom(db, item.id) : undefined;
+  return company ? { ...item, origin: company } : item;
+}
+
+/**
+ * 21.11.2026: on an employee's PC (and their other PCs), an agent of the company they work for: it came from there. It
+ * runs only on the company's PCs – never here, and a wake for it here is void (the company delivers the person's line).
+ */
+export function fromEmployer(db: Db, agentId: string): boolean {
+  try { return cameFrom(db, `agents/${agentId}`) !== undefined; } catch { return false; }
+}
+
+/** A to-do of the person's own on their PC that their company sees too: open (an "Only me" one too). */
+const ownOpen = (row: Wire) => !['done', 'dropped', 'cancelled'].includes(String(row.status));
 
 /**
  * Whether this PC's company is only the person's seat at `peer` (started for it, "+" › Join a company as employee): no
@@ -117,15 +144,15 @@ export function seatAt(db: Db, peer: string, now = Date.now()): boolean {
   return seat;
 }
 
-/** On an employee's seat PC: the person's own open to-dos (assigned to them, not "Only me"), for the first link-up. */
+/** On an employee's seat PC: the person's own open to-dos (assigned to them, "Only me" ones too), for the first link-up. */
 export function ownTodos(db: Db, peer: string): string[] {
   if (!seatAt(db, peer)) return [];
-  return db.all<{ id: string }>("SELECT id FROM tasks WHERE assignee_kind = 'human' AND assignee_id IS NULL AND private = 0 AND status NOT IN ('done', 'dropped', 'cancelled')").map((row) => String(row.id));
+  return db.all<{ id: string }>("SELECT id FROM tasks WHERE assignee_kind = 'human' AND assignee_id IS NULL AND status NOT IN ('done', 'dropped', 'cancelled')").map((row) => String(row.id));
 }
 
 /**
  * On an employee's PC: whether a changed row goes back to `peer` – this person's own line in a chat from there, their
- * change of a task from there that is theirs, or (D20, seat PCs only) a to-do of their own, open and not "Only me": once
+ * change of a task from there that is theirs, or (D20, seat PCs only) a to-do of their own, open ("Only me" too): once
  * it went there, its later changes (done) follow it.
  */
 export function goesBack(item: Unit, peer: string, db: Db, now = Date.now()): boolean {
@@ -135,16 +162,52 @@ export function goesBack(item: Unit, peer: string, db: Db, now = Date.now()): bo
     const chat = String(row.conversation_id);
     return row.author_kind === 'human' && row.author_id === HUMAN_ID && cameFrom(db, `conversations/${chat}`) === peer && Boolean(membership(db, HUMAN_ID, chat));
   }
+  if (item.t === 'conversations') {
+    // 21.11.2026: a chat the person started here with agents of that company goes there once (its agents answer there);
+    // from then on it is that company's like one that came from it – its lines go back, its later changes stay here.
+    if (cameFrom(db, `conversations/${item.id}`) !== undefined || !startedWith(row, HUMAN_ID, (id) => companyAgent(db, id))) return false;
+    new KvRepo(db).set(ORIGIN, `conversations/${item.id}`, peer, now);
+    return true;
+  }
   if (item.t !== 'tasks' || row.assignee_kind !== 'human' || (row.assignee_id ?? null) !== null) return false;
   const origin = cameFrom(db, `tasks/${item.id}`);
   if (origin) return origin === peer;
-  // Their own to-do (only from a seat PC): open, or done after it went there once; "Only me" keeps it here from then on.
+  // Their own to-do (only from a seat PC): open, or done after it went there once.
   if (!seatAt(db, peer, now)) return false;
   const kv = new KvRepo(db);
   const sent = kv.get<string>(OWN, `tasks/${item.id}`);
-  if (Number(row.private ?? 0) || (sent !== peer && !ownOpen(row))) return false;
+  if (sent !== peer && !ownOpen(row)) return false;
   if (sent !== peer) kv.set(OWN, `tasks/${item.id}`, peer, now);
   return true;
+}
+
+/** 21.11.2026: on an employee's PC, an active agent of the company (fromEmployer). */
+function companyAgent(db: Db, agentId: string): boolean {
+  return fromEmployer(db, agentId) && Boolean(db.get('SELECT 1 FROM agents WHERE id = ? AND archived_at IS NULL', [agentId]));
+}
+
+/**
+ * 21.11.2026: a chat `person` started with agents only (`isAgent` true for each): made by them, they the only human in it,
+ * at least one agent, nobody left.
+ */
+function startedWith(row: Wire, person: string, isAgent: (id: string) => boolean): boolean {
+  const members = Array.isArray(row.members) ? (row.members as Wire[]) : [];
+  if (row.created_by !== person || row.archived_at || !members.some((member) => member.kind === 'agent')) return false;
+  return members.every((member) => member.left_at == null && (member.kind === 'agent' ? isAgent(String(member.member_id)) : member.member_id === person));
+}
+
+/** On the CEO's PC: tables an employee's PC gets whole once, though its link has a cursor (21.11.2026: agents went to none before). */
+const ONCE = 'sync.once';
+const WHOLE_ONCE: ReadonlySet<string> = new Set(['agents', 'accounts']); // 22.11.2026: plans went to none before (plan-peers.ts)
+
+/** Whether `peer` (an employee's PC) still is owed every row of `table` once. */
+export function owedOnce(db: Db, peer: string, table: string): boolean {
+  return WHOLE_ONCE.has(table) && new KvRepo(db).get<boolean>(ONCE, `${peer}/${table}`) === undefined;
+}
+
+/** Every row of `table` reached `peer`. */
+export function paidOnce(db: Db, peer: string, table: string, now: number): void {
+  new KvRepo(db).set(ONCE, `${peer}/${table}`, true, now);
 }
 
 /** A person's task status that changed on their PC: written through the task service here (moveStatus), not as a row. */
@@ -202,6 +265,10 @@ export function moveStatus(s: Pick<RuntimeServices, 'tasks' | 'log'>, move: Stat
 export function takenFrom(item: Unit, personId: string, db: Db): boolean {
   const row = item.row;
   if (!row || item.gone) return false;
+  if (item.t === 'conversations') {
+    // 21.11.2026: a new chat they started on their PC with agents of this company (active ones); a change of one stays there.
+    return !db.get('SELECT 1 FROM conversations WHERE id = ?', [item.id]) && startedWith(row, personId, (id) => Boolean(db.get('SELECT 1 FROM agents WHERE id = ? AND archived_at IS NULL', [id])));
+  }
   if (item.t === 'messages') {
     const chat = String(row.conversation_id);
     const here = db.get<{ author_id: string; conversation_id: string; kind: string }>('SELECT author_id, conversation_id, kind FROM messages WHERE id = ?', [item.id]);
@@ -210,7 +277,7 @@ export function takenFrom(item: Unit, personId: string, db: Db): boolean {
       && (!here || (here.author_id === personId && here.conversation_id === chat && here.kind === 'text'));
   }
   // A task stays theirs on both sides; an update never moves its chat, parent or maker (TaskRepo.save). A new one is a
-  // to-do of their own, open and not "Only me" (D20) – whoever made it on their PC (mostly an agent there, theirMaker).
+  // to-do of their own, open ("Only me" too, D20) – whoever made it on their PC (mostly an agent there, theirMaker).
   const theirs = (task: Wire | undefined) => task?.assignee_kind === 'human' && task.assignee_id === personId;
   if (item.t !== 'tasks' || !theirs(row)) return false;
   const here = db.get<Wire>('SELECT assignee_kind, assignee_id FROM tasks WHERE id = ?', [item.id]);

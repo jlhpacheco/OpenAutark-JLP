@@ -1,14 +1,13 @@
-// R4 contracts schema: migrations 2–4 (media + media_fts, agents.based_on, bridges), the
-// upgrade path from a schema-1 database, the list order of all migrations (db/migrate.ts: ascending,
-// gap numbers unused), and that AgentRepo leaves the old based_on and budget columns alone.
+// R4 contracts schema: media + media_fts, agents.based_on, bridges (in the baseline since 20.11.2026), the list
+// order of the migrations above the baseline (db/migrate.ts: ascending), and that AgentRepo leaves the old based_on and
+// budget columns alone.
 // Owns: checks of the tables and the minimal agent mapping only (media/bridges behaviour is
 // tested by their packages).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Db } from '../../../src/runtime/db/database.ts';
-import { migrate, SCHEMA_VERSION } from '../../../src/runtime/db/migrate.ts';
-import { sql as initial } from '../../../src/runtime/db/migrations/001-initial.ts';
+import { BASELINE, migrate, SCHEMA_VERSION } from '../../../src/runtime/db/migrate.ts';
 import { AgentRepo } from '../../../src/runtime/store/agents.ts';
 import type { Agent } from '../../../src/shared/model/org.ts';
 import { memoryDb } from './helpers.ts';
@@ -43,32 +42,17 @@ test('a fresh database has the media, media_fts and bridges tables and agents.ba
   assert.deepEqual(columns(db, 'media_fts'), ['file_id', 'name', 'description', 'tags']);
 });
 
-test('a schema-1 database upgrades to the latest schema and keeps its rows', () => {
-  const db = new Db(':memory:');
-  db.exec(initial);
-  db.run(`INSERT INTO meta (key, value) VALUES ('schema', '1')`);
-  // A row written by an app before R4 (no based_on column yet), so inserted directly.
-  db.run(`INSERT INTO agents (id, name, avatar, created_by, created_at, updated_at) VALUES ('ag_1', 'Writer', '{}', 'human', 1, 1)`);
-  assert.deepEqual(migrate(db), { from: 1, to: SCHEMA_VERSION });
-  const agent = new AgentRepo(db).get('ag_1');
-  assert.equal(agent?.name, 'Writer');
-  assert.deepEqual(migrate(db), { from: SCHEMA_VERSION, to: SCHEMA_VERSION }); // idempotent
-});
-
-test('migrations apply in ascending list order; the unused gap numbers are not needed to upgrade', () => {
+test('migrations apply in ascending list order from the baseline on; the recorded version never goes back', () => {
   const db = new Db(':memory:');
   const recorded = () => Number(db.get<{ value: string }>(`SELECT value FROM meta WHERE key = 'schema'`)?.value ?? 0);
   const steps: number[] = [];
-  for (let until = 1; until <= SCHEMA_VERSION; until++) { migrate(db, { until }); steps.push(recorded()); }
+  for (let until = BASELINE; until <= SCHEMA_VERSION; until++) { migrate(db, { until }); steps.push(recorded()); }
   steps.forEach((value, index) => {
-    assert.ok(value <= index + 1, `nothing above ${index + 1} applied yet`);
-    if (index) assert.ok(value >= steps[index - 1], `the recorded version never goes back (step ${index + 1})`);
+    assert.ok(value <= BASELINE + index, `nothing above ${BASELINE + index} applied yet`);
+    if (index) assert.ok(value >= steps[index - 1], `the recorded version never goes back (step ${BASELINE + index})`);
   });
+  assert.equal(steps[0], BASELINE);
   assert.equal(steps.at(-1), SCHEMA_VERSION);
-  assert.deepEqual([54, 57].map((until) => steps[until - 1]), [50, 55], 'the gaps 51–54 and 56–57 hold no migration');
-  const profile = new Db(':memory:');
-  migrate(profile, { until: 55 });
-  assert.deepEqual(migrate(profile), { from: 55, to: SCHEMA_VERSION }, 'a profile at 55 upgrades through the rest');
 });
 
 test('media rows reference stored files and are searchable through media_fts', () => {

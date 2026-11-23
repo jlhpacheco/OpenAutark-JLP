@@ -12,7 +12,7 @@ import '../../../src/runtime/contracts/calendar.ts';
 import { CalendarServiceImpl } from '../../../src/runtime/calendar/service.ts';
 import { CalendarSourcesImpl } from '../../../src/runtime/calendar/sources/index.ts';
 import type { FetchFn, FetchResponse } from '../../../src/runtime/calendar/sources/http.ts';
-import type { LoopbackHandler, LoopbackServerFactory } from '../../../src/runtime/calendar/sources/oauth-loopback.ts';
+import type { LoopbackHandler, LoopbackServerFactory } from '../../../src/runtime/apps/oauth/loopback.ts';
 import { SecretVault } from '../../../src/runtime/secrets/service.ts';
 import { harness, tick } from '../chat/harness.ts';
 import { vienna, VIENNA } from './ics-fixtures.ts';

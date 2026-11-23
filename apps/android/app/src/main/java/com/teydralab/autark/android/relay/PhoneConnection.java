@@ -16,6 +16,7 @@
 // PC says ready on the data channel, that channel (B) is the page's: new streams go there, the ones on A end and the
 // page hears 'resume'. A stays open and idle; when B ends, the page is back on A at once. Without an Engine (no
 // WebRTC on this phone) nothing of this runs.
+// W (19.11.2026): wake() sends a closed PC's wake over the same meeting-server link (Wake) – it needs no PC online.
 // Never: stores anything itself (the caller keeps Paired), polls the PC, or talks to a PC it does not pin.
 package com.teydralab.autark.android.relay;
 
@@ -210,6 +211,14 @@ public final class PhoneConnection implements StreamProxy.Channels {
 
     /** The pinned PCs in the phone's order, for the picker. */
     public List<Pc> pcs() { return paired.pcs; }
+
+    /** W (19.11.2026): wakes a PC of mine whose app is closed (its helper key `wakePub`) through this connection's
+     *  meeting-server link (Wake) – no PC needs to be online. Any thread but the main one (network). */
+    public void wake(String wakePub, String name) throws IOException {
+        RelayLink current = link;
+        if (current == null || !current.isUp()) { nudge(); throw new IOException("This phone can't reach the meeting server right now – try again in a moment."); }
+        Wake.send(current, seed, wakePub, name, System.currentTimeMillis());
+    }
 
     /** True when the meeting server reports the PC `fingerprintHex` online now. */
     public boolean online(String fingerprintHex) {

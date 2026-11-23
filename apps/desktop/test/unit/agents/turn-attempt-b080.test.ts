@@ -46,6 +46,47 @@ test('a failed engine-native call is journaled with its summary and output as pr
   assert.equal(result.data.summary, 'exit 1', 'the short line stays');
 });
 
+test('native tool results store marks for a catalog value and a shaped secret', async () => {
+  const h = setup();
+  const items = journal(h);
+  const catalogFixture = 'synthetic-catalog-redaction-fixture';
+  const stripeFixture = 'sk_live_' + 'SyntheticFixtureOnly123456';
+  h.services.secrets.redact = (text) => text.replaceAll(catalogFixture, 'secret://fixture');
+  h.state.script = async (input) => {
+    input.onEvent({ type: 'tool_start', callId: 'c1', name: 'shell', args: {}, own: true });
+    input.onEvent({ type: 'tool_end', callId: 'c1', ok: false, summary: 'exit 1', output: catalogFixture + ' ' + stripeFixture });
+    return { text: 'Failed.', stop: 'done' };
+  };
+  await runAttempt(h.services, planOf(h), h.routed(), h.request(), undefined);
+  const result = items.find((item) => item.kind === 'tool_result')!;
+  assert.equal(result.data.output, 'secret://fixture ‹secret:stripe-live›');
+  assert.equal(result.data.preview, 'exit 1\nsecret://fixture ‹secret:stripe-live›');
+});
+
+test('native tool results suppress all raw fields when catalog masking fails', async () => {
+  const h = setup();
+  const items = journal(h);
+  const fixture = 'synthetic-catalog-redaction-fixture';
+  const redact = h.services.secrets.redact.bind(h.services.secrets);
+  h.services.secrets.redact = (text) => {
+    if (text.includes(fixture)) throw new Error('fixture redactor unavailable');
+    return redact(text);
+  };
+  h.state.script = async (input) => {
+    input.onEvent({ type: 'tool_start', callId: 'c1', name: 'shell', args: {}, own: true });
+    input.onEvent({ type: 'tool_end', callId: 'c1', ok: false, summary: fixture, output: fixture });
+    return { text: 'Failed.', stop: 'done' };
+  };
+  await runAttempt(h.services, planOf(h), h.routed(), h.request(), undefined);
+  const result = items.find((item) => item.kind === 'tool_result')!;
+  assert.ok(result);
+  for (const key of ['summary', 'preview', 'output']) {
+    assert.equal(typeof result.data[key], 'string');
+    assert.ok(!String(result.data[key]).includes(fixture), key + ': no unverified raw text');
+  }
+  assert.equal(result.data.ok, false);
+});
+
 test('a fresh session the engine announces is bound at once with the start cursor – also when the attempt dies after it', async () => {
   const h = setup({ sessions: true });
   journal(h);

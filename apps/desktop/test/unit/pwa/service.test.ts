@@ -9,7 +9,6 @@ import type { SettingsService } from '../../../src/runtime/contracts.ts';
 import { createECDH } from 'node:crypto';
 import { PushService } from '../../../src/runtime/pwa/push.ts';
 import { PwaService } from '../../../src/runtime/pwa/service.ts';
-import { closeAccessTurnedOff } from '../../../src/runtime/pwa/access-off.ts';
 import { VapidKeys } from '../../../src/runtime/pwa/vapid.ts';
 import { keepSubs } from '../../../src/runtime/devices/sync/held-push.ts';
 import type { PwaState } from '../../../src/shared/model/devices.ts';
@@ -49,20 +48,11 @@ test('B-078: no switch gates a paired device – its token works while its row a
   assert.equal(pwa.revoked(token), true);
 });
 
-test('phone access switched off in 0.3.x: its earlier devices and the tokens of colleagues end once; a token from before keeps no permissions', async () => {
-  const { pwa, settings, db, clock } = setup();
+test('a token issued before B-078 keeps no permissions it never had', async () => {
+  const { pwa, db } = setup();
   const before = pwa.exchange(secretOf((await pwa.link({ name: 'Old browser' })).url), { kind: 'browser' });
   db.run(`UPDATE tokens SET scope = '["todo","chat","tasks","settings","manage"]' WHERE device_id = ?`, [before.deviceId]); // as 0.3.x issued it
-  assert.deepEqual(pwa.authenticate(before.token), { kind: 'device', deviceId: before.deviceId, capabilities: ['todo', 'chat', 'tasks', 'settings', 'manage'] }, 'no permissions it never had');
-  const fresh = pwa.pairPhone({ id: 'dev_phonepair02', name: 'Pixel', publicKey: Buffer.alloc(32, 7).toString('base64url') });
-  db.run(`INSERT INTO tokens (id, device_id, kind, hash, scope, name, created_at) VALUES ('tok_p1', 'pdev_1', 'person', 'h1', '{"personId":"per_x"}', NULL, 0)`);
-  settings.pwa = { enabled: false, bind: 'lan' };
-  assert.deepEqual(await closeAccessTurnedOff({ db, clock, log: silentLog, settings: { get: () => settings, update: (patch: { pwa?: typeof settings.pwa }) => { Object.assign(settings.pwa, patch.pwa); return settings; } } as never }, pwa), { devices: 1, people: 1 });
-  assert.equal(pwa.authenticate(before.token), undefined, 'the switched-off browser stays out');
-  assert.equal(pwa.authenticate(fresh.token)?.kind, 'device', 'a phone paired in this build stays');
-  assert.ok(db.get(`SELECT 1 AS hit FROM tokens WHERE id = 'tok_p1' AND revoked_at IS NOT NULL`), 'the colleague joins again');
-  assert.deepEqual(settings.pwa, { enabled: true, bind: 'localhost' });
-  assert.equal(await closeAccessTurnedOff({ db, clock, log: silentLog, settings: { get: () => settings, update: () => settings } as never }, pwa), undefined, 'once');
+  assert.deepEqual(pwa.authenticate(before.token), { kind: 'device', deviceId: before.deviceId, capabilities: ['todo', 'chat', 'tasks', 'settings', 'manage'] });
 });
 
 test('a pairing link is one-time, with or without the old switch', async () => {

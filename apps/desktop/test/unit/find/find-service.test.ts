@@ -14,7 +14,7 @@ import { WordIndex } from '../../../src/runtime/knowledge/words.ts';
 import { PAGE_CHARS } from '../../../src/runtime/find/open.ts';
 import { findTools } from '../../../src/runtime/tools/builtin/find.ts';
 import { SkillLibrary } from '../../../src/runtime/skills/service.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import type { ToolContext } from '../../../src/runtime/tools/types.ts';
 import type { KnowledgeItem, ModeInfo } from '../../../src/shared/model/knowledge.ts';

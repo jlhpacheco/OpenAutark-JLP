@@ -2,7 +2,7 @@
 // and a jump (C4) to a line of a collapsed burst lands on its newest line the person sees –
 // agents' edit and delete notices (C6) are hidden in the burst, so they are never the target. A call is one
 // bubble at its row: the rows its lines name fold into it and show there in full (callEntries), every other row – a later
-// answer too – stays a row.
+// answer too – stays a row. A task thread's kept line (a person's whole line, details.quote) is a row of its own.
 // Owns: these assertions only. Never: renders (MessageList.tsx looks the line up in the DOM).
 
 import { test } from 'node:test';
@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { Message } from '../../../src/shared/model/chat.ts';
 import { callLength, type CallRecord } from '../../../src/shared/model/call.ts';
-import { burstLineFor, burstView, callEntries, groupRows, isQuietLine, quietLineText, rowHas } from '../../../src/ui/chat/message-rows.ts';
+import { KEPT_LINES, burstLineFor, burstView, callEntries, groupRows, isQuietLine, keptFolds, quietLineText, quoteOf, rowHas } from '../../../src/ui/chat/message-rows.ts';
 
 const text = (seq: number): Message => ({
   id: `msg_${seq}`, conversationId: 'cv_rows', seq, authorId: 'human', authorKind: 'human', kind: 'text', body: `#${seq}`, attachments: [], mentions: [],
@@ -139,4 +139,18 @@ test('one burst has one shape for one line and for many: nothing above an opened
   assert.deepEqual(shape(burstView([quiet, status(3), status(4)], false, none)), ['earlier 2', 'msg_4']);
   assert.deepEqual(shape(burstView([quiet, status(3), status(4)], false, newest)), ['earlier 2', 'msg_4']);
   assert.deepEqual(shape(burstView([quiet, status(3), status(4), status(5)], false, newest)), ['earlier 2', 'msg_4', 'msg_5']);
+});
+
+test('a person\'s line kept in a task\'s thread (details.quote): its own row, never in a burst; folded past a few lines', () => {
+  const whole = 'Please sign the build.\nThen send the link to Anna.\nAnd tell me when it is out.';
+  const kept = { ...status(2, { taskId: 'task_1', quote: { conversationId: 'ch_9', messageId: 'msg_77', seq: 77, authorId: 'human', at: 5 } }), body: whole,
+    meta: { status: { type: 'note' as const, text: whole, details: { taskId: 'task_1', quote: { conversationId: 'ch_9', messageId: 'msg_77', seq: 77, authorId: 'human', at: 5 } } } } } as Message;
+  assert.deepEqual(quoteOf(kept), { text: whole, authorId: 'human', at: 5, conversationId: 'ch_9', messageId: 'msg_77' });
+  assert.equal(quoteOf(status(3)), undefined, 'a plain status line');
+  assert.equal(quoteOf(text(4)), undefined);
+  const rows = groupRows([status(1), kept, status(3)]);
+  assert.deepEqual(rows.map((row) => (row.kind === 'message' ? row.message.id : row.messages.map((message) => message.id).join('+'))), ['msg_1', 'msg_2', 'msg_3']);
+  assert.equal(keptFolds(whole), false, `${KEPT_LINES} lines or fewer show whole`);
+  assert.equal(keptFolds(Array.from({ length: KEPT_LINES + 1 }, (_, n) => `line ${n}`).join('\n')), true);
+  assert.equal(keptFolds('x'.repeat(400)), true, 'one long line folds too');
 });

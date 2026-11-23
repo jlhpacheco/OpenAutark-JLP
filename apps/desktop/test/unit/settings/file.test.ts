@@ -5,12 +5,10 @@
 // - an edit on disk (with comments, a trailing comma, a missing key, null) is taken over once and the file is
 //   written whole again with fresh comments; a section removed from the file goes back to the defaults;
 // - the older file that held only the values differing from the defaults becomes whole once, every value kept;
-//   the old database rows move in once – the file's own values win – and the table is emptied;
 // - an invalid section keeps its last good value and stays in the file as written with the reason above it and a
 //   quiet notice; a fix clears both; a key no section knows is left out; an unknown section stays as written;
 // - a file that is no JSON is copied to settings.rejected.json before the app writes over it; a deleted file is
-//   written again from the current values; a disk edit not handed over yet comes before an update;
-// - a settings.json that is still the pre-rebuild store (schema 1–7) is neither read nor written.
+//   written again from the current values; a disk edit not handed over yet comes before an update.
 // Owns: these assertions only.
 
 import { test } from 'node:test';
@@ -19,7 +17,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { SettingsStore } from '../../../src/runtime/settings/service.ts';
 import { defaultSettings } from '../../../src/runtime/settings/defaults.ts';
-import { pcOf, settingsFrom, withOldRows } from '../../../src/runtime/settings/read.ts';
+import { pcOf, settingsFrom } from '../../../src/runtime/settings/read.ts';
 import { SECTIONS, SETTINGS_SCHEMA_FILE, parseText, settingsText, stripJsonc } from '../../../src/runtime/settings/schema.ts';
 import { RootWatcher } from '../../../src/runtime/root/watcher.ts';
 import { ROOT_SETTINGS } from '../../../src/runtime/root/layout.ts';
@@ -50,7 +48,6 @@ function setup(seed?: (db: Db, file: string) => void) {
   return { temp, db, settings, make, file, text, json, edit, done, root, ...recorder };
 }
 
-const row = (db: Db, key: string, value: unknown) => db.run('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, 1)', [key, JSON.stringify(value)]);
 /** The line right above `"key":` (the first one in the text). */
 const above = (body: string, key: string): string => {
   const lines = body.split('\n');
@@ -71,7 +68,7 @@ test('a first start writes the whole file: every section and key with a comment 
   }
   assert.equal(above(body, 'theme'), '// Colour scheme of the window. Options: system | light | dark. Default: system');
   assert.equal(above(body, 'sidebarWidth'), '// Width of the sidebar in pixels. From 200 to 420. Default: 288');
-  assert.equal(above(body, 'closeToTray'), '// Closing the window keeps the app and the agents running. Options: true | false. Default: true');
+  assert.equal(above(body, 'enterSends'), '// Enter sends a message, Shift+Enter starts a new line (false: Ctrl+Enter sends). Options: true | false. Default: true');
   assert.match(above(body, 'language'), /Default: en$/, 'owner 18.11.2026: English on every PC, no longer from this PC');
   assert.equal(data.preferences.theme, 'system');
   assert.equal(data.notifications.quietHours, null, 'a key not set reads null');
@@ -120,15 +117,15 @@ test('the meeting server: Autark\'s own by default (null in the file too), "" tu
 test('update() writes the file whole and survives a restart', (t) => {
   const h = setup();
   t.after(h.done);
-  h.settings.update({ preferences: { theme: 'dark', closeToTray: false }, devices: { relay: 'wss://relay.example.com' } });
+  h.settings.update({ preferences: { theme: 'dark', enterSends: false }, devices: { relay: 'wss://relay.example.com' } });
   assert.equal(h.json().preferences.theme, 'dark');
-  assert.equal(h.json().preferences.closeToTray, false);
+  assert.equal(h.json().preferences.enterSends, false);
   assert.equal(h.json().preferences.sidebarWidth, 288, 'the other keys stay in the file');
   assert.equal(h.json().devices.relay, 'wss://relay.example.com');
   assert.equal(above(h.text(), 'theme'), '// Colour scheme of the window. Options: system | light | dark. Default: system');
   h.settings.close();
   const again = h.make();
-  assert.equal(again.get().preferences.closeToTray, false);
+  assert.equal(again.get().preferences.enterSends, false);
   assert.equal(again.get().devices.relay, 'wss://relay.example.com');
   again.close();
 });
@@ -140,14 +137,14 @@ test('an edit with comments, a trailing comma, a missing key and null applies; t
   const edited = h.text()
     .replace('"theme": "system",', '"theme": "light", // my choice\n    /* a block\n       comment */')
     .replace(/\n\s*\/\/[^\n]*\n\s*"workspaceWidth": 420,/, '')
-    .replace('"agentLane": false', '"agentLane": true,')
+    .replace('"keepAwake": true', '"keepAwake": false,')
     .replace('"bufferMin": 10', '"bufferMin": null');
-  assert.ok(edited.includes('"agentLane": true,\n'), 'a trailing comma before }');
+  assert.ok(edited.includes('"keepAwake": false,\n'), 'a trailing comma before }');
   assert.ok(!edited.includes('"workspaceWidth"') && edited.includes('"bufferMin": null,') && edited.includes('// my choice'));
   h.edit(edited);
   const s = h.settings.get();
   assert.equal(s.preferences.theme, 'light');
-  assert.equal(s.day?.agentLane, true);
+  assert.equal(s.day?.keepAwake, false);
   assert.equal(s.day?.bufferMin, 10, 'null reads as the default');
   assert.equal(s.preferences.workspaceWidth, 420, 'a missing key reads as the default');
   assert.equal(h.settings.notice(), undefined);
@@ -170,7 +167,7 @@ test('the comments are regenerated: a file without or with stale comments gets t
 });
 
 test('the older file holding only the values that differ from the defaults becomes whole once, every value kept', (t) => {
-  const old = { profile: { name: 'Ada' }, preferences: { theme: 'dark' }, devices: { findable: null }, voice: { vocabulary: ['Kimi'] }, lifecycle: { retention: { traceDays: 30 } }, routing: { functions: { chat: 'claude:opus' } } };
+  const old = { profile: { name: 'Ada' }, preferences: { theme: 'dark' }, devices: { findable: null }, voice: { vocabulary: ['Kimi'] }, lifecycle: { retention: { traceDays: 30 } }, routing: { work: 'claude:opus' } };
   const h = setup((_db, file) => writeFileSync(file, `${JSON.stringify(old, null, 2)}\n`, 'utf8'));
   t.after(h.done);
   const s = h.settings.get();
@@ -179,40 +176,14 @@ test('the older file holding only the values that differ from the defaults becom
   assert.equal(s.devices.findable, true, 'null (removed) read as the default');
   assert.deepEqual(s.voice.vocabulary, ['Kimi']);
   assert.deepEqual(s.lifecycle, { retention: { traceDays: 30 } });
-  assert.equal(s.routing.work, 'claude:opus', 'the older functions.chat became the Work use');
+  assert.equal(s.routing.work, 'claude:opus');
   assert.equal(h.text(), settingsText(s, pc), 'the file is whole now');
   assert.equal(h.json().preferences.sidebarWidth, 288);
   h.settings.close();
   assert.deepEqual(h.make().get(), s, 'the next start reads the same');
 });
 
-test('the old database rows move into the file once: the file wins, database-only sections and keys come along', (t) => {
-  const h = setup((db, file) => {
-    row(db, 'profile', { name: 'Old name', company: 'Acme' });
-    row(db, 'preferences', { theme: 'light', closeToTray: false, openAtLogin: true });
-    row(db, 'routing', { costMode: 'best', allowPaidFallback: true });
-    row(db, 'onboarding', { completed: true, step: 'done' });
-    row(db, 'pwa', { enabled: true, bind: 'lan' });
-    writeFileSync(file, JSON.stringify({ profile: { name: 'Ada' }, preferences: { theme: 'dark' } }), 'utf8');
-  });
-  t.after(h.done);
-  const s = h.settings.get();
-  assert.equal(s.profile.name, 'Ada', 'the file wins');
-  assert.equal(s.profile.company, '', 'file sections come from the file only');
-  assert.equal(s.preferences.theme, 'dark');
-  assert.equal(s.preferences.closeToTray, false, 'a database-only key comes along');
-  assert.equal(s.preferences.openAtLogin, true);
-  assert.equal(s.routing.allowPaidFallback, true);
-  assert.equal(s.routing.costMode, 'balanced', 'the file had no routing values');
-  assert.deepEqual(s.onboarding, { completed: true, step: 'done' });
-  assert.deepEqual(s.pwa, { enabled: true, bind: 'lan' });
-  assert.deepEqual(h.json().pwa, { enabled: true, bind: 'lan' });
-  assert.deepEqual(h.db.all('SELECT key FROM settings'), [], 'the table is emptied: the rows never come back');
-});
-
-test('without a settings.json the rows are everything; comments and trailing commas are read like VS Code reads them', () => {
-  assert.deepEqual(withOldRows(undefined, { profile: { name: 'Ana' } }), { profile: { name: 'Ana' } });
-  assert.deepEqual(withOldRows({ voice: { realtime: 'auto' } }, { voice: { realtime: 'off', recognizer: 'local' }, devices: { peer: 'off' } }), { voice: { realtime: 'auto' }, devices: { peer: 'off' } });
+test('comments and trailing commas are read like VS Code reads them', () => {
   const body = '// head\n{\n  "a": "x // y", /* note */ "b": "p /* q */ \\" // r",\n  "c": [1, 2,], // tail\n  "d": { "e": "f", },\n}\n';
   assert.deepEqual(parseText(body).data, { a: 'x // y', b: 'p /* q */ " // r', c: [1, 2], d: { e: 'f' } });
   assert.equal(stripJsonc('{"a":1}'), '{"a":1}');
@@ -307,21 +278,4 @@ test('an edit not handed over yet comes before an update', (t) => {
   h.settings.update({ preferences: { theme: 'dark' } });
   assert.equal(h.json().profile.name, 'Ada');
   assert.equal(h.json().preferences.theme, 'dark');
-});
-
-test('a settings.json that is still the pre-rebuild store is neither read nor written', (t) => {
-  for (const big of [false, true]) {
-    const legacy = `{\n  "schema": 7,\n  "profile": { "name": "Old" },\n  "chats": [${big ? `"${'x'.repeat(1024 * 1024)}"` : ''}]\n}\n`;
-    const h = setup((db, file) => { row(db, 'profile', { name: 'Ada' }); writeFileSync(file, legacy, 'utf8'); });
-    t.after(h.done);
-    assert.equal(h.settings.get().profile.name, 'Ada', `the old rows hold the values (${big ? 'large' : 'small'} store)`);
-    h.settings.update({ profile: { company: 'Acme' } });
-    assert.equal(readFileSync(h.file, 'utf8'), legacy, 'never written over');
-    assert.equal(existsSync(path.join(h.temp.dir, 'settings.rejected.json')), false);
-    rmSync(h.file); // the legacy import moved it aside: the values in memory are written now
-    h.root.nudge(ROOT_SETTINGS);
-    h.root.flush(ROOT_SETTINGS);
-    assert.equal(h.json().profile.name, 'Ada');
-    assert.equal(h.json().profile.company, 'Acme');
-  }
 });

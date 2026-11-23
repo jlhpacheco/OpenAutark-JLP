@@ -166,3 +166,20 @@ test('presence counts only with a box key the pinned device signed; watchdog and
   assert.equal(next.terminated, true, 'a connection silent for 90 s is ended (the relay pings every 30 s)');
   client.stop();
 });
+
+test('Eine-ID: hello and update carry `chains` (company, me) and `chain` – the first – for a server from before', () => {
+  const { client, sockets } = setup();
+  const company = { root: 'r'.repeat(43), links: [{ pub: 'p'.repeat(43), sig: 's'.repeat(86) }] };
+  const me = { root: 'm'.repeat(43), links: [{ pub: 'p'.repeat(43), sig: 't'.repeat(86) }] };
+  client.setPeers([], true, undefined, [company, me]);
+  client.configure('ws://127.0.0.1:9');
+  sockets[0].frame({ t: 'challenge', v: 1, n: 'abc' });
+  const hello = sockets[0].sent[0];
+  assert.deepEqual(hello.chains, [company, me]);
+  assert.deepEqual(hello.chain, company);
+  sockets[0].frame({ t: 'ready', fp: 'x', online: [] });
+  client.setPeers([], true, undefined, [me]);
+  assert.deepEqual(sockets[0].sent.at(-1), { t: 'update', peers: [], findable: true, chains: [me], chain: me });
+  client.setPeers([], false, undefined, []);
+  assert.deepEqual(sockets[0].sent.at(-1), { t: 'update', peers: [], findable: false }, 'not findable: no chains');
+});

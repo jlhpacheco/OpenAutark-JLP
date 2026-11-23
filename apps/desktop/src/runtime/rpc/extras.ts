@@ -15,7 +15,7 @@ import type { SpanMark } from '../../shared/voice/marks.ts';
 import type { CatalogStatus } from '../models/catalog.ts';
 import type { MediaFilter, MediaInfo, MediaPatch } from '../../shared/model/media.ts';
 import type { Bridge, ConnectTelegramInput } from '../../shared/model/bridges.ts';
-import type { FeedbackAudioType, FeedbackHandled, FeedbackImageType, FeedbackInboxFetch, FeedbackInboxItem, FeedbackSetupResult, FeedbackStatus } from '../../shared/model/feedback-delivery.ts';
+import type { FeedbackHandled, FeedbackImageType, FeedbackInboxFetch, FeedbackInboxItem, FeedbackSetupResult, FeedbackStatus } from '../../shared/model/feedback-delivery.ts';
 
 export interface PwaApi {
   state(): Promise<PwaState>;
@@ -43,7 +43,7 @@ export interface MeshApi {
 
 export interface FeedbackApi {
   create(input: {
-    kind?: FeedbackKind; text: string; screenshotFileId?: string; annotationFileId?: string; audioFileIds?: string[]; view?: string; conversationId?: string;
+    kind?: FeedbackKind; text: string; imageFileIds?: string[]; dictated?: boolean; view?: string; conversationId?: string;
     clientId?: string; client?: string; clientDiagnostics?: string; author: string;
   }): FeedbackReport;
   list(): FeedbackReport[];
@@ -63,9 +63,8 @@ export interface FeedbackApi {
     remove(id: string): { ok: true };
     /** Feedback 16.11.2026: done / not relevant (null clears); removed FEEDBACK_HANDLED_KEEP_MS later. */
     mark(id: string, as: FeedbackHandled | null): FeedbackInboxItem;
-    screenshot(id: string): { mime: FeedbackImageType; dataBase64: string };
-    /** 16.11.2026: one recorded take (`index` into the item's `audio`). */
-    audio(id: string, index: number): { mime: FeedbackAudioType; dataBase64: string };
+    /** Image `index` (0-based) of a stored report. */
+    image(id: string, index: number): { mime: FeedbackImageType; dataBase64: string };
   };
   /** B-055: wf feedback setup (owner only; runtime/feedback/setup.ts). */
   setup?(input: { project: string; apiKey: string; serviceAccountPath: string; rotate?: boolean }): Promise<FeedbackSetupResult>;
@@ -142,7 +141,6 @@ export interface RpcExtras {
   computer: ComputerPreviewApi;
   voice: VoiceApi;
   policies: PolicyApi;
-  importLegacy(path?: string): Promise<{ agents: number; chats: number; messages: number }>;
   catalogRefresh(): Promise<{ models: number; fetchedAt?: number }>;
   /** Catalog size, available models and the last full refresh. */
   catalogStatus(): CatalogStatus;
@@ -151,7 +149,12 @@ export interface RpcExtras {
 /** Connecting PCs (Settings › Devices): runtime/remote/service.ts. */
 export interface RemoteApi {
   state(): import('../../shared/model/remote.ts').RemoteState;
-  connect(input: { target: string; role?: import('../../shared/model/remote.ts').JoinRole }): Promise<import('../../shared/model/remote.ts').RemoteOutgoing>;
+  /** Eine-ID: the PC asked decides the role from the ID; `name`: the name I propose as a new member. */
+  connect(input: { target: string; name?: string }): Promise<import('../../shared/model/remote.ts').RemoteOutgoing>;
+  /** Eine-ID: the name I propose while my request as a new member waits. */
+  rename(name: string): Promise<void>;
+  /** Review H1: my yes to becoming one of the other person's devices. */
+  confirm(): Promise<import('../../shared/model/remote.ts').RemoteOutgoing>;
   cancel(): void;
   /** F17: a request waiting on another of my PCs is decided there (the promise); one waiting here at once. */
   decide(id: string, accept: boolean, personId?: string, newPerson?: import('../../shared/model/remote.ts').NewPerson): void | Promise<void>;

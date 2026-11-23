@@ -5,32 +5,35 @@
 //     the run ends and its card goes), its chat and task as links, what started it when there is neither, model ·
 //     where it runs (F05) · effort; a split's running parts as lines that open their split page. Nothing running:
 //     "Not working right now." with the last ended run of the log (its end, how long, its summary).
-//   * Active tasks – the open tasks at work right now (agent-work.ts isActive: a turn on it, or a move in the last 24 h)
-//     with plan progress, next look and last move; the open ones that have not moved for longer folded into "N older
-//     open", its waiting ones into "N waiting" (open: what each waits on and since when) – two fixed toggle rows at the
-//     section's end, opening one only adds rows below it; "All tasks" to Work narrowed to the agent (#/tasks?owner=).
+//   * Active tasks – the agent's open quests and to-dos at work right now (agent-work.ts isActive: a turn on it, or a move
+//     in the last 24 h; a to-do in anyone's quest too, read from the quest's steps) with where it sits among the quests
+//     (questLine), plan progress and last move – never a time: agent work has none; the open ones that have not moved
+//     for longer folded into "N older open", its waiting ones into "N waiting" (open: what each waits on and since when)
+//     – two fixed toggle rows at the section's end, opening one only adds rows below it; "All tasks" to the Tasks page
+//     narrowed to the agent (#/tasks?owner=).
 // Owns: those two sections' markup. Never: polls, stops another run than its card's, or shows what the runtime did not
 // report.
 
 import { useEffect, useState } from 'preact/hooks';
 import type { AgentActivity, Run } from '../../shared/model/runs.ts';
-import type { TaskView } from '../../shared/model/tasks.ts';
+import type { Task } from '../../shared/model/tasks.ts';
 import { movedAt } from '../../shared/model/task-stuck.ts';
 import { durationText } from '../../shared/text/run-notes.ts';
 import { Icon } from '../lib/ui.tsx';
-import { agentName, conversationMap, tasks } from '../lib/store.ts';
+import { activity, agentName, conversationMap, tasks } from '../lib/store.ts';
 import { go } from '../lib/router.ts';
 import { can } from '../lib/session.ts';
 import { chatTitle } from '../lib/chat-naming.ts';
 import { relative, time } from '../lib/format.ts';
 import { modelShortName, nameWithSource } from '../lib/model-name.ts';
 import { canOpenChat, openTaskDetail } from '../tasks/jump.ts';
-import { nextLookLine, waitingLine } from '../tasks/waiting.ts';
+import { waitingLine } from '../tasks/waiting.ts';
 import { StopRun } from '../chat/StopRun.tsx';
 import { sinceText } from '../chat/LiveBar.tsx';
 import { modelLine, noteText, partsWorking, shownOf, withTemperature } from '../chat/live-text.ts';
 import { partLabel } from '../splits/split-text.ts';
-import { activeTasks, planProgress, type NowCard } from './agent-work.ts';
+import { activeTasks, planProgress, questLine, type NowCard } from './agent-work.ts';
+import { everyTask } from '../../shared/model/tasks.ts';
 
 const TICK_MS = 30_000;
 
@@ -52,7 +55,7 @@ function Card(props: { card: NowCard; agentId: string; onJump: (runId: string) =
   const run: AgentActivity | undefined = card.run;
   const name = agentName(agentId);
   const chat = run?.conversationId ? conversationMap.value.get(run.conversationId) : undefined;
-  const task = run?.taskId ? tasks.value.find((entry) => entry.id === run.taskId) : undefined;
+  const task = run?.taskId ? everyTask(tasks.value).get(run.taskId) : undefined; // a to-do in a quest too
   // "Opus 5.5 · Claude Code · High" – F05: where it runs after the name
   const model = run ? withTemperature(modelLine({ ...run, modelName: nameWithSource(run.modelName?.trim() || modelShortName(run.model) || '', run.model) }), shownOf(run)) : '';
   const note = run ? noteText(run.note) : partsWorking(card.parts.length, card.parts[0]?.split?.of ?? card.parts.length);
@@ -114,7 +117,10 @@ export function WorkNow(props: { agentId: string; cards: NowCard[]; last: Run | 
   );
 }
 
-function TaskLine(props: { task: TaskView; detail: string }) {
+/** A row of Active tasks: a quest or a to-do, `running` while a turn works on it. */
+type Listed = Task & { running: boolean };
+
+function TaskLine(props: { task: Listed; detail: string }) {
   const { task } = props;
   const title = can('tasks.get')
     ? <button type="button" class="work-task-title" onClick={() => openTaskDetail(task.id)}>{task.title}</button>
@@ -127,13 +133,13 @@ function TaskLine(props: { task: TaskView; detail: string }) {
   );
 }
 
-/** An open task's line under its title: running now, plan progress, the next look, its last move. */
-function openDetail(task: TaskView): string {
-  return [task.running ? 'Working on it now' : '', planProgress(task.ledger?.plan) ?? '', nextLookLine(task) ?? '', `moved ${relative(movedAt(task))}`].filter(Boolean).join(' · ');
+/** An open task's line under its title: running now, where it sits among the quests, plan progress, its last move. */
+function openDetail(task: Listed, every: ReadonlyMap<string, Task>): string {
+  return [task.running ? 'Working on it now' : '', questLine(task, every) ?? '', planProgress(task.ledger?.plan) ?? '', `moved ${relative(movedAt(task))}`].filter(Boolean).join(' · ');
 }
 
 /** A folded group of tasks: one fixed toggle row; opening it only adds its rows below. */
-function Fold(props: { label: string; list: TaskView[]; detail: (task: TaskView) => string }) {
+function Fold(props: { label: string; list: Listed[]; detail: (task: Listed) => string }) {
   const [open, setOpen] = useState(false);
   if (!props.list.length) return null;
   return (
@@ -147,14 +153,18 @@ function Fold(props: { label: string; list: TaskView[]; detail: (task: TaskView)
 }
 
 export function WorkTasks(props: { agentId: string }) {
-  const { open, older, waiting } = activeTasks(tasks.value, props.agentId);
+  const every = everyTask(tasks.value); // the open tasks and their quests' to-dos, each once
+  const working = new Set(activity.value.map((run) => run.taskId));
+  const list: Listed[] = [...every.values()].map((task) => ({ ...task, running: working.has(task.id) }));
+  const { open, older, waiting } = activeTasks(list, props.agentId);
+  const detail = (task: Listed) => openDetail(task, every);
   return (
     <section class="agent-section work-tasks" aria-label="Active tasks">
       <h3 class="agent-section-title">Active tasks</h3>
       {open.length
-        ? <ul class="work-task-list">{open.map((task) => <TaskLine key={task.id} task={task} detail={openDetail(task)} />)}</ul>
+        ? <ul class="work-task-list">{open.map((task) => <TaskLine key={task.id} task={task} detail={detail(task)} />)}</ul>
         : <p class="work-empty">{older.length || waiting.length ? 'Nothing moved in the last 24 hours.' : 'No open tasks.'}</p>}
-      <Fold label={`${older.length} older open`} list={older} detail={openDetail} />
+      <Fold label={`${older.length} older open`} list={older} detail={detail} />
       <Fold label={`${waiting.length} waiting`} list={waiting} detail={(task) => waitingLine(task, agentName) ?? 'Waiting'} />
       <button type="button" class="text-button work-all-tasks" onClick={() => go.tasks(undefined, props.agentId)}>All tasks</button>
     </section>

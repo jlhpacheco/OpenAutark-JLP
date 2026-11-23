@@ -1,6 +1,8 @@
 /* B-078: sub-chats under their parent chat in the chat list (ui/chat/ChatList.tsx, ChatRow.tsx), a message's thread
-   line (MessageItem.tsx) and a thread in the chat's side panel (ThreadPanel.tsx).
-   Owns: these rules. Never: the row itself (chat.css), colours outside tokens.css. */
+   line (MessageItem.tsx) and a thread in the chat's side panel (ThreadPanel.tsx); Quests 20.11.2026: a task's own
+   thread in its detail (TaskThread.tsx) – the box fills what the detail gives it, the composer at its bottom – and a
+   person's line kept whole in it (KeptLine.tsx).
+   Owns: these rules. Never: the row itself (chat.css), colours outside tokens.css, where the detail puts the box. */
 
 /* the caret sits in the row's left inset (16 px): it takes no room, so a row with sub-chats keeps every other cell where
    a row without them has it; above the row's click overlay like the avatar */
@@ -22,7 +24,7 @@
 /* under a message with a thread: one quiet line ("3 replies · Mara") that opens or closes it in the side panel */
 .thread-link {
   display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 24px; margin: 2px 0 0 -6px; padding: 0 6px;
-  border-radius: var(--r-sm); color: var(--muted); font-size: 12px; line-height: 16px;
+  border-radius: var(--r-sm); color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(16px, calc(16px * var(--ui-text, 1)));
 }
 .thread-link > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thread-link:hover, .thread-link[aria-expanded=true] { background: var(--hover); color: var(--text); }
@@ -31,4 +33,19 @@
 
 /* the thread in the side panel: a chat column of its own (a chat-column container), the quote of its message on top */
 .chat-panel > .thread-column { flex: 1 1 auto; }
+.task-thread { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 240px; }
+.task-thread > .thread-column { flex: 1 1 auto; }
+.task-thread > .spinner, .task-thread > .empty-state { margin: auto; }
 .thread-anchor { flex: none; padding: 8px var(--panel-x) 0; }
+
+/* a person's line kept whole in a task's thread (KeptLine.tsx): who and when, the quoted words as written – folded after
+   four lines (message-rows.ts KEPT_LINES), "Show all" opens the rest in place */
+.kept-line { margin: 0 0 12px; min-width: 0; }
+.kept-line-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); }
+.kept-line-link { min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(12px * var(--ui-text, 1)); }
+.kept-line-text {
+  margin: 4px 0 0; padding: 2px 10px; border-left: 2px solid var(--field); color: var(--secondary);
+  font-size: calc(13px * var(--ui-text, 1)); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.kept-line-text.folded { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+.kept-line-toggle { margin: 2px 0 0 10px; font-size: calc(12px * var(--ui-text, 1)); }

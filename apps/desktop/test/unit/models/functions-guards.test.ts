@@ -10,7 +10,7 @@ import { account, agent, mode, setup } from './harness.ts';
 import { Priors } from '../../../src/runtime/models/priors.ts';
 import { buildModel, priorFor, specialties, strengthsFor } from '../../../src/runtime/models/catalog-merge.ts';
 import { Catalog } from '../../../src/runtime/models/catalog.ts';
-import { functionModel } from '../../../src/runtime/models/functions.ts';
+import { functionStatus } from '../../../src/runtime/models/functions.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import type { EngineModel } from '../../../src/runtime/engines/types.ts';
 import type { ProviderId } from '../../../src/shared/model/providers.ts';
@@ -94,7 +94,7 @@ test('automatic speech-to-text pick: free server before an API key, keys only as
   const cheaper = h.catalog.get('openai:gpt-4o-mini-transcribe')!.relCost!;
   assert.ok(cheaper < h.catalog.get('compatible:Systran/faster-whisper-large-v3')!.relCost!, 'the key model looks cheaper by list price');
 
-  const stt = () => functionModel(h.services, 'stt');
+  const stt = () => functionStatus(h.services, 'stt').choice;
   assert.deepEqual(stt(), { modelId: 'compatible:Systran/faster-whisper-large-v3', accountId: 'acc_lan', provider: 'compatible', model: 'Systran/faster-whisper-large-v3', source: 'auto' });
   h.settings.update({ routing: { allowPaidFallback: true } });
   assert.equal(stt()?.accountId, 'acc_lan', 'paid fallback allowed: free still comes first');

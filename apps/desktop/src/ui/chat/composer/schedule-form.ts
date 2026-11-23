@@ -6,7 +6,7 @@
 // is passed in) – the rule in words is schedule-rule.ts.
 
 import type { Schedule, ScheduleSpec } from '../../../shared/model/tasks.ts';
-import { atWallTime, endOfDay, nextDate, wallClock } from './schedule-clock.ts';
+import { addDays, wallOf, wallTime } from '../../../shared/text/when.ts';
 
 const MIN = 60_000;
 const HOUR = 3_600_000;
@@ -46,33 +46,35 @@ export type ScheduleResult = { spec: ScheduleSpec; at?: number } | { error: stri
 export const ALL_DAYS: readonly number[] = [0, 1, 2, 3, 4, 5, 6];
 
 const two = (value: number): string => String(value).padStart(2, '0');
+/** 'HH:MM' of minutes after local midnight. */
+export const hhmm = (minutes: number): string => `${two(Math.floor(minutes / 60))}:${two(minutes % 60)}`;
 const CLOCK = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const LOCAL = /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):([0-5]\d)$/;
 
 /** The start of a new form: Once, one hour from `now` to the whole minute; Repeat starts as "every day at 09:00". */
 export function defaultForm(now: number, tz: string): ScheduleForm {
-  const { date, hour, minute } = wallClock(Math.floor((now + HOUR) / MIN) * MIN, tz);
-  return { kind: 'once', date, time: `${two(hour)}:${two(minute)}`, repeat: 'days', every: '1', unit: 'hours', days: [...ALL_DAYS], clock: '09:00', cron: '', start: '', end: '', tz };
+  const { date, minutes } = wallOf(Math.floor((now + HOUR) / MIN) * MIN, tz);
+  return { kind: 'once', date, time: hhmm(minutes), repeat: 'days', every: '1', unit: 'hours', days: [...ALL_DAYS], clock: '09:00', cron: '', start: '', end: '', tz };
 }
 
 /** Today's date on the clock of `tz` (the date field's earliest day). */
 export function todayIn(now: number, tz: string): string {
-  return wallClock(now, tz).date;
+  return wallOf(now, tz).date;
 }
 
 /** One-tap times for Once. A pick that has passed stays in its place, switched off. */
 export interface QuickPick { key: string; label: string; date: string; time: string; disabled: boolean }
 
 export function quickPicks(now: number, tz: string): QuickPick[] {
-  const today = wallClock(now, tz);
+  const today = wallOf(now, tz);
   const ahead = defaultForm(now, tz);
-  const tomorrow = nextDate(today.date);
-  let monday = nextDate(tomorrow); // the first Monday at least two days away
-  for (let weekday = (today.weekday + 2) % 7; weekday !== 1; weekday = (weekday + 1) % 7) monday = nextDate(monday);
+  const tomorrow = addDays(today.date, 1);
+  let monday = addDays(tomorrow, 1); // the first Monday at least two days away
+  for (let weekday = (today.weekday + 2) % 7; weekday !== 1; weekday = (weekday + 1) % 7) monday = addDays(monday, 1);
   return [
     { key: 'hour', label: 'In 1 hour', date: ahead.date, time: ahead.time, disabled: false },
-    { key: 'evening', label: 'Today 18:00', date: today.date, time: '18:00', disabled: atWallTime(today.date, 18, 0, tz) <= now },
+    { key: 'evening', label: 'Today 18:00', date: today.date, time: '18:00', disabled: wallTime(today.date, 18 * 60, tz) <= now },
     { key: 'tomorrow', label: 'Tomorrow 09:00', date: tomorrow, time: '09:00', disabled: false },
     { key: 'monday', label: 'Next Monday 09:00', date: monday, time: '09:00', disabled: false },
   ];
@@ -81,14 +83,14 @@ export function quickPicks(now: number, tz: string): QuickPick[] {
 function localInstant(value: string, tz: string): number | undefined {
   const match = LOCAL.exec(value);
   if (!match) return undefined;
-  const at = atWallTime(match[1], Number(match[2]), Number(match[3]), tz);
+  const at = wallTime(match[1], Number(match[2]) * 60 + Number(match[3]), tz);
   return Number.isFinite(at) ? at : undefined;
 }
 
 /** An instant as the start field holds it (local YYYY-MM-DDTHH:MM). */
 export function localInput(ms: number, tz: string): string {
-  const { date, hour, minute } = wallClock(ms, tz);
-  return `${date}T${two(hour)}:${two(minute)}`;
+  const { date, minutes } = wallOf(ms, tz);
+  return `${date}T${hhmm(minutes)}`;
 }
 
 /** n and unit of an interval in the largest unit that divides it evenly (minutes otherwise, rounded). */
@@ -108,7 +110,7 @@ export function scheduleSpec(form: ScheduleForm, now: number): ScheduleResult {
   if (form.kind === 'once') {
     const clock = CLOCK.exec(form.time);
     if (!DATE.test(form.date) || !clock) return { error: 'Pick a date and a time.' };
-    const at = atWallTime(form.date, Number(clock[1]), Number(clock[2]), tz);
+    const at = wallTime(form.date, Number(clock[1]) * 60 + Number(clock[2]), tz);
     if (!Number.isFinite(at)) return { error: 'Pick a date and a time.' };
     if (at <= now) return { error: 'Pick a time in the future.' };
     return { spec: { at, tz, catchUp: 'once' }, at };
@@ -121,7 +123,7 @@ export function scheduleSpec(form: ScheduleForm, now: number): ScheduleResult {
   let until: number | undefined;
   if (form.end) {
     if (!DATE.test(form.end)) return { error: 'Pick an end date, or clear it.' };
-    until = endOfDay(form.end, tz);
+    until = wallTime(addDays(form.end, 1), 0, tz) - 1; // the whole last day
     if (!Number.isFinite(until)) return { error: 'Pick an end date, or clear it.' };
     if (until <= now) return { error: 'The end date has passed.' };
     if (start !== undefined && start > until) return { error: 'The end is before the start.' };
@@ -164,7 +166,7 @@ export function formFromSpec(spec: ScheduleSpec, now: number, fallbackTz: string
   const tz = spec.tz || fallbackTz;
   const form = defaultForm(now, tz);
   const start = spec.at !== undefined && spec.at > now ? localInput(spec.at, tz) : '';
-  const end = spec.until !== undefined ? wallClock(spec.until, tz).date : '';
+  const end = spec.until !== undefined ? wallOf(spec.until, tz).date : '';
   if (spec.cron !== undefined) return { ...form, kind: 'repeat', repeat: 'cron', cron: spec.cron, start, end };
   if (spec.everyMs !== undefined) {
     const { n, unit } = splitEvery(spec.everyMs);
@@ -175,8 +177,8 @@ export function formFromSpec(spec: ScheduleSpec, now: number, fallbackTz: string
     return { ...form, kind: 'repeat', repeat: 'days', clock: spec.times[0], days: spec.days?.length ? [...spec.days] : [...ALL_DAYS], start, end };
   }
   if (spec.at === undefined) return undefined;
-  const { date, hour, minute } = wallClock(spec.at, tz);
-  return { ...form, kind: 'once', date, time: `${two(hour)}:${two(minute)}` };
+  const { date, minutes } = wallOf(spec.at, tz);
+  return { ...form, kind: 'once', date, time: hhmm(minutes) };
 }
 
 /** Only the person's own scheduled message can be changed from the composer, and only a rule the form can show. */

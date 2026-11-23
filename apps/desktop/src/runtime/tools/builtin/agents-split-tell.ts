@@ -10,7 +10,8 @@
 //     its engine and account allow (dispatcher.continueNow with its run and the model its turn runs on now);
 //     the part is told what changed and from when; stop ends a part (SplitService.stop) – the origin's to "all" with stop
 //     and no groupId ends every active group of this thread.
-// A part's note to its origin is journaled with the summary "To my origin: …" (TOLD_ORIGIN) – "My parts" shows the last.
+// A part's note to its origin is journaled with the summary "To my origin: …" (TOLD_ORIGIN) – "My parts" shows the last –
+// and whole as its own run item (splits/results.ts TOLD_ITEM), the part's result when it ends without last words.
 // Also here: ownThread and myGroup, which agents-split.ts uses (one direction, no import cycle).
 // KI-Runde 17.11.2026 (90 origin turns woken by parts' notes cost more than the parts): the description says what a note
 // to the origin costs.
@@ -25,6 +26,7 @@ import { SPLIT_LIMITS, SPLIT_TERMINAL, TOLD_ORIGIN, type Split, type SplitGroupV
 import { EFFORT_ORDER } from '../../models/efforts.ts';
 import { coalesceKey } from '../../splits/gather.ts';
 import { TEMPERATURE_MAX } from '../../splits/validate.ts';
+import { TOLD_ITEM } from '../../splits/results.ts';
 import { clip, defineTool, internal } from './util.ts';
 // SplitService.noteFor / tune (runtime/splits/service.ts) and Dispatcher.tell (agents/dispatch-lanes.ts) are module augmentations there.
 
@@ -151,6 +153,7 @@ export const tellTool = defineTool<Args>({
       if (!text) return failure('Give the note (text).');
       const own = myGroup(ctx, self.groupId);
       if (!own) return failure('My group is no longer at work.');
+      try { ctx.services.runs.item(ctx.runId, { kind: 'note', name: TOLD_ITEM, effectStatus: 'none', data: { text: ctx.services.secrets.redact(text) } }); } catch { /* the note still goes */ }
       return json({ ok: true, to: 'origin', note: await toOrigin(ctx, own, `${from} (group ${own.id}) tells me: ${text}`) });
     }
     if (!self && args.to === 'all' && args.stop && !args.groupId) { // every active group of this thread

@@ -47,12 +47,6 @@ export function fromB64url(text: string): Bytes {
 
 export const hex = (bytes: Uint8Array): string => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
-export function fromHex(text: string): Bytes {
-  const out = new Uint8Array(text.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(text.slice(i * 2, i * 2 + 2), 16);
-  return out;
-}
-
 export function concat(...parts: Uint8Array[]): Bytes {
   const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
   let at = 0;

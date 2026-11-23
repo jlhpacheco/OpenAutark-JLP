@@ -1,12 +1,12 @@
 // ICS date and time values (B-041 track G, RFC 5545 §3.3.4/§3.3.5): a DATE (all day, read in the profile zone), a
 // DATE-TIME in UTC ("…Z"), with a TZID, or floating (the calendar's X-WR-TIMEZONE, else the profile zone). A TZID is
 // an IANA name, a vendor prefix around one ("/mozilla.org/…/Europe/Vienna"), or a common Windows/Outlook zone name;
-// anything else falls back to the calendar's zone. Wall time ↔ instant goes through Intl, so DST days are exact.
-// Owns: these conversions and the small date arithmetic of the recurrence rules. Never: I/O or the clock.
+// anything else falls back to the calendar's zone. Wall time ↔ instant is the app's one zone math (shared/text/when.ts
+// wallOf/wallTime/addDays/weekdayOf), so DST days are exact.
+// Owns: these conversions and the small date arithmetic of the recurrence rules. Never: I/O, the clock or zone math of
+// its own.
 
-import { localParts } from '../../schedules/spec.ts';
-
-const MIN = 60_000;
+import { wallTime } from '../../../shared/text/when.ts';
 
 /** One parsed value: the local wall time in `tz` (date + seconds after midnight) and its instant. */
 export interface IcsTime {
@@ -72,17 +72,6 @@ export function splitDate(date: string): [number, number, number] {
   return [y, m, d];
 }
 
-export function addDays(date: string, days: number): string {
-  const [y, m, d] = splitDate(date);
-  return dateOf(y, m, d + days);
-}
-
-/** 0 = Sunday … 6 = Saturday. */
-export function weekday(date: string): number {
-  const [y, m, d] = splitDate(date);
-  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-}
-
 export function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
@@ -94,24 +83,8 @@ export function daysBetween(a: string, b: string): number {
   return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86_400_000);
 }
 
-/** The local wall time of `at` in `tz`. */
-export function localWall(at: number, tz: string): { date: string; seconds: number } {
-  const parts = localParts(at, tz);
-  return { date: parts.date, seconds: parts.minutes * 60 + Math.floor((((at % MIN) + MIN) % MIN) / 1000) };
-}
-
-/** The instant of the wall time `seconds` after local midnight of `date` in `tz` (a time a DST change skips moves on by the gap). */
-export function wallToUtc(date: string, seconds: number, tz: string): number {
-  const [y, m, d] = splitDate(date);
-  const wall = Date.UTC(y, m - 1, d) + seconds * 1000;
-  if (tz === 'UTC') return wall;
-  const offset = (ms: number) => {
-    const local = localParts(ms, tz);
-    const [ly, lm, ld] = splitDate(local.date);
-    return Date.UTC(ly, lm - 1, ld) + local.minutes * MIN - Math.floor(ms / MIN) * MIN;
-  };
-  return wall - offset(wall - offset(wall));
-}
+/** The instant of the wall time `seconds` after local midnight of `date` in `tz` (wallTime's minute; the seconds ride along). */
+const instant = (date: string, seconds: number, tz: string): number => wallTime(date, Math.floor(seconds / 60), tz) + (seconds % 60) * 1000;
 
 /**
  * A DATE or DATE-TIME value with its TZID / VALUE parameters. `zone` is the calendar's zone (X-WR-TIMEZONE or the
@@ -123,16 +96,16 @@ export function parseIcsTime(value: string, params: Readonly<Record<string, stri
   const [, ys, ms, ds, hh, mm, ss, z] = match;
   const date = dateOf(Number(ys), Number(ms), Number(ds));
   if (date !== `${ys}-${ms}-${ds}`) return undefined; // 2026-02-30 and the like
-  if (hh === undefined || params.VALUE === 'DATE') return { allDay: true, date, seconds: 0, tz: zone, at: wallToUtc(date, 0, zone) };
+  if (hh === undefined || params.VALUE === 'DATE') return { allDay: true, date, seconds: 0, tz: zone, at: wallTime(date, 0, zone) };
   const seconds = Number(hh) * 3600 + Number(mm) * 60 + Number(ss ?? 0);
   if (seconds >= 86_400) return undefined;
   const tz = z ? 'UTC' : zoneOf(params.TZID, zone);
-  return { allDay: false, date, seconds, tz, at: wallToUtc(date, seconds, tz) };
+  return { allDay: false, date, seconds, tz, at: instant(date, seconds, tz) };
 }
 
 /** The same wall time on another local date (recurrences keep the time of day in their zone). */
 export function onDate(start: IcsTime, date: string): IcsTime {
-  return { ...start, date, at: wallToUtc(date, start.seconds, start.tz) };
+  return { ...start, date, at: instant(date, start.seconds, start.tz) };
 }
 
 /** The stable key of an occurrence for EXDATE / RECURRENCE-ID matching and external ids ("20261029T080000Z" or "20261029"). */

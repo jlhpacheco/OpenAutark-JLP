@@ -17,7 +17,8 @@ import type { RealtimeOut } from '../../../shared/model/call.ts';
 import { REALTIME_RATE } from '../../../shared/model/call.ts';
 import { openMicrophone } from '../../lib/microphone.ts';
 import type { Microphone, SampleListener } from '../../lib/microphone.ts';
-import { meterLevel, Pcm16Encoder, pcm16ToFloat, rms } from '../../lib/pcm.ts';
+import { meterLevel, Pcm16Encoder, rms } from '../../lib/pcm.ts';
+import { pcm16Samples } from '../../../shared/voice/wav.ts';
 import { bridge } from '../../lib/platform.ts';
 import { rpc } from '../../lib/rpc.ts';
 import { toastError } from '../../lib/toasts.ts';
@@ -126,7 +127,7 @@ export class RealtimeCall {
   private play(pcm: Uint8Array): void {
     const output = this.output;
     if (!output || !pcm.byteLength) return;
-    const samples = pcm16ToFloat(pcm);
+    const samples = pcm16Samples(pcm);
     const buffer = output.createBuffer(1, samples.length, REALTIME_RATE);
     buffer.getChannelData(0).set(samples);
     const source = output.createBufferSource();

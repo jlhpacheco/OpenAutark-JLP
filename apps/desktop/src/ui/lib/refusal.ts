@@ -1,5 +1,7 @@
-// What a phone socket's close means (DEV4): 4401 = token refused, this device is no longer paired,
-// 4403 = this phone was removed; App.tsx shows the two apart. The runtime closes the live socket
+// What a phone socket's close means (DEV4): 4401 = token refused, this device is no longer paired (19.11.2026: 4404 =
+// this PC does not know the token at all – a PC the company's roster has not reached yet; never the pairing screen),
+// 4403 = this phone was removed (App.tsx: its own screen; 4401 and 4404 are a line in the status line,
+// shell/connection-line.ts). The runtime closes the live socket
 // of a removed phone with 4403 but refuses every later Hello of that token with 4401, so on its
 // own a removed phone would say "no longer paired" after the first reconnect and after every
 // reload. This module therefore remembers, per token, that the runtime revoked it and keeps
@@ -8,7 +10,7 @@
 // Owns: close code → refusal and the revoked marker. Never: stores the token or anything that
 // can stand in for it (the marker is a 32-bit fingerprint), touches the socket or app state.
 
-export type Refusal = 4401 | 4403;
+export type Refusal = 4401 | 4403 | 4404;
 
 export const REVOKED_KEY = 'wf.revoked';
 
@@ -48,6 +50,7 @@ export class RefusalMemory {
       if (token) this.write(tokenMark(token));
       return 4403;
     }
+    if (code === 4404) return 4404;
     if (code !== 4401) return null;
     return token && this.read() === tokenMark(token) ? 4403 : 4401;
   }

@@ -8,7 +8,8 @@ import assert from 'node:assert/strict';
 import type { RealtimePull } from '../../../src/shared/model/call.ts';
 import { RealtimeCall } from '../../../src/ui/chat/call/realtime-call.ts';
 import type { RealtimeDeps } from '../../../src/ui/chat/call/realtime-call.ts';
-import { Pcm16Encoder, pcm16ToFloat } from '../../../src/ui/lib/pcm.ts';
+import { Pcm16Encoder } from '../../../src/ui/lib/pcm.ts';
+import { pcm16Samples } from '../../../src/shared/voice/wav.ts';
 
 const CHAT = 'ch_callui00001';
 
@@ -68,5 +69,5 @@ test('realtime voice: 100 ms pieces at 24 kHz go out, answers play in order, tal
 test('pcm helpers: 24 kHz encoding and decoding round-trip', () => {
   const bytes = new Pcm16Encoder(48_000, 24_000).push(new Float32Array([0, 0, 0.5, 0.5, -0.5, -0.5]));
   assert.equal(bytes.length, 6);
-  assert.deepEqual([...pcm16ToFloat(bytes)].map((value) => Math.round(value * 100) / 100), [0, 0.5, -0.5]);
+  assert.deepEqual([...pcm16Samples(bytes)].map((value) => Math.round(value * 100) / 100), [0, 0.5, -0.5]);
 });

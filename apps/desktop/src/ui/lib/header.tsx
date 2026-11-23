@@ -9,12 +9,16 @@
 // side panel's name and its X above that panel, then the cells and the caption room:
 //     [lead] [title fixed] [near cells] [panel: name · X – 1fr] [cells] [caption]
 // `search` swaps the title in place for a field of the same height (HeaderSearch).
+// Owner 19.11.2026: a phone row without a lead (the tab roots: Tasks, Chats, Team) gets the to-do bubble's round
+// icon as its lead where the Android app has phone use (pwa/bubble-handle.tsx bubbleLead) – it comes with the app's
+// first state message at the page's start; pulling it or its faint look never moves anything.
 // Owns: header markup, the cell buttons and their menus, the in-place search field.
 // Never: decides which cells a view has, reads stores, or sets the caption reserve.
 
 import type { ComponentChildren } from 'preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { useContextMenu } from './context-menu.tsx';
+import { bubbleLead } from '../pwa/bubble-handle.tsx';
 import { IconButton, Menu, Spinner } from './ui.tsx';
 import {
   SEARCH_CELL_ID, badgeView, cellClass, closeSearch, headerClass, isPlaceholder, isSlot, withSearchCell,
@@ -53,9 +57,10 @@ export function Header(props: HeaderProps) {
     ? <h2 class="frame-header-text">{props.title}</h2>
     : props.title;
   const segmented = props.near !== undefined || props.panel !== undefined;
+  const lead = props.lead ?? (zone === 'phone' ? bubbleLead() : undefined);
   return (
-    <header class={headerClass({ zone, lead: !!props.lead, twoLine: props.twoLine, segmented, class: props.class })} data-zone={zone}>
-      {props.lead && <Cell cell={props.lead} lead />}
+    <header class={headerClass({ zone, lead: !!lead, twoLine: props.twoLine, segmented, class: props.class })} data-zone={zone}>
+      {lead && <Cell cell={lead} lead />}
       <div class="frame-header-title">
         {props.search?.open ? <HeaderSearch {...props.search} /> : (
           <>

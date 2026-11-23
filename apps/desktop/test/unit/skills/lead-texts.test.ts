@@ -69,3 +69,16 @@ test('a SYSTEM.md keeps the person\'s words verbatim, my lessons marked as mine;
   assert.match(skill('briefing'), /The person's words as they said them, with the day/);
   assert.doesNotMatch(skill('briefing'), /The model is part of the brief/);
 });
+
+// Team-Call 21.11.2026 (owner: the first manager put manager-like agents on level two): "a colleague for an area that
+// stays" in both standards and team-coordination made every hire an area of its own, so a doer with helpers led like a head.
+test('two levels: leads side by side, doers under them with helpers where their work splits; the shape is explained and another proposed', () => {
+  const lead = text('prompts/standard-manager.md');
+  assert.match(lead, /I shape the organisation in two levels/);
+  assert.match(lead, /Leads settle things with each other, so a lead under a lead is one more relay and a grown area gets a head beside us/);
+  assert.match(lead, /I explain this shape to whoever builds the team with me – \{\{user_name\}\}, an employee – and propose another before I build it/);
+  assert.match(skill('org-setup-onboarding'), /Our usual shape has two levels\..*a doer keeps helpers when its work really splits/);
+  assert.match(skill('org-setup-onboarding'), /propose another one before I build it; the shape they choose stands/);
+  for (const file of ['prompts/standard-manager.md', 'prompts/standard-agent.md', 'skills/team-coordination/SKILL.md', 'agents/manager.md'])
+    assert.doesNotMatch(text(file), /for an area that stays|I make its head|builds its own area|for example programming or social media/, file);
+});

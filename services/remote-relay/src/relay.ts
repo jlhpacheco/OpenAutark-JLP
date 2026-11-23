@@ -8,8 +8,9 @@
 // source and in total. Past a budget, or while `tunnels` is off (the emergency stop, RELAY_TUNNELS=off), a tunnel still
 // opens but only as a small signalling tunnel (SIGNAL_BYTES, one per minute per key and source): enough for the devices
 // to agree on a direct (WebRTC) path through it, never enough to carry their data. Devices that accept connection
-// requests are also found by their Remote ID (B-084: also by the person code their chain proves, the chain handed out
-// with the found entry), and sealed connect messages are passed to them
+// requests are also found by their Remote ID (B-084: also by the codes their chains prove – Eine-ID 22.11.2026: up to two,
+// company ID and my ID; a found entry carries the chain that proves the code searched, the shortest chains first), and
+// sealed connect messages are passed to them
 // (rate-limited per key and per client source); each carries an opaque per-source tag (HMAC of
 // the source under a per-process secret, never the address) so the target PC counts requests per
 // real source. Nothing here can accept a request – the person on the target PC does.
@@ -25,8 +26,8 @@ import type { Duplex } from 'node:stream';
 import type { WebSocket, WebSocketServer } from 'ws';
 import { Bucket, DayCounter, DEFAULT_LIMITS, KeyedBuckets, sourceOf, type Limits } from './limits.ts';
 import {
-  DATA_HEADER, MAX_DATA_PAYLOAD, PROTOCOL, b64url, boxText, chainCode, fingerprintOf, helloText, isFingerprint, isRef, key32,
-  newChallenge, opaque, parseControl, peerList, remoteIdOf, signed, tunnelOf, type Frame,
+  DATA_HEADER, MAX_DATA_PAYLOAD, PROTOCOL, b64url, boxText, chainCodes, fingerprintOf, helloText, isFingerprint, isRef, key32,
+  newChallenge, opaque, parseControl, peerList, remoteIdOf, signed, tunnelOf, type Frame, type Proven,
 } from './protocol.ts';
 
 export interface RelayOptions {
@@ -75,9 +76,9 @@ interface Conn {
   boxSig?: string;
   peers: Set<string>;
   findable: boolean;
-  /** The IDs it is found under while findable: its own Remote ID and (B-084) the person code its chain proves. */
+  /** The IDs it is found under while findable: its own Remote ID and (B-084, Eine-ID) the codes its chains prove. */
   ids: Set<string>;
-  code?: ReturnType<typeof chainCode>;
+  codes: Proven[];
   tunnels: Set<number>;
   control: Bucket;
   bytes: Bucket;
@@ -149,7 +150,7 @@ export async function createRelay(options: RelayOptions = {}): Promise<Relay> {
 
   function index(conn: Conn): void {
     for (const id of conn.ids) { const set = byRemoteId.get(id); set?.delete(conn); if (set && !set.size) byRemoteId.delete(id); }
-    conn.ids = new Set(conn.findable && conn.fp ? [remoteIdOf(conn.fp), ...(conn.code ? [conn.code.code] : [])] : []);
+    conn.ids = new Set(conn.findable && conn.fp ? [remoteIdOf(conn.fp), ...conn.codes.map((proven) => proven.code)] : []);
     for (const id of conn.ids) byRemoteId.set(id, (byRemoteId.get(id) ?? new Set<Conn>()).add(conn));
   }
 
@@ -187,7 +188,7 @@ export async function createRelay(options: RelayOptions = {}): Promise<Relay> {
     const fp = fingerprintOf(pub);
     const old = byFp.get(fp);
     if (old) { old.ws.close(4009, 'replaced'); drop(old); }
-    Object.assign(conn, { fp, pub: b64url(pub), box: b64url(box), boxSig: frame.boxSig as string, findable: frame.findable === true, port: portOf(frame.port), peers: new Set<string>(), code: chainCode(frame.chain, fp) });
+    Object.assign(conn, { fp, pub: b64url(pub), box: b64url(box), boxSig: frame.boxSig as string, findable: frame.findable === true, port: portOf(frame.port), peers: new Set<string>(), codes: chainCodes(frame, fp) });
     byFp.set(fp, conn);
     index(conn);
     conn.peers = peers;
@@ -221,12 +222,18 @@ export async function createRelay(options: RelayOptions = {}): Promise<Relay> {
     send(other, { t: 'incoming', tid, from: conn.fp, ...(frame.e ? { e: frame.e } : {}), ...(frame.es ? { es: frame.es } : {}) });
   }
 
+  /** Eine-ID 22.11.2026: the chain that proves `id` for a found device (none: found under its own Remote ID). */
+  const proof = (other: Conn, id: string) => { const proven = other.codes.find((entry) => entry.code === id); return proven ? { chain: proven.chain } : {}; };
+  /** How deep a device sits under `id` (0: its own ID or the root) – the shortest first, so the company's own PCs come before members' PCs. */
+  const depth = (other: Conn, id: string) => other.codes.find((entry) => entry.code === id)?.chain.links.length ?? 0;
+
   function find(conn: Conn, frame: Frame): void {
     if (!isRef(frame.ref)) return fail(conn, 'bad_request');
     if (typeof frame.id !== 'string' || !/^\d{9}$/.test(frame.id)) return fail(conn, 'bad_request', frame.ref);
     if (!finds.takeAll(keysOf(conn))) return fail(conn, 'rate_limited', frame.ref);
-    const found = [...(byRemoteId.get(frame.id) ?? [])].filter((other) => other !== conn).slice(0, 4);
-    send(conn, { t: 'found', ref: frame.ref, entries: found.map((other) => ({ pub: other.pub, box: other.box, boxSig: other.boxSig, ...(other.code ? { chain: other.code.chain } : {}) })) });
+    const id = frame.id;
+    const found = [...(byRemoteId.get(id) ?? [])].filter((other) => other !== conn).sort((a, b) => depth(a, id) - depth(b, id)).slice(0, 4);
+    send(conn, { t: 'found', ref: frame.ref, entries: found.map((other) => ({ pub: other.pub, box: other.box, boxSig: other.boxSig, ...proof(other, id) })) });
   }
 
   function pair(conn: Conn, frame: Frame): void {
@@ -270,9 +277,9 @@ export async function createRelay(options: RelayOptions = {}): Promise<Relay> {
         if (!peers) return fail(conn, 'bad_request');
         setPeers(conn, peers);
         const findable = typeof frame.findable === 'boolean' ? frame.findable : conn.findable;
-        const code = chainCode(frame.chain, conn.fp);
-        const moved = findable !== conn.findable || code?.code !== conn.code?.code;
-        Object.assign(conn, { findable, code });
+        const codes = chainCodes(frame, conn.fp);
+        const moved = findable !== conn.findable || codes.map((proven) => proven.code).join() !== conn.codes.map((proven) => proven.code).join();
+        Object.assign(conn, { findable, codes });
         if (moved) index(conn);
         const port = portOf(frame.port);
         if (port !== conn.port) {
@@ -405,7 +412,7 @@ export async function createRelay(options: RelayOptions = {}): Promise<Relay> {
     const source = sourceOf(ip);
     if (conns.size >= limits.maxConnections || (perIp.get(source) ?? 0) >= limits.maxPerIp) { ws.close(1013, 'busy'); return; }
     const conn: Conn = {
-      ws, source, ip, port: 0, challenge: newChallenge(), peers: new Set(), findable: false, ids: new Set(), tunnels: new Set(), paused: false, waiters: new Set(), alive: true,
+      ws, source, ip, port: 0, challenge: newChallenge(), peers: new Set(), findable: false, ids: new Set(), codes: [], tunnels: new Set(), paused: false, waiters: new Set(), alive: true,
       control: new Bucket(limits.controlPerSecond, limits.controlPerSecond * 3, now),
       bytes: new Bucket(limits.bytesPerSecond, limits.bytesPerSecond * 8, now),
     };

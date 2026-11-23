@@ -12,7 +12,7 @@ import type { Lease, Supervisor } from '../../system/supervisor.ts';
 import { childEnv } from '../codex/server.ts';
 import { AcpConnection, AcpRpcError, METHOD_NOT_FOUND, initialize, type AgentInfo } from './protocol.ts';
 import { parseConfig, type SessionConfig } from './config.ts';
-import { isRecord, str } from '../shared.ts';
+import { IdleTimer, isRecord, str } from '../shared.ts';
 
 /** How to start one account's agent (the provider table, PR8, supplies it). */
 export interface AcpLaunch {
@@ -38,11 +38,8 @@ export interface AcpProcessOptions {
   version: string;
   env?: NodeJS.ProcessEnv;
   idleMs?: number;
-  now?: () => number;
   onExit?: (process: AcpProcess) => void;
 }
-
-const IDLE_MS = 600_000;
 
 export class AcpProcess {
   readonly launch: AcpLaunch;
@@ -51,10 +48,8 @@ export class AcpProcess {
   readonly sessions = new Map<string, LiveSession>();
   private readonly lease: Lease;
   private readonly options: AcpProcessOptions;
-  private activeTurns = 0;
-  private idleTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly idle: IdleTimer;
   private disposed = false;
-  lastUsedAt: number;
 
   private constructor(options: AcpProcessOptions, lease: Lease, conn: AcpConnection, info: AgentInfo) {
     this.options = options;
@@ -62,7 +57,7 @@ export class AcpProcess {
     this.lease = lease;
     this.conn = conn;
     this.info = info;
-    this.lastUsedAt = this.now();
+    this.idle = new IdleTimer(options.idleMs, () => void this.dispose());
   }
 
   /** Spawns the agent and runs initialize; rejects (and kills it) when that fails. */
@@ -83,11 +78,9 @@ export class AcpProcess {
     }
     const proc = new AcpProcess(options, lease, conn, info);
     proc.wire();
-    proc.armIdle();
+    proc.idle.arm();
     return proc;
   }
-
-  private now(): number { return (this.options.now ?? Date.now)(); }
 
   private wire(): void {
     this.conn.onNotification((note) => {
@@ -107,8 +100,7 @@ export class AcpProcess {
       throw new AcpRpcError('remote', METHOD_NOT_FOUND, 'This action is not available.');
     };
     this.conn.onClose(() => {
-      if (this.idleTimer) clearTimeout(this.idleTimer);
-      this.idleTimer = undefined;
+      this.idle.clear();
       try { this.options.onExit?.(this); } catch { /* isolate */ }
       this.sessions.clear();
       void this.lease.release();
@@ -132,37 +124,14 @@ export class AcpProcess {
 
   /** Marks work in progress (no idle shutdown meanwhile). Returns the end function. */
   beginTurn(): () => void {
-    this.activeTurns++;
-    this.lastUsedAt = this.now();
-    if (this.idleTimer) { clearTimeout(this.idleTimer); this.idleTimer = undefined; }
-    let ended = false;
-    return () => {
-      if (ended) return;
-      ended = true;
-      this.activeTurns--;
-      this.lastUsedAt = this.now();
-      this.armIdle();
-    };
-  }
-
-  /** True when nothing ran for `idleMs`. */
-  idle(now: number, idleMs = this.options.idleMs ?? IDLE_MS): boolean {
-    return this.activeTurns === 0 && now - this.lastUsedAt >= idleMs;
+    return this.idle.hold();
   }
 
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    this.idleTimer = undefined;
+    this.idle.clear();
     this.conn.close(new AcpRpcError('closed', -32099, 'The agent was stopped.'));
     await this.lease.release();
-  }
-
-  private armIdle(): void {
-    if (this.activeTurns > 0 || this.conn.isClosed) return;
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => { if (this.activeTurns === 0) void this.dispose(); }, this.options.idleMs ?? IDLE_MS);
-    this.idleTimer.unref?.();
   }
 }

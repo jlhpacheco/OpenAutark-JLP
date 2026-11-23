@@ -4,8 +4,7 @@
 
 import type { ToolDef } from '../types.ts';
 import { chatTools } from './chat.ts';
-import { taskTools } from './tasks.ts';
-import { scheduleTools } from './schedule.ts';
+import { taskTools } from './tasks.ts'; // Quests round 20.11.2026: tasks.add, tasks.update, tasks.list, tasks.remind
 import { memoryTools } from './memory.ts';
 import { subconsciousTools } from './subconscious.ts';
 import { agentTools } from './agents.ts';
@@ -27,9 +26,7 @@ import { splitMergeTools } from './agents-split-merge.ts';
 import { findTools } from './find.ts';
 import { notesTools } from './notes.ts';
 import { calendarTools } from './calendar.ts';
-import { calendarChangeTools } from './calendar-change.ts';
 import { peopleTools } from './people.ts';
-import { todosPrepareTools } from './todos-prepare.ts';
 import { browserShowTools } from '../../browser/show-tool.ts';
 import { accountTools } from './accounts.ts';
 import { metaTools } from './tools-meta.ts';
@@ -49,19 +46,19 @@ export interface BuiltinDeps {
 
 export function builtinTools(deps: BuiltinDeps = {}): ToolDef[] {
   return [
-    ...chatTools, ...taskTools, ...scheduleTools, ...memoryTools, ...agentTools, ...agentOrgTools, ...agentLogTools,
+    ...chatTools, ...taskTools, ...memoryTools, ...agentTools, ...agentOrgTools, ...agentLogTools,
     ...skillTools, ...fileTools({ shell: deps.shell }), ...webTools({ fetch: deps.fetch }),
     ...feedbackTools, ...mediaTools, ...secretTools,
     ...spaceTools, ...appStatusTools, ...modelTools, ...uiTools, ...modeTools, ...decideTools,
     ...splitMergeTools, ...findTools, ...notesTools,
-    ...calendarTools, ...calendarChangeTools, ...peopleTools, ...todosPrepareTools, ...browserShowTools, ...accountTools,
+    ...calendarTools, ...peopleTools, ...browserShowTools, ...accountTools,
     ...subconsciousTools, // the main AI's own call of the subconscious
     ...metaTools, // tools.find / tools.call – every tool beyond the core set, found and run through the registry
     ...splitTools,
     ...vectorTools, // vector.embed / vector.search, found through tools.find
     ...contextTools, // context.restore, found through tools.find
     ...spendTools, // spend.note, found through tools.find
-    ...chatTreeTools, // B-078: chat.set_parent / chat.thread
+    ...chatTreeTools, // B-078: chat.thread
     ...libraryTools, // B-078: library.* (public library), found through tools.find
     ...appInstallTools, // B-080: app.install – a build installed the way an update installs, found through tools.find
     ...callTools, // B-081: chat.call – I ring the person on all their devices, found through tools.find

@@ -1,11 +1,12 @@
 // The proofs of a connect request (remote/requests.ts, remote/join.ts): the identity a PC presents
-// (PeerInfo, strictly parsed), MACs over a stable JSON form with constant-time comparison, the
+// (PeerInfo, strictly parsed), MACs over the stable JSON form (shared/text/stable-json.ts) with constant-time comparison, the
 // `{ ok: false }` reply shape, which addresses count (http(s) base URLs), and the order of a linked
 // PC's addresses (the one that answered first).
 // Owns: these pure helpers. Never: network, storage or secrets kept beyond a call.
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Device } from '../../shared/model/devices.ts';
+import { stable } from '../../shared/text/stable-json.ts';
 import { fromB64url } from './keys.ts';
 
 /** An http(s) base URL without credentials (≤ 200 characters) – what a linked PC is dialed on. */
@@ -27,13 +28,6 @@ export interface PeerInfo {
 }
 
 export type Reply = { ok: true; [key: string]: unknown } | { ok: false; error: { code: string; message: string } };
-
-/** A stable JSON form (sorted keys) for MACs and transcripts. */
-export function stable(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
-  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable((value as Record<string, unknown>)[key])}`).join(',')}}`;
-}
 
 export function mac(key: Uint8Array, label: string, ...parts: unknown[]): string {
   return createHmac('sha256', key).update(`wf-pair-v1|${label}|${parts.map(stable).join('|')}`).digest('base64url');

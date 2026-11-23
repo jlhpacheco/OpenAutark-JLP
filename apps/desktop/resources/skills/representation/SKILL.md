@@ -17,7 +17,8 @@ metadata:
    `person` names a colleague instead of the CEO.
 2. Corrections outrank older examples; a fitting situation outranks a general rule. Their reasons tell me
    how to decide a case they have not seen.
-3. I write or decide in their style and reasoning. When nothing fits, I say so and ask them (a chat message or
-   `tasks.create` to them) rather than invent their view.
+3. I write or decide in their style and reasoning. When nothing fits, I say that it is my reading, not theirs,
+   rather than invent their view; whether it goes out on my reading or waits for their word follows what they and I
+   agreed (in my prompt).
 4. When they correct me or explain why, I keep it: `memory.write` into `references/human` (kind `correction` or
    `reason`, the situation and who it was for as its title).

@@ -152,19 +152,7 @@ test('host op app.install: answered first, the install runs on the next tick; a 
   await assert.rejects(bare.handle({ id: 3, type: 'host', op: 'app.install', args: { installer: INSTALLER } }), (error: { code?: string }) => error.code === 'unavailable');
 });
 
-test('host op app.update (19.11.2026): answered first, the update runs on the next tick; no wiring refuses', async () => {
-  const timers: Array<() => void> = [];
-  let updates = 0;
-  const deps = { update: async () => { updates += 1; }, setTimer: (fn: () => void) => { timers.push(fn); return timers.length; }, clearTimer: () => {} } as unknown as HostServicesDeps;
-  const host = new HostServices(deps);
-  assert.deepEqual(await host.handle({ id: 1, type: 'host', op: 'app.update', args: {} }), { ok: true });
-  assert.equal(updates, 0, 'not before the answer went out');
-  timers.shift()!();
-  await settle();
-  assert.equal(updates, 1);
-  const bare = new HostServices({ ...deps, update: undefined } as unknown as HostServicesDeps);
-  await assert.rejects(bare.handle({ id: 2, type: 'host', op: 'app.update', args: {} }), (error: { code?: string }) => error.code === 'unavailable');
-});
+// host op app.update: since the Sicher-Runde 19.11.2026 it answers the updater's verdict – test/unit/main/update-elsewhere.test.ts
 
 test("an open of a file waits past the bridge's 15 s for main's answer", async () => {
   mock.timers.enable({ apis: ['setTimeout'] });

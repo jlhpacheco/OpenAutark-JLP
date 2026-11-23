@@ -14,5 +14,6 @@ export function emptyStylesheets(files: Tree): string[];
 export function leadingComment(text: string): string;
 export function missingOwnsHeaders(files: Tree): string[];
 export function layerProblems(files: Tree): Findings;
-export function checkTree(files: Tree, options?: { entries?: readonly string[]; knownOrphans?: Readonly<Record<string, string>> }): Findings;
+export function bridgeWarnings(files: Tree, version?: string): string[];
+export function checkTree(files: Tree, options?: { entries?: readonly string[]; knownOrphans?: Readonly<Record<string, string>>; version?: string }): Findings;
 export function readTree(root: string): Promise<Map<string, string>>;

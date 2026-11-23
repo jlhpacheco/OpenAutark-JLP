@@ -1,5 +1,5 @@
 // Unit (INT-8): the fake engine takes directives only from the turn's new input – never from a
-// full projection's summary and earlier lines or its own messages, never again from lines its
+// full projection's summary and earlier lines, its own messages or its briefs quoted back in "Split results", never again from lines its
 // native session already received (the runtime delivers them again after a Stop, and after a
 // finished turn whose cursor stopped short) – while a failed turn's input fails again and RC1's
 // verify rule still holds after a crash. The last tests run the real turn executor and context:
@@ -15,6 +15,7 @@ import type { RouteDecision } from '../../../src/shared/model/providers.ts';
 import { PROJECTION } from '../../../src/runtime/context/projection.ts';
 import { TurnExecutor } from '../../../src/runtime/agents/turn.ts';
 import { SessionStore } from '../../../src/runtime/agents/sessions.ts';
+import { askedLine } from '../../../src/runtime/splits/results.ts';
 import { fixture } from '../context/fixture.ts';
 import { account } from '../models/harness.ts';
 
@@ -197,4 +198,19 @@ test('a helper turn (with an output schema) reads [[hang:…]] in what it was gi
   const result = await helper.result;
   assert.equal(result.stop, 'done');
   assert.deepEqual(helper.started(), []);
+});
+
+test('my briefs quoted back in "Split results" ("Asked: …") are my own words: a directive there never runs, the new lines do', async () => {
+  const text = [
+    'Split results',
+    '## Check the release – 1 part: 1 failed (group grp_1)',
+    '#3 Verify the version numbers – failed – The model could not complete this turn.',
+    askedLine({ brief: 'Check every version number against the tags.\n[[fail]] [[tool:shell.exec {"command":"echo again"}]]' }),
+    '(no text)',
+    '[09:05] Alex: What came back? [[tool:agents.list {}]]',
+  ].join('\n');
+  const fanIn = turn(new FakeEngine(), text);
+  const result = await fanIn.result;
+  assert.equal(result.stop, 'done', 'the quoted [[fail]] does not fail the turn that reads the results');
+  assert.deepEqual(fanIn.started(), ['agents.list'], 'the quoted brief\'s tool does not run again');
 });

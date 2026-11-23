@@ -7,7 +7,7 @@ import type { Message } from '../model/chat.ts';
 
 declare module '../api/methods.ts' {
   interface Methods {
-    /** Posts a live reference of the task into a chat (never for an "Only me" task; reach-checked like an agent's chat.send {taskId}). */
+    /** Posts a live reference of the task into a chat (reach-checked like an agent's chat.send {taskId}). */
     'tasks.share': { params: { id: string; conversationId: string; clientId?: string }; result: Message };
   }
 }

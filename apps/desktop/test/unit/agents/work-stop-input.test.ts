@@ -11,7 +11,7 @@ import { ComputerActivity, bindComputerActivity } from '../../../src/runtime/com
 import type { HelperClient } from '../../../src/runtime/computer/helper.ts';
 import type { HelperOp } from '../../../src/runtime/computer/protocol.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { memoryDb, recordingBus } from '../store/helpers.ts';
 
 /** A helper whose 'type' ignores its abort signal: only the end of the process ends it. */

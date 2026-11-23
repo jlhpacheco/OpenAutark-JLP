@@ -9,9 +9,10 @@
 //              the hint. B-082: the pieces' text goes in once with its marks hidden beside it (draft-marks.ts); a piece
 //              whose hearing failed becomes an audio chip (play, "Transcribe again" = retryTake, delete), one held
 //              while the link is down too (take-store.ts; uploaded when it is back); a take without words adds
-//              nothing. A field that cannot take an attachment (My day: stopDictation({ attach: false })) gets a
-//              lasting toast with "Transcribe again" instead (offerRetry). Send waits for the text and does not send a take that came
-//              back as a recording or failed (dictateIntoDraft says so). D13: the text goes where the caret or
+//              nothing. A field that cannot take an attachment (the Tasks page: stopDictation({ attach: false })) gets a
+//              lasting toast with "Transcribe again" instead (offerRetry). Send while recording or transcribing (feedback
+//              FCMWNZ0H, 20.11.2026, an empty field too) stops the take, waits for its text and sends it (settleTake); it does
+//              not send a take that came back as a recording, failed or was cancelled (the composer's + turned × cancels). D13: the text goes where the caret or
 //              selection was when the mic was pressed (startDictation's target; a field that was not focused
 //              appends), edits while recording move that place along (dictation-insert.ts) and the composer gets the
 //              caret after the words (dictationCaret). A dictated draft is sent marked as spoken (draft-speech.ts).
@@ -37,12 +38,12 @@ import { markDictated } from './draft-speech.ts';
 import { insertMarked } from './draft-marks.ts';
 import { shiftTarget, type DictationTarget } from './dictation-insert.ts';
 import { primeSpeech } from './conversation-audio.ts';
+import { fieldTake } from './field-words.ts';
 import { setCallMuted } from '../call/mute.ts';
 import { ConversationCancelled, createBrowserConversation } from './pwa-conversation.ts';
 import type { PageConversation } from './pwa-conversation.ts';
 
 export { clearDraftSpeech } from './draft-speech.ts';
-export type { DictationTarget } from './dictation-insert.ts';
 
 /** "Start conversation" is offered: this connection may transcribe and send, and this page can record (reactive). */
 export function conversationAvailable(): boolean {
@@ -274,9 +275,13 @@ function dropRecording(): DictationOutcome {
  * heard); false when the take came back as a recording or failed – Send then leaves the draft for
  * the person to check.
  */
-export async function dictateIntoDraft(): Promise<boolean> {
+export function dictateIntoDraft(): Promise<boolean> {
   const conversationId = dictating.value;
-  if (!conversationId) return true;
+  if (!conversationId) return Promise.resolve(true);
+  return track(conversationId, takeIntoDraft(conversationId));
+}
+
+async function takeIntoDraft(conversationId: string): Promise<boolean> {
   const result = await stopDictation();
   if (result.text) insertTake(conversationId, { text: result.text, ...(result.marks ? { marks: result.marks } : {}) });
   else targets.delete(conversationId);
@@ -284,6 +289,37 @@ export async function dictateIntoDraft(): Promise<boolean> {
   const chips = (result.kept ?? []).map(uploadedChip).filter((chip) => !list.some((entry) => entry.fileId === chip.fileId));
   if (chips.length) updateDraft(conversationId, { attachments: [...list, ...chips] });
   return !result.kept?.length && !result.failed;
+}
+
+/** Feedback FCMWNZ0H/FCMWNSOZ (20.11.2026): per chat, the take on its way into the draft (true: its words are in). */
+const takes = new Map<string, Promise<boolean>>();
+
+function track(conversationId: string, take: Promise<boolean>): Promise<boolean> {
+  takes.set(conversationId, take);
+  const forget = () => { if (takes.get(conversationId) === take) takes.delete(conversationId); };
+  take.then(forget, forget);
+  return take;
+}
+
+/**
+ * Before a send (feedback FCMWNZ0H, 20.11.2026: "direkt aus der Aufnahme abschicken"): the chat's running take stops
+ * and its words go into the draft; a stopped one still being heard is waited for. True when the draft now holds what
+ * was said (or nothing was being said); false when the take came back as a recording, failed or was cancelled – the
+ * draft then stays for the person to see.
+ */
+export function settleTake(conversationId: string): Promise<boolean> {
+  if (dictating.peek() === conversationId) return dictateIntoDraft();
+  return takes.get(conversationId) ?? Promise.resolve(!transcribing.peek().has(conversationId));
+}
+
+/** What the + turned × does now (composer/PlusCancel.tsx): its label and the cancel. */
+export interface TakeCancel { label: string; run: () => void }
+
+/** The × of `key`'s take (a chat, a draft key, a Tasks page field) while it starts, records or is transcribed (reactive). */
+export function takeCancel(key: string): TakeCancel | undefined {
+  if (transcribing.value.has(key)) return { label: 'Cancel transcription', run: () => cancelTranscribing(key) };
+  if (dictating.value === key || dictationStarting.value === key) return { label: 'Cancel dictation', run: () => void cancelDictation() };
+  return undefined;
 }
 
 /** Discards the running (or starting) take. */
@@ -305,28 +341,43 @@ export async function cancelDictation(): Promise<void> {
 export async function retryTake(conversationId: string, attachment: Attachment, at?: DictationTarget): Promise<void> {
   if (heldKey(attachment.fileId)) { flushHeld(); pushToast({ title: 'Not uploaded yet', body: 'The recording uploads once the connection is back.' }); return; }
   if (dictating.peek() === conversationId || transcribing.peek().has(conversationId)) return;
+  await track(conversationId, hearAgain(conversationId, attachment, at));
+}
+
+/** retryTake's hearing; true when the words replaced the chip (a Send waiting for it sends them). */
+async function hearAgain(conversationId: string, attachment: Attachment, at?: DictationTarget): Promise<boolean> {
+  const ticket = Symbol(conversationId);
+  awaited.set(conversationId, ticket);
   setTranscribing(conversationId, true);
   targets.set(conversationId, { before: draftFor(conversationId).peek().text, at: at ?? null });
+  const cancelled = () => awaited.get(conversationId) !== ticket; // the × (cancelTranscribing): the late words go nowhere
   try {
     const heard = await dictation.hear(attachment.fileId, { language: settings.peek()?.profile.language, chatId: conversationId });
-    if (!heard.text.trim()) { targets.delete(conversationId); pushToast({ title: 'Nothing heard in the recording' }); return; }
+    if (cancelled()) return false;
+    if (!heard.text.trim()) { targets.delete(conversationId); pushToast({ title: 'Nothing heard in the recording' }); return false; }
     insertTake(conversationId, heard);
     updateDraft(conversationId, { attachments: draftFor(conversationId).peek().attachments.filter((entry) => entry.fileId !== attachment.fileId) });
+    return true;
   } catch (error) {
+    if (cancelled()) return false;
     targets.delete(conversationId);
     toastError(error, 'Dictation not transcribed');
+    return false;
   } finally {
-    setTranscribing(conversationId, false);
+    if (!cancelled()) { awaited.delete(conversationId); setTranscribing(conversationId, false); }
   }
 }
 
-/** A field without chips (My day): a kept recording as a lasting toast whose "Transcribe again" gives `onText` its words. */
-export function offerRetry(attachment: Attachment, onText: (text: string) => void, error?: string): void {
+/** A field without chips (the Tasks page): a kept recording as a lasting toast whose "Transcribe again" gives `onText` its words;
+ *  `key`: the field's – while they are heard it shows so (its + an ×) and an Add waits for them (field-words.ts). */
+export function offerRetry(attachment: Attachment, onText: (text: string) => void, error?: string, key?: string): void {
   const held = heldKey(attachment.fileId) !== undefined;
-  if (held) heldFields.set(heldKey(attachment.fileId) as string, onText); // its words still go to this field once uploaded
-  const run = () => void dictation.hear(attachment.fileId, { language: settings.peek()?.profile.language }).then(
-    (heard) => { if (heard.text.trim()) onText(heard.text.trim()); else pushToast({ title: 'Nothing heard in the recording' }); },
-    (failed: unknown) => offerRetry(attachment, onText, failed instanceof Error ? failed.message : undefined));
+  if (held) heldFields.set(heldKey(attachment.fileId) as string, { onText, ...(key ? { key } : {}) }); // its words still go to this field once uploaded
+  const run = () => {
+    const free = key !== undefined && dictating.peek() !== key && !transcribing.peek().has(key); // a take of its own runs: the retry stays apart
+    const words = hearKept(attachment, onText, free ? key : undefined);
+    if (free) void fieldTake(key, words, onText); else void words.then((said) => { if (said) onText(said); });
+  };
   // `action`: the toast's button (lib/toasts.ts) – a held recording has none until it is uploaded.
   const toast = { title: 'Dictation not transcribed', tone: 'error' as const, body: `${error ? `${error} ` : ''}${held ? 'The recording waits in this page.' : 'The recording is kept.'}`, ...(held ? {} : { action: { label: 'Transcribe again', run } }) };
   pushToast(toast, 0);
@@ -334,8 +385,25 @@ export function offerRetry(attachment: Attachment, onText: (text: string) => voi
 
 /** Held pieces uploaded before their chip reached the draft (the take was still running or finishing): their uploads. */
 const uploadedHeld = new Map<string, Attachment>();
-/** A held piece of a field without chips (offerRetry): where its words go. */
-const heldFields = new Map<string, (text: string) => void>();
+/** A held piece of a field without chips (offerRetry): where its words go (and that field's key). */
+const heldFields = new Map<string, { onText: (text: string) => void; key?: string }>();
+
+/** The toast's "Transcribe again": the words ('' when none); `key` marks the field as transcribing, so its × can drop them. */
+async function hearKept(attachment: Attachment, onText: (text: string) => void, key?: string): Promise<string> {
+  const ticket = Symbol(key);
+  if (key) { awaited.set(key, ticket); setTranscribing(key, true); }
+  const cancelled = () => key !== undefined && awaited.get(key) !== ticket;
+  try {
+    const heard = await dictation.hear(attachment.fileId, { language: settings.peek()?.profile.language });
+    if (cancelled()) return '';
+    if (!heard.text.trim()) pushToast({ title: 'Nothing heard in the recording' }); return heard.text.trim();
+  } catch (failed) {
+    if (!cancelled()) offerRetry(attachment, onText, failed instanceof Error ? failed.message : undefined, key);
+    return '';
+  } finally {
+    if (key && !cancelled()) { awaited.delete(key); setTranscribing(key, false); }
+  }
+}
 
 /** A kept piece's chip as it goes into the draft: the uploaded file when its held piece was uploaded meanwhile. */
 function uploadedChip(attachment: Attachment): Attachment {
@@ -350,9 +418,9 @@ function flushHeld(): void {
   void takeStore.flush((blob, name) => uploadRef(blob, name), (held, ref) => {
     const attachment = toAttachment(ref);
     if (!held.owner) {
-      const onText = heldFields.get(held.key);
+      const field = heldFields.get(held.key);
       heldFields.delete(held.key);
-      offerRetry(attachment, onText ?? ((text) => pushToast({ title: 'Dictation', body: text }, 0)));
+      offerRetry(attachment, field?.onText ?? ((text) => pushToast({ title: 'Dictation', body: text }, 0)), undefined, field?.key);
       return;
     }
     const id = HELD_PREFIX + held.key;

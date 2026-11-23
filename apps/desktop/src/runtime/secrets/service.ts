@@ -15,6 +15,8 @@
 // B-044: every change of an entry's metadata – saved, described, generated, captured, removed – is told to the
 // observers (the route files <data>/secrets/<route>.md, files.ts) with the id of the single secret or group.
 // Owner 04.11.2026: a text field's hint is the text itself (groups.ts textHint); init() brings older hints up to that.
+// Sicher-Runde 19.11.2026: the one exception to "zero restrictions" – in Secure mode an agent's use() of card data is refused
+// (options.refuse, security/policy.ts vaultRefusal); the person's and the app's own uses are never refused.
 // Never: returns values to prompts, logs or the UI (a text field – a username – is no secret: its hint shows it); stores
 // plaintext; returns a 2FA key at all. Tools call `use()` at the last possible moment.
 
@@ -139,6 +141,8 @@ export interface SecretServiceOptions {
   log?: Logger;
   /** X05: waits once before a 2FA code with under 3 s left (default: an unref'd setTimeout). */
   sleep?: (ms: number) => Promise<void>;
+  /** Sicher-Runde 19.11.2026: why `agentId` may not use this entry now (Secure mode: card data – security/policy.ts vaultRefusal). */
+  refuse?: (entry: { kind: string; groupKind?: string; route?: string | null }, agentId: string) => string | undefined;
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => { const timer = setTimeout(resolve, ms); (timer as { unref?: () => void }).unref?.(); });
@@ -275,6 +279,8 @@ export class SecretVault implements SecretService {
     const { row, group } = found;
     const name = group ? `${row.field ?? 'field'}' of '${group.label}` : row.label;
     if (!row.cipher) throw new WorkforceError('bad_request', `The secret '${name}' has no stored value.`);
+    const refused = this.options.refuse?.({ kind: row.kind, groupKind: group?.kind, route: group ? group.route : row.route }, agentId);
+    if (refused) throw new WorkforceError('forbidden', refused); // Sicher-Runde: card data in Secure mode
     const now = this.options.clock.now();
     const value = await this.options.host.decrypt(row.cipher);
     this.options.db.run('UPDATE secrets SET last_used_at = ?, uses = uses + 1 WHERE id = ?', [now, id]);

@@ -19,7 +19,7 @@
   display: flex; flex: 1 1 auto; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; padding: 12px 16px 14px; outline: none;
 }
 .tour-top { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; height: 36px; }
-.tour-title { min-width: 0; overflow: hidden; color: var(--text); font-size: 15px; font-weight: 600; line-height: 22px; text-overflow: ellipsis; white-space: nowrap; }
+.tour-title { min-width: 0; overflow: hidden; color: var(--text); font-size: calc(15px * var(--ui-text, 1)); font-weight: 600; line-height: max(22px, calc(22px * var(--ui-text, 1))); text-overflow: ellipsis; white-space: nowrap; }
 .tour-close { width: 32px; height: 32px; border-radius: var(--r-sm); color: var(--secondary); }
 .tour-skip { flex: none; min-width: 64px; }
 
@@ -49,18 +49,18 @@
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
   padding: 24px; background: color-mix(in srgb, var(--surface) 92%, transparent); text-align: center; cursor: default;
 }
-.tour-end-text { max-width: 460px; margin: 0; color: var(--text); font-size: 16px; font-weight: 500; line-height: 1.5; }
-.tour-end-note { max-width: 460px; margin: -6px 0 0; color: var(--secondary); font-size: 14px; line-height: 1.5; }
+.tour-end-text { max-width: 460px; margin: 0; color: var(--text); font-size: calc(16px * var(--ui-text, 1)); font-weight: 500; line-height: 1.5; }
+.tour-end-note { max-width: 460px; margin: -6px 0 0; color: var(--secondary); font-size: calc(14px * var(--ui-text, 1)); line-height: 1.5; }
 .tour-end-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
-.tour-caption { flex: none; height: 40px; margin: 0; overflow: hidden; color: var(--secondary); font-size: 14px; line-height: 20px; text-align: center; }
+.tour-caption { flex: none; height: 40px; margin: 0; overflow: hidden; color: var(--secondary); font-size: calc(14px * var(--ui-text, 1)); line-height: max(20px, calc(20px * var(--ui-text, 1))); text-align: center; }
 
 .tour-controls { display: flex; flex: none; align-items: center; gap: 2px; height: 40px; }
 .tour-control { width: 36px; height: 36px; color: var(--text); }
 .tour-control .tour-icon { opacity: .8; }
 .tour-control:hover .tour-icon { opacity: 1; }
 .tour-jump { position: relative; }
-.tour-jump-n { position: absolute; inset: 0; display: grid; place-items: center; padding-top: 1px; font-size: 8.5px; font-weight: 700; line-height: 1; pointer-events: none; }
-.tour-time { flex: none; min-width: 88px; padding: 0 8px; color: var(--secondary); font-size: 12px; font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; }
+.tour-jump-n { position: absolute; inset: 0; display: grid; place-items: center; padding-top: 1px; font-size: calc(8.5px * var(--ui-text, 1)); font-weight: 700; line-height: 1; pointer-events: none; }
+.tour-time { flex: none; min-width: 88px; padding: 0 8px; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; }
 .tour-scrubber { position: relative; flex: 1 1 auto; min-width: 72px; height: 36px; border-radius: var(--r-sm); outline: none; cursor: pointer; touch-action: none; }
 .tour-scrubber:focus-visible { box-shadow: 0 0 0 2px var(--focus); }
 .tour-track { position: absolute; left: 0; right: 0; top: 16px; height: 4px; overflow: hidden; border-radius: 2px; background: var(--field); }
@@ -76,7 +76,7 @@ body:has(.mobile-shell) dialog.dialog.tour-dialog { height: fit-content; } /* no
 /* ---------------------------------------------------------------- scene (scene units; its size inline) */
 .tour-scene {
   position: relative; overflow: hidden; background: var(--chrome); color: var(--text);
-  font-family: var(--font); font-size: 13px; line-height: 20px; pointer-events: none; user-select: none;
+  font-family: var(--font); font-size: calc(13px * var(--ui-text, 1)); line-height: max(20px, calc(20px * var(--ui-text, 1))); pointer-events: none; user-select: none;
 }
 .tour-app, .tour-frozen { position: absolute; inset: 0; background: var(--chrome); }
 .tour-app.phone { background: var(--surface); }
@@ -90,12 +90,12 @@ body:has(.mobile-shell) dialog.dialog.tour-dialog { height: fit-content; } /* no
 .tour-cell.look-hot { background: var(--hover); }
 .tour-cell:is(.look-down, .look-open) { background: var(--selected); }
 .tour-cell:is(.look-hot, .look-down, .look-open) .tour-icon { opacity: 1; }
-.tour-side-title { position: absolute; font-size: 17px; font-weight: 600; line-height: 24px; }
+.tour-side-title { position: absolute; font-size: calc(17px * var(--ui-text, 1)); font-weight: 600; line-height: max(24px, calc(24px * var(--ui-text, 1))); }
 .tour-chat-row { position: absolute; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: var(--r-md); }
 .tour-chat-row.current { background: var(--selected); }
-.tour-chat-title { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.tour-chat-time { flex: none; color: var(--muted); font-size: 11px; }
-.tour-av { display: inline-grid; flex: none; place-items: center; width: 22px; height: 22px; border-radius: 6px; font-size: 11px; font-weight: 600; line-height: 1; }
+.tour-chat-title { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: calc(13px * var(--ui-text, 1)); text-overflow: ellipsis; white-space: nowrap; }
+.tour-chat-time { flex: none; color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); }
+.tour-av { display: inline-grid; flex: none; place-items: center; width: 22px; height: 22px; border-radius: 6px; font-size: calc(11px * var(--ui-text, 1)); font-weight: 600; line-height: 1; }
 .tour-av.av-0 { background: var(--av-0-bg); color: var(--av-0-fg); }
 .tour-av.av-1 { background: var(--av-1-bg); color: var(--av-1-fg); }
 .tour-av.av-2 { background: var(--av-2-bg); color: var(--av-2-fg); }
@@ -104,25 +104,25 @@ body:has(.mobile-shell) dialog.dialog.tour-dialog { height: fit-content; } /* no
 .tour-av.av-5 { background: var(--av-5-bg); color: var(--av-5-fg); }
 .tour-head-av, .tour-msg-av { position: absolute; }
 .tour-msg-av { width: 24px; height: 24px; }
-.tour-head-title { position: absolute; font-size: 14px; font-weight: 500; line-height: 20px; }
-.tour-app.phone .tour-head-title { font-size: 15px; font-weight: 600; }
+.tour-head-title { position: absolute; font-size: calc(14px * var(--ui-text, 1)); font-weight: 500; line-height: max(20px, calc(20px * var(--ui-text, 1))); }
+.tour-app.phone .tour-head-title { font-size: calc(15px * var(--ui-text, 1)); font-weight: 600; }
 .tour-caption-controls { position: absolute; display: grid; grid-template-columns: repeat(3, 1fr); place-items: center; color: var(--secondary); }
 
-.tour-bubble { position: absolute; padding: 8px 16px; border-radius: 18px; background: var(--hover); font-size: 14px; line-height: 22px; white-space: nowrap; }
-.tour-msg-name { position: absolute; font-size: 13px; font-weight: 600; line-height: 24px; }
-.tour-msg-time { margin-left: 6px; color: var(--muted); font-size: 11px; font-weight: 400; }
-.tour-msg-text { position: absolute; font-size: 14px; line-height: 22px; white-space: nowrap; }
+.tour-bubble { position: absolute; padding: 8px 16px; border-radius: 18px; background: var(--hover); font-size: calc(14px * var(--ui-text, 1)); line-height: max(22px, calc(22px * var(--ui-text, 1))); white-space: nowrap; }
+.tour-msg-name { position: absolute; font-size: calc(13px * var(--ui-text, 1)); font-weight: 600; line-height: max(24px, calc(24px * var(--ui-text, 1))); }
+.tour-msg-time { margin-left: 6px; color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); font-weight: 400; }
+.tour-msg-text { position: absolute; font-size: calc(14px * var(--ui-text, 1)); line-height: max(22px, calc(22px * var(--ui-text, 1))); white-space: nowrap; }
 .tour-card, .tour-calendar { position: absolute; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
-.tour-card-line { position: absolute; left: 13px; font-size: 13px; line-height: 19px; white-space: nowrap; }
+.tour-card-line { position: absolute; left: 13px; font-size: calc(13px * var(--ui-text, 1)); line-height: max(19px, calc(19px * var(--ui-text, 1))); white-space: nowrap; }
 .tour-card-line.strong { font-weight: 600; }
-.tour-calendar-head { position: absolute; left: 14px; top: 9px; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
-.tour-calendar-head .tour-muted { font-size: 12px; font-weight: 400; }
+.tour-calendar-head { position: absolute; left: 14px; top: 9px; display: flex; align-items: center; gap: 8px; font-size: calc(13px * var(--ui-text, 1)); font-weight: 600; }
+.tour-calendar-head .tour-muted { font-size: calc(12px * var(--ui-text, 1)); font-weight: 400; }
 .tour-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
 .tour-calendar-days { position: absolute; left: 14px; right: 14px; top: 38px; bottom: 12px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
-.tour-calendar-day { padding: 3px 7px; border-radius: 6px; background: var(--sidebar); font-size: 11px; line-height: 16px; }
-.tour-calendar-empty { position: absolute; left: 0; right: 0; top: 70px; color: var(--muted); font-size: 12px; text-align: center; }
+.tour-calendar-day { padding: 3px 7px; border-radius: 6px; background: var(--sidebar); font-size: calc(11px * var(--ui-text, 1)); line-height: max(16px, calc(16px * var(--ui-text, 1))); }
+.tour-calendar-empty { position: absolute; left: 0; right: 0; top: 70px; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); text-align: center; }
 .tour-composer { position: absolute; border: 1px solid var(--line); border-radius: var(--r-composer); background: var(--surface); box-shadow: var(--shadow-composer); }
-.tour-composer-text { position: absolute; left: 18px; top: 9px; font-size: 14px; }
+.tour-composer-text { position: absolute; left: 18px; top: 9px; font-size: calc(14px * var(--ui-text, 1)); }
 .tour-composer-plus { position: absolute; left: 14px; bottom: 10px; opacity: .7; }
 .tour-composer-mic { position: absolute; right: 50px; bottom: 12px; opacity: .7; }
 .tour-composer-send { position: absolute; right: 10px; bottom: 7px; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--field); color: var(--surface); }
@@ -133,12 +133,12 @@ body:has(.mobile-shell) dialog.dialog.tour-dialog { height: fit-content; } /* no
 .tour-typing > span { width: 6px; height: 6px; border-radius: 50%; background: var(--secondary); }
 .tour-tooltip {
   position: absolute; box-sizing: border-box; display: flex; align-items: center; padding: 0 10px; border-radius: var(--r-sm);
-  background: var(--tooltip-bg); color: var(--tooltip-fg); box-shadow: var(--shadow-popover); font-size: 12px; white-space: nowrap;
+  background: var(--tooltip-bg); color: var(--tooltip-fg); box-shadow: var(--shadow-popover); font-size: calc(12px * var(--ui-text, 1)); white-space: nowrap;
 }
 .tour-status-note {
   position: absolute; box-sizing: border-box; display: flex; align-items: center; padding: 0 12px; overflow: hidden;
   border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); box-shadow: var(--shadow-popover);
-  color: var(--text); font-size: 13px; white-space: nowrap;
+  color: var(--text); font-size: calc(13px * var(--ui-text, 1)); white-space: nowrap;
 }
 
 /* the frozen screen: the app at 1:1, the pen's stroke on it (the tooltip's near-black in both themes – the live pen
@@ -156,27 +156,18 @@ body:has(.mobile-shell) dialog.dialog.tour-dialog { height: fit-content; } /* no
 .tour-dock-row { display: flex; align-items: center; gap: 8px; height: 32px; min-width: 0; overflow: hidden; }
 .tour-dock-row > * { flex: none; }
 .tour-scene.phone .tour-dock-row { height: 40px; }
-.tour-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 999px; background: var(--hover); color: var(--secondary); font-size: 13px; white-space: nowrap; }
+.tour-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 999px; background: var(--hover); color: var(--secondary); font-size: calc(13px * var(--ui-text, 1)); white-space: nowrap; }
 .tour-scene.phone .tour-chip { height: 34px; }
 .tour-checkbox { display: grid; flex: none; place-items: center; width: 16px; height: 16px; border-radius: 4px; background: var(--text); color: var(--surface); }
-.tour-seg { display: inline-flex; padding: 2px; border-radius: 9px; background: var(--hover); }
-.tour-seg > span { display: grid; place-items: center; min-height: 24px; padding: 0 10px; border-radius: var(--r-sm); color: var(--secondary); font-size: 13px; }
-.tour-scene.phone .tour-seg > span { min-height: 32px; }
-.tour-seg > .current { background: var(--surface); color: var(--text); box-shadow: var(--shadow-raised); }
 .tour-undo { display: grid; place-items: center; width: 28px; height: 28px; color: var(--secondary); }
-.tour-rec { display: grid; grid-template-columns: 32px auto; align-items: center; column-gap: 8px; height: 32px; }
-.tour-rec-thumb { display: grid; place-items: center; box-sizing: border-box; width: 32px; height: 32px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--sidebar); color: var(--muted); }
-.tour-rec-text { display: grid; grid-template-rows: 16px 14px; }
-.tour-rec-label { display: flex; align-items: center; gap: 8px; color: var(--secondary); font-size: 13px; line-height: 16px; }
-.tour-rec-hint { width: 190px; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .tour-dock-main { display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
 .tour-dock-close { display: grid; flex: none; place-items: center; width: 36px; height: 38px; border-radius: var(--r-sm); color: var(--secondary); }
 .tour-dock-close.look-hot { background: var(--hover); }
 .tour-field {
   position: relative; flex: 1 1 auto; box-sizing: border-box; min-width: 0; min-height: 38px; max-height: 140px; padding: 8px 44px 8px 12px;
-  overflow: hidden; border: 1px solid var(--field); border-radius: var(--r-md); background: var(--surface); font-size: 13px; line-height: 20px;
+  overflow: hidden; border: 1px solid var(--field); border-radius: var(--r-md); background: var(--surface); font-size: calc(13px * var(--ui-text, 1)); line-height: max(20px, calc(20px * var(--ui-text, 1)));
 }
-.tour-scene.phone .tour-field { font-size: 16px; } /* the phone's field (a phone zooms into smaller text) */
+.tour-scene.phone .tour-field { font-size: calc(16px * var(--ui-text, 1)); } /* the phone's field (a phone zooms into smaller text) */
 .tour-field.filled { border-color: color-mix(in srgb, var(--focus) 60%, var(--field)); }
 .tour-placeholder { display: block; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
 .tour-caret { display: inline-block; width: 1.5px; height: 15px; margin-left: 1px; vertical-align: -2px; background: var(--text); }
@@ -187,11 +178,11 @@ body:has(.mobile-shell) dialog.dialog.tour-dialog { height: fit-content; } /* no
 .tour-spin { display: grid; place-items: center; }
 .tour-send {
   display: grid; flex: none; place-items: center; box-sizing: border-box; width: 96px; height: 38px;
-  border: 1px solid var(--text); border-radius: var(--r-md); background: var(--text); color: var(--surface); font-size: 13px; font-weight: 500;
+  border: 1px solid var(--text); border-radius: var(--r-md); background: var(--text); color: var(--surface); font-size: calc(13px * var(--ui-text, 1)); font-weight: 500;
 }
 .tour-send.look-hot { opacity: .86; }
 .tour-send.look-down { opacity: .72; }
-.tour-note { height: 16px; margin: 0; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 16px; }
+.tour-note { height: 16px; margin: 0; overflow: hidden; color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); line-height: max(16px, calc(16px * var(--ui-text, 1))); }
 .tour-scene.phone .tour-note { height: 32px; }
 .tour-note-link { color: var(--secondary); text-decoration: underline; }
 
@@ -232,10 +223,10 @@ dialog.spotlight::backdrop { background: transparent; -webkit-app-region: no-dra
   top: 0; bottom: auto; padding-top: calc(12px + env(safe-area-inset-top, 0px)); padding-bottom: 12px;
   border-width: 0 0 1px; border-radius: 0 0 var(--r-sheet) var(--r-sheet);
 }
-.spotlight-title { margin: 0; font-size: 14px; font-weight: 600; line-height: 20px; }
-.spotlight-text { margin: 4px 0 12px; color: var(--secondary); font-size: 13px; line-height: 19px; }
+.spotlight-title { margin: 0; font-size: calc(14px * var(--ui-text, 1)); font-weight: 600; line-height: max(20px, calc(20px * var(--ui-text, 1))); }
+.spotlight-text { margin: 4px 0 12px; color: var(--secondary); font-size: calc(13px * var(--ui-text, 1)); line-height: max(19px, calc(19px * var(--ui-text, 1))); }
 .spotlight-foot { display: flex; align-items: center; gap: 6px; }
-.spotlight-count { margin-right: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.spotlight-foot .button { min-height: 30px; padding: 4px 11px; border-radius: 8px; font-size: 12px; }
+.spotlight-count { margin-right: auto; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); font-variant-numeric: tabular-nums; }
+.spotlight-foot .button { min-height: 30px; padding: 4px 11px; border-radius: 8px; font-size: calc(12px * var(--ui-text, 1)); }
 .spotlight-next { min-width: 58px; } /* Next and Done: one width, nothing beside it moves */
 @media (prefers-reduced-motion: reduce) { dialog.spotlight[open] { animation: none; } }

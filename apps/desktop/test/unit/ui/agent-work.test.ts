@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentActivity, Run } from '../../../src/shared/model/runs.ts';
 import type { Task } from '../../../src/shared/model/tasks.ts';
-import { ACTIVE_MS, activeTasks, atEnd, isActive, lastEnded, nowCards, planProgress } from '../../../src/ui/team/agent-work.ts';
+import { ACTIVE_MS, activeTasks, atEnd, isActive, lastEnded, nowCards, planProgress, questLine } from '../../../src/ui/team/agent-work.ts';
 import { formatRoute, parseRoute } from '../../../src/ui/lib/router.ts';
 
 const NOW = Date.UTC(2026, 10, 16, 12);
@@ -45,14 +45,14 @@ test('Now cards: parts still at work after the run that split ended stand on one
   assert.deepEqual(cards[0].parts.map((entry) => entry.runId), ['run_p1', 'run_p2']);
 });
 
-type Row = Pick<Task, 'id' | 'status' | 'assigneeKind' | 'assigneeId' | 'ledger' | 'startedAt' | 'createdAt' | 'nextAt'> & { running?: boolean };
+type Row = Pick<Task, 'id' | 'status' | 'assigneeKind' | 'assigneeId' | 'ledger' | 'createdAt' | 'at'> & { running?: boolean };
 const task = (id: string, movedAgo: number, patch: Partial<Row> = {}): Row =>
   ({ id, status: 'open', assigneeKind: 'agent', assigneeId: 'ag_mara', ledger: { movedAt: NOW - movedAgo }, createdAt: NOW - 30 * 24 * H, ...patch });
 
-test('active tasks: a turn on it now or a move in the last 24 h; an older open task folds; the planned look decides nothing', () => {
+test('active tasks: a turn on it now or a move in the last 24 h; an older open task folds; a time decides nothing', () => {
   const list = [
     task('moved_23h', 23 * H),
-    task('moved_25h', 25 * H, { nextAt: NOW + H }), // every unfinished task has a planned look – it keeps nothing active
+    task('moved_25h', 25 * H, { at: NOW + H }), // agent work has no time – a stray one keeps nothing active
     task('running_old', 9 * 24 * H, { running: true }),
     task('waiting', 2 * H, { status: 'waiting' }),
     task('done', H, { status: 'done' }),
@@ -66,6 +66,29 @@ test('active tasks: a turn on it now or a move in the last 24 h; an older open t
   assert.equal(ACTIVE_MS, 24 * H);
   assert.equal(isActive(task('edge', ACTIVE_MS), NOW), false, 'exactly 24 h is older');
   assert.equal(isActive(task('waiting_running', 0, { status: 'waiting', running: true }), NOW), false, 'a waiting task is no open work');
+});
+
+test('questLine: a quest says how many of its to-dos are done (dropped ones left out), a to-do names its quest', () => {
+  type Placed = Pick<Task, 'id' | 'kind' | 'parentId' | 'status' | 'title'>;
+  const rows: Placed[] = [
+    { id: 'task_q', kind: 'quest', status: 'open', title: 'Signing' },
+    { id: 'task_a', kind: 'todo', parentId: 'task_q', status: 'done', title: 'Read' },
+    { id: 'task_b', kind: 'todo', parentId: 'task_q', status: 'open', title: 'Sign' },
+    { id: 'task_c', kind: 'todo', parentId: 'task_q', status: 'dropped', title: 'Fax' },
+    { id: 'task_lone', kind: 'todo', status: 'open', title: 'Alone' },
+    { id: 'task_orphan', kind: 'todo', parentId: 'task_gone', status: 'open', title: 'Lost' },
+    { id: 'task_empty', kind: 'quest', status: 'open', title: 'New goal' },
+    { id: 'task_one', kind: 'quest', status: 'open', title: 'One' },
+    { id: 'task_d', kind: 'todo', parentId: 'task_one', status: 'open', title: 'Only' },
+  ];
+  const every = new Map(rows.map((entry) => [entry.id, entry]));
+  const line = (id: string) => questLine(every.get(id)!, every);
+  assert.equal(line('task_q'), 'Quest · 1 of 2 to-dos done');
+  assert.equal(line('task_one'), 'Quest · 0 of 1 to-do done');
+  assert.equal(line('task_empty'), 'Quest · 0 of 0 to-dos done');
+  assert.equal(line('task_b'), 'In Signing');
+  assert.equal(line('task_lone'), undefined, 'a to-do without a quest says nothing');
+  assert.equal(line('task_orphan'), undefined, 'a quest not known here is not guessed');
 });
 
 test('plan progress, the last ended run and the page\'s end', () => {
@@ -99,6 +122,8 @@ test('the wiring: Show work opens the Work page, the log lives only there, useAg
   assert.match(work, /<AgentLog state=\{state\} answersOpen=\{!isMobile\.value\} \/>/);
   assert.match(read('shell/views.ts'), /current\.agentId && current\.work\) return \{ key: `work:\$\{current\.agentId\}`, body: h\(AgentWork/);
   assert.match(read('team/WorkNow.tsx'), /<Fold label=\{`\$\{older\.length\} older open`\}/);
+  assert.match(read('team/WorkNow.tsx'), /const every = everyTask\(tasks\.value\);/, 'a to-do in a quest is read from the quest\'s steps');
+  assert.doesNotMatch(read('team/WorkNow.tsx') + read('team/agent-work.ts'), /nextLook|nextAt\b|dueAt|\.at\b/, 'agent work shows no time');
 });
 
 test('every Work page class has its rule; the sheet is imported; icons exist', () => {

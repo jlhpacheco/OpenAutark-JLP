@@ -11,17 +11,18 @@
 
 import type { Supervisor, Lease } from '../../system/supervisor.ts';
 import type { Executable, ExecutableFinder } from '../../accounts/executables.ts';
-import { RpcClient, RpcError, type RpcNotification } from './rpc.ts';
+import { RpcClient, RpcError } from './rpc.ts';
+import type { RpcNote } from '../line-rpc.ts';
 import { SERVER_CONFIG, WORKSPACE_FEATURES } from './isolation.ts';
 import { promises as fsp } from 'node:fs';
 import * as path from 'node:path';
 import { loginFiles } from '../../accounts/cli-homes.ts';
-import { str } from '../shared.ts';
+import { IdleTimer, str } from '../shared.ts';
 import { pwshDir, withTools } from '../wf-shim.ts';
 import { ENV_KEY_PROVIDERS } from '../../../shared/model/providers.ts';
 
 export interface ThreadHandler {
-  onNotification(note: RpcNotification): void;
+  onNotification(note: RpcNote): void;
   onServerRequest(method: string, params: Record<string, unknown>): Promise<unknown>;
 }
 
@@ -81,16 +82,15 @@ export class CodexServer {
   private client: RpcClient | undefined;
   private starting: Promise<RpcClient> | undefined;
   private readonly threads = new Map<string, ThreadHandler>();
-  private activeTurns = 0;
-  private idleTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly idle: IdleTimer;
   private loginStamp: string | undefined; // the home's login file when the process started
-  lastUsedAt = 0;
   /** The Codex version from initialize's userAgent (undefined until a start, or when it names none). */
   cliVersion: string | undefined;
 
   constructor(options: CodexServerOptions) {
     this.options = options;
     this.key = options.key;
+    this.idle = new IdleTimer(options.idleMs, () => void this.dispose());
   }
 
   get running(): boolean { return Boolean(this.client && !this.client.isClosed); }
@@ -101,7 +101,7 @@ export class CodexServer {
   async rpc(): Promise<RpcClient> {
     const running = this.client && !this.client.isClosed ? this.client : undefined;
     // Restart between turns (a running turn is never cut): another codex.exe, PowerShell 7 arrived, or the login file changed.
-    if (running && this.activeTurns === 0 && !this.starting && (this.restartDue || this.pwshArrived() || await this.loginChanged()) && this.client === running && this.activeTurns === 0) {
+    if (running && !this.idle.busy && !this.starting && (this.restartDue || this.pwshArrived() || await this.loginChanged()) && this.client === running && !this.idle.busy) {
       this.restartDue = false;
       await this.dispose();
     }
@@ -124,40 +124,17 @@ export class CodexServer {
 
   /** Marks a turn as running (prevents idle shutdown). Returns the end function. */
   beginTurn(): () => void {
-    this.activeTurns++;
-    this.lastUsedAt = Date.now();
-    if (this.idleTimer) { clearTimeout(this.idleTimer); this.idleTimer = undefined; }
-    let ended = false;
-    return () => {
-      if (ended) return;
-      ended = true;
-      this.activeTurns--;
-      this.lastUsedAt = Date.now();
-      this.armIdle();
-    };
-  }
-
-  /** True when no turn ran for `idleMs`. */
-  idle(now: number, idleMs = this.options.idleMs ?? 600_000): boolean {
-    return this.activeTurns === 0 && now - this.lastUsedAt >= idleMs;
+    return this.idle.hold();
   }
 
   async dispose(): Promise<void> {
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    this.idleTimer = undefined;
+    this.idle.clear();
     const lease = this.lease;
     this.client?.close(new Error('codex server disposed'));
     this.client = undefined;
     this.lease = undefined;
     this.threads.clear();
     await lease?.release();
-  }
-
-  private armIdle(): void {
-    if (this.activeTurns > 0) return;
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => { if (this.activeTurns === 0) void this.dispose(); }, this.options.idleMs ?? 600_000);
-    this.idleTimer.unref?.();
   }
 
   /** This server's shells are 5.1 while a PowerShell 7 is there now. */
@@ -226,8 +203,7 @@ export class CodexServer {
       throw error;
     }
     this.client = client;
-    this.lastUsedAt = Date.now();
-    this.armIdle();
+    this.idle.arm();
     return client;
   }
 
@@ -236,7 +212,7 @@ export class CodexServer {
     return id ? this.threads.get(id) : undefined;
   }
 
-  private dispatch(note: RpcNotification): void {
+  private dispatch(note: RpcNote): void {
     if (note.method === 'account/rateLimits/updated') { this.options.onLimits?.(note.params); }
     this.threadOf(note.params)?.onNotification(note);
   }

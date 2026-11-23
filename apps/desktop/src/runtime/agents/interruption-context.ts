@@ -24,7 +24,7 @@ const keyOf = (plan: TurnPlan) => `${plan.agent.id}:${plan.thread}`;
 
 function taskKey(plan: TurnPlan): string | undefined {
   const task = plan.task;
-  return task ? createHash('sha256').update(JSON.stringify([task.title, task.notes, task.doneWhen, task.assigneeKind, task.assigneeId, task.priority, task.dueAt])).digest('hex') : undefined;
+  return task ? createHash('sha256').update(JSON.stringify([task.title, task.notes, task.doneWhen, task.assigneeKind, task.assigneeId, task.priority, task.at])).digest('hex') : undefined;
 }
 
 /** One latest marker per thread; no bodies, prompts or credentials are copied into it. */

@@ -3,7 +3,7 @@
 // IndexedDB is blocked – then only until the page closes):
 // - the draft (draft.ts) under 'feedback-draft', kept DRAFT_SAVE_MS after each change and restored on the next start;
 // - each report the person sent, under 'feedback:<clientId>', written BEFORE any upload or call. deliver() uploads its
-//   image and recordings, calls feedback.create with the clientId (the runtime answers the same clientId with the report
+//   images (owner 21.11.2026: several, `images`; an older build's entry has one `image` – entryImages), calls feedback.create with the clientId (the runtime answers the same clientId with the report
 //   it already has, so a lost answer never makes a second one) and – where the button said Send – feedback.send, then
 //   deletes the entry. A report the PC could not be reached for stays ('held'); every (re)connect flushes the entries,
 //   oldest first, one round at a time. A report the runtime refuses as invalid is deleted and put back into an empty
@@ -27,11 +27,10 @@ import { dataUrlToBlob } from './bridge.ts';
 import { sendDirect } from './direct.ts';
 import { bridge } from '../lib/platform.ts';
 import { announceSent, notSentLine } from './delivery.ts';
-import { FEEDBACK_AUDIO_MAX } from '../../shared/model/feedback-delivery.ts';
-import { CRASH_ONLY_TEXT, EMPTY_DRAFT, UNTRANSCRIBED_TEXT, feedbackDraft, isEmptyDraft } from './draft.ts';
-import type { DraftPlace, FeedbackDraft } from './draft.ts';
+import { CRASH_ONLY_TEXT, EMPTY_DRAFT, feedbackDraft, isEmptyDraft } from './draft.ts';
+import type { DraftPhoto, DraftPlace, FeedbackDraft } from './draft.ts';
 import { REPORT_IMAGE_NAME } from './paint.ts';
-import type { RecordedTake } from './recording.ts';
+import type { PaintMark } from './paint.ts';
 
 const ENTRY_PREFIX = 'feedback:';
 const DRAFT_KEY = 'feedback-draft';
@@ -51,9 +50,12 @@ export interface OutboxEntry {
   where: DraftPlace;
   /** Where it was written (client.ts). */
   client: string;
-  /** The report's one image (the flattened JPEG data URL). */
+  /** The report's images in order (flattened JPEG data URLs). */
+  images?: string[];
+  /** An older build's entry: its one image (read by entryImages, never written). */
   image?: string;
-  audio: readonly RecordedTake[];
+  /** The text is a dictation's transcript (owner 20.11.2026: a report carries words, never a recording). */
+  dictated?: true;
   clientDiagnostics?: string;
   /** feedback.create answered: only feedback.send is left. */
   reportId?: string;
@@ -68,7 +70,7 @@ export type Outcome =
   | { kind: 'refused'; error: unknown };
 
 type CreateParams = ParamsOf<'feedback.create'>;
-type CreateFiles = { screenshotFileId?: string; audioFileIds?: string[] };
+type CreateFiles = { imageFileIds?: string[] };
 
 export interface OutboxDeps {
   /** This page's storage (null: memory only). */
@@ -93,18 +95,49 @@ function refusedForGood(error: unknown, online: boolean): boolean {
   return online;
 }
 
+/**
+ * Bridge 20.11.2026: an older build's report that had only its recording carries this text. A report is its words now,
+ * so such an entry does not go out: it waits here (flush passes it by) until the form is empty at a start, then it comes
+ * back there to be said in words (takeWordless) – or it goes after OUTBOX_MAX_AGE_MS.
+ */
+export const WORDLESS_TEXT = '(dictation not transcribed)';
+export const wordless = (entry: Pick<OutboxEntry, 'text' | 'reportId'>): boolean => entry.text === WORDLESS_TEXT && !entry.reportId;
+
 function validEntry(value: unknown): value is OutboxEntry {
   const entry = value as Partial<OutboxEntry> | null;
-  return !!entry && typeof entry.clientId === 'string' && typeof entry.at === 'number' && typeof entry.text === 'string' && Array.isArray(entry.audio);
+  return !!entry && typeof entry.clientId === 'string' && typeof entry.at === 'number' && typeof entry.text === 'string';
 }
 
-/** A refused report's content as a draft again (its words, image and attachments). */
+/** An entry's images in order: `images`, or an older build's one `image`. */
+export function entryImages(entry: Pick<OutboxEntry, 'images' | 'image'>): string[] {
+  return entry.images ?? (entry.image ? [entry.image] : []);
+}
+
+/** A refused report's content as a draft again (its words, its images as photos – their marks are in them – and crash report). */
 export function draftOf(entry: OutboxEntry): FeedbackDraft {
-  const words = entry.text === UNTRANSCRIBED_TEXT || entry.text === CRASH_ONLY_TEXT ? '' : entry.text;
+  const words = entry.text === CRASH_ONLY_TEXT || entry.text === WORDLESS_TEXT ? '' : entry.text;
+  const photos: DraftPhoto[] = entryImages(entry).map((src, index) => ({ id: `${entry.clientId}-${index}`, src, marks: [] }));
   return {
-    ...EMPTY_DRAFT, text: words, shot: entry.image ?? null, withShot: true, where: entry.where, audio: [...entry.audio],
+    ...EMPTY_DRAFT, text: words, photos, where: entry.where, dictated: entry.dictated === true,
     ...(entry.clientDiagnostics ? { diagnostics: entry.clientDiagnostics } : {}),
   };
+}
+
+/**
+ * A kept draft's marks as pen lines. An older build's box ({ from, to }, the person's tool until 21.11.2026) becomes one
+ * pen line as thick as the box is tall along its middle – its round ends cover the box whole, so nothing it hid shows.
+ */
+export function penMarks(marks: unknown): PaintMark[] {
+  if (!Array.isArray(marks)) return [];
+  return marks.flatMap((mark): PaintMark[] => {
+    const m = mark as { tool?: unknown; width?: unknown; points?: unknown; from?: [number, number]; to?: [number, number] };
+    if (m?.tool === 'pen' && Array.isArray(m.points) && typeof m.width === 'number') return [m as PaintMark];
+    if (m?.tool !== 'box' || !Array.isArray(m.from) || !Array.isArray(m.to)) return [];
+    const [left, right] = [Math.min(m.from[0], m.to[0]), Math.max(m.from[0], m.to[0])];
+    const [top, bottom] = [Math.min(m.from[1], m.to[1]), Math.max(m.from[1], m.to[1])];
+    const middle = (top + bottom) / 2;
+    return [{ tool: 'pen', width: Math.max(1, bottom - top), points: [[left, middle], [right, middle]] }];
+  });
 }
 
 /** A new client id (≤ 64 characters; Web Crypto works on plain http too, randomUUID does not). */
@@ -147,7 +180,7 @@ export class FeedbackOutbox {
 
   /** Uploads and files one entry (see the header); never two deliveries of the same entry at once. */
   async deliver(entry: OutboxEntry): Promise<Outcome> {
-    if (this.busy.has(entry.clientId)) return { kind: 'held' };
+    if (this.busy.has(entry.clientId) || wordless(entry)) return { kind: 'held' };
     this.busy.add(entry.clientId);
     try {
       if (entry.send && !entry.reportId && this.deps.direct) {
@@ -164,7 +197,7 @@ export class FeedbackOutbox {
       if (!id) {
         let created: FeedbackReport;
         try {
-          created = await this.deps.create(this.params(entry, await this.files(entry)));
+          created = await this.create(this.params(entry, await this.files(entry)));
         } catch (error) {
           if (!refusedForGood(error, this.deps.online())) return { kind: 'held', error };
           await this.remove(entry.clientId);
@@ -194,7 +227,7 @@ export class FeedbackOutbox {
     this.flushing ??= (async () => {
       try {
         for (const entry of await this.pending()) {
-          if (this.busy.has(entry.clientId)) continue; // on its way already (the form's own Send)
+          if (this.busy.has(entry.clientId) || wordless(entry)) continue; // on its way already (the form's own Send), or held for words
           const outcome = await this.deliver(entry);
           if (outcome.kind === 'held') return;
           onOutcome(outcome, entry);
@@ -204,6 +237,13 @@ export class FeedbackOutbox {
       }
     })();
     return this.flushing;
+  }
+
+  /** A held wordless entry (an older build's recording-only report), taken out of the outbox to go back into the form. */
+  async takeWordless(): Promise<OutboxEntry | undefined> {
+    const entry = (await this.pending()).find(wordless);
+    if (entry) await this.remove(entry.clientId);
+    return entry;
   }
 
   async remove(clientId: string): Promise<void> {
@@ -221,7 +261,11 @@ export class FeedbackOutbox {
     const value = await this.serial(() => this.deps.kv?.get(DRAFT_KEY)) as { at?: unknown; draft?: Partial<FeedbackDraft> } | undefined;
     const draft = value?.draft;
     if (!draft || typeof value.at !== 'number' || this.deps.now() - value.at > OUTBOX_MAX_AGE_MS || typeof draft.text !== 'string') return undefined;
-    const kept: FeedbackDraft = { ...EMPTY_DRAFT, ...draft, audio: Array.isArray(draft.audio) ? draft.audio : [], marks: Array.isArray(draft.marks) ? draft.marks : [] };
+    const { audio: _recordings, withAudio: _box, painted: _flat, ...words } = draft as Partial<FeedbackDraft> & { audio?: unknown; withAudio?: unknown; painted?: unknown }; // an older draft's recordings stay behind
+    const kept: FeedbackDraft = {
+      ...EMPTY_DRAFT, ...words, marks: penMarks(draft.marks),
+      photos: Array.isArray(draft.photos) ? draft.photos.map((photo) => ({ ...photo, marks: penMarks(photo.marks) })) : [],
+    };
     return isEmptyDraft(kept) ? undefined : kept;
   }
 
@@ -234,21 +278,31 @@ export class FeedbackOutbox {
       ...(entry.where.view ? { view: entry.where.view } : {}),
       ...(entry.where.conversationId ? { conversationId: entry.where.conversationId } : {}),
       ...(entry.clientDiagnostics ? { clientDiagnostics: entry.clientDiagnostics } : {}),
+      ...(entry.dictated ? { dictated: true } : {}),
     };
+  }
+
+  /**
+   * feedback.create. Bridge 20.11.2026: a PC of an older build refuses the new `dictated` param – the report goes again
+   * without it (its words are the same).
+   */
+  private async create(params: CreateParams): Promise<FeedbackReport> {
+    try {
+      return await this.deps.create(params);
+    } catch (error) {
+      if (!params.dictated || !(error instanceof RpcError) || error.code !== 'bad_request' || !error.message.includes('"params.dictated"')) throw error;
+      const { dictated: _older, ...without } = params;
+      return this.deps.create(without);
+    }
   }
 
   /** Uploaded again on every try: a file of an earlier try may be gone. */
   private async files(entry: OutboxEntry): Promise<CreateFiles> {
-    const files: CreateFiles = {};
-    if (entry.image) files.screenshotFileId = await this.deps.upload(dataUrlToBlob(entry.image), REPORT_IMAGE_NAME);
-    const audio = entry.audio.slice(0, FEEDBACK_AUDIO_MAX);
-    if (audio.length) {
-      files.audioFileIds = [];
-      for (const [index, take] of audio.entries()) {
-        files.audioFileIds.push(await this.deps.upload(take.blob, `feedback-recording-${index + 1}.${take.mime === 'audio/mp4' ? 'm4a' : 'webm'}`));
-      }
-    }
-    return files;
+    const images = entryImages(entry);
+    if (!images.length) return {};
+    const imageFileIds: string[] = [];
+    for (const image of images) imageFileIds.push(await this.deps.upload(dataUrlToBlob(image), REPORT_IMAGE_NAME)); // one after another: the phone's link is narrow
+    return { imageFileIds };
   }
 
   /** Storage calls one after another; storage trouble keeps nothing there and never fails a report. */
@@ -311,6 +365,10 @@ export function startFeedbackOutbox(): Promise<void> {
   restored = (async () => {
     const kept = await feedbackOutbox.loadDraft();
     if (kept && isEmptyDraft(feedbackDraft.peek())) feedbackDraft.value = kept;
+    if (isEmptyDraft(feedbackDraft.peek())) { // an older recording-only report comes back to be said in words
+      const held = await feedbackOutbox.takeWordless();
+      if (held) feedbackDraft.value = draftOf(held);
+    }
     let timer: ReturnType<typeof setTimeout> | undefined;
     effect(() => {
       const draft = feedbackDraft.value;

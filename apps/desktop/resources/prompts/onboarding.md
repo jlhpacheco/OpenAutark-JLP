@@ -5,8 +5,8 @@ start line in the person's own voice (it says the app sent it at Start); the {{^
 its own line right below. The Manager's first turn is the person's answer, an ordinary message; from then on the Manager
 reads the start line as the person's and the greeting as what it said itself. An own version in
 <data>/prompts/onboarding.md replaces it; one without a {{#start}} part posts the greeting alone. Placeholders:
-{{name}} {{company}} (the profile), {{language}} (the profile's language by name), {{careful}} ("yes" when the person
-chose careful PC access), {{start}} ("yes" while the start line renders) and one of {{lang_de}} {{lang_fr}} {{lang_es}}
+{{name}} {{company}} (the profile), {{language}} (the profile's language by name), {{secure}} ("yes" when the company
+runs in Secure mode), {{start}} ("yes" while the start line renders) and one of {{lang_de}} {{lang_fr}} {{lang_es}}
 {{lang_en}} ("yes" for the profile's language; English for any other). Keep each line under 3800 characters per
 language. This comment is removed before use.
 F07 (owner 15.11.2026: "dass der Anfangstext, den es früher gab, nicht mehr dasteht … Standardprompt direkt gesendet
@@ -29,7 +29,7 @@ Hallo{{#name}} {{name}}{{/name}}, ich bin dein Manager – deine rechte Hand in 
 
 1. **Sprache:** In welcher Sprache sprechen wir mit dir – und in welcher untereinander im Team (Notizen, Aufgaben, Code)? Zum Beispiel alles auf Deutsch, oder intern Englisch und mit dir Deutsch.
 2. **Arbeitsweise:** Wie sollen wir arbeiten – wie selbstständig, wie oft du von uns hörst, was dir besonders wichtig ist?
-3. **Einrichten:** {{^careful}}Dieser PC steht uns ganz offen. Soll ich ihn gleich selbst komplett einrichten – fehlende Programme installieren, deine Apps und Konten verbinden, alles so einstellen, wie wir es brauchen?{{/careful}}{{#careful}}Auf diesem PC arbeite ich in meinem eigenen Bereich. Soll ich mich dort gleich selbst komplett einrichten und deine Apps und Konten verbinden?{{/careful}}
+3. **Einrichten:** {{^secure}}Dieser PC steht uns ganz offen. Soll ich ihn gleich selbst komplett einrichten – fehlende Programme installieren, deine Apps und Konten verbinden, alles so einstellen, wie wir es brauchen?{{/secure}}{{#secure}}Auf diesem PC arbeite ich in meinem eigenen Bereich. Soll ich mich dort gleich selbst komplett einrichten und deine Apps und Konten verbinden?{{/secure}}
 4. **Namen:** Wie sollen deine Teammitglieder heißen – menschliche Namen wie Lena oder Jonas, oder nach ihrer Rolle, etwa „Programmierer“?
 5. **Aufbau:** Hast du schon Vorstellungen, wie das Team oder deine Projekte aufgebaut sein sollen – oder lege ich einfach los?
 
@@ -45,7 +45,7 @@ Bonjour{{#name}} {{name}}{{/name}}, je suis ton Manager – ton bras droit dans 
 
 1. **Langue :** Dans quelle langue te parlons-nous – et dans quelle langue entre nous dans l'équipe (notes, tâches, code) ? Par exemple tout en français, ou en interne en anglais et avec toi en français.
 2. **Façon de travailler :** Comment devons-nous travailler – avec quelle autonomie, à quelle fréquence tu as de nos nouvelles, qu'est-ce qui compte le plus pour toi ?
-3. **Installation :** {{^careful}}Ce PC nous est entièrement ouvert. Est-ce que je l'installe tout de suite moi-même – installer les programmes qui manquent, connecter tes applis et tes comptes, tout régler comme il nous le faut ?{{/careful}}{{#careful}}Sur ce PC, je travaille dans mon propre espace. Est-ce que je m'y installe tout de suite moi-même et que je connecte tes applis et tes comptes ?{{/careful}}
+3. **Installation :** {{^secure}}Ce PC nous est entièrement ouvert. Est-ce que je l'installe tout de suite moi-même – installer les programmes qui manquent, connecter tes applis et tes comptes, tout régler comme il nous le faut ?{{/secure}}{{#secure}}Sur ce PC, je travaille dans mon propre espace. Est-ce que je m'y installe tout de suite moi-même et que je connecte tes applis et tes comptes ?{{/secure}}
 4. **Noms :** Comment doivent s'appeler les membres de ton équipe – des prénoms comme Léa ou Hugo, ou selon leur rôle, par exemple « Développeur » ?
 5. **Structure :** As-tu déjà des idées sur l'organisation de l'équipe ou de tes projets – ou est-ce que je me lance ?
 
@@ -61,7 +61,7 @@ Hola{{#name}} {{name}}{{/name}}, soy tu Manager – tu mano derecha en Autark. A
 
 1. **Idioma:** ¿En qué idioma te hablamos – y en cuál hablamos entre nosotros en el equipo (notas, tareas, código)? Por ejemplo todo en español, o internamente en inglés y contigo en español.
 2. **Forma de trabajar:** ¿Cómo debemos trabajar – con cuánta autonomía, cada cuánto quieres saber de nosotros, qué es lo que más te importa?
-3. **Configuración:** {{^careful}}Este PC está totalmente abierto para nosotros. ¿Lo configuro yo mismo ya por completo – instalar los programas que falten, conectar tus apps y cuentas, ajustarlo todo como lo necesitamos?{{/careful}}{{#careful}}En este PC trabajo en mi propio espacio. ¿Me configuro allí ya por completo y conecto tus apps y cuentas?{{/careful}}
+3. **Configuración:** {{^secure}}Este PC está totalmente abierto para nosotros. ¿Lo configuro yo mismo ya por completo – instalar los programas que falten, conectar tus apps y cuentas, ajustarlo todo como lo necesitamos?{{/secure}}{{#secure}}En este PC trabajo en mi propio espacio. ¿Me configuro allí ya por completo y conecto tus apps y cuentas?{{/secure}}
 4. **Nombres:** ¿Cómo deben llamarse los miembros de tu equipo – nombres de persona como Lucía o Pablo, o según su rol, por ejemplo «Programador»?
 5. **Estructura:** ¿Ya tienes ideas de cómo organizar el equipo o tus proyectos – o empiezo sin más?
 
@@ -77,7 +77,7 @@ Hi{{#name}} {{name}}{{/name}}, I'm your Manager – your right hand in Autark. B
 
 1. **Language:** Which language do we speak with you – and which among ourselves in the team (notes, tasks, code)? For example everything in English, or internally English and with you in your own language.
 2. **Way of working:** How should we work – how independently, how often you hear from us, what matters most to you?
-3. **Setup:** {{^careful}}This PC is fully open to us. Shall I set it up completely myself right away – install what is missing, connect your apps and accounts, set everything up the way we need it?{{/careful}}{{#careful}}On this PC I work in my own area. Shall I set myself up there completely right away and connect your apps and accounts?{{/careful}}
+3. **Setup:** {{^secure}}This PC is fully open to us. Shall I set it up completely myself right away – install what is missing, connect your apps and accounts, set everything up the way we need it?{{/secure}}{{#secure}}On this PC I work in my own area. Shall I set myself up there completely right away and connect your apps and accounts?{{/secure}}
 4. **Names:** What should your team members be called – human names like Emma or Noah, or by their role, such as "Programmer"?
 5. **Structure:** Do you already have ideas for how the team or your projects should be built – or shall I just start?
 

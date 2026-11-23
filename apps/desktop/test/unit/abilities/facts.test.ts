@@ -24,7 +24,7 @@ const sol = { id: 'codex:gpt-6.1-sol', provider: 'codex', model: 'gpt-6.1-sol', 
 
 function services(input: { data: string; functions?: Record<string, string>; voice?: Record<string, unknown>; installed?: string[]; tools?: string[]; engine?: boolean }): { s: RuntimeServices; updates: unknown[] } {
   let settings = {
-    routing: { functions: input.functions ?? {}, allowPaidFallback: false },
+    routing: { ...input.functions, allowPaidFallback: false },
     voice: { recognizer: 'auto', localStt: '', localTts: '', ...input.voice },
     profile: { language: 'de' },
     permissions: { mode: 'standard', grants: { browser: false, computerUse: true } },

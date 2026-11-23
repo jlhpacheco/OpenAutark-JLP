@@ -19,7 +19,7 @@ import { can } from '../lib/session.ts';
 import { go } from '../lib/router.ts';
 import { agentName, agents, conversations } from '../lib/store.ts';
 import { Button } from '../lib/ui.tsx';
-import { managerAgent, managerFirstChat } from '../onboarding/manager.ts';
+import { managerAgent, managerFirstChat } from '../../shared/text/manager-chat.ts';
 import { openTour } from '../tour/open.ts';
 import { startSpotlight } from '../tour/Spotlight.tsx';
 import { act, ActionButton, Group, Row, useAsync, useBusy } from './controls.tsx';

@@ -13,7 +13,6 @@ import type { PwaService } from '../pwa/service.ts';
 import { qrDataUrl } from '../pwa/qr.ts';
 import { createDevices } from '../devices/connect.ts';
 import { createPeople } from './people.ts';
-import { importV7 } from '../db/import-v7.ts';
 import { createPolicyApi } from '../routing/policies.ts';
 import { RpcServer } from '../rpc/server.ts';
 import { HttpServer } from '../http/server.ts';
@@ -30,6 +29,8 @@ import { BrowserService } from '../browser/service.ts';
 import { startBrowserView } from '../browser/view.ts';
 import { PointerHub } from '../pointers/hub.ts'; // B-055
 import { registerSideView } from '../devices/side-view.ts'; // B-076
+import { registerBrowserView } from '../devices/browser-view.ts'; // 21.11.2026
+import { registerPane } from '../pane/mesh.ts'; // 21.11.2026
 import '../contracts/pointers.ts'; // RuntimeServices.pointers
 import { Portability } from '../portability/service.ts';
 import { Bridges } from '../bridges/service.ts';
@@ -40,6 +41,8 @@ export interface NetworkOptions {
   core: Core;
   staticDir: string;
   launchToken: string;
+  /** FX1: the in-memory person token (http/types.ts). */
+  personToken?: string;
   startedAt: number;
   /** Fixed port (tests: 0 = ephemeral). Default from settings/47811. */
   port?: number;
@@ -85,6 +88,8 @@ export function createNetwork(options: NetworkOptions): Network {
   const browser = new BrowserService({ paths: s.paths, log: s.log });
   startBrowserView(services, browser); // the person's live view of agent browsers (rpc browser.*)
   registerSideView(core.mesh, services); // B-076: this PC's side-browser tabs for the owner's other PCs (mesh side.*)
+  registerBrowserView(core.mesh, services); // 21.11.2026: this PC's agents' own browsers for the owner's other PCs (mesh browser.*)
+  registerPane(core.mesh, services); // 21.11.2026: the pane between people – put, remove, share, relay (runtime/pane)
   const devices = createDevices({
     s, identity: core.identity, mesh: core.mesh, computer, browser,
     adb: { supervisor: core.supervisor, finder: core.finder }, port: () => port, peerMode: options.peer,
@@ -148,11 +153,6 @@ export function createNetwork(options: NetworkOptions): Network {
     computer: { preview: (input) => computer.preview(input) },
     voice: s.stt, // the one speech-to-text service (compose/services.ts), shared with agent hearing
     policies: createPolicyApi(services),
-    importLegacy: async (path) => {
-      const result = await importV7({ db: s.db, files: s.files, settings: s.settings, clock: s.clock, log: s.log, dataDir: s.paths.data,
-        template: (key) => s.org.templates().find((template) => template.key === key) }, { path });
-      return { agents: result.imported.agents, chats: result.imported.chats, messages: result.imported.messages };
-    },
     catalogRefresh: async () => {
       await core.catalog.refresh({ force: true });
       const status = core.catalog.status();
@@ -166,7 +166,7 @@ export function createNetwork(options: NetworkOptions): Network {
   const rpc = new RpcServer({ services, extras: () => extras, log: s.log });
   const http = new HttpServer({
     services, rpc, mcp: core.mcp, pwa: devices.pwa, pairing: devices.http, mesh: core.mesh,
-    staticDir: options.staticDir, launchToken: options.launchToken, log: s.log,
+    staticDir: options.staticDir, launchToken: options.launchToken, personToken: options.personToken, log: s.log,
     bind: () => ({ host: bindHostFor(s.settings.get().pwa.bind), port: options.port ?? DEFAULT_PORT }),
     peerMode: () => options.peer ?? s.settings.get().devices.peer,
   });

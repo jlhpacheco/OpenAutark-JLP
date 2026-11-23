@@ -80,9 +80,13 @@ test('permission requests: default deny, media only while armed for every kind',
   assert.equal(request('media', ['audio'], false), false, 'untrusted frame');
   assert.equal(request('clipboard-sanitized-write'), true);
   assert.equal(request('clipboard-sanitized-write', undefined, false), false);
-  for (const permission of ['notifications', 'geolocation', 'openExternal', 'clipboard-read', 'midi', 'hid', 'display-capture']) {
+  for (const permission of ['notifications', 'geolocation', 'openExternal', 'clipboard-read', 'midi', 'hid']) {
     assert.equal(request(permission), false, permission);
   }
+  assert.equal(request('display-capture', ['video', 'audio']), false, 'screen: video not armed');
+  media.arm(['video']);
+  assert.equal(request('display-capture', ['video', 'audio']), true, 'screen while video is armed (Electron 45+)');
+  assert.equal(request('display-capture', ['video'], false), false, 'screen from an untrusted frame');
   time.advance(MEDIA_ARM_MS);
   assert.equal(request('media', ['audio']), false, 'expired');
 });
@@ -96,4 +100,6 @@ test('permission checks mirror the request rules', () => {
   assert.equal(allowPermissionCheck({ trusted: false, permission: 'media', mediaType: 'video' }, media), false);
   assert.equal(allowPermissionCheck({ trusted: true, permission: 'fullscreen' }, media), true);
   assert.equal(allowPermissionCheck({ trusted: true, permission: 'notifications' }, media), false);
+  assert.equal(allowPermissionCheck({ trusted: true, permission: 'display-capture' }, media), true, 'video armed');
+  assert.equal(allowPermissionCheck({ trusted: false, permission: 'display-capture' }, media), false);
 });

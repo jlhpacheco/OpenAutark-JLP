@@ -4,27 +4,21 @@
 // every phone itself, under the same tag everywhere (the service worker replaces a duplicate within its origin).
 // Storage: kv ns 'sync.roster' – 'subs' (the subscriptions held from my other PCs) and 'keys' (their VAPID keys, the
 // private part sealed with this PC's keychain). This PC's own subscriptions stay in push_subscriptions (pwa/push.ts).
-// Owns: the held subscriptions and keys, this PC's own key and subscriptions as the roster carries them, signing and
-// sending to a list of subscriptions. Never: logs a payload or a key, or decides who gets what (callers pick targets).
+// Owns: the held subscriptions and keys, this PC's own key and subscriptions as the roster carries them, sending to a
+// list of subscriptions each under its own key (the request itself: pwa/push.ts pushOne, its signature pwa/vapid.ts).
+// Never: logs a payload or a key, or decides who gets what (callers pick targets).
 
-import { createPrivateKey, sign, type KeyObject } from 'node:crypto';
 import type { RuntimeServices } from '../../contracts.ts';
 import { json, type Db } from '../../db/database.ts';
 import { KvRepo } from '../../store/kv.ts';
-import type { PushSubscriptionData } from '../../pwa/push.ts';
-import { VAPID_SUBJECT } from '../../pwa/vapid.ts';
-import { encryptPayload } from '../../pwa/webpush-crypto.ts';
+import { pushOne, type PushFetch, type PushSubscriptionData } from '../../pwa/push.ts';
+import { vapidHeader, type KeyPair } from '../../pwa/vapid.ts';
 
 /** One subscription as the roster carries it: `key` is the VAPID public key it was made under; `person`: a person's device. */
 export interface HeldSub { endpoint: string; data: PushSubscriptionData; deviceId?: string; key: string; person?: string }
-/** A VAPID key pair: `priv` is the raw P-256 scalar, base64url (only ever inside the sealed link between my PCs). */
-export interface KeyPair { pub: string; priv: string }
-
-export type PushFetch = (url: string, init: { method: string; headers: Record<string, string>; body: Uint8Array }) => Promise<{ ok: boolean; status: number }>;
 type Services = Pick<RuntimeServices, 'db' | 'host' | 'clock' | 'log'>;
 
 const NS = 'sync.roster';
-const b64 = (data: Uint8Array | string) => Buffer.from(data).toString('base64url');
 
 export function heldSubs(db: Db): HeldSub[] {
   return new KvRepo(db).get<HeldSub[]>(NS, 'subs') ?? [];
@@ -97,19 +91,6 @@ export function ownerHeld(db: Db, subs: HeldSub[], now: number): HeldSub[] {
   return subs.filter((sub) => !sub.person && (!sub.deviceId || (live.has(sub.deviceId) && !personal.has(sub.deviceId))));
 }
 
-function keyObject(pair: KeyPair): KeyObject {
-  const point = Buffer.from(pair.pub, 'base64url');
-  return createPrivateKey({ key: { kty: 'EC', crv: 'P-256', d: pair.priv, x: b64(point.subarray(1, 33)), y: b64(point.subarray(33, 65)) }, format: 'jwk' });
-}
-
-/** `Authorization: vapid …` for one endpoint under one key (RFC 8292, valid 12 h). */
-export function vapidHeader(endpoint: string, now: number, pair: KeyPair): string {
-  const header = b64(JSON.stringify({ typ: 'JWT', alg: 'ES256' }));
-  const claims = b64(JSON.stringify({ aud: new URL(endpoint).origin, exp: Math.floor(now / 1000) + 12 * 3600, sub: VAPID_SUBJECT }));
-  const signature = sign('sha256', Buffer.from(`${header}.${claims}`), { key: keyObject(pair), dsaEncoding: 'ieee-p1363' });
-  return `vapid t=${header}.${claims}.${b64(signature)}, k=${pair.pub}`;
-}
-
 /**
  * Sends `payload` to each target under its own key (a target whose key this PC does not hold is skipped); a held
  * subscription the push service no longer knows (404/410) leaves the held list. Returns how many were delivered.
@@ -127,17 +108,10 @@ export async function pushTo(s: Services, targets: HeldSub[], payload: unknown, 
     const priv = keys.get(target.key);
     if (!priv) return;
     try {
-      const response = await send(target.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Encoding': 'aes128gcm', 'Content-Type': 'application/octet-stream', TTL: String(options.ttl ?? 86400), Urgency: options.urgent ? 'high' : 'normal',
-          Authorization: vapidHeader(target.endpoint, s.clock.now(), { pub: target.key, priv }),
-        },
-        body: encryptPayload(body, Buffer.from(target.data.keys.p256dh, 'base64url'), Buffer.from(target.data.keys.auth, 'base64url')),
-      });
-      if (response.status === 404 || response.status === 410) gone.push(target.endpoint);
-      else if (response.ok) delivered++;
-      else s.log.debug('held push rejected', { status: response.status });
+      const sent = await pushOne(send, { ...target.data, endpoint: target.endpoint }, body, { authorization: vapidHeader(target.endpoint, s.clock.now(), { pub: target.key, priv }), urgent: options.urgent, ttl: options.ttl });
+      if (sent === 'gone') gone.push(target.endpoint);
+      else if (sent === 'delivered') delivered++;
+      else s.log.debug('held push rejected', { status: sent });
     } catch (error) {
       s.log.debug('held push failed', { error: String((error as Error)?.message ?? error) });
     }

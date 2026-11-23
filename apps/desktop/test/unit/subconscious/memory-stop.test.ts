@@ -24,12 +24,12 @@ test('stop: a routing call in flight ends before the engines and the database st
     calls.push('model');
     await new Promise<void>((resolve) => { release = resolve; });
     calls.push('answered');
-    const structured = { hardest: 'x', misread: false, decide: false, model: 'Luna', effort: 'low', why: 'a fact to take note of' };
+    const structured = { hardest: 'x', fixed: true, shows: true, together: false, model: 'Luna', effort: 'low', why: 'a fact to take note of' };
     return { text: JSON.stringify(structured), structured, by: 'fake' };
   };
   const subconscious = new SubconsciousImpl({ services: () => f.services, runner });
   const turn = subconscious.beforeTurn({ agent: f.vid, thread: 'main', said: 'Mein Steuerberater heißt Jonas Weber.' });
-  await flush();
+  for (let i = 0; i < 200 && !calls.length; i++) await flush(); // the word search reads files before the call starts
   assert.deepEqual(calls, ['model']);
 
   const core = {
@@ -53,6 +53,6 @@ test('stop: a routing call in flight ends before the engines and the database st
 test('stop: services without it (a fake, no subconscious) skip the step', async () => {
   const core = { services: {} } as unknown as Core;
   await stopSteps(core, network).find((candidate) => candidate.name === 'subconscious')!.run();
-  const bare = { services: { subconscious: { widgetFor: async () => ({ type: 'confirm' }) } } } as unknown as Core;
+  const bare = { services: { subconscious: {} } } as unknown as Core;
   await stopSteps(bare, network).find((candidate) => candidate.name === 'subconscious')!.run();
 });

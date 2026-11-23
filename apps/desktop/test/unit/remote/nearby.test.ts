@@ -12,6 +12,7 @@ import { remoteIdOf } from '../../../src/runtime/remote/id.ts';
 import { NEARBY_FRESH_MS, NearbyPcs, markNearby, mergeNearby } from '../../../src/runtime/remote/nearby.ts';
 import type { RemoteOutgoing } from '../../../src/shared/model/remote.ts';
 import { Lan, linkedIds, settle } from './rig.ts';
+import { chainTo, keyOf } from './chain-keys.ts';
 
 const hex = (digit: string) => digit.repeat(64);
 const SELF = { deviceId: 'dev_ssssssssssss', fingerprint: hex('5') };
@@ -72,9 +73,9 @@ test('NearbyPcs: the last answer for a minute, Refresh asks again, one search at
   assert.equal(asked, 3, 'Refresh always asks');
 });
 
-test('RemoteService.nearby: only PCs that accept requests answer; Connect by Remote ID; Accept marks it linked', async () => {
+test('RemoteService.nearby: only PCs that accept requests answer; Connect by its Company ID (a new member, named at Accept); Accept marks it linked', async () => {
   const lan = new Lan();
-  const laptop = await lan.add('Laptop', 'http://10.0.0.1:47812');
+  const laptop = await lan.add('Laptop', 'http://10.0.0.1:47812', { deps: { createPerson: () => 'per_tower00001' } }); // Accept makes the new member
   const tower = await lan.add('Tower', 'http://10.0.0.2:47812');
   const hidden = await lan.add('Hidden', 'http://10.0.0.3:47812', { findable: false });
   assert.equal(hidden.hello, undefined, 'a PC that does not accept requests answers no hello');
@@ -85,11 +86,12 @@ test('RemoteService.nearby: only PCs that accept requests answer; Connect by Rem
   const found = await tower.remote.nearby();
   assert.deepEqual(found.map((entry) => [entry.name, entry.state]), [['Laptop', 'new']], 'this PC and the hidden PC are not listed');
   const [pick] = found;
-  const out = await tower.remote.connect({ target: pick.remoteId });
+  assert.equal(pick.companyId, pick.remoteId, 'a company root: its Company ID is its own Remote ID');
+  const out = await tower.remote.connect({ target: pick.companyId! });
   assert.deepEqual((await tower.remote.nearby()).map((entry) => entry.state), ['waiting'], 'the cached list is marked again');
   const [incoming] = laptop.remote.state().incoming;
   assert.equal(incoming.code, out.code, 'the same code as ever');
-  laptop.remote.decide(incoming.id, true);
+  laptop.remote.decide(incoming.id, true, undefined, { name: 'Tower person' }); // a new member needs a name
   await settle();
   assert.deepEqual(linkedIds(tower), [laptop.identity.deviceId]);
   assert.deepEqual((await tower.remote.nearby()).map((entry) => entry.state), ['linked']);
@@ -116,4 +118,14 @@ test('F09: each company of a PC answers with its name and own Remote ID; names a
   assert.equal(found.find((entry) => entry.name === 'Old')?.company, undefined);
   assert.notEqual(first.remote.remoteId(), second.remote.remoteId(), 'each company is its own key');
   assert.deepEqual(mergeNearby([pc('Studio', 'a', 'http://10.0.0.1:1', { company: 'x'.repeat(81) })], SELF)[0].company, 'x'.repeat(80), 'never longer than a hello carries');
+});
+
+test('Eine-ID: each nearby PC names its Company ID – the one its company chain proves, else its own Remote ID', () => {
+  const [company, member, lone] = [keyOf(160), keyOf(161), keyOf(162)];
+  const row = (key: typeof member, name: string, extra: Partial<Candidate> = {}): Candidate => ({
+    deviceId: `dev_${key.fingerprint.slice(0, 12)}`, name, fingerprint: key.fingerprint, addresses: ['http://10.0.0.9:47812'], remoteId: remoteIdOf(key.fingerprint), ...extra,
+  });
+  const found = mergeNearby([row(member, 'Seat', { chain: chainTo(company, member), me: chainTo(lone, member) }), row(lone, 'Alone')], SELF);
+  assert.equal(found.find((entry) => entry.name === 'Seat')?.companyId, remoteIdOf(company.fingerprint), 'the company chain decides, not `me`');
+  assert.equal(found.find((entry) => entry.name === 'Alone')?.companyId, remoteIdOf(lone.fingerprint), 'a company root: its own ID');
 });

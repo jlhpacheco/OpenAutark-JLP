@@ -64,9 +64,9 @@ test('AppImage guides setup without a keyring; a real keyring preserves and read
       assert.ok(cipher?.length > 0);
       assert.ok(!Buffer.from(cipher).includes(value), 'never persisted as plaintext');
       // Exercise the same real OS decryption used by the packaged vault without printing the value.
-      assert.equal(await app.evaluate(({ safeStorage }, { bytes, expected }) => {
+      assert.equal(await app.evaluate(async ({ safeStorage }, { bytes, expected }) => {
         const backend = safeStorage.getSelectedStorageBackend();
-        return backend !== 'basic_text' && backend !== 'unknown' && safeStorage.decryptString(Buffer.from(bytes)) === expected;
+        return backend !== 'basic_text' && backend !== 'unknown' && (await safeStorage.decryptStringAsync(Buffer.from(bytes))).result === expected;
       }, { bytes: [...cipher], expected: value }), true);
     } finally { rpc.close(); }
   };

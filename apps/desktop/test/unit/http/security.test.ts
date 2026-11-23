@@ -6,7 +6,7 @@ import { createServer as createNetServer } from 'node:net';
 import { createServer } from 'node:http';
 import { HostGuard, RateLimiter, bearerToken, hostOf, isLoopback, normalizeAddress, tokensEqual } from '../../../src/runtime/http/security.ts';
 import { cacheControlFor, resolveUnder } from '../../../src/runtime/http/static.ts';
-import { parseRange } from '../../../src/runtime/http/files.ts';
+import { parseRange } from '../../../src/shared/files/serving.ts';
 import { handleMcp } from '../../../src/runtime/http/mcp.ts';
 import { DEFAULT_PORT, bindHostFor, rememberedPort } from '../../../src/runtime/http/listen.ts';
 import { fixture, request } from './fixture.ts';

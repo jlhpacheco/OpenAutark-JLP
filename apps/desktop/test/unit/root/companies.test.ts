@@ -92,7 +92,7 @@ test('companies.list / companies.open: owner scope; open checks the id and hands
     app: { dataDir: first, companies: { first, dir } },
     openCompany: async (input: unknown) => { asked.push(input); return { ok: true, id: 'company-2' }; },
   };
-  const ctx = (h: unknown) => ({ scope: { kind: 'owner' }, services: { host: h }, extras: {}, topics: new Set(), signal: new AbortController().signal }) as never;
+  const ctx = (h: unknown) => ({ scope: { kind: 'owner', person: true }, services: { host: h }, extras: {}, topics: new Set(), signal: new AbortController().signal }) as never;
   const listed = await list.handler(undefined as never, ctx(host)) as { companies: unknown[] };
   assert.equal(listed.companies.length, 5);
   assert.deepEqual(await open.handler({ create: true } as never, ctx(host)), { ok: true, id: 'company-2' });
@@ -112,7 +112,7 @@ test('16.11.2026 companies.remove / export / import: owner scope; remove names t
   for (const name of ['companies.remove', 'companies.export', 'companies.import']) assert.equal(table.get(name)!.scope, 'owner', name);
   const removed: unknown[] = [];
   const host = { app: { dataDir: first, companies: { first, dir } }, removeCompany: async (input: unknown) => { removed.push(input); return { ok: true }; } };
-  const ctx = (h: unknown) => ({ scope: { kind: 'owner' }, services: { host: h }, extras: {}, topics: new Set(), signal: new AbortController().signal }) as never;
+  const ctx = (h: unknown) => ({ scope: { kind: 'owner', person: true }, services: { host: h }, extras: {}, topics: new Set(), signal: new AbortController().signal }) as never;
   const call = async (method: string, params: unknown, h: unknown = host) => { try { return await table.get(method)!.handler(params as never, ctx(h)); } catch (error) { return (error as WorkforceError).code; } };
   assert.deepEqual(await call('companies.remove', { id: 'company-2' }), { ok: true });
   assert.deepEqual(await call('companies.remove', { id: null }), { ok: true });
@@ -125,4 +125,33 @@ test('16.11.2026 companies.remove / export / import: owner scope; remove names t
   assert.equal(await call('companies.export', { id: 'company-9', dir: path.join(tmp, 'out') }), 'not_found');
   assert.equal(await call('companies.import', { path: 'relative' }), 'bad_request');
   assert.equal(await call('companies.import', { path: path.join(tmp, 'no-export') }), 'unavailable', 'no openCompany on this host');
+});
+
+test('20.11.2026 companies.remove of the company open here: it says the goodbye "left" to its links first; another one or the only one does not', async () => {
+  const table = createHandlerTable();
+  const steps: string[] = [];
+  const host = { app: { dataDir: first, companies: { first, dir } }, removeCompany: async (input: { id: unknown }) => { steps.push(`remove ${String(input.id)}`); return { ok: true }; } };
+  const mesh = { bye: async (reason: string) => { steps.push(`bye ${reason}`); } };
+  const ctx = (h: unknown) => ({ scope: { kind: 'owner', person: true }, services: { host: h }, extras: { mesh }, topics: new Set(), signal: new AbortController().signal }) as never;
+  const call = (params: unknown, h: unknown = host) => table.get('companies.remove')!.handler(params as never, ctx(h));
+  await call({ id: null }); // the first company is the one open here (dataDir)
+  assert.deepEqual(steps, ['bye left', 'remove null'], 'its linked PCs drop this PC before it stops');
+  steps.length = 0;
+  await call({ id: 'company-2' });
+  assert.deepEqual(steps, ['remove company-2'], 'another company says its own goodbye when main asks it over loopback');
+  steps.length = 0;
+  const alone = path.join(tmp, 'Alone');
+  settingsIn(alone, '{ "profile": { "company": "Solo" } }');
+  await call({ id: null }, { ...host, app: { dataDir: alone, companies: { first: alone, dir: path.join(tmp, 'Alone Companies') } } });
+  assert.deepEqual(steps, ['remove null'], 'the only company stays (main refuses): no goodbye that would cut its links');
+  steps.length = 0;
+  // Review fix: Leave on another running company – main writes the removal mark, then asks that company over loopback;
+  // its own runtime no longer lists itself, yet it is the one asked (its folder is its data folder) and says goodbye.
+  const other = path.join(dir, 'company-7');
+  settingsIn(other, '{ "profile": { "company": "Remote Firm" } }');
+  writeFileSync(path.join(other, REMOVED_FILE), '{"at":1}');
+  try {
+    await call({ id: 'company-7' }, { ...host, app: { dataDir: other, companies: { first, dir } } });
+    assert.deepEqual(steps, ['bye left', 'remove company-7'], 'the marked company itself says the goodbye before it quits');
+  } finally { rmSync(other, { recursive: true, force: true }); }
 });

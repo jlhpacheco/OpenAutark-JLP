@@ -1,6 +1,7 @@
 // The memory tree (knowledge/memory-tree.ts, service.ts): files are the truth – one Markdown file per entry; write creates,
-// updates or changes nothing; every write, direct edit and removal reaches the vectors; browse shows _folder.md; searching
-// is vector.search over the caller's folders (words only without an embedder, never merged); the old rows move to files once.
+// updates or changes nothing; a removal, through the API or a direct edit, takes the note's stored meaning with it; browse shows
+// _folder.md; searching is the word search over the caller's folders, re-ranked by meaning where a model is chosen; the old rows
+// move to files once.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,36 +11,26 @@ import path from 'node:path';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
 import { RootWatcher } from '../../../src/runtime/root/watcher.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { KnowledgeStore, type MemoryVectors } from '../../../src/runtime/knowledge/service.ts';
 import { insertItem } from '../../../src/runtime/knowledge/rows.ts';
 import { folderOfScope, parseEntry, scopeOfPath, slugOf } from '../../../src/runtime/knowledge/memory-tree.ts';
-import type { VectorHit } from '../../../src/shared/model/vectors.ts';
+import { blend } from '../../../src/runtime/vectors/meaning.ts';
+import type { RankInput } from '../../../src/runtime/contracts/vectors.ts';
 
-/** Waits for what the background pass does (its walk never holds up the event loop). */
-const until = async (done: () => boolean) => { for (let i = 0; i < 400 && !done(); i++) await new Promise((resolve) => setTimeout(resolve, 5)); };
-
+/** Meaning by a table: each note key's cosine with any query. */
 class FakeVectors implements MemoryVectors {
   up = true;
-  changed: string[] = [];
-  removed: string[] = [];
-  embedded: string[][] = [];
-  searches: Array<{ query: string; in: string[]; k?: number }> = [];
-  hits: VectorHit[] = [];
-  remaining = 0;
+  forgotten: string[] = [];
+  ranks: RankInput[] = [];
+  meaning = new Map<string, number>();
   available() { return this.up; }
-  async embed(paths: string[]) {
-    this.embedded.push(paths);
-    const remaining = this.remaining;
-    this.remaining = 0;
-    return { embedded: 0, reembedded: 0, unchanged: 0, skipped: [], ...(remaining ? { remaining } : {}) };
+  async rank(input: RankInput) {
+    this.ranks.push(input);
+    const keys = new Set(input.docs.map((doc) => doc.key));
+    return { hits: blend(input.words, new Map([...this.meaning].filter(([key]) => keys.has(key))), input.limit) };
   }
-  async search(input: { query: string; in: string[]; k?: number }) {
-    this.searches.push(input);
-    return { hits: this.hits, searched: { places: input.in, embeddedFiles: this.hits.length } };
-  }
-  onFileChanged(file: string) { this.changed.push(file); }
-  onFileRemoved(file: string) { this.removed.push(file); }
+  forget(key: string) { this.forgotten.push(key); }
 }
 
 function world(t: { after(fn: () => void): void }, seed?: (db: Db) => void) {
@@ -76,8 +67,8 @@ test('paths: scopes map to folders and back; a title gives a readable file name;
 });
 
 test('write creates one Markdown file, updates it by title, changes nothing when nothing changed; the old state stays a version', (t) => {
-  const { store, root, clock, vectors } = world(t);
-  const made = store.memoryWrite({ folder: 'company/kunden', title: 'Rechnung Müller', text: 'Zahlt immer per Überweisung.', kind: 'fact', tags: ['kunde', 'a b'], source: 'human', by: 'ag_a' });
+  const { store, root, clock } = world(t);
+  const made =store.memoryWrite({ folder: 'company/kunden', title: 'Rechnung Müller', text: 'Zahlt immer per Überweisung.', kind: 'fact', tags: ['kunde', 'a b'], source: 'human', by: 'ag_a' });
   assert.deepEqual(made, { path: 'company/kunden/rechnung-mueller.md', outcome: 'created' });
   const raw = readFileSync(path.join(root, 'company', 'kunden', 'rechnung-mueller.md'), 'utf8');
   assert.match(raw, /^---\ntitle: Rechnung Müller\nkind: fact\ntags: \[kunde, a b\]\nupdated: \d{4}-.*\nsource: human\nby: ag_a\n---\n\nZahlt immer per Überweisung\.\n$/);
@@ -89,7 +80,6 @@ test('write creates one Markdown file, updates it by title, changes nothing when
   clock.advance(60_000);
   assert.equal(store.memoryWrite({ folder: 'company/kunden', title: 'Rechnung Müller', text: 'Zahlt immer per Überweisung.' }).outcome, 'unchanged');
   assert.equal(store.memoryRead(made.path)!.updated, read.updated, 'an unchanged entry keeps its date');
-  assert.equal(vectors.changed.length, 1, 'and is not embedded again');
 
   const updated = store.memoryWrite({ path: made.path, title: 'Rechnung Müller', text: 'Zahlt per Lastschrift.' });
   assert.equal(updated.outcome, 'updated');
@@ -178,81 +168,48 @@ test('browse and the word search see a description: at most 160 characters in a 
   assert.match(hits[0].why, /matches 'turbine'/);
 });
 
-test('every write and removal through the API reaches the vectors with the absolute file; a folder description does not', (t) => {
+test('a removal through the API takes the note\'s stored meaning with it; a write tells the vectors nothing', (t) => {
   const { store, root, vectors } = world(t);
   const file = path.join(root, 'agents', 'ag_a', 'plan.md');
   store.memoryWrite({ folder: 'agents/ag_a', title: 'Plan', text: 'First plan' });
-  assert.deepEqual(vectors.changed, [file]);
   store.memoryWrite({ path: 'agents/ag_a/plan.md', title: 'Plan', text: 'Second plan' });
-  assert.deepEqual(vectors.changed, [file, file]);
-  store.memoryWrite({ path: 'agents/ag_a/_folder.md', title: 'About', text: 'What this folder is.' });
-  assert.equal(vectors.changed.length, 2);
+  assert.deepEqual(vectors.forgotten, []);
 
   assert.deepEqual(store.memoryForget('agents/ag_a/plan.md'), { removed: true });
-  assert.deepEqual(vectors.removed, [file]);
+  assert.deepEqual(vectors.forgotten, ['memory/agents/ag_a/plan.md']);
   assert.equal(existsSync(file), false);
   assert.deepEqual(store.history('agents:ag_a:plan.md'), [], 'with its old versions');
   assert.deepEqual(store.memoryForget('agents/ag_a/plan.md'), { removed: false });
   assert.throws(() => store.memoryForget('agents/ag_a'), /folder/);
 });
 
-test('a direct file edit, new file or removal the watcher reports reaches the vectors; own writes are not reported twice', async (t) => {
+test('a direct removal of a note or a folder the watcher reports takes its stored meaning with it; an edit or a description does not', async (t) => {
   const { store, root, vectors, clock } = world(t);
   const watcher = new RootWatcher({ root: path.dirname(root), clock, watch: false, debounceMs: 1 });
   watcher.start();
-  store.startMemory(watcher);
+  await store.startMemory(watcher);
   assert.throws(() => watcher.register('memory', () => undefined), /already has an owner/);
-  const settled = () => new Promise((resolve) => setTimeout(resolve, 5));
-  await settled();
-  assert.deepEqual(vectors.embedded, [], 'an empty tree: nothing to embed');
 
-  mkdirSync(path.join(root, 'company'), { recursive: true });
+  mkdirSync(path.join(root, 'company', 'old'), { recursive: true });
   const file = path.join(root, 'company', 'edited.md');
   writeFileSync(file, 'By hand.\n');
   watcher.nudge('memory', ['company', 'edited.md']);
+  watcher.nudge('memory', ['company', '_folder.md']);
   watcher.flush('memory');
-  assert.deepEqual(vectors.changed, [file]);
+  assert.deepEqual(vectors.forgotten, []);
 
-  writeFileSync(path.join(root, 'company', 'other.md'), 'Stays.\n');
   rmSync(file);
   watcher.nudge('memory', ['company', 'edited.md']);
   watcher.flush('memory');
-  assert.deepEqual(vectors.removed, [file]);
+  assert.deepEqual(vectors.forgotten, ['memory/company/edited.md']);
 
-  watcher.nudge('memory', ['company', '_folder.md']);
+  rmSync(path.join(root, 'company', 'old'), { recursive: true });
+  watcher.nudge('memory', ['company', 'old']);
   watcher.flush('memory');
-  assert.equal(vectors.changed.length, 1, 'a description is no entry');
-
-  mkdirSync(path.join(root, 'company', 'renamed'));
-  writeFileSync(path.join(root, 'company', 'renamed', 'moved.md'), 'Moved here.\n');
-  watcher.nudge('memory', ['company', 'renamed']);
-  watcher.flush('memory');
-  await until(() => vectors.embedded.length >= 1);
-  assert.deepEqual(vectors.embedded, [[path.join(root, 'company', 'renamed', 'moved.md')]], 'a folder that came: only it is walked');
-
-  watcher.nudge('memory');
-  watcher.flush('memory');
-  await until(() => vectors.embedded.length >= 2);
-  assert.equal(vectors.embedded.length, 2, 'unknown change: the tree is checked');
+  assert.deepEqual(vectors.forgotten, ['memory/company/edited.md', 'memory/company/old']);
 
   store.stopMemory();
   watcher.stop();
-});
-
-test('starting embeds the tree until nothing remains; without an embedder nothing is tried and writes still work', async (t) => {
-  const { store, root, vectors } = world(t);
-  store.memoryWrite({ path: 'company/build/token-notes.md', title: 'Token notes', text: 'A topic folder "build" and a note about tokens are memory too.' });
-  store.memoryWrite({ path: 'company/_folder.md', title: 'About', text: 'No entry.' });
-  vectors.remaining = 5;
-  store.startMemory();
-  await until(() => vectors.embedded.length >= 2);
-  assert.equal(vectors.embedded.length, 2);
-  assert.deepEqual(vectors.embedded[0], [path.join(root, 'company', 'build', 'token-notes.md')], 'by name, entries only');
-  vectors.up = false;
-  store.startMemory();
-  await new Promise((resolve) => setTimeout(resolve, 5));
-  assert.equal(vectors.embedded.length, 2);
-  assert.equal(store.memoryWrite({ title: 'Works', text: 'still' }).outcome, 'created');
 });
 
 test('browse: the folder description, subfolders without counts, newest files with titles; the top explains itself', (t) => {
@@ -289,35 +246,28 @@ test('a new branch or agent folder says whose it is', (t) => {
   assert.match(store.memoryBrowse('branches').folders[0].description!, /Video branch/);
 });
 
-test('searching = vectors over the caller\'s folders only; hits come back as items, one per file, filtered', async (t) => {
+test('searching = the words over the caller\'s folders, re-ranked by meaning; a note the words miss comes by meaning; filters hold', async (t) => {
   const { store, vectors, clock } = world(t);
-  const company = store.save({ title: 'Firma', body: 'Teydra Lab', scope: 'global', createdBy: 'human' });
+  const company = store.save({ title: 'Firma', body: 'Teydra Lab plant', scope: 'global', createdBy: 'human' });
   const branch = store.save({ title: 'Schnitt', body: 'Immer 9:16', scope: 'space', scopeId: 'sp_a', createdBy: 'human' });
   const own = store.save({ title: 'Eigenes', body: 'Mein Plan', scope: 'agent', scopeId: 'ag_a', kind: 'plan', createdBy: 'ag_a' });
-  store.save({ title: 'Fremd', body: 'Bens Plan', scope: 'agent', scopeId: 'ag_b', createdBy: 'ag_b' });
-  const reference = store.save({ title: 'Reason: x', body: 'because', scope: 'reference', scopeId: 'human', kind: 'reference', createdBy: 'human' });
-  const ended = store.save({ title: 'Vorbei', body: 'old', scope: 'global', validTo: clock.now() - 1000, createdBy: 'human' });
-  store.save({ title: 'Chat', body: 'nur hier', scope: 'conversation', scopeId: 'ch_1', createdBy: 'human' });
-  const file = (id: string, score: number, chunk = 0): VectorHit => ({ path: `memory/${id.replace(/:/g, '/')}`, chunk, snippet: 's', score });
-  vectors.hits = [file(own.id, 0.9), file(own.id, 0.8, 1), file(company.id, 0.7), file(ended.id, 0.6), file(branch.id, 0.5), file(reference.id, 0.4), { path: 'memory/company/gone.md', chunk: 0, snippet: 's', score: 0.3 }];
+  const other = store.save({ title: 'Fremd', body: 'Bens Plan', scope: 'agent', scopeId: 'ag_b', createdBy: 'ag_b' });
+  const ended = store.save({ title: 'Vorbei', body: 'old plan', scope: 'global', validTo: clock.now() - 1000, createdBy: 'human' });
+  const key = (id: string) => `memory/${id.replace(/:/g, '/')}`;
+  vectors.meaning = new Map([[key(branch.id), 0.5], [key(own.id), 0.2], [key(company.id), 0.1], [key(other.id), 0.95], [key(ended.id), 0.95]]);
 
   const hits = await store.search({ text: 'plan', agentId: 'ag_a', limit: 3 });
-  assert.deepEqual(vectors.searches[0].in, ['memory/company', 'memory/branches/sp_a', 'memory/agents/ag_a', 'memory/references'], 'company + branch + own + references, nothing else');
-  assert.equal(vectors.searches[0].k, 9);
-  assert.deepEqual(hits.map((hit) => hit.item.id), [own.id, company.id, branch.id], 'one hit per file, a past note and a removed file left out');
-  assert.match(hits[0].why, /^similar meaning · saved /);
-  assert.equal(hits[0].score, 0.9);
-
-  await store.search({ text: 'plan', agentId: 'ag_b', conversationId: 'ch_1' });
-  assert.deepEqual(vectors.searches[1].in, ['memory/company', 'memory/agents/ag_b', 'memory/references', 'memory/chats/ch_1']);
-  await store.search({ text: 'plan' });
-  assert.deepEqual(vectors.searches[2].in, ['memory'], 'the person: everything');
-  await store.search({ text: 'plan', scopes: ['reference'] });
-  assert.deepEqual(vectors.searches[3].in, ['memory/references']);
+  const docs = vectors.ranks[0].docs.map((doc) => doc.key);
+  assert.ok(docs.includes(key(own.id)) && docs.includes(key(branch.id)) && docs.includes(key(company.id)));
+  assert.ok(!docs.includes(key(other.id)) && !docs.includes(key(ended.id)), 'another agent\'s note and a past one are no candidates');
+  assert.deepEqual(hits.map((hit) => hit.item.id), [own.id, company.id, branch.id]);
+  assert.match(hits[0].why, /^matches 'plan' · saved /);
+  assert.match(hits[2].why, /^similar meaning · saved /, 'found by its meaning alone');
+  assert.equal(hits[0].score, 1);
   assert.deepEqual((await store.search({ text: 'plan', agentId: 'ag_a', kinds: ['plan'] })).map((hit) => hit.item.id), [own.id]);
 });
 
-test('no embedder: words of the same folders instead, never both; an empty query is the readable set', async (t) => {
+test('no embedder: the words of the same folders; an empty query is the readable set', async (t) => {
   const { store, vectors, clock } = world(t);
   const mine = store.save({ title: 'Video export', body: 'Der Export dauert lange.', scope: 'agent', scopeId: 'ag_a', createdBy: 'ag_a' });
   store.save({ title: 'Video export', body: 'Bens Export.', scope: 'agent', scopeId: 'ag_b', createdBy: 'ag_b' });
@@ -325,7 +275,7 @@ test('no embedder: words of the same folders instead, never both; an empty query
   const company = store.save({ title: 'Rechnungen', body: 'Monatsende.', scope: 'global', createdBy: 'human' });
   vectors.up = false;
   const hits = await store.search({ text: 'export', agentId: 'ag_a' });
-  assert.equal(vectors.searches.length, 0);
+  assert.equal(vectors.ranks.length, 0);
   assert.deepEqual(hits.map((hit) => hit.item.id), [mine.id]);
   assert.match(hits[0].why, /matches 'export'/);
   assert.deepEqual((await store.search({ text: 'invoice', agentId: 'ag_a' })).map((hit) => hit.item.id), [company.id], 'the vocabulary still works');
@@ -342,52 +292,6 @@ test('pinned = the pinned folders the agent reads, capped; nothing else from the
   mkdirSync(path.join(root, 'branches', 'sp_a', 'pinned'), { recursive: true });
   writeFileSync(path.join(root, 'branches', 'sp_a', 'pinned', 'by-hand.md'), '# By hand\nMoved here by an editor.\n');
   assert.deepEqual(store.pinned('ag_a').map((item) => item.title), ['Name', 'By hand', 'Mine'], 'putting a file there is all it takes');
-});
-
-test('the old rows move to files once – with their place, kind, source and pin; observations stay; an old id still finds its file', async (t) => {
-  const now = Date.UTC(2026, 9, 1);
-  const row = (id: string, scope: string, scopeId: string | null, kind: string, title: string, body: string, extra: Record<string, unknown> = {}) => ({
-    id, scope, scopeId: scopeId ?? undefined, kind, title, body, tags: ['t'], source: { kind: 'message', ref: 'msg_1', trusted: false }, confidence: 0.9, pinned: false,
-    recordedAt: now, createdBy: 'ag_a', uses: 0, ...extra,
-  });
-  const f = world(t, (db) => {
-    for (const item of [
-      row('kn_old', 'global', null, 'fact', 'Firma', 'Alte Fassung', { expiredAt: now - 1000 }),
-      row('kn_new', 'global', null, 'fact', 'Firma', 'Teydra Lab', { supersedes: 'kn_old' }),
-      row('kn_pin', 'agent', 'ag_a', 'preference', 'Stil', 'Kurz', { pinned: true }),
-      row('kn_ref', 'reference', 'human', 'reference', 'Reason: x', 'weil'),
-      row('kn_site', 'website', 'github.com', 'note', 'Upload', 'Button oben'),
-      row('kn_obs', 'conversation', 'ch_1', 'observation', 'Chat observations up to #3', 'Summary', { tags: ['compaction'] }),
-    ]) insertItem(db, item as never);
-    db.run(`INSERT INTO knowledge_fts (knowledge_id, title, body) VALUES ('kn_new', 'firma', 'teydra')`);
-  });
-  const file = path.join(f.root, 'company', 'firma.md');
-  assert.ok(existsSync(file));
-  assert.match(readFileSync(file, 'utf8'), /title: Firma\nkind: fact\ntags: \[t\]\nupdated: 2026-10-01T00:00:00.000Z\nsource: "message:msg_1"\nby: ag_a\nconfidence: 0.9\nuntrusted: true\n---\n\nTeydra Lab\n/);
-  const item = f.store.get('company:firma.md')!;
-  assert.deepEqual(item.source, { kind: 'message', ref: 'msg_1', trusted: false });
-  assert.equal(item.confidence, 0.9);
-  assert.equal(item.recordedAt, now);
-  assert.deepEqual(f.store.history('company:firma.md').map((version) => version.body), ['Alte Fassung', 'Teydra Lab'], 'the old version stays linked');
-  assert.ok(existsSync(path.join(f.root, 'agents', 'ag_a', 'pinned', 'stil.md')));
-  assert.ok(existsSync(path.join(f.root, 'references', 'human', 'reason-x.md')));
-  assert.ok(existsSync(path.join(f.root, 'company', 'websites', 'github.com', 'upload.md')));
-  assert.equal(f.store.get('kn_new')!.body, 'Teydra Lab', 'an old id finds its file');
-  assert.equal(f.db.get<{ n: number }>(`SELECT count(*) AS n FROM knowledge WHERE expired_at IS NULL AND kind <> 'observation'`)!.n, 0);
-  assert.equal(f.db.get<{ n: number }>(`SELECT count(*) AS n FROM knowledge_fts WHERE knowledge_id = 'kn_new'`)!.n, 0);
-  assert.equal((await f.store.list({ scope: 'conversation', kind: 'observation' }))[0].id, 'kn_obs', 'observations stay rows');
-
-  // Once: a second store on the same data moves nothing and writes no second file.
-  const again = new KnowledgeStore({ db: f.db, clock: f.clock, root: f.root });
-  assert.equal((await again.list({ scope: 'global' })).length, 1);
-  assert.ok(!existsSync(path.join(f.root, 'company', 'firma-2.md')));
-
-  // The moved files are embedded once by the start.
-  f.store.startMemory();
-  await until(() => f.vectors.embedded.length >= 1);
-  assert.equal(f.vectors.embedded.length, 1);
-  assert.equal(f.vectors.embedded[0].length, 4);
-  assert.ok(f.vectors.embedded[0].includes(file));
 });
 
 test('without a root the tree lies next to the database file', (t) => {

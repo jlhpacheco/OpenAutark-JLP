@@ -8,9 +8,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setup, view } from './rebuild-harness.ts';
-import { leanKeep } from '../../../src/runtime/agents/rebuild.ts';
-import { CACHE_COLD_MS } from '../../../src/runtime/agents/compaction-policy.ts';
-import { LEAN_REASON, LEAN_TEXT, entryTokens, leanCost, leanMarks, leanText } from '../../../src/runtime/context/ledger/window.ts';
+import { leanKeep, trimWeight, writeInReads } from '../../../src/runtime/agents/rebuild-lean.ts';
+import { CACHE_COLD_MS, KEEP_STEPS, TRIM_AT, TRIM_PAYBACK_CALLS, trimPays } from '../../../src/runtime/agents/compaction-policy.ts';
+import { ARG_KEPT, LEAN_REASON, LEAN_TEXT, entryTokens, leanArgs, leanCall, leanCost, leanMarks, leanText } from '../../../src/runtime/context/ledger/window.ts';
 import { compactStamp, type LedgerItem, type LedgerViewItem } from '../../../src/shared/model/context-ledger.ts';
 
 const entry = (itemId: string, kind: LedgerViewItem['kind'], chars: number, extra: Partial<LedgerViewItem> = {}): LedgerViewItem => ({
@@ -76,14 +76,60 @@ test('leanText (14.11.2026): a set-aside output keeps how it began and its value
   assert.ok(long.startsWith(LEAN_TEXT));
 });
 
-test('leanKeep: this run, the newest run and every run on the open task stay in full; a done task keeps none of its runs', () => {
-  const entries = [entry('t1', 'tool', 10, { runId: 'r_task' }), entry('t2', 'tool', 10, { runId: 'r_other' }), entry('t3', 'tool', 10, { runId: 'r_new' })];
-  const runs = { get: (id: string) => ({ id, taskId: id === 'r_task' ? 'task_1' : undefined }) } as never;
-  const open = leanKeep({ runs }, { task: { id: 'task_1', status: 'working' } as never }, entries, { newestRun: 'r_new', pinned: new Set(['a9']) }, 'r_this');
-  assert.deepEqual([...open.runs].sort(), ['r_new', 'r_task', 'r_this']);
-  assert.deepEqual([...open.pinned], ['a9']);
-  const done = leanKeep({ runs }, { task: { id: 'task_1', status: 'done' } as never }, entries, { newestRun: 'r_new', pinned: new Set() }, 'r_this');
-  assert.deepEqual([...done.runs].sort(), ['r_new', 'r_this']);
+test('leanKeep (Runde "Halb" 21.11.2026): the thread\'s newest KEEP_STEPS tool steps stay whole (files between them too), whatever run – open work included; reasoning only of this run and the newest', () => {
+  const entries = [
+    ...Array.from({ length: 8 }, (_, i) => entry(`t${i + 1}`, 'tool', 9000, { runId: 'r_task' })), entry('f9', 'file', 9000, { runId: 'r_task' }),
+    entry('t10', 'tool', 9000, { runId: 'r_task', nested: true }), entry('r11', 'reasoning', 900, { runId: 'r_task' }),
+    entry('t12', 'tool', 9000, { runId: 'r_new' }), entry('r13', 'reasoning', 900, { runId: 'r_new' }), entry('a14', 'assistant', 9000, { runId: 'r_new' }),
+  ];
+  const keep = leanKeep(entries, { newestRun: 'r_new', pinned: new Set(['t1']) }, 'r_this');
+  assert.equal(KEEP_STEPS, 6);
+  assert.deepEqual([...keep.recent].sort(), ['f9', 't12', 't4', 't5', 't6', 't7', 't8'], 'six tool steps back, a nested call no step');
+  assert.deepEqual([...keep.runs].sort(), ['r_new', 'r_this']);
+  assert.deepEqual([...keep.pinned], ['t1']);
+  const marks = leanMarks(entries, keep);
+  assert.deepEqual(marks.map((mark) => [mark.itemId, mark.state]), [['t2', 'condensed'], ['t3', 'condensed'], ['r11', 'hidden']],
+    'the open task\'s older output is set aside too (t1 pinned), its reasoning before the newest run hidden; the newest steps, the newest reasoning and the words stay');
+});
+
+test('trimPays: what is set aside, read TRIM_PAYBACK_CALLS times at the cached price, against writing the rest once', () => {
+  assert.equal(TRIM_PAYBACK_CALLS, 24);
+  assert.equal(trimPays(0, 0, 40), false, 'nothing freed: nothing to rebuild for');
+  assert.equal(trimPays(100_000, 60_000, 40), true, '2.4M reads saved ≥ 60k × 40');
+  assert.equal(trimPays(100_000, 61_000, 40), false);
+  assert.equal(trimPays(11_000, 89_000, 10), false, 'an 11 % saving never pays, not even on Codex');
+  assert.equal(trimPays(50_000, 60_000, 10), true, 'Codex (no write surcharge): a tail rewritten for a large saving pays');
+});
+
+test('trimWeight (Round 2): the same prompt key reads the prompt and tools from the cache; a changed one writes them; a revert writes the tail and the live block', () => {
+  const s = { catalog: { get: () => undefined } } as never; // no price known: 40
+  const entries = [entry('t1', 'tool', 20_000, { runId: 'r' }), entry('t2', 'tool', 20_000, { runId: 'r' })];
+  const lean = [{ itemId: 't2', state: 'condensed' as const, saves: 9_000 }];
+  const base = { revert: false, modelId: 'claude:opus', volatile: 'v'.repeat(10_000), promptKey: 'k1', overhead: 30_000 };
+  const same = trimWeight(s, { ...base, sessionKey: 'k1' }, entries, lean, undefined, 11_000);
+  assert.deepEqual([same.samePrefix, same.rewritten, same.writeInReads], [true, Math.round(11_000 + 5_000 + 25_000 / 40), 40], 'history + live block written, the 25k prefix read');
+  const changed = trimWeight(s, { ...base, sessionKey: 'k0' }, entries, lean, undefined, 11_000);
+  assert.deepEqual([changed.samePrefix, changed.rewritten], [false, 11_000 + 5_000 + 25_000]);
+  const revert = trimWeight(s, { ...base, revert: true, sessionKey: 'k0' }, entries, lean, { since: 1, saves: 1_000 }, 11_000);
+  assert.deepEqual([revert.freed, revert.rewritten], [10_000, entryTokens(entries[0]) + entryTokens(entries[1]) - 9_000 + 5_000], 'from the first change (order 1) on, minus what is set aside, plus the live block');
+});
+
+test('leanArgs (Round 2): a set-aside call\'s long strings keep their start and say what they left out; keys, short fields and the shape stay', () => {
+  const write = { file_path: 'C:\\work\\report.md', content: 'x'.repeat(8_800) };
+  const cut = leanArgs(write) as typeof write;
+  assert.equal(cut.file_path, write.file_path, 'the path stays whole');
+  assert.ok(cut.content.startsWith('x'.repeat(ARG_KEPT)) && cut.content.includes(`${8_800 - ARG_KEPT} characters left out`), cut.content.slice(-80));
+  assert.ok(cut.content.length < ARG_KEPT + 100);
+  const edits = leanArgs({ edits: [{ old_string: 'a'.repeat(400), new_string: 'b', replace_all: false }] }) as { edits: Array<{ old_string: string; new_string: string; replace_all: boolean }> };
+  assert.deepEqual([edits.edits[0].new_string, edits.edits[0].replace_all], ['b', false], 'nested fields keep their type');
+  assert.ok(edits.edits[0].old_string.startsWith('a'.repeat(ARG_KEPT)) && edits.edits[0].old_string.includes('100 characters left out'));
+  assert.deepEqual(leanArgs({ command: 'npm test' }), { command: 'npm test' }, 'a short call stays as it is');
+  assert.equal((leanArgs('s'.repeat(1_000)) as string).slice(0, ARG_KEPT), 's'.repeat(ARG_KEPT), 'a script given as a string (code mode) is cut the same way');
+  const condensed = entry('t1', 'tool', 10, { state: 'condensed', call: { name: 'Write', args: write, callId: 't1', output: 'set aside' } });
+  assert.notEqual((leanCall(condensed).call!.args as typeof write).content, write.content, 'a condensed call replays cut');
+  const kept = entry('t2', 'tool', 10, { call: { name: 'Write', args: write, callId: 't2', output: 'whole' } });
+  assert.equal(leanCall(kept), kept, 'a kept call stays whole');
+  assert.ok(leanCost(kept) < entryTokens({ text: '', call: { name: '', args: write, callId: '', output: '' } }) / 10, 'the condensed cost counts the cut arguments');
 });
 
 const rowOf = (item: LedgerViewItem, tokens = entryTokens(item)): LedgerItem => ({
@@ -120,7 +166,9 @@ function lastingView(h: Harness, seen: number, oldChars: number): void {
     ['r3', 'reasoning', 'assistant', 'thinking about the tests'],
     ['a4', 'assistant', 'assistant', 'The tests pass.'],
     ['t5', 'tool', 'tool', work(30_000), { name: 'shell', args: { command: 'npm run build' }, callId: 'c5', output: work(30_000) }],
-    ['a6', 'assistant', 'assistant', 'Built.'],
+    // five small steps more: the run before is older than the newest KEEP_STEPS tool steps (Runde "Halb" 21.11.2026)
+    ...[6, 7, 8, 9, 10].map((n) => [`t${n}`, 'tool', 'tool', 'ok', { name: 'shell', args: {}, callId: `c${n}`, output: 'ok' }] as Parameters<typeof view>[0][number]),
+    ['a11', 'assistant', 'assistant', 'Built.'],
   ]).map((item) => ({ ...item, runId: Number(item.itemId.slice(1)) >= 5 ? 'run_newest' : 'run_old' }));
 }
 
@@ -135,7 +183,7 @@ test('a switch rebuilds with the lean history: the finished run leaves its outpu
   await h.turn('codex');
   assert.deepEqual(h.ledgerState.marks, [{ itemId: 't2', state: 'condensed', by: 'window' }, { itemId: 'r3', state: 'hidden', by: 'window' }]);
   const items = h.codex.rebuilds[0].items;
-  assert.deepEqual(items.map((item) => item.itemId), [`m${seen}`, 't2', 'a4', 't5', 'marks2', 'a6']);
+  assert.deepEqual(items.map((item) => item.itemId), [`m${seen}`, 't2', 'a4', 't5', 't6', 't7', 't8', 't9', 't10', 'marks2', 'a11']);
   assert.equal(items[1].call?.args && (items[1].call.args as { command: string }).command, 'npm test', 'the call with its arguments stays in place');
   assert.match(items[1].call?.output ?? '', /^Output set aside when that piece of work was finished\. It began: [^\n]* …\n\{"compacted":"t2"/);
   assert.equal(items[3].call?.output.length, 30_000, 'the newest run keeps its output');
@@ -146,7 +194,7 @@ test('a switch rebuilds with the lean history: the finished run leaves its outpu
   assert.equal(native.tokens, lean.after);
 });
 
-test('the same engine, warm: no rebuild for a saving – not for the lean history, not for waiting marks, however much they would take off; nothing is weighed, written or noted', async () => {
+test('the same engine, warm: a saving that does not pay back its cache write within TRIM_PAYBACK_CALLS rebuilds nothing – not for the lean history, not with waiting marks; nothing is written or noted', async () => {
   const h = setup();
   condensing(h);
   h.codex.state.reply = () => ({ usage: { inputTokens: 250_000, outputTokens: 10 }, contextTokens: 120_000 }); // two calls of ~120k
@@ -162,17 +210,19 @@ test('the same engine, warm: no rebuild for a saving – not for the lean histor
     ['t20', 'tool', 'tool', work(30_000), { name: 'shell', args: {}, callId: 'c20', output: work(30_000) }], ['a21', 'assistant', 'assistant', 'Built.'],
   ]).map((item) => ({ ...item, runId: item.itemId === 't20' || item.itemId === 'a21' ? 'run_newest' : 'run_old' })); // 144,000 tokens of finished output
   // Until 17.11.2026 this saving ("worth nine re-sends over the run's calls") rebuilt the warm session at once; measured, such
-  // rebuilds took 11 % off and each paid a full cache write – a written token costs 40 read ones.
+  // rebuilds took 11 % off and each paid a full cache write – a written token costs 40 read ones. The trim (21.11.2026) weighs
+  // that ratio: the newest six steps stay whole, so 7 outputs (~83k, ×24 calls) would go against ~76k written anew (×40) – it does not pay, nor with 20k of marks waiting.
+  assert.ok(TRIM_AT <= 120_000, 'the session is large enough to be weighed at all');
   h.ledgerState.need = undefined;
   h.send('Next');
   await h.turn('codex');
   assert.equal(h.codex.rebuilds.length, 0, 'the lean saving waits for a rebuild that happens anyway');
-  h.ledgerState.need = { since: 2, reason: '4 condensed', saves: 80_000 };
+  h.ledgerState.need = { since: 2, reason: '4 condensed', saves: 20_000 };
   h.send('Then');
   await h.turn('codex');
   assert.equal(h.codex.rebuilds.length, 0, 'and so do the subconscious\'s marks');
   assert.equal(h.ledgerState.marks.length, 0, 'nothing written for a rebuild that does not run');
-  assert.ok(![...h.notes('run_2'), ...h.notes('run_3')].some((note) => note.rebuild), 'no "does not pay yet" note: there is no weighing');
+  assert.ok(![...h.notes('run_2'), ...h.notes('run_3')].some((note) => note.rebuild), 'no "does not pay yet" note');
   assert.equal(h.codex.calls[2].session?.ref, 'codex-s1', 'the session goes on cached');
 
   h.clock.set(h.clock.now() + 61 * 60_000); // the session rested past a provider cache
@@ -181,8 +231,39 @@ test('the same engine, warm: no rebuild for a saving – not for the lean histor
   assert.equal(h.codex.rebuilds.length, 1, 'cold: the next call is uncached either way – the marks and the lean history land');
   const native = h.notes('run_4').find((note) => note.rebuild === 'native')!;
   assert.equal(native.why, 'cold');
-  assert.equal((native.lean as { condensed: number }).condensed, 12, 'every finished output set aside at once');
-  assert.ok((native.lean as { after: number }).after < 22_000, JSON.stringify(native.lean));
+  assert.equal((native.lean as { condensed: number }).condensed, 7, 'every output before the newest six steps set aside at once');
+  assert.ok((native.lean as { after: number }).after < 80_000, JSON.stringify(native.lean));
+});
+
+test('the same engine, warm, at TRIM_AT or more: a lean view that pays back its write starts anew (cause trim), and the next turn does not trim again', async () => {
+  const h = setup();
+  condensing(h);
+  h.codex.state.reply = () => ({ usage: { inputTokens: 150_000, outputTokens: 10 }, contextTokens: 150_000 }); // within the fit of an unknown window (160k)
+  h.send('Hello');
+  await h.turn('codex');
+  const seen = h.cursor();
+  const old = Array.from({ length: 40 }, (_, index) => {
+    const id = `t${index + 2}`;
+    return [id, 'tool', 'tool', work(24_000), { name: 'shell', args: { command: `step ${index}` }, callId: id, output: work(24_000) }] as const;
+  });
+  h.ledgerState.view = view([
+    [`m${seen}`, 'message', 'user', '[09:00] Alex: Hello'], ...old.map((row) => [...row] as Parameters<typeof view>[0][number]),
+    ['t50', 'tool', 'tool', work(30_000), { name: 'shell', args: {}, callId: 'c50', output: work(30_000) }], ['a51', 'assistant', 'assistant', 'Built.'],
+  ]).map((item) => ({ ...item, runId: item.itemId === 't50' || item.itemId === 'a51' ? 'run_newest' : 'run_old' })); // 495,000 tokens, most of it output
+  h.ledgerState.need = undefined;
+  h.send('Next');
+  await h.turn('codex');
+  assert.equal(h.codex.rebuilds.length, 1, 'the session sheds most of itself: the write pays within a dozen calls');
+  const native = h.notes('run_2').find((note) => note.rebuild === 'native')!;
+  assert.equal(native.why, 'trim');
+  const trim = native.trim as { freed: number; rewritten: number; writeInReads: number };
+  assert.equal(trim.writeInReads, writeInReads(h.s, 'codex:sol'), 'at the turn model\'s own prices');
+  assert.ok(trim.freed * TRIM_PAYBACK_CALLS >= trim.rewritten * trim.writeInReads && trim.freed > 380_000, JSON.stringify(trim));
+  assert.equal((native.lean as { condensed: number }).condensed, 35, 'all but the newest six steps');
+
+  h.send('Then');
+  await h.turn('codex');
+  assert.equal(h.codex.rebuilds.length, 1, 'just rebuilt: nothing left to set aside, so no second trim – the session goes on');
 });
 
 test('a cold session with a lean saving alone starts anew; one with nothing to set aside and no marks goes on as it is', async () => {

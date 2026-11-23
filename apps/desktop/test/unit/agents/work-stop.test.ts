@@ -110,14 +110,14 @@ test('live test C4: the stop asks every engine to end its background commands at
     { id: 'claude' }, // no background commands of its own to end
     { id: 'fake', stopBackground: async () => { asked.push('fake'); throw new Error('server gone'); } },
   ];
-  (h.services as unknown as { engines: unknown }).engines = { all: () => engines, get: () => undefined, disposeIdle: async () => {} };
+  (h.services as unknown as { engines: unknown }).engines = { all: () => engines, get: () => undefined };
   const state = stop.stop();
   assert.equal(state.stopped, true);
   assert.deepEqual(asked, ['sync', 'codex', 'fake'], 'asked within the stop itself');
   assert.equal(stop.current().stopped, true);
   stop.resume();
   // A registry that cannot build its engines: the brake still holds (the failure is logged).
-  (h.services as unknown as { engines: unknown }).engines = { all: () => { throw new Error('factory failed'); }, get: () => undefined, disposeIdle: async () => {} };
+  (h.services as unknown as { engines: unknown }).engines = { all: () => { throw new Error('factory failed'); }, get: () => undefined };
   assert.equal(stop.stop().stopped, true);
   stop.resume();
 });

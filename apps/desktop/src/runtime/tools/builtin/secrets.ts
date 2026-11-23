@@ -16,6 +16,8 @@
 // CSV file on this PC (secrets/export.ts) – for secrets.import in another company or on another PC; secrets.delete removes
 // entries by id, route or all at once (the CEO's linked PCs follow through the device sync); "all" and a route leave the
 // app's own working credentials unless named (secrets/units.ts catalogUnits). Both return names, a path and counts only.
+// Sicher-Runde 19.11.2026 (REVIEW-2 1): in Secure mode an agent's export leaves the payment entries out (cards, the payment
+// route – spending money is closed there) and its note says so; the file it writes passes the write switch (tool-gate.ts).
 // secrets.list ranks by the catalog's word index (F19, secrets/metadata.ts rankSecrets: a named id, the most words held, bm25,
 // then use – the ones in use lead a listing without a query), shows at most LIST_MAX with how many fit and each entry's use
 // count; with a route, other routes' entries holding as many of the words as the route's best match come too; its note says
@@ -30,6 +32,7 @@ import { isKeyValueFormat } from '../../../shared/model/key-values.ts';
 import { registrableDomain } from '../../secrets/service.ts';
 import { newEntryId } from '../../secrets/entry-id.ts';
 import type { ToolContext, ToolDef } from '../types.ts';
+import { HUMAN_ID, SYSTEM_ID } from '../../../shared/ids.ts';
 import { CHAT_ID_PROPERTY, failure, json } from '../types.ts';
 import { clip, defineTool, internal, iso, resolveChat } from './util.ts';
 import { showHandleIn } from '../../secrets/text-capture.ts';
@@ -283,9 +286,11 @@ const exportFile = defineTool<{ path?: string; ids?: string[]; route?: string }>
   describe: (args) => internal(`Export ${args.ids?.length ? `${args.ids.length} ${args.ids.length === 1 ? 'entry' : 'entries'}` : args.route ? `the route ${clip(args.route, 40)}` : 'the secrets catalog'} to a file`),
   async run(args, ctx) {
     try {
-      const result = await exportSecrets(ctx.services, { ...(args.ids?.length ? { ids: args.ids } : {}), ...(args.route ? { route: args.route } : {}), ...(args.path ? { file: args.path } : {}) });
+      const withoutPayment = secureMode(ctx);
+      const result = await exportSecrets(ctx.services, { ...(args.ids?.length ? { ids: args.ids } : {}), ...(args.route ? { route: args.route } : {}), ...(args.path ? { file: args.path } : {}), ...(withoutPayment ? { withoutPayment } : {}) });
       const note = [
         'Hand the file to secrets.import in the other company or on the other PC.',
+        result.payment ? `${result.payment} payment ${result.payment === 1 ? 'entry' : 'entries'} (cards, the payment route) stayed out: spending money is closed on this PC (Secure mode), so card data never goes into a file I write – ${personName(ctx)} exports those in Settings › Secrets themselves.` : '',
         result.skipped ? `${result.skipped} skipped: a group of free fields has no row in this file, or a value could not be read here.` : '',
         result.notFound ? `${result.notFound.length} of the ids I named are no entry (notFound) – secrets.list shows the ids.` : '',
       ].filter(Boolean).join(' ');
@@ -293,6 +298,16 @@ const exportFile = defineTool<{ path?: string; ids?: string[]; route?: string }>
     } catch (error) { return failure(`The file could not be written: ${(error as Error).message}`); }
   },
 });
+
+/** An agent's call in Secure mode (an unreadable mode counts as Secure); the person and the app itself are never limited here. */
+function secureMode(ctx: ToolContext): boolean {
+  if (ctx.agent.id === HUMAN_ID || ctx.agent.id === SYSTEM_ID || !ctx.services.security) return false;
+  try { return ctx.services.security.current().mode !== 'trust'; } catch { return true; }
+}
+
+function personName(ctx: ToolContext): string {
+  try { return ctx.services.settings.get().profile.name?.trim() || 'the person'; } catch { return 'the person'; }
+}
 
 const removeEntries = defineTool<{ ids?: string[]; route?: string; all?: boolean }>({
   name: 'secrets.delete',

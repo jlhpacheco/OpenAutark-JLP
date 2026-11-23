@@ -5,7 +5,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isRegion, regionBox, regionPixels, regionPoint } from '../../../src/ui/workspace/region.ts';
-import { joinPointer, pointerText, pointLabel } from '../../../src/ui/workspace/video-pointer.ts';
+import { joinPointer, pointerText } from '../../../src/ui/workspace/video-pointer.ts';
+import { timecode } from '../../../src/shared/text/media-ref.ts';
 
 test('a region: any drag direction, held inside the picture, a slip is none, the cut is whole pixels inside it', () => {
   const rect = { left: 100, top: 50, width: 200, height: 100 };
@@ -21,9 +22,9 @@ test('a region: any drag direction, held inside the picture, a slip is none, the
 const hex = (n: number) => String(n).repeat(64).slice(0, 64);
 
 test('the pointer: media.look\'s clock, one line, the id\'s start when the name does not say which clip', () => {
-  assert.equal(pointLabel(0), '0:00.0');
-  assert.equal(pointLabel(12_400), '0:12.4');
-  assert.equal(pointLabel(3_723_400), '1:02:03.4');
+  assert.equal(timecode(0), '0:00.0');
+  assert.equal(timecode(12_400), '0:12.4');
+  assert.equal(timecode(3_723_400), '1:02:03.4');
   const a = { fileId: `1a2b3c4d${'0'.repeat(56)}`, name: 'intro.mp4' };
   const b = { fileId: hex(2), name: 'intro.mp4' };
   const c = { fileId: hex(3), name: 'outro.mp4' };

@@ -198,7 +198,7 @@ const setModel = defineTool<SetArgs>({
       // A colleague's turns read their own requests (next-route.ts keys agent + task): mine reaches that work on my own
       // turns on it (this one, e.g. a review), not on theirs.
       if (task.assigneeKind === 'agent' && task.assigneeId && task.assigneeId !== ctx.agent.id && taskId !== ctx.taskId) {
-        return failure(`Task ${taskId} is ${ctx.services.org.get(task.assigneeId)?.name ?? task.assigneeId}'s – a request of mine reaches my own turns; for work I give on, tasks.create and tasks.give take its effort.`);
+        return failure(`Task ${taskId} is ${ctx.services.org.get(task.assigneeId)?.name ?? task.assigneeId}'s – a request of mine reaches my own turns; for work I give on, tasks.add and tasks.update with for take its effort.`);
       }
     }
     const place = placeOf(ctx, taskId);

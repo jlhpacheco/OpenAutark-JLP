@@ -157,14 +157,6 @@ export class LevelHistory {
   }
 }
 
-/** PCM16 LE bytes → floats in [-1, 1] (an odd trailing byte is ignored). */
-export function pcm16ToFloat(bytes: Uint8Array): Float32Array {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const out = new Float32Array(Math.floor(bytes.byteLength / 2));
-  for (let index = 0; index < out.length; index++) out[index] = view.getInt16(index * 2, true) / 32768;
-  return out;
-}
-
 /** Root mean square of one block (0..1 for normal microphone input). */
 export function rms(samples: Float32Array): number {
   if (!samples.length) return 0;

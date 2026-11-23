@@ -131,6 +131,7 @@
   --wf-mono: var(--mono);
   --wf-space: 8px;
   --wf-c1: #3c5d86; --wf-c2: #b5593d; --wf-c3: #315d49; --wf-c4: #7b4967; --wf-c5: #5f6335; --wf-c6: #5b448c;
+  --wf-c7: #2f6f7a; --wf-c8: #8a5a12; /* c7, c8: the Tasks page's quests only (charts and mini-apps cycle c1–c6) */
   /* B-085: a call's fixed dark palette in both themes (call.css) */
   --call-bg: #121519; --call-fg: #f2f4f7; --call-muted: #a9b0b9; --call-agent: #5fc48c; --call-person: #8db3ff; --call-quiet: #ffffff26;
   --call-control: #ffffff1a; --call-control-hover: #ffffff2e; --call-danger: #d9473f; --call-danger-hover: #e8584f;
@@ -168,6 +169,7 @@
   --badge-bg: #009fe3; --badge-fg: #fff; --qr-bg: #fff;
   --select-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Cpath fill='%23ececec' fill-opacity='.55' d='M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z'/%3E%3C/svg%3E");
   --wf-c1: #8fb3e6; --wf-c2: #e6a186; --wf-c3: #8fd0ab; --wf-c4: #d9a5c4; --wf-c5: #c8cc8c; --wf-c6: #b9a6ec;
+  --wf-c7: #7fc9d4; --wf-c8: #e0bd73;
   --call-bg: #16191e; --call-edge: #ffffff1f; --call-shadow: 0 10px 34px #00000080;
 }
 
@@ -194,6 +196,7 @@
     --badge-bg: #009fe3; --badge-fg: #fff; --qr-bg: #fff;
     --select-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Cpath fill='%23ececec' fill-opacity='.55' d='M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z'/%3E%3C/svg%3E");
     --wf-c1: #8fb3e6; --wf-c2: #e6a186; --wf-c3: #8fd0ab; --wf-c4: #d9a5c4; --wf-c5: #c8cc8c; --wf-c6: #b9a6ec;
+    --wf-c7: #7fc9d4; --wf-c8: #e0bd73;
     --call-bg: #16191e; --call-edge: #ffffff1f; --call-shadow: 0 10px 34px #00000080;
   }
 }

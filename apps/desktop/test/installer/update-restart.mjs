@@ -192,7 +192,7 @@ try {
   let page, task;
   if (!resumeBaseline && !fixedOnly) {
   page = await open();
-  task = (await rpc.call('day.add', { text: 'Preserve this installer-test task' })).tasks[0];
+  task = (await rpc.call('tasks.quickCreate', { text: 'Preserve this installer-test task' })).task;
   // A kept shortcut can be stale. This benign obsolete launcher exits without opening the app.
   await shortcut(path.join(process.env.SystemRoot, 'System32/cmd.exe'), '/c exit 0');
   say('Baseline: Restart through an obsolete Start-menu link');
@@ -210,7 +210,7 @@ try {
 
   feedVersion = '0.0.3';
   page = await open(); // explicit recovery from the baseline failure, before testing the fix
-  if (fixedOnly) task = (await rpc.call('day.add', { text: 'Preserve this installer-test task' })).tasks[0];
+  if (fixedOnly) task = (await rpc.call('tasks.quickCreate', { text: 'Preserve this installer-test task' })).task;
   task ??= (await rpc.call('tasks.list')).find(item => item.title === 'Preserve this installer-test task');
   assert.ok(task, 'the task was created before the baseline upgrade');
   await shortcut(path.join(out, 'missing', 'No app.exe'));

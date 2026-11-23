@@ -1,29 +1,33 @@
 // The first run's last card, About you: the person's name and the company (settings.profile, also in
-// Settings › General) and B-085 the PC access – two radio rows above Start, "Full access" (default,
-// stored 'whole' – the notice's "Give full access" names it the same) or "Careful" (settings.profile.pcAccess; a
-// choice changes only the rows' colour, nothing moves). Start saves them and ends the first run: onboarding.start has the runtime post the app's start text in the Manager's chat as the person's own
-// line (with careful, the Manager's SYSTEM.md gets the careful line first), and the Manager answers it; then the short
-// spotlight tour (ui/tour/Spotlight.tsx) runs once over that chat.
-// No dictation button here: the app's dictation hooks belong to their own fields (chat, My day, feedback).
-// 17.11.2026 (owner 06.11.: sharing stays on by default; it must be seen and easy to turn off): under the access rows one
+// Settings › General) and the company's security mode (owner 19.11.2026: "Beim Onboarding nur den Modus wählen") – two
+// radio rows above Start, "Trust AI" (default) or "Secure", one or two sentences each (settings/security-model.ts
+// MODE_ROWS; a choice changes only the rows' colour, nothing moves). Start writes settings.json `security` as that
+// mode's defaults (firstRunSecurity: Secure starts with much closed; Set up again keeps a company's own switches when
+// the mode stays) and ends the first run: onboarding.start has the runtime post the app's start text in the Manager's
+// chat as the person's own line, and the Manager answers it; then the short spotlight tour (ui/tour/Spotlight.tsx) runs
+// once over that chat. The mode can be changed later in Settings › Security.
+// No dictation button here: the app's dictation hooks belong to their own fields (chat, the Tasks page's line, feedback).
+// 17.11.2026 (owner 06.11.: sharing stays on by default; it must be seen and easy to turn off): under the mode rows one
 // ticked box, "Public library" – unticked, Start writes settings.library.publish false (Settings › Security has the switch).
-// The typed name, company, the access choice and the tick survive a remount (desktop ↔ phone shell) and Back until Start.
-// Owns: this card. Never: creates agents, changes a setting other than the profile and library.publish, or draws the tour.
+// The typed name, company, the mode choice and the tick survive a remount (desktop ↔ phone shell) and Back until Start.
+// Owns: this card. Never: creates agents, changes a setting other than the profile, security and library.publish, or
+// draws the tour.
 
 import { useState } from 'preact/hooks';
+import type { SecurityMode } from '../../shared/model/security-settings.ts';
 import { settings, updateSettings } from '../lib/store.ts';
 import { toastError } from '../lib/toasts.ts';
 import { Button } from '../lib/ui.tsx';
+import { firstRunSecurity, MODE_ROWS } from '../settings/security-model.ts';
 import { startSpotlight } from '../tour/Spotlight.tsx';
-import { libraryPatch, previousStep, profilePatch, type PcAccess } from './first-run-model.ts';
+import { libraryPatch, previousStep, profilePatch } from './first-run-model.ts';
 import { finishFirstRun, goStep } from './first-run.ts';
 import { Card, StatusLine } from './parts.tsx';
-import { ACCESS_LEVELS } from './pc-access.ts';
 
 const value = (event: Event) => (event.currentTarget as HTMLInputElement).value;
 
 /** What the person typed and chose outlives a remount (the window switching between desktop and phone shell) until Start. */
-const draft: { name?: string; company?: string; access?: PcAccess; share?: boolean } = {};
+const draft: { name?: string; company?: string; mode?: SecurityMode; share?: boolean } = {};
 
 /** The tick's text (the README's "The public library" says the same in full). */
 export const SHARE_TITLE = 'Public library';
@@ -33,10 +37,10 @@ export function AboutCard() {
   const profile = settings.value?.profile;
   const [name, setNameState] = useState(draft.name ?? profile?.name ?? '');
   const [company, setCompanyState] = useState(draft.company ?? profile?.company ?? '');
-  const [access, setAccessState] = useState<PcAccess>(draft.access ?? profile?.pcAccess ?? 'whole');
+  const [mode, setModeState] = useState<SecurityMode>(draft.mode ?? settings.value?.security?.mode ?? 'trust');
   const setName = (next: string) => { draft.name = next; setNameState(next); };
   const setCompany = (next: string) => { draft.company = next; setCompanyState(next); };
-  const setAccess = (next: PcAccess) => { draft.access = next; setAccessState(next); };
+  const setMode = (next: SecurityMode) => { draft.mode = next; setModeState(next); };
   const [share, setShareState] = useState(draft.share ?? settings.value?.library?.publish !== false);
   const setShare = (next: boolean) => { draft.share = next; setShareState(next); };
   const [busy, setBusy] = useState<'start' | 'back' | null>(null);
@@ -46,18 +50,19 @@ export function AboutCard() {
     setBusy('start');
     setError(undefined);
     try {
-      const patch = profilePatch(settings.value?.profile, name, company, access);
+      const patch = profilePatch(settings.value?.profile, name, company);
       const library = libraryPatch(settings.value?.library, share);
-      if (patch || library) await updateSettings({ ...(patch ? { profile: patch } : {}), ...(library ? { library } : {}) });
+      const security = firstRunSecurity(settings.value?.security, mode);
+      if (patch || library || security) await updateSettings({ ...(patch ? { profile: patch } : {}), ...(library ? { library } : {}), ...(security ? { security } : {}) });
       await finishFirstRun();
-      delete draft.name; delete draft.company; delete draft.access; delete draft.share; // saved: a later "Set up again" starts from the settings
+      delete draft.name; delete draft.company; delete draft.mode; delete draft.share; // saved: a later "Set up again" starts from the settings
       startSpotlight(); // B-085: the short tour over the Manager's chat the first run just opened
     } catch (failure) { toastError(failure, 'Could not start'); setError('Could not start – try again.'); } finally { setBusy(null); }
   };
   const back = async () => {
     setBusy('back');
     try {
-      const patch = profilePatch(settings.value?.profile, name, company); // typed text is kept when going back; the access is saved with Start
+      const patch = profilePatch(settings.value?.profile, name, company); // typed text is kept when going back; the mode is saved with Start
       await goStep(previousStep('about'), patch ? { profile: patch } : {});
     } catch (failure) { toastError(failure, 'Could not go back'); } finally { setBusy(null); }
   };
@@ -77,10 +82,10 @@ export function AboutCard() {
         </label>
       </div>
       <fieldset class="first-run-access">
-        <legend class="field-label">Your PC</legend>
-        {ACCESS_LEVELS.map((row) => (
-          <label key={row.id} class={`first-run-access-row${access === row.id ? ' chosen' : ''}`}>
-            <input type="radio" name="first-run-access" value={row.id} checked={access === row.id} onChange={() => setAccess(row.id)} />
+        <legend class="field-label">Security</legend>
+        {MODE_ROWS.map((row) => (
+          <label key={row.id} class={`first-run-access-row${mode === row.id ? ' chosen' : ''}`}>
+            <input type="radio" name="first-run-mode" value={row.id} checked={mode === row.id} onChange={() => setMode(row.id)} />
             <span class="first-run-access-text"><span class="first-run-access-title">{row.title}</span> – {row.text}</span>
           </label>
         ))}

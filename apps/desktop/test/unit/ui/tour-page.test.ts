@@ -25,7 +25,8 @@ test('the Android app\'s page: one self-contained page with the phone tour; Skip
   assert.ok(html.includes('How to send feedback') && html.includes('Feedback is the megaphone, top right.'), 'the phone tour inside');
   assert.ok(html.includes('.tour-dock') && html.includes('--surface'), 'the tour\'s styles and the tokens inline');
   assert.ok(html.length < 400_000, `small (${html.length} bytes)`);
-  assert.match(source('src/ui/tour/phone-page.tsx'), /<TourPlayer variant="phone" autoplay skip note=\{VOLUME_NOTE\} onDone=\{\(\) => \{ location\.href = DONE_ADDRESS; \}\} \/>/);
+  assert.match(source('src/ui/tour/phone-page.tsx'), /<TourPlayer variant="phone" bubble autoplay skip note=\{VOLUME_NOTE\} onDone=\{\(\) => \{ location\.href = DONE_ADDRESS; \}\} \/>/);
+  assert.ok(html.includes('it follows your finger.'), 'the Android tour with its bubble chapter');
   const app = readFileSync(new URL('../../../../android/app/src/main/java/com/teydralab/autark/android/IntroTour.java', import.meta.url), 'utf8');
   assert.match(app, /DONE = "autark-tour:done"/, 'the app takes the same address');
 });
@@ -44,6 +45,6 @@ test('the iPhone web app plays it once, on its first start after pairing; elsewh
   assert.match(shell, /useEffect\(\(\) => \{ if \(firstVideoHere\(\)\) openTour\(\{ autoplay: true \}\); \}, \[\]\);/);
   assert.match(shell, /<TourDialog phone=\{isMobile\.value\} \/>/, 'the phone layout plays the phone\'s tour');
   const dialog = source('src/ui/tour/TourDialog.tsx');
-  assert.match(dialog, /const \[variant\] = useState\(props\.variant\);/, 'the opening\'s variant stays while it plays');
+  assert.match(dialog, /<TourModal variant=\{tourVariant\(Boolean\(props\.phone\)\)\} \/>/, 'the opening\'s variant stays while it plays (open.ts tourVariant – tour-variant.test.ts)');
   assert.match(dialog, /<TourPlayer onDone=\{closeTour\} autoplay=\{tourAutoplay\.peek\(\)\} variant=\{variant\} \/>/);
 });

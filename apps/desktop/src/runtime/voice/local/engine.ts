@@ -201,7 +201,9 @@ export class LocalSpeechEngine {
     const sid = Math.max(0, Math.min(Math.max(0, tts.numSpeakers - 1), Math.floor(options.sid ?? 0)));
     const speed = options.speed ?? 1;
     const generationConfig = new (this.addon().GenerationConfig)({ sid, speed, numSteps: options.steps ?? 6, extra: { lang: options.language } });
-    const audio = await tts.generateAsync({ text, sid, speed, generationConfig });
+    // VOICE 19.11.2026: a copy, not sherpa's default external buffer – Electron's V8 (memory cage) refuses external
+    // ArrayBuffers, so in the app's runtime every line failed with "TTS settlement failed" (reproduced with Autark.exe as Node).
+    const audio = await tts.generateAsync({ text, sid, speed, generationConfig, enableExternalBuffer: false });
     return { samples: audio.samples, sampleRate: audio.sampleRate || tts.sampleRate };
   }
 

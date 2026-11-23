@@ -77,7 +77,8 @@ export async function withOtherFacts(app: CompanyApp, entries: CompanyEntry[], o
       const pcs = Array.isArray(linked)
         ? (linked as Array<{ name?: unknown; online?: unknown }>).filter((pc) => typeof pc?.name === 'string' && typeof pc.online === 'boolean').map((pc) => ({ name: (pc.name as string).slice(0, 120), online: pc.online as boolean }))
         : undefined;
-      return { ...entry, running: true, ...(own?.role && ROLES.has(own.role) ? { role: own.role } : {}), ...(pcs ? { linkedPcs: pcs } : {}) };
+      const title = typeof own?.title === 'string' ? own.title.slice(0, 160) : '';
+      return { ...entry, running: true, ...(own?.role && ROLES.has(own.role) ? { role: own.role } : {}), ...(title ? { title } : {}), ...(pcs ? { linkedPcs: pcs } : {}) };
     } catch {
       return { ...entry, running: companyRuns(dir) };
     }

@@ -77,16 +77,3 @@ export interface FindOpened {
   /** Routes left out: not readable here or not in the index, web links, or the depth/count limit. */
   omitted?: { outside: number; web: number; limit: boolean };
 }
-
-export type FindChoiceOutcome = 'candidate' | 'none' | 'unsure' | 'other-tool' | 'write';
-
-export interface FindChoice {
-  outcome: FindChoiceOutcome;
-  /** The chosen candidate's id (outcome 'candidate'); for 'unsure' a weak lean, when there was one. */
-  id?: string;
-  confidence: number;
-  /** Who answered: a decision backend, 'rules' (no decision model) or 'cache'. */
-  by: string;
-  /** A cached choice ('cache' in `by`): who answered it then. */
-  answeredBy?: string;
-}

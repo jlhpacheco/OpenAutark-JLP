@@ -1,8 +1,7 @@
 // B-078 D12: one knowledge catalog (knowledge/catalog.ts, describe.ts, find.ts, always.ts): skills of every root and the
-// home project as entries with a description (given, generated, else heading + first sentence); the sync embeds them as
-// virtual entries and removes the gone ones; a generated description goes into an own SKILL.md's front matter, into kv for a
-// read-only one; a find by words (the word index) and, with an embedding model, by meaning (two hops), each skill as the viewer's copy; skills.save without a
-// description; one always set under one cap.
+// home project as entries with a description (given, generated, else heading + first sentence); a generated description goes
+// into an own SKILL.md's front matter, into kv for a read-only one; a find by words (the word index), re-ranked by meaning with an
+// embedding model, each skill as the viewer's copy; skills.save without a description; one always set under one cap.
 // Owns: these assertions only. Never: real models or network.
 
 import { test } from 'node:test';
@@ -11,27 +10,28 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { Db } from '../../../src/runtime/db/database.ts';
-import { sql } from '../../../src/runtime/db/migrations/088-vector-chunks.ts';
+import { migrate } from '../../../src/runtime/db/migrate.ts';
 import { unit, type Embedder } from '../../../src/runtime/vectors/embedders.ts';
-import { VectorSystem } from '../../../src/runtime/vectors/service.ts';
+import { vectorSystem } from '../../../src/runtime/vectors/create.ts';
 import { SkillLibrary } from '../../../src/runtime/skills/service.ts';
-import { catalogEntries, describeSome, syncCatalog } from '../../../src/runtime/knowledge/catalog.ts';
+import { catalogEntries, describeSome } from '../../../src/runtime/knowledge/catalog.ts';
 import { describedText, withDescription } from '../../../src/runtime/knowledge/describe.ts';
-import { findInCatalog, searchCatalog, wordCatalog } from '../../../src/runtime/knowledge/find.ts';
+import { findInCatalog } from '../../../src/runtime/knowledge/find.ts';
 import { ALWAYS_CHARS, alwaysLines } from '../../../src/runtime/knowledge/always.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import type { StructuredRunner } from '../../../src/runtime/decision/types.ts';
 import type { Agent } from '../../../src/shared/model/org.ts';
 import type { KnowledgeItem, SkillInfo } from '../../../src/shared/model/knowledge.ts';
 
-const WORDS = ['invoice', 'video', 'deploy', 'soup', 'contract', 'caption'];
+/** One dimension per meaning: "caption" and "Untertitel" mean the same. */
+const MEANINGS = [['invoice'], ['video'], ['deploy'], ['soup'], ['contract'], ['caption', 'untertitel']];
 
 class FakeEmbedder implements Embedder {
   id = 'fake:1';
   batch = 8;
   remote = false;
   async embed(texts: string[]): Promise<Float32Array[]> {
-    return texts.map((text) => unit([...WORDS.map((word) => (text.toLowerCase().includes(word) ? 1 : 0)), 0.01]));
+    return texts.map((text) => unit([...MEANINGS.map((words) => (words.some((word) => text.toLowerCase().includes(word)) ? 1 : 0)), 0.01]));
   }
 }
 
@@ -43,8 +43,7 @@ function skill(dir: string, name: string, front: string, body: string): void {
 function setup(options: { embedder?: boolean } = {}) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'catalog-'));
   const db = new Db(path.join(dir, 'test.db'));
-  db.exec(sql);
-  db.exec('CREATE TABLE kv (ns TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (ns, key)) STRICT;');
+  migrate(db);
   const workspace = path.join(dir, 'ws');
   const resources = path.join(dir, 'res');
   const data = path.join(dir, 'data');
@@ -59,9 +58,10 @@ function setup(options: { embedder?: boolean } = {}) {
   let time = 1_000_000;
   const clock = { now: () => time };
   const skills = new SkillLibrary({ paths: { workspace, resources }, clock, home: '' });
-  const vectors = new VectorSystem({ db, memoryRoot: path.join(data, 'memory'), embedder: () => (options.embedder === false ? undefined : new FakeEmbedder()), changeDelayMs: 0 });
-  const services = { db, clock, skills, vectors, paths: { workspace, resources, data, temp: dir }, log: { debug() {}, info() {}, warn() {} } } as unknown as RuntimeServices;
-  return { services, skills, workspace, resources, advance: (ms: number) => { time += ms; }, done: () => { vectors.stop(); db.raw.close(); rmSync(dir, { recursive: true, force: true }); } };
+  const embedder = new FakeEmbedder();
+  const vectors = vectorSystem({ db, embedder: () => (options.embedder === false ? undefined : embedder) });
+  const services = { db, clock, skills, vectors, paths: { workspace, resources, data, temp: dir }, log: { debug() {}, info() {}, warn() {} } } as unknown as RuntimeServices & { vectors: typeof vectors };
+  return { services, skills, workspace, resources, advance: (ms: number) => { time += ms; }, done: () => { vectors.stop?.(); db.raw.close(); rmSync(dir, { recursive: true, force: true }); } };
 }
 
 const viewer = { id: 'ag_v', name: 'Vic' } as Agent;
@@ -78,31 +78,31 @@ test('the catalog: skills of every root (not an old library folder), each with a
   } finally { t.done(); }
 });
 
-test('sync embeds the catalog; a find by meaning maps hits to entries; an old library folder is not found; a gone skill leaves', async () => {
+test('with an embedder the words are re-ranked by meaning and an entry the words miss comes by it; an old library folder and a gone skill are not found', async () => {
   const t = setup();
   try {
-    await syncCatalog(t.services, viewer);
-    const hits = await searchCatalog(t.services, viewer, 'invoice');
-    assert.equal(hits?.[0].entry.title, 'invoices');
-    assert.equal(hits?.[0].by, 'meaning');
-    const soup = await searchCatalog(t.services, viewer, 'soup');
-    assert.ok(!(soup ?? []).some((hit) => hit.entry.title === 'soup'), 'the old cloned library is not searched');
+    await findInCatalog(t.services, viewer, 'Untertitel'); // the entries get their meaning in the one queue
+    await t.services.vectors.settled();
+    const hits = await findInCatalog(t.services, viewer, 'Untertitel');
+    assert.equal(hits[0].entry.title, 'captions');
+    assert.equal(hits[0].by, 'meaning', 'no shared word, the same meaning');
+    const words = await findInCatalog(t.services, viewer, 'deploy smoke tests');
+    assert.deepEqual(words.slice(0, 1).map((hit) => [hit.entry.title, hit.by, hit.score]), [['deploy-steps', 'words', 1]]);
+    assert.ok(!(await findInCatalog(t.services, viewer, 'soup')).some((hit) => hit.entry.title === 'soup'), 'the old cloned library is not searched');
     rmSync(path.join(t.workspace, 'skills', 'deploy-steps'), { recursive: true, force: true });
     t.advance(10_000);
-    await syncCatalog(t.services, viewer);
-    assert.ok(!(t.services.vectors.virtualKeys?.('catalog/skill') ?? []).some((key) => key.includes('deploy-steps')), 'a gone skill leaves the store');
+    assert.ok(!(await findInCatalog(t.services, viewer, 'deploy')).some((hit) => hit.entry.title === 'deploy-steps'), 'a gone skill is not found');
   } finally { t.done(); }
 });
 
 test('without an embedder the find goes by words: the word index over title, description and text', async () => {
   const t = setup({ embedder: false });
   try {
-    assert.equal(await searchCatalog(t.services, viewer, 'deploy'), undefined);
     const words = await findInCatalog(t.services, viewer, 'deploy smoke tests');
     assert.deepEqual(words.map((hit) => [hit.entry.title, hit.by, hit.score]), [['deploy-steps', 'words', 1]]);
-    assert.deepEqual(wordCatalog(t.services, viewer, 'xyz nothing'), []);
-    assert.deepEqual(wordCatalog(t.services, viewer, 'Videoexport').map((hit) => hit.entry.title), ['captions'], 'a compound found by its parts in the text');
-    assert.deepEqual(wordCatalog(t.services, viewer, 'Suppe kochen').map((hit) => hit.entry.title), [], 'words, not meaning: another language finds nothing');
+    assert.deepEqual(await findInCatalog(t.services, viewer, 'xyz nothing'), []);
+    assert.deepEqual((await findInCatalog(t.services, viewer, 'Videoexport')).map((hit) => hit.entry.title), ['captions'], 'a compound found by its parts in the text');
+    assert.deepEqual((await findInCatalog(t.services, viewer, 'Suppe kochen')).map((hit) => hit.entry.title), [], 'words, not meaning: another language finds nothing');
   } finally { t.done(); }
 });
 
@@ -112,11 +112,7 @@ test('generated descriptions: an own SKILL.md gets it in its front matter, a rea
     const asked: string[] = [];
     const runner: StructuredRunner = async (call) => { asked.push(call.prompt.split('\n')[0]); return { text: '', structured: { description: `I use this when ${call.prompt.includes('Captions') ? 'video captions' : 'a deploy'} are the work.` }, by: 'fake' }; };
     const entries = catalogEntries(t.services, viewer);
-    const readOnly = entries.find((entry) => entry.title === 'captions')!;
-    assert.equal(await describeSome(t.services, [readOnly], runner), 1);
-    // No file was written, so no mtime can incidentally refresh the catalog cache.
-    assert.equal(catalogEntries(t.services, viewer).find((entry) => entry.title === 'captions')?.description, 'I use this when video captions are the work.');
-    assert.equal(await describeSome(t.services, entries, runner), 1, 'only deploy-steps still needs a description');
+    assert.equal(await describeSome(t.services, entries, runner), 2, 'deploy-steps and captions: invoices has a written one');
     const own = readFileSync(path.join(t.workspace, 'skills', 'deploy-steps', 'SKILL.md'), 'utf8');
     assert.match(own, /^---\nname: deploy-steps\ndescription: "I use this when a deploy are the work\."\n---\n/);
     const captions = entries.find((entry) => entry.title === 'captions')!;

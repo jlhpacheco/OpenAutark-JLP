@@ -1,6 +1,6 @@
 // The side driver's AI cursor (B-081): the drawn cursor comes in the agent's colour (shared/model/agent-cursor.ts)
-// with a lean on every step and stands upright on the target; the person's browser never sees a jump – 'instant'
-// glides there with the glide's short hold, and 'human' keeps its own hold.
+// with a lean on every step and stands upright on the target; with no motion named the pointer travels like a hand
+// (21.11.2026), 'glide' with the glide's short hold, 'instant' as a jump.
 // Owns: these checks. Never: the driver's other behaviour (side-driver.test.ts) or the in-page drawer (agent-cursor.test.ts).
 
 import { test } from 'node:test';
@@ -36,21 +36,29 @@ test('the drawn cursor comes in the agent’s colour, leans on the way and stand
   assert.deepEqual(drawn.at(-1), { x: 140, y: 116, t: drawn.at(-1)!.t, r: 0 }, 'upright on the button');
 });
 
-test('the person’s browser never jumps: instant glides there too, human keeps its own hold', async () => {
+test('no motion named: the pointer travels like a hand; glide and instant only when the call passes them', async () => {
   const { driver, dbg } = setup();
   await driver.call({ action: 'snapshot', agent });
-  await driver.call({ action: 'act', agent, steps: [{ action: 'click', ref: 's24' }] });
+  await driver.call({ action: 'act', agent, motion: 'glide', steps: [{ action: 'click', ref: 's24' }] });
 
   dbg.calls = [];
-  await driver.call({ action: 'act', agent, motion: 'instant', steps: [{ action: 'click', x: 600, y: 400 }] });
-  const quick = dbg.named('Input.dispatchMouseEvent');
-  assert.ok(quick.filter((call) => call.params.type === 'mouseMoved').length >= 5, 'instant glides in the person’s browser');
-  assert.deepEqual(quick.slice(-2).map((call) => call.params.type), ['mousePressed', 'mouseReleased']);
-  assert.equal(quick.at(-1)!.at - quick.at(-2)!.at, 25, 'with the glide’s short hold');
-
-  dbg.calls = [];
-  await driver.call({ action: 'act', agent, motion: 'human', steps: [{ action: 'click', ref: 's24' }] });
+  await driver.call({ action: 'act', agent, steps: [{ action: 'click', x: 600, y: 400 }] });
   const hand = dbg.named('Input.dispatchMouseEvent');
+  assert.deepEqual(hand.slice(-2).map((call) => call.params.type), ['mousePressed', 'mouseReleased']);
   const held = hand.at(-1)!.at - hand.at(-2)!.at;
-  assert.ok(held >= 55 && held <= 120, `human keeps its own hold (${held} ms)`);
+  assert.ok(held >= 55 && held <= 120, `the default is a hand: its own hold (${held} ms)`);
+  const handMoves = hand.filter((call) => call.params.type === 'mouseMoved');
+  assert.ok(handMoves.at(-1)!.at - handMoves[0]!.at > 300, 'a hand takes longer than a glide');
+
+  dbg.calls = [];
+  await driver.call({ action: 'act', agent, motion: 'glide', steps: [{ action: 'click', ref: 's24' }] });
+  const glide = dbg.named('Input.dispatchMouseEvent');
+  assert.equal(glide.at(-1)!.at - glide.at(-2)!.at, 25, 'glide holds the button 25 ms');
+
+  dbg.calls = [];
+  await driver.call({ action: 'act', agent, motion: 'instant', steps: [{ action: 'click', x: 300, y: 200 }] });
+  const quick = dbg.named('Input.dispatchMouseEvent');
+  assert.equal(quick.filter((call) => call.params.type === 'mouseMoved').length, 1, 'instant is one jump');
+  assert.deepEqual(quick.slice(-2).map((call) => call.params.type), ['mousePressed', 'mouseReleased']);
+  assert.equal(quick.at(-1)!.at - quick.at(-2)!.at, 0, 'with no hold');
 });

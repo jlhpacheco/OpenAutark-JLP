@@ -18,6 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -50,7 +51,7 @@ test('website tabs come back after a restart; an agent\'s browser.show opens a t
   const watch = (target) => target.on('pageerror', (error) => errors.push(error.message));
   watch(page);
   await page.waitForSelector('.shell', { timeout: 60_000 });
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('settings.update', { onboarding: { step: 'done' } }); // past the first-run layer (first-run-window covers it)
   rpc.close();
@@ -116,7 +117,7 @@ test('website tabs come back after a restart; an agent\'s browser.show opens a t
   assert.deepEqual(loaded, [`${address}/one`], 'only the shown tab loaded; the other waits');
 
   // The chat's agent shows a page: it opens as a tab of the chat's area, the area opens and shows it at once.
-  const again = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const again = await runtimeInfo(profile);
   rpc = await connect(again.port, again.token, 'cli');
   const chat = (await rpc.call('chats.list')).find((entry) => !entry.settings?.system) ?? (await rpc.call('chats.list'))[0];
   await page.evaluate((id) => { location.hash = `#/chat/${id}`; }, chat.id);

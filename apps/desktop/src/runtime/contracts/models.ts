@@ -18,6 +18,7 @@ import type {
   Account, AccountLimits, DetectionReport, Effort, EngineId, ModelInfo, ProviderId, RouteDecision, UsageSummary,
 } from '../../shared/model/providers.ts';
 import type { Device } from '../../shared/model/devices.ts';
+import type { SplitNeeds } from '../../shared/model/splits.ts';
 import type { AgentActivity, Run, RunItem, WakeReason } from '../../shared/model/runs.ts';
 import type { FileRef, Settings, SettingsPatch } from '../../shared/model/system.ts';
 import type { UiBlock } from '../../shared/blocks/catalog.ts';
@@ -31,7 +32,7 @@ export interface DecisionRequest {
   options?: string[]; // for choice
   context?: string; // compact state
   /** 'agent' (addition RT9): an agent's own decide tool call (tools/builtin/decide.ts). */
-  purpose: 'route' | 'widget' | 'responder' | 'retrieval' | 'skill' | 'classify' | 'verify' | 'other' | 'agent';
+  purpose: 'route' | 'responder' | 'retrieval' | 'skill' | 'classify' | 'verify' | 'other' | 'agent';
   /** Addition (F05): the request's deadline over all backend attempts; when it passes the running call is
    * aborted and the answer is none (confidence 0, by 'timeout'). Absent = the hub's per-attempt limit only. */
   timeoutMs?: number;
@@ -107,8 +108,9 @@ export interface RouteRequest {
   needs?: { vision?: boolean; computerUse?: boolean; structured?: boolean; tier?: ModelInfo['tier'] };
   /** B-057 S10: a split's turn (routing/split-route.ts) – its own model/effort beats the agent's pin and fixed effort; plan pacing.
    *  17.11.2026: `fresh` – the first turn of a part that starts from its brief and names no model: `previous.modelId` is its
-   *  origin's model, where it runs unless that is above what executing needs (routing/kind.ts). */
-  split?: { splitId: string; fresh?: true };
+   *  origin's model, where it runs unless that is above what executing needs (routing/kind.ts). Halb 21.11.2026: `needs` –
+   *  what a fresh part's hardest step asks; the cost mode the router picks its kind default with (routing/split-route.ts). */
+  split?: { splitId: string; fresh?: true; needs?: SplitNeeds };
 }
 
 export interface Router {
@@ -147,7 +149,6 @@ export interface AccountService {
 export interface EngineRegistry {
   get(id: EngineId): Engine;
   all(): Engine[];
-  disposeIdle(): Promise<void>;
 }
 
 // ------------------------------------------------------------------ knowledge
@@ -159,10 +160,8 @@ export interface KnowledgeService {
   correct(id: string, patch: { body?: string; title?: string; validTo?: number }, by: string): KnowledgeItem;
   expire(id: string, by: string, reason?: string): void;
   get(id: string): KnowledgeItem | undefined;
-  /** Addition (CTX5): `kinds` narrows to several kinds (the knowledge browser hides observations). */
+  /** Addition (CTX5): `kinds` narrows to several kinds. */
   list(filter: KnowledgeListFilter & { kinds?: readonly string[] }): Promise<KnowledgeItem[]>;
-  /** The runtime's chat observations (rows only, no file is read): what a prompt reads. */
-  observations(filter: KnowledgeListFilter): KnowledgeItem[];
   /** Addition (B-044), optional so simple fakes stay valid: the kinds current rows carry (the browser's kind chips). */
   kinds?(): Promise<KnowledgeItem['kind'][]>;
   history(id: string): KnowledgeItem[];

@@ -22,6 +22,8 @@
 // Not offered: Kokoro (no German voice), Piper de_DE voices (sherpa-onnx 2.0 removed the GPL espeak-ng
 // phonemizer they need), Pocket TTS (its sherpa archive needs a reference recording and German is unverified).
 // `ramMb` is the estimate while loaded (weights plus the ONNX runtime), `sizeMb` the unpacked files.
+// The same memory rule (memoryFit) rates the local embedding model and – by the usual size of a 4-bit build (localChatRamMb) –
+// a local server's chat models; the graphics card is not read (a standard estimate, no benchmark).
 // Owns: these ids, figures, files, the fit rule and the turn detector's fixed file names. Never: I/O.
 
 export type LocalSpeechPurpose = 'stt' | 'tts';
@@ -197,6 +199,26 @@ export interface LocalSpeechOffer {
 
 /** Memory kept for Windows, the app and the person's programs (MB). */
 export const SPEECH_RAM_RESERVE_MB = 4_096;
+/** What a fit means, as Settings and the AI read it. */
+export const FIT_WORDS: Readonly<Record<LocalSpeechFit, string>> = { good: 'fits well', tight: 'tight on this PC', 'too-big': 'too big for this PC' };
+
+/** How a local model that takes `ramMb` while loaded fits a PC of `totalRamMb`: well at most half of what the reserve leaves, tight up to all of it. */
+export function memoryFit(ramMb: number, totalRamMb: number): LocalSpeechFit {
+  const spare = Math.max(0, totalRamMb - SPEECH_RAM_RESERVE_MB);
+  return ramMb <= spare / 2 ? 'good' : ramMb <= spare ? 'tight' : 'too-big';
+}
+
+/**
+ * 21.11.2026: the usual memory of a local chat model on a local server (Ollama, LM Studio …) by its name – the common 4-bit
+ * builds take about 0.6 GB per billion parameters plus about 0.5 GB for the runtime and a short context (a standard estimate,
+ * never measured here; "30b-a3b" counts all 30B, they are all loaded). Undefined when the name carries no size.
+ */
+export function localChatRamMb(model: string): number | undefined {
+  const size = /(?:^|[^a-z0-9.])(\d{1,3}(?:\.\d)?)b(?![a-z])/i.exec(model.replace(/^.*\//, ''));
+  const billions = size ? Number(size[1]) : NaN;
+  return Number.isFinite(billions) && billions > 0 ? Math.round(billions * 600 + 500) : undefined;
+}
+
 /** The small tier is only recommended with this many cores (a 0.6B encoder on two cores is slow). */
 const SMALL_TIER_CORES = 4;
 
@@ -209,12 +231,12 @@ const SMALL_TIER_CORES = 4;
  * needs SMALL_TIER_CORES cores, or 16 GB, or 3 GB free on 8 GB –; at most all of it is tight.
  */
 export function fitLocalSpeech(hardware: SpeechHardware, language = 'en', installed: (id: string) => boolean = () => false): LocalSpeechOffer[] {
-  const spare = Math.max(0, hardware.totalRamMb - SPEECH_RAM_RESERVE_MB);
   const lang = (/^([a-z]{2,3})/i.exec(language.trim())?.[1] ?? 'en').toLowerCase();
   const rows = LOCAL_SPEECH_MODELS.map((entry): LocalSpeechOffer => {
     const roomy = hardware.totalRamMb >= 16_384 || (hardware.totalRamMb >= 8_192 && hardware.freeRamMb >= 3_072);
     const strongEnough = entry.tier === 'tiny' || (hardware.cpuCores >= SMALL_TIER_CORES && roomy);
-    const fit: LocalSpeechFit = entry.ramMb <= spare / 2 && strongEnough ? 'good' : entry.ramMb <= spare ? 'tight' : 'too-big';
+    const memory = memoryFit(entry.ramMb, hardware.totalRamMb);
+    const fit: LocalSpeechFit = memory === 'good' && !strongEnough ? 'tight' : memory;
     return {
       id: entry.id, purpose: entry.purpose as LocalSpeechPurpose, tier: entry.tier, label: entry.label, publisher: entry.publisher,
       downloadMb: Math.round(entry.download.bytes / 1_000_000), sizeMb: entry.sizeMb, ramMb: entry.ramMb, languages: [...entry.languages],

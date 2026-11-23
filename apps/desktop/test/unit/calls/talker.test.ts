@@ -89,6 +89,7 @@ test('the stable part: who I am, how I speak on a call, the tags and what my wor
   assert.equal(open.purpose, 'call voice');
   assert.match(open.system, /live voice of Ava/);
   assert.match(open.system, /I am on a call\./, 'CALL_VOICE');
+  assert.match(open.system, /Everything I say is heard once[^.]*so I shape each answer for the ear\./, 'TALK 19.11.: written for the ear');
   assert.match(open.system, /<main now>/, 'the tags are named and not spoken');
   assert.match(open.system, /profile language is de/);
   assert.match(open.system, /by first name and in the familiar form/, 'B-078: as the realtime brief (voiceSelf)');

@@ -23,6 +23,7 @@ import { FileRepo } from '../store/files.ts';
 import { ROOT_SETTINGS } from '../root/layout.ts';
 import { BlobCleanup, graceFromEnv, type CleanupTimers, type Reclaimer } from './cleanup.ts';
 import { detectMime, imageSize, isTextMime } from './mime.ts';
+import { blobParts } from '../../shared/files/serving.ts';
 import { extractPdfText, PDF_LIMITS, type PdfTextExtractor } from './pdf.ts';
 import { OFFICE_LIMITS, officeKind, officeText } from './office.ts';
 
@@ -77,7 +78,7 @@ export class Blobs implements FileStore, Reclaimer {
 
   path(id: string): string {
     if (!SHA256.test(id)) throw new WorkforceError('bad_request', 'Invalid file id.');
-    return path.join(this.deps.blobs, id.slice(0, 2), id.slice(2, 4), id);
+    return path.join(this.deps.blobs, ...blobParts(id));
   }
 
   /** B-080: the path of a stored file's bytes, fetched through `missing` first when they are not here (a failed fetch leaves the read to fail). */

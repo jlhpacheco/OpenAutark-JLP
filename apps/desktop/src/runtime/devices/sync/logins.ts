@@ -13,14 +13,24 @@
 // nor sent; neither is a refresh token a list carries for two accounts at once, also when it comes alone later, and one
 // login is checked and written at a time. The CLIs refresh their tokens and rewrite these files: a watch on each home's
 // folder and every account change (a cheap compare) send a changed login within a second, so a second PC acts
-// like a second process on the same PC, which reads the file again before it refreshes. Claude Code on macOS keeps
+// like a second process on the same PC, which reads the file again before it refreshes. Each PC gets a login when it
+// differs from the one that PC last took from here (or sent here): a link that comes up takes every login again, a
+// catch-up in rhythm (service.ts) brings only what a PC lacks – one a send missed –, so a repeat sends nothing new. Rows and logins travel
+// in calls of their own, so a plan shared just now can bring its login before its row – that login waits here for the row
+// (the newest per account) instead of being lost until the next refresh or link-up. Claude Code on macOS keeps
 // its login in the Keychain: nothing is sent or written there.
 // 16.11.2026: a plan's home is this PC's one home of that login, shared by every company here (accounts/cli-homes.ts):
 // each company's LoginSync reads and writes the same file (whole, the newer login wins, so two writers are harmless),
 // and a refresh token is held elsewhere when any other home on this PC holds it – this company's plans' homes and every
 // home in the PC's logins folder. A sign-out mark is the home's (every company's LoginSync keeps out a linked PC's login).
+// 22.11.2026 (owner: plans "für alle in der Firma aktiviert … auf jedem PC verwendet werden können … Token müssen wirklich
+// schnell da sein"): a plan on all PCs of this company goes to every PC that shares it (plan-peers.ts) – the CEO's own PCs
+// and every employee's PC; an employee's PC sends a login it refreshed back to the company it came from, never one of the
+// person's own plans, and from a PC that is no 'ceo' link only the login of that very account is taken. A plan whose login
+// is rejected here (it turns 'needs_login') asks the PCs that share it for theirs at once (`want`, at most every ASK_MS
+// per plan, answered at most that often per PC); each sends it when it differs from what that PC last took.
 // Owns: reading, sending and writing these files. Never: logs, journals or returns their content, shows them to
-// an agent, a tool or the UI, or sends them to a PC that is no 'ceo' link.
+// an agent, a tool or the UI, or sends them to a PC that does not share the plan.
 
 import { createHash, randomUUID } from 'node:crypto';
 import { watch as fsWatch, type FSWatcher } from 'node:fs';
@@ -32,13 +42,16 @@ import type { Account } from '../../../shared/model/providers.ts';
 import { WorkforceError } from '../../../shared/errors.ts';
 import { defaultHome, homeKey, loginFiles, ownHomes, sharedLogins, signedOut } from '../../accounts/cli-homes.ts';
 import { MAX_LOGIN_FILE, identity, loginTime, parseLogin, refreshToken, signedIn, type Json } from '../../accounts/login-file.ts';
-import { DevicesRepo } from '../repo.ts';
 import { replaceWith } from './file-io.ts';
-import { linkOf, links } from './home.ts';
+import { linkOf } from './home.ts';
+import { DevicesRepo } from '../repo.ts';
+import { planLink, planPeers } from './plan-peers.ts';
 
 interface LoginFile { name: string; data: string }
 /** One account's login as it travels (`data`: the file's bytes, base64). */
 export interface Login { account: string; provider: string; email?: string; at: number; files: LoginFile[] }
+/** A login with the digest of its files (what a PC took is remembered by it). */
+interface Read { login: Login; digest: string }
 
 export interface LoginDeps {
   platform?: NodeJS.Platform;
@@ -51,10 +64,13 @@ export interface LoginDeps {
 /** How long a change gathers before the login is read (a CLI writes in steps). */
 const SETTLE_MS = 500;
 const SETTLED: ReadonlySet<string> = new Set(['ok', 'cooling', 'disabled']);
+/** A plan asks the PCs that share it at most this often, and each answers one PC's ask for a plan at most this often. */
+const ASK_MS = 30_000;
 
 const code = (error: unknown) => (error instanceof WorkforceError ? error.code : String((error as NodeJS.ErrnoException)?.code ?? 'failed')); // never a message: it could quote content
 
 const digestOf = (files: readonly LoginFile[]) => createHash('sha256').update(JSON.stringify(files)).digest('hex');
+const asRead = (login: Login): Read => ({ login, digest: digestOf(login.files) });
 
 /** A login's refresh token as a hash (a CLI with homes of its own), to compare without keeping the token. */
 function tokenKey(login: Login): string | undefined {
@@ -85,8 +101,8 @@ const valid = (item: unknown): item is Login => {
 export class LoginSync {
   private readonly s: RuntimeServices;
   private readonly deps: LoginDeps;
-  /** Per account: what was last sent or written here (a change notice that changes nothing sends nothing). */
-  private readonly known = new Map<string, string>();
+  /** Per `peer/account`: the login that PC last took from here or sent here (one it has is not sent again). */
+  private readonly took = new Map<string, string>();
   private readonly watchers = new Map<string, { account: string; watcher: FSWatcher }>();
   private readonly pending = new Set<string>();
   private timer?: ReturnType<typeof setTimeout>;
@@ -94,6 +110,13 @@ export class LoginSync {
   private applying: Promise<unknown> = Promise.resolve();
   /** Token keys a linked PC sent for two plans at once: that login is no plan's, also when it comes alone later. */
   private readonly twins = new Set<string>();
+  /** 21.11.2026: a login that came before its account's row (rows and logins travel in calls of their own) – taken when the row is here. */
+  private readonly waiting = new Map<string, { login: Login; from: string }>();
+  /** Per plan: when it last asked the PCs that share it for their login; per `peer/account`: when that PC's ask was answered. */
+  private readonly asked = new Map<string, number>();
+  private readonly answered = new Map<string, number>();
+  /** Per plan: its last state here (an ask goes once when the login turns rejected, not on every change of the row). */
+  private readonly states = new Map<string, string>();
 
   constructor(s: RuntimeServices, deps: LoginDeps = {}) {
     this.s = s;
@@ -112,8 +135,38 @@ export class LoginSync {
     return account.home ?? defaultHome(account.provider, this.deps.env ?? process.env, this.deps.homeDir ?? os.homedir());
   }
 
-  private ceoPeers(except?: string): string[] {
-    return links(this.s.db).filter(({ record, link }) => link.kind === 'ceo' && record.id !== except).map(({ record }) => record.id);
+  /** Whether `peer` shares the plan of `login` – a login that names no plan here (one taken into this PC's own account) goes only to my own PCs. */
+  private shares(peer: string, login: Login): boolean {
+    const account = this.s.accounts.get(login.account);
+    if (account) return Boolean(planLink(this.s.db, peer, account));
+    return linkOf(new DevicesRepo(this.s.db).get(peer))?.kind === 'ceo';
+  }
+
+  /** The login here of a plan that was rejected here: asks every PC that shares it (they send theirs when it differs). */
+  private ask(account: Account): void {
+    const now = Date.now();
+    if (account.thisPcOnly || account.auth !== 'cli' || now - (this.asked.get(account.id) ?? 0) < ASK_MS) return;
+    this.asked.set(account.id, now);
+    for (const peer of planPeers(this.s.db)) {
+      if (!this.s.devices.online(peer) || !planLink(this.s.db, peer, account)) continue;
+      void this.s.devices.call(peer, 'sync.login', { logins: [], want: [account.id] })
+        .catch((error: unknown) => this.s.log.info('login not asked for', { peer, error: code(error) }));
+    }
+  }
+
+  /** `want` from a PC that shares those plans: their logins go there again (each only when it differs from what that PC has). */
+  private async answer(peer: string, ids: readonly string[]): Promise<void> {
+    const reads: Read[] = [];
+    for (const id of ids) {
+      const account = this.s.accounts.get(id);
+      const key = `${peer}/${id}`, now = Date.now();
+      if (!account || !planLink(this.s.db, peer, account) || !this.plans().some((plan) => plan.id === id) || now - (this.answered.get(key) ?? 0) < ASK_MS) continue;
+      this.answered.set(key, now);
+      this.took.delete(key); // what that PC took from here is rejected there now
+      const read = await this.local(account);
+      if (read) reads.push(read);
+    }
+    if (reads.length) await this.post(peer, reads);
   }
 
   // ---------------------------------------------------------------- sending
@@ -121,10 +174,17 @@ export class LoginSync {
   /** Watches the plans' homes and hears account changes; returns the off switch. */
   attach(): () => void {
     const offs = [
-      this.s.bus.on('account.upserted', (account) => { this.watchHomes(); this.soon(account.id); }),
+      this.s.bus.on('account.upserted', (account) => {
+        this.watchHomes(); this.soon(account.id); this.arrived(account.id);
+        // the login was rejected just now (not a network error: a login cannot help there) – a newer one may be on another PC
+        const was = this.states.get(account.id);
+        this.states.set(account.id, account.state);
+        if (account.enabled && account.state === 'needs_login' && was !== undefined && was !== 'needs_login') this.ask(account);
+      }),
       this.s.bus.on('account.removed', ({ id }) => { signedOut.clear(this.s.db, { id }); this.watchHomes(); }), // a home's mark stays: it is the login's
     ];
     this.watchHomes();
+    try { for (const account of this.s.accounts.list()) this.states.set(account.id, account.state); } catch { /* the next change tells */ }
     return () => {
       for (const off of offs) off();
       for (const { watcher } of this.watchers.values()) watcher.close();
@@ -159,19 +219,17 @@ export class LoginSync {
   private async flush(): Promise<void> {
     const ids = [...this.pending];
     this.pending.clear();
-    const logins: Login[] = [];
+    const reads: Read[] = [];
     for (const id of ids) {
       const account = this.s.accounts.get(id);
       const read = account ? await this.local(account) : undefined;
-      if (!read || this.known.get(id) === read.digest) continue;
-      this.known.set(id, read.digest);
-      logins.push(read.login);
+      if (read) reads.push(read);
     }
-    for (const peer of this.ceoPeers()) if (this.s.devices.online(peer)) await this.post(peer, logins);
+    for (const peer of planPeers(this.s.db)) if (this.s.devices.online(peer)) await this.post(peer, reads);
   }
 
   /** The login of `account` as it would travel; undefined when there is none (no file, emptied, half written, kept in the Keychain). */
-  private async read(account: Account): Promise<{ login: Login; digest: string } | undefined> {
+  private async read(account: Account): Promise<Read | undefined> {
     const home = this.homeOf(account);
     const names = account.auth === 'cli' ? loginFiles(account.provider, this.platform) : [];
     if (!home || !names.length) return undefined;
@@ -192,41 +250,45 @@ export class LoginSync {
   }
 
   /** The login here as it would travel; one that is here ends a sign-out mark (the person signed in here again). */
-  private async local(account: Account): Promise<{ login: Login; digest: string } | undefined> {
+  private async local(account: Account): Promise<Read | undefined> {
     const read = await this.read(account).catch(() => undefined);
     if (read) signedOut.clear(this.s.db, account);
     return read;
   }
 
-  private async post(peer: string, logins: Login[]): Promise<boolean> {
-    if (!logins.length) return true;
+  /** Sends `peer` each of `reads` it has not taken yet; false when the call failed (they go at the next catch-up). */
+  private async post(peer: string, reads: readonly Read[]): Promise<boolean> {
+    const fresh = reads.filter(({ login, digest }) => this.took.get(`${peer}/${login.account}`) !== digest && this.shares(peer, login));
+    if (!fresh.length) return true;
     try {
-      await this.s.devices.call(peer, 'sync.login', { logins });
+      await this.s.devices.call(peer, 'sync.login', { logins: fresh.map(({ login }) => login) });
+      for (const { login, digest } of fresh) this.took.set(`${peer}/${login.account}`, digest);
       return true;
     } catch (error) {
-      this.s.log.info('logins not sent', { peer, count: logins.length, error: code(error) });
+      this.s.log.info('logins not sent', { peer, count: fresh.length, error: code(error) });
       return false;
     }
   }
 
-  /** What the link-up owes a CEO PC: every plan's login (the other PC keeps what is newer there). */
-  async catchUp(peer: string): Promise<boolean> {
-    if (linkOf(new DevicesRepo(this.s.db).get(peer))?.kind !== 'ceo') return true;
-    const logins: Login[] = [];
+  /** What a catch-up owes a linked PC: every shared plan's login it has not taken – at a link-up (`again` false) every one (the other PC keeps what is newer there). */
+  async catchUp(peer: string, again = false): Promise<boolean> {
+    if (!linkOf(new DevicesRepo(this.s.db).get(peer))) return true;
+    if (!again) for (const key of [...this.took.keys()]) if (key.startsWith(`${peer}/`)) this.took.delete(key);
+    const reads: Read[] = [];
     for (const account of this.plans()) {
       const read = await this.local(account);
-      if (!read) continue;
-      this.known.set(account.id, read.digest);
-      logins.push(read.login);
+      if (read) reads.push(read);
     }
-    return this.post(peer, logins);
+    return this.post(peer, reads);
   }
 
   // ---------------------------------------------------------------- receiving
 
-  /** 'sync.login' from a CEO PC: each newer login is written here and passed on to the other CEO PCs. */
+  /** 'sync.login' from a PC that shares the plans: each newer login is written here and passed on to the others that share it; `want`: that PC asks for these plans' logins. */
   async receive(params: unknown, from: string): Promise<{ ok: true; applied: number }> {
-    if (linkOf(new DevicesRepo(this.s.db).get(from))?.kind !== 'ceo') throw new WorkforceError('forbidden', 'Logins come only from the CEO\'s own PCs.');
+    if (!linkOf(new DevicesRepo(this.s.db).get(from))) throw new WorkforceError('forbidden', 'Logins come only from this company\'s PCs.');
+    const want = (params as { want?: unknown } | null)?.want;
+    if (Array.isArray(want)) void this.answer(from, want.filter((id): id is string => typeof id === 'string' && id.length <= 200).slice(0, 20)).catch(() => undefined);
     const list = (params as { logins?: unknown } | null)?.logins;
     const logins = (Array.isArray(list) ? list : []).filter(valid);
     for (const key of twinKeys(logins)) this.twins.add(key);
@@ -234,27 +296,49 @@ export class LoginSync {
     for (const login of logins) {
       const key = tokenKey(login);
       if (key && this.twins.has(key)) { this.s.log.warn('one login for two plans not taken', { account: login.account }); continue; }
-      try { if (await this.inTurn(login)) applied.push(login); } catch (error) { this.s.log.warn('synced login not stored', { account: login.account, error: code(error) }); }
+      if (!this.targetOf(login, from)) { this.hold(login, from); continue; }
+      try { if (await this.inTurn(login, from)) applied.push(login); } catch (error) { this.s.log.warn('synced login not stored', { account: login.account, error: code(error) }); }
     }
-    for (const peer of this.ceoPeers(from)) if (this.s.devices.online(peer)) await this.post(peer, applied);
+    for (const peer of planPeers(this.s.db, from)) if (this.s.devices.online(peer)) await this.post(peer, applied.map(asRead));
     return { ok: true, applied: applied.length };
   }
 
-  /** The plan here a login belongs to: the same account, else the same login (provider and e-mail; any, for a CLI with one sign-in per PC). */
-  private targetOf(login: Login): Account | undefined {
-    const plans = this.s.accounts.list().filter((account) => account.auth === 'cli' && account.provider === login.provider);
-    return plans.find((account) => account.id === login.account)
-      ?? plans.find((account) => !ownHomes(account.provider) || (Boolean(login.email) && account.email === login.email));
+  /** Keeps the newest login of an account whose row is not here yet. */
+  private hold(login: Login, from: string): void {
+    const held = this.waiting.get(login.account);
+    if (!held || held.login.at < login.at) this.waiting.set(login.account, { login, from });
   }
 
-  private inTurn(login: Login): Promise<boolean> {
-    const run = this.applying.then(() => this.apply(login));
+  /** The account's row is here: the login that waited for it is taken now (and passed on like one that came with its row). */
+  private arrived(id: string): void {
+    const held = this.waiting.get(id);
+    if (!held || !this.targetOf(held.login, held.from)) return;
+    this.waiting.delete(id);
+    void this.inTurn(held.login, held.from).then(async (taken) => {
+      if (taken) for (const peer of planPeers(this.s.db, held.from)) if (this.s.devices.online(peer)) await this.post(peer, [asRead(held.login)]);
+    }).catch((error: unknown) => this.s.log.warn('synced login not stored', { account: id, error: code(error) }));
+  }
+
+  /**
+   * The plan here a login from `from` belongs to: the same account, else the same login (provider and e-mail; any, for a
+   * CLI with one sign-in per PC). From a PC that is no 'ceo' link only that very account, and only when it shares it.
+   */
+  private targetOf(login: Login, from: string): Account | undefined {
+    const plans = this.s.accounts.list().filter((account) => account.auth === 'cli' && account.provider === login.provider);
+    const same = plans.find((account) => account.id === login.account);
+    if (linkOf(new DevicesRepo(this.s.db).get(from))?.kind !== 'ceo') return same && planLink(this.s.db, from, same) ? same : undefined;
+    return same ?? plans.find((account) => !ownHomes(account.provider) || (Boolean(login.email) && account.email === login.email));
+  }
+
+  private inTurn(login: Login, from: string): Promise<boolean> {
+    const run = this.applying.then(() => this.apply(login, from));
     this.applying = run.catch(() => undefined);
     return run;
   }
 
-  private async apply(login: Login): Promise<boolean> {
-    const target = this.targetOf(login);
+  /** Writes `login` from `from` here when it is newer; what is here then is what `from` has (no echo back). */
+  private async apply(login: Login, from: string): Promise<boolean> {
+    const target = this.targetOf(login, from);
     const home = target && this.homeOf(target);
     const names = target ? loginFiles(target.provider, this.platform) : [];
     if (!target || !home || login.files[0].name !== names[0]) return false; // not here, or kept in the Keychain here
@@ -281,7 +365,7 @@ export class LoginSync {
     await mkdir(home, { recursive: true });
     for (const file of files) await this.writeWhole(path.join(home, file.name), file.bytes);
     const read = await this.read(target).catch(() => undefined);
-    if (read) this.known.set(target.id, read.digest);
+    if (read) this.took.set(`${from}/${target.id}`, read.digest);
     this.s.log.info('login taken from a linked PC', { account: target.id });
     if (!SETTLED.has(target.state)) void this.s.accounts.checkNow?.(target.id);
     return true;

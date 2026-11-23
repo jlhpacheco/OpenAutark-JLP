@@ -77,7 +77,7 @@ async function world(picks: RoutePick[]) {
   const modes = { coding: mode('coding'), chat: mode('chat') };
   Object.assign(h.services, {
     settings: { get: () => settings }, accounts, runs, secrets: { redact: (text: string) => text, use: async () => { throw new Error('no secret'); } },
-    engines: { get: (id: EngineId) => engines.get(id)!, all: () => [...engines.values()], disposeIdle: async () => {} },
+    engines: { get: (id: EngineId) => engines.get(id)!, all: () => [...engines.values()] },
     modes: { get: (key: string) => { const found = modes[key as keyof typeof modes]; if (!found) throw new Error(`unknown mode ${key}`); return found; }, list: () => Object.values(modes) },
     prompts: new PromptTemplates(() => path.join(RESOURCES, 'prompts')),
   });
@@ -121,12 +121,13 @@ test('the call sets the coming turn\'s effort: planTurn of that turn runs at it 
   const set = await w.turn();
   assert.deepEqual([set.route.modelId, set.route.effort, set.route.by, set.temperature], [SOL, 'xhigh', 'request', undefined]);
   assert.equal(set.route.reason, 'continues on my model · coding · my subconscious: a contract the customer signs');
-  assert.ok(w.decision.prompts[0].includes("The main AI's coming turn: its last turn ran on GPT-6.1 Sol at effort low; a new message of the person runs at effort high at least."), w.decision.prompts[0]);
+  assert.ok(w.decision.prompts[0].includes("The main AI's coming turn: its last turn ran on GPT-6.1 Sol at effort low."), w.decision.prompts[0]);
   assert.equal(w.decision.prompts.length, 1, 'one call, no steps');
 
-  const on = await w.turn(); // the same message is still unread: the call runs again; the person's line keeps its medium at high
-  assert.deepEqual([on.route.modelId, on.route.effort, on.route.by], [SOL, 'high', 'request']);
-  assert.equal(on.route.reason, "continues on my model · coding · my subconscious: going on with the checked clauses · a person's line · effort at least high");
+  // the same message is still unread: the call runs again; Runde „Halb“ 21.11.2026: its medium stands – no floor for a person's line
+  const on = await w.turn();
+  assert.deepEqual([on.route.modelId, on.route.effort, on.route.by], [SOL, 'medium', 'request']);
+  assert.equal(on.route.reason, 'continues on my model · coding · my subconscious: going on with the checked clauses');
   assert.ok(w.decision.prompts.at(-1)!.includes('its last turn ran on GPT-6.1 Sol at effort xhigh'), 'the next call reads what ran');
 });
 
@@ -211,7 +212,7 @@ test('the line about the coming turn: my last model and effort (any chat) and th
   });
   const ada = agent(AGENT, 'Ada', { modelPolicy: { pin: OPUS, pinBy: { name: 'Alex', at: Date.UTC(2026, 10, 8, 12) } } });
   assert.equal(turnFacts(h.services, ada, chat.id),
-    "The main AI's coming turn: its last turn ran on GPT-6.1 Sol at effort low; a new message of the person runs at effort high at least; Alex picked effort high in this chat after their newest message – what they want now.");
+    "The main AI's coming turn: its last turn ran on GPT-6.1 Sol at effort low; Alex picked effort high in this chat after their newest message – what they want now.");
   // F22 (16.11.2026): picked before their line – for it; their next line without a new pick – a value that stayed
   h.clock.advance(60_000);
   h.chats.send({ conversationId: chat.id, authorId: 'human', body: 'Schreib den Vertrag' });
@@ -220,8 +221,6 @@ test('the line about the coming turn: my last model and effort (any chat) and th
   h.chats.send({ conversationId: chat.id, authorId: 'human', body: 'Und noch die Rechnung' });
   assert.match(turnFacts(h.services, ada, chat.id), /; Alex suggested effort high in this chat earlier and left it standing – a hint from before, the work decides\.$/);
   const fresh = h.chats.create({ agentIds: [AGENT], createdBy: 'human' });
-  assert.equal(turnFacts(h.services, agent(AGENT, 'Ada'), fresh.id), "The main AI's coming turn: its last turn ran on GPT-6.1 Sol at effort low; a new message of the person runs at effort high at least.", 'one context: a fresh chat continues on my last turn');
-  // review 17.11.2026: the router raises a person's line to high (routing/router.ts) – the call reads it; a colleague's or a task's wake is not raised
-  assert.equal(turnFacts(h.services, agent(AGENT, 'Ada'), fresh.id, 'colleague'), "The main AI's coming turn: its last turn ran on GPT-6.1 Sol at effort low.");
-  assert.equal(turnFacts(h.services, agent(AGENT, 'Ada'), fresh.id, 'task'), "The main AI's coming turn: its last turn ran on GPT-6.1 Sol at effort low.");
+  // Runde „Halb“ 21.11.2026: no floor for a person's line – the line says nothing of who wrote (before: "a new message of the person runs at effort high at least")
+  assert.equal(turnFacts(h.services, agent(AGENT, 'Ada'), fresh.id), "The main AI's coming turn: its last turn ran on GPT-6.1 Sol at effort low.", 'one context: a fresh chat continues on my last turn');
 });

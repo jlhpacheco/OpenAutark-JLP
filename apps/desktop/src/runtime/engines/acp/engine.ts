@@ -29,6 +29,7 @@ import { McpProxy } from './mcp-proxy.ts';
 import { HUB } from './updates.ts';
 import { failure, runAcpTurn, type ReadFile } from './turn.ts';
 import { ERR, contextText, isRecord, str } from '../shared.ts';
+import { secureService, type SecurityLookup } from '../codex/native-gate.ts';
 
 export type { AcpLaunch } from './process.ts';
 /** The agent to start for an account (undefined = none installed for it). */
@@ -45,6 +46,8 @@ export interface AcpEngineDeps {
   readFile?: ReadFile;
   fetch?: FetchFn; // the MCP proxy's forwarder (tests)
   cancelGraceMs?: number; // how long a cancel may stay unconfirmed (default 10 s)
+  /** Sicher-Runde 19.11.2026: services.security – in Secure mode the agents' own permission requests go through its gate (permissions.ts). */
+  security?: SecurityLookup;
 }
 
 const OFFER_TTL_MS = 10 * 60_000;
@@ -83,7 +86,7 @@ export class AcpEngine implements Engine {
     try {
       return await AcpProcess.start({
         key: account.id, launch, supervisor: this.deps.supervisor, cwd: this.deps.cwd, version: this.deps.version,
-        env: this.deps.env, idleMs: this.deps.idleMs, now: this.now,
+        env: this.deps.env, idleMs: this.deps.idleMs,
         onExit: (proc) => { forget(); for (const session of proc.sessions.values()) if (session.proxyKey) this.proxy.drop(session.proxyKey); },
       });
     } catch (error) {
@@ -212,7 +215,7 @@ export class AcpEngine implements Engine {
     const { stable, volatile } = input.system;
     const context = [fresh && stable && `<my-instructions>\n${stable}\n</my-instructions>`, contextText(volatile)].filter(Boolean).join('\n\n');
     try {
-      return await runAcpTurn({ proc, session, input, context: context || undefined, readFile: this.deps.readFile ?? ((file) => fsp.readFile(file)), resumed: !fresh, cancelGraceMs: this.deps.cancelGraceMs });
+      return await runAcpTurn({ proc, session, input, context: context || undefined, readFile: this.deps.readFile ?? ((file) => fsp.readFile(file)), resumed: !fresh, cancelGraceMs: this.deps.cancelGraceMs, security: input.mcp || input.tools.length ? secureService(this.deps.security) : undefined }); // helper turns as before
     } finally {
       if (session.proxyKey) this.proxy.bind(session.proxyKey, undefined);
     }
@@ -230,14 +233,6 @@ export class AcpEngine implements Engine {
       if (proc?.running) { await proc.dispose(); ended++; }
     }
     return ended;
-  }
-
-  /** Stops agents idle for 10 min (each also self-times; this is the registry's sweep hook). */
-  async disposeIdle(now = this.now()): Promise<void> {
-    for (const pending of [...this.processes.values()]) {
-      const proc = await pending.catch(() => undefined);
-      if (proc?.running && proc.idle(now)) await proc.dispose();
-    }
   }
 
   async dispose(): Promise<void> {

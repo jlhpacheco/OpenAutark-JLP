@@ -10,7 +10,8 @@
 // Customize) appear in none. Search filters names (as the caller sees them, B-050 K2) and the rows' second lines (drafts too) locally (folded sections included)
 // and finds message text via chats.search: each hit names its sender, chat and time on a quiet
 // first line and shows the text as written around its first match (search-snippet.ts) with the
-// searched words marked; a row found by its name or last message marks them there too.
+// searched words marked; a row found by its name or last message marks them there too. A hit in a task's own thread
+// names the task and opens it (router chatRoute); no thread is ever a row (threads.ts isThread).
 // B-078: sub-chats sit under their parent (list-order.ts nestChats, one level; threads are never rows); F24 (owner
 // 16.11.2026): the person's 1:1s with sub-agents sit under their top manager's 1:1 the same way (the org's agents go
 // in). A parent starts closed (owner 16.11.: sub-agents he rarely talks to must not push the next manager down) and
@@ -39,6 +40,7 @@ import { listSection, type ListSection } from './archive.ts';
 import { ChatRow, previewText } from './ChatRow.tsx';
 import { nestChats, orderChats, type ChatNode } from './list-order.ts';
 import { hitSnippet } from './search-snippet.ts';
+import { isThread } from './threads.ts';
 
 const order = (list: ConversationSummary[]): ConversationSummary[] => orderChats(list, chatTitle);
 
@@ -168,7 +170,7 @@ export function ChatList() {
     .map((chat) => (draftMap[chat.id] && chat.id !== activeId ? { ...chat, draft: draftMap[chat.id] } : { ...chat, draft: undefined }));
   // what the row shows: its name and its second line – a draft too ("Draft: …"), not only the last message
   const matches = (chat: ConversationSummary) => !q || chatTitle(chat).toLowerCase().includes(q) || previewText(chat).toLowerCase().includes(q);
-  const section = (name: ListSection) => order(all.filter((chat) => listSection(chat) === name && !chat.settings.anchorId && matches(chat)));
+  const section = (name: ListSection) => order(all.filter((chat) => listSection(chat) === name && !isThread(chat) && matches(chat)));
   const main = section('main');
 
   return (
@@ -187,7 +189,7 @@ export function ChatList() {
           {hits.map((hit) => {
             const author = hitAuthor(hit.message);
             const known = conversationMap.value.get(hit.message.conversationId);
-            const where = known ? chatTitle(known) : hit.conversationTitle; // the name the row shows (B-050 K2)
+            const where = known && !isThread(known) ? chatTitle(known) : hit.conversationTitle; // the name the row shows (B-050 K2); a task's thread: its task's
             return (
               <button type="button" class="search-hit" key={hit.message.id}
                 onClick={() => { focusMessage.value = { conversationId: hit.message.conversationId, messageId: hit.message.id }; navigate({ view: 'chat', id: hit.message.conversationId }); }}>

@@ -4,14 +4,14 @@
 // folded text, a cancelled event) plus an Outlook event with a Windows zone name. CRLF line ends like the real ones.
 // Owns: fixtures only. Never imported by src/.
 
-import { wallToUtc } from '../../../src/runtime/calendar/sources/ics-time.ts';
+import { wallTime } from '../../../src/shared/text/when.ts';
 
 export const VIENNA = 'Europe/Vienna';
 
 /** Epoch ms of `hhmm` on `date` in Vienna. */
 export function vienna(date: string, hhmm = '00:00'): number {
   const [h, m] = hhmm.split(':').map(Number);
-  return wallToUtc(date, h * 3600 + m * 60, VIENNA);
+  return wallTime(date, h * 60 + m, VIENNA);
 }
 
 const lines = (...rows: string[]) => `${rows.join('\r\n')}\r\n`;

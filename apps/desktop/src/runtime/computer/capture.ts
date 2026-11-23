@@ -6,6 +6,7 @@
 
 import type { Host } from '../host.ts';
 import { WorkforceError } from '../../shared/errors.ts';
+import { SECRET_LABEL } from '../../shared/secrets/secret-places.ts';
 import type { Rect, ShotGeometry } from './geometry.ts';
 import type { HelperClient } from './helper.ts';
 import { isPng, pngSize, shrinkPng } from './png.ts';
@@ -35,7 +36,7 @@ export async function helperShot(helper: HelperClient, input: HelperShotInput, a
   const target = { screen: input.display, hwnd: input.window, region: input.region };
   const quality = Math.min(95, Math.max(30, Math.round(input.quality ?? 70)));
   const result = await helper.call<{ data: string; mime?: string; width: number; height: number; x: number; y: number; srcWidth: number; covered?: boolean }>('screenshot', {
-    ...target, maxEdge: input.maxEdge, quality, format: 'jpeg',
+    ...target, maxEdge: input.maxEdge, quality, format: 'jpeg', secretLabel: SECRET_LABEL.source, // 22.11.2026: card, code and password fields painted black
   }, { timeoutMs: 25_000, signal: input.signal });
   const shot: Screenshot = {
     data: new Uint8Array(Buffer.from(String(result.data ?? ''), 'base64')),

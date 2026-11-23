@@ -5,7 +5,7 @@
 // address alone (the page's title lives on its tab) and it becomes the editable field on a click (or
 // Ctrl+L, or a new tab; Omnibox.tsx, with its suggestions – the open tabs of this space and, where the frame has a global
 // pane, of global); Enter opens an address or a search, Escape puts the page's address back. On Ctrl+F
-// the same slot is the find field (FindField.tsx); on an app tab (My day, Work, Notes …) it names the kind, on a
+// the same slot is the find field (FindField.tsx); on an app tab (Tasks, Notes …) it names the kind, on a
 // file or folder tab it is the path (PathField.tsx).
 // Loading is a thin line on the row's edge. An agent's browser brings its own toolbar in this place
 // (BrowserLive.tsx).

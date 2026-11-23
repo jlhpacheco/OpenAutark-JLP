@@ -18,6 +18,7 @@ import { input, notFound, num, optBool, optNum, optText, text } from '../params.
 import { ChunkUploads, base64Length, decodeBase64, safeFileName } from '../uploads.ts';
 import type { HandlerContext, HandlerTable } from '../table.ts';
 import { onDevice, PATH_RULE } from './files-path.ts';
+import { checkNetHost } from '../../files/net-hosts.ts';
 import { needBlob } from '../../devices/sync/blobs.ts';
 
 const TODO = { capability: 'todo' } as const;
@@ -220,7 +221,10 @@ export function register(table: HandlerTable): void {
   table.add('files.openPath', async (params, ctx) => {
     const o = input(params);
     const reveal = optBool(o, 'reveal') ?? false;
-    const target = await confinedPath(ctx.services, text(o, 'path', { max: 4096 }), optBool(o, 'anywhere') ?? false);
+    const requested = text(o, 'path', { max: 4096 });
+    checkNetHost(ctx.services.db, requested); // 20.11.2026: another computer's share only once the person confirmed its host
+    const target = await confinedPath(ctx.services, requested, optBool(o, 'anywhere') ?? false);
+    checkNetHost(ctx.services.db, target); // a link on this PC that leads there
     refuseExecutable(target, reveal);
     await refuseExecutableMode(target, reveal);
     await ctx.services.host.openPath(target, reveal);

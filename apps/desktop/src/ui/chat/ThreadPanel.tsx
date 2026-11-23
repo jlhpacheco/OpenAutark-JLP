@@ -1,8 +1,10 @@
 // A thread in the chat's side panel (B-078): the message it answers as a quote line on top, then the thread's own
 // message list and composer – the same components as the chat column, for the thread's id – centred in the panel
 // like the chat column (it is a chat-column container, chat.css). Loads the thread's newest page when it opens, keeps
-// the thread's event topic subscribed while it shows and marks it read.
-// Owns: the thread panel's content. Never: the panel frame (ChatSidePanel.tsx) or what a thread is (threads.ts).
+// the thread's event topic subscribed while it shows and marks it read. Quests 20.11.2026: the same panel is a task's
+// own thread in its detail (TaskThread.tsx – no quote there, the slim composer line), with the live bar of whoever works
+// in it above the composer.
+// Owns: the thread panel's content. Never: the panel frame (ChatSidePanel.tsx, TaskThread.tsx) or what a thread is (threads.ts).
 
 import { useEffect } from 'preact/hooks';
 import { useSignal } from '@preact/signals';
@@ -12,9 +14,10 @@ import { EmptyState, Spinner } from '../lib/ui.tsx';
 import { toastError } from '../lib/toasts.ts';
 import { MessageList } from './MessageList.tsx';
 import { Composer } from './Composer.tsx';
+import { LiveBar } from './LiveBar.tsx';
 import { ReplyQuote } from './ReplyQuote.tsx';
 
-export function ThreadPanel(props: { threadId: string }) {
+export function ThreadPanel(props: { threadId: string; slim?: boolean }) {
   const { threadId } = props;
   const thread = conversationMap.value.get(threadId);
   const list = messagesFor(threadId);
@@ -49,7 +52,8 @@ export function ThreadPanel(props: { threadId: string }) {
     <section class="chat-column thread-column" aria-label="Thread">
       {parentId && anchorId && <div class="thread-anchor"><ReplyQuote conversationId={parentId} messageId={anchorId} /></div>}
       <MessageList conversationId={threadId} loading={loading.value && !list.value.length} />
-      <Composer chat={thread} />
+      <LiveBar chat={thread} />
+      <Composer chat={thread} slim={props.slim} />
     </section>
   );
 }

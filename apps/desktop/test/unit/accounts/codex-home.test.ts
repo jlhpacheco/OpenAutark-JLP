@@ -1,16 +1,16 @@
 // Every Codex account runs in a home of its own (accounts/cli-homes.ts, login-file.ts): a login found in the default home
-// (~/.codex) is copied into <accounts>/codex/<id> – never the other way, and nothing in the default home is written; an
-// account from before that ran in the default home moves once; when the copy is signed out while the default home holds a
-// newer login of the same person, the copy takes it again – never after the person signed out here.
+// (~/.codex) is copied into <accounts>/codex/<id> – never the other way, and nothing in the default home is written; when
+// the copy is signed out while the default home holds a newer login of the same person, the copy takes it again – never
+// after the person signed out here.
 // Owns: these assertions. Never touches a real home (temp folders only).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { takeLogin } from '../../../src/runtime/accounts/login-file.ts';
-import { harness, row } from './harness.ts';
+import { harness } from './harness.ts';
 
 const auth = (refresh: string, at: string, account = 'acct_A') => JSON.stringify({ tokens: { refresh_token: refresh, account_id: account }, last_refresh: at });
 
@@ -64,24 +64,6 @@ test('a Codex login found in the default home runs on a copy in a home of its ow
     assert.equal(codex.detected, true);
     assert.equal(readFileSync(path.join(codex.home!, 'auth.json'), 'utf8'), auth('r1', '2026-11-10T00:00:00Z'));
     assert.deepEqual(readdirSync(f.codex), ['auth.json']);
-  } finally {
-    f.done();
-  }
-});
-
-test('once: a Codex account from before that ran in the default home moves into a home of its own with a copy of its login', () => {
-  const f = folders();
-  try {
-    writeFileSync(path.join(f.codex, 'auth.json'), auth('r1', '2026-11-10T00:00:00Z'));
-    const first = harness({ accounts: f.accounts, homeDir: f.user });
-    first.repo.save(row('acc_old', { provider: 'codex', auth: 'cli', detected: true }));
-    first.repo.save(row('acc_claude', { provider: 'claude', auth: 'cli', detected: true }));
-    const restarted = harness({ db: first.db, accounts: f.accounts, homeDir: f.user });
-    const moved = restarted.service.get('acc_old')!;
-    assert.equal(moved.home, path.join(f.accounts, 'codex', 'acc_old'));
-    assert.equal(moved.detected, true);
-    assert.ok(existsSync(path.join(moved.home!, 'auth.json')));
-    assert.equal(restarted.service.get('acc_claude')!.home, undefined, 'only Codex moves');
   } finally {
     f.done();
   }

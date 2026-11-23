@@ -1,8 +1,9 @@
-// Owns: the team's local feedback inbox: fetch on opening or Refresh, select text and screenshot, remove a report,
+// Owns: the team's local feedback inbox: fetch on opening or Refresh, select text and images (owner 21.11.2026: every
+// image of a report, one under the other), remove a report,
 // mark one done or not relevant (feedback 16.11.2026; the runtime removes a marked report 7 days later);
 // each report's meta line starts with the same short report number its sender saw (B-085). Feedback 16.11.2026: a
 // report says where it was written (its `client` line under the meta line – inbox-text.ts), shows an attached device
-// crash report open and plays its recordings (feedback.inboxAudio, as blob URLs).
+// crash report open. Owner 20.11.2026: a report is its words (a dictated one says so in the meta line) – no recordings.
 // Never: exposes keys, polls the mailbox or renders a report as HTML. The runtime permits inbox calls only to the owner.
 
 import { signal } from '@preact/signals';
@@ -12,7 +13,6 @@ import { useContextMenu } from '../lib/context-menu.tsx';
 import { Dialog, DialogActions } from '../lib/dialog.tsx';
 import { errorText, rpc } from '../lib/rpc.ts';
 import { can, session } from '../lib/session.ts';
-import { dataUrlToBlob } from './bridge.ts';
 import { HANDLED_LABEL, fetchText, metaLine } from './inbox-text.ts';
 
 const selectedReport = signal<string | undefined>(undefined); // preserve selection across desktop/phone shell mounts
@@ -53,49 +53,22 @@ function ReportRow(props: { item: FeedbackInboxItem; selected: boolean; select: 
   );
 }
 
-function ReportScreenshot(props: { item: FeedbackInboxItem }) {
+/** One image of a report (feedback.inboxImage), loaded when the report is read. */
+function ReportImage(props: { id: string; index: number; count: number }) {
   const [image, setImage] = useState<string>();
   const [error, setError] = useState<string>();
   useEffect(() => {
     let live = true;
     setImage(undefined);
     setError(undefined);
-    if (props.item.screenshot) {
-      void rpc.call('feedback.inboxScreenshot', { id: props.item.id }).then(
-        (shot) => { if (live) setImage(`data:${shot.mime};base64,${shot.dataBase64}`); },
-        (err) => { if (live) setError(errorText(err)); },
-      );
-    }
+    void rpc.call('feedback.inboxImage', { id: props.id, index: props.index }).then(
+      (shot) => { if (live) setImage(`data:${shot.mime};base64,${shot.dataBase64}`); },
+      (err) => { if (live) setError(errorText(err)); },
+    );
     return () => { live = false; };
-  }, [props.item.id]);
-  if (!props.item.screenshot) return null;
-  return <div class="feedback-inbox-image">{image ? <img src={image} alt="Feedback screenshot" /> : <p>{error ?? 'Loading screenshot…'}</p>}</div>;
-}
-
-/** The report's recordings, one player each (blob URLs: the app's CSP plays no data: media). */
-function ReportAudio(props: { item: FeedbackInboxItem }) {
-  const takes = props.item.audio ?? [];
-  const [urls, setUrls] = useState<string[]>([]);
-  const [error, setError] = useState<string>();
-  useEffect(() => {
-    let live = true;
-    const made: string[] = [];
-    setUrls([]);
-    setError(undefined);
-    const load = (index: number) => rpc.call('feedback.inboxAudio', { id: props.item.id, index }).then((audio) => {
-      const url = URL.createObjectURL(dataUrlToBlob(`data:${audio.mime};base64,${audio.dataBase64}`));
-      if (live) made.push(url); else URL.revokeObjectURL(url);
-      return url;
-    });
-    if (takes.length) void Promise.all(takes.map((_, index) => load(index))).then((list) => { if (live) setUrls(list); }, (err) => { if (live) setError(errorText(err)); });
-    return () => { live = false; for (const url of made) URL.revokeObjectURL(url); };
-  }, [props.item.id]);
-  if (!takes.length) return null;
-  return (
-    <div class="feedback-inbox-audio" aria-label="Recordings">
-      {urls.length ? urls.map((url, index) => <audio key={url} controls preload="metadata" src={url} aria-label={`Recording ${index + 1}`} />) : <p>{error ?? 'Loading recording…'}</p>}
-    </div>
-  );
+  }, [props.id, props.index]);
+  const name = props.count > 1 ? `Feedback image ${props.index + 1} of ${props.count}` : 'Feedback image';
+  return <div class="feedback-inbox-image">{image ? <img src={image} alt={name} /> : <p>{error ?? 'Loading image…'}</p>}</div>;
 }
 
 function InboxContent() {
@@ -179,8 +152,7 @@ function InboxContent() {
             <p class="feedback-inbox-meta">{metaLine(current)}</p>
             {current.client && <p class="feedback-inbox-meta feedback-inbox-client">{current.client}</p>}
             <p class="feedback-inbox-text">{current.text}</p>
-            <ReportAudio key={`audio-${current.id}`} item={current} />
-            <ReportScreenshot key={current.id} item={current} />
+            {current.images?.map((_, index, all) => <ReportImage key={`${current.id}-${index}`} id={current.id} index={index} count={all.length} />)}
             {current.clientDiagnostics && <details open><summary>Crash report</summary><pre>{current.clientDiagnostics}</pre></details>}
             {current.diagnostics && <details><summary>Diagnostics</summary><pre>{current.diagnostics}</pre></details>}
           </> : <p class="feedback-inbox-empty">Select a report to read it.</p>}

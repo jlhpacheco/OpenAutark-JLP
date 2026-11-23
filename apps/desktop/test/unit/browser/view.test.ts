@@ -12,7 +12,7 @@ import { BrowserView, FRAME_GAP_MS, MAX_SIDE } from '../../../src/runtime/browse
 import { OFF_SCREEN, ON_SCREEN } from '../../../src/runtime/browser/launch.ts';
 import type { BrowserFrame, BrowserViewState } from '../../../src/shared/model/browser.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { cleanup, fakeBrowser, fakeSecrets, JPEG, manualTimers, recordingBus, tick, type FakeCdp } from './view-fakes.ts';
 
 after(cleanup);

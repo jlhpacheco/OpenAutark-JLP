@@ -35,7 +35,7 @@ export function mergedPhones(adb: Adb & Pick<AdbPhone, 'attached' | 'installed'>
     type: (serial, value, step) => pick(serial).type(serial, value, step),
     key: (serial, name, step) => pick(serial).key(serial, name, step),
     open: (serial, target, step) => pick(serial).open(serial, target, step),
-    say: (serial, value, ask, step) => pick(serial).say(serial, value, ask, step),
+    say: (serial, value, buttons, step) => pick(serial).say(serial, value, buttons, step),
     pair: (address, code) => adb.pair(address, code),
     connect: (address) => adb.connect(address),
     disconnect: (serial) => adb.disconnect(serial),

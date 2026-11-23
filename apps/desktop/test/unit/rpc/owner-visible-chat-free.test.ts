@@ -1,6 +1,6 @@
 // B-054 RPC (handlers/tasks.ts, task-links.ts): a task without a chat – tasks.create without conversationId makes one
 // (a client cannot send an origin); the owner and her phones list, open and change it. The owner sees every task, the
-// people's own chats included. tasks.share posts a live reference and refuses "Only me" tasks and archived chats.
+// people's own chats included. tasks.share posts a live reference ("Only me" ones too) and refuses archived chats.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -47,12 +47,12 @@ test('tasks.share posts a reference and never moves the task into the chat', asy
   assert.equal(f.tasks.get(task.id)?.conversationId, undefined, 'sharing never moves the task into the chat');
 });
 
-test('tasks.share refuses "Only me" tasks and archived or unknown chats', async (t) => {
+test('tasks.share shares an "Only me" task like any other (it hides nothing); refuses archived or unknown chats', async (t) => {
   const f = setup();
   t.after(f.cleanup);
-  const task = f.tasks.create({ title: 'Private errand', assigneeKind: 'human', createdBy: 'human' });
+  const task = f.tasks.create({ title: 'My own errand', assigneeKind: 'human', createdBy: 'human' });
   f.db.run('UPDATE tasks SET private = 1 WHERE id = ?', [task.id]);
-  assert.equal((await f.owner.request('tasks.share', { id: task.id, conversationId: f.chat.id })).error?.code, 'bad_request', '"Only me"');
+  assert.equal((await f.owner.request('tasks.share', { id: task.id, conversationId: f.chat.id })).error, undefined, '"Only me" is shared');
   const open = f.tasks.create({ title: 'Book the venue', assigneeKind: 'agent', assigneeId: 'ag_ava', createdBy: 'human' });
   const archived = f.chats.create({ agentIds: ['ag_ava'], createdBy: 'human' });
   f.chats.archive(archived.id);

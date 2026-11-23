@@ -1,6 +1,7 @@
 // KI-Runde 17.11.2026 – the ledger's side of the context fold (context/ledger/service.ts fold and lines, capture.ts, store.ts): a
 // run's 'Hand-over' note becomes a checkpoint item; fold() pins it for good and hides everything of the agent's own work before
-// it by 'fold' – the chat lines, the words the agent posted in a chat, the tasks.finish calls since the hand-over before it and
+// it by 'fold' – the chat lines, the words the agent posted in a chat, the tasks.update calls that finished a task (Quests round
+// 20.11.2026: status done or dropped in their arguments) since the hand-over before it and
 // what the agent brought back stay; a hidden item comes back through context.restore like any other; a checkpoint is never
 // condensed or hidden by a mark and takes none of the room the agent keeps things in; a later fold takes the earlier hand-over
 // out of view, and with it the finishes that hand-over already covers.
@@ -20,7 +21,7 @@ function handOver(t: Setup, runId: string, text: string): void {
   t.journal.item(runId, { kind: 'note', name: 'Hand-over', data: { checkpoint: true, text }, effectStatus: 'none' });
 }
 
-test('fold: the hand-over is pinned for good and my own work before it is hidden by fold – lines, tasks.finish calls and pins stay', async () => {
+test('fold: the hand-over is pinned for good and my own work before it is hidden by fold – lines, finishing tasks.update calls and pins stay', async () => {
   const t = ledgerSetup();
   try {
     const line = t.say('Please build the export');
@@ -32,7 +33,8 @@ test('fold: the hand-over is pinned for good and my own work before it is hidden
     t.journal.item(work, { kind: 'note', name: 'Update', data: { text: 'I write the header first.', commentary: true }, effectStatus: 'none' });
     t.ourCall(work, 'files.read', { path: 'inner.txt' }, 'inner', 'exec-1a2b3c4d'); // a call inside a script: nested
     t.ourCall(work, 'files.read', { path: 'keep.md' }, 'what I brought back', 'c4');
-    t.ourCall(work, 'tasks.finish', { id: 'tsk_1', summary: 'Export written: 2 rows' }, 'Task done.', 'c5');
+    t.ourCall(work, 'tasks.update', { id: 'tsk_1', notes: 'The header row first.' }, 'ok', 'c6'); // an update that ends nothing is work like any other
+    t.ourCall(work, 'tasks.update', { id: 'tsk_1', status: 'done', result: 'Export written: 2 rows' }, 'Task done.', 'c5');
     t.journal.item(work, { kind: 'note', name: 'Answer', data: { answer: true, text: 'The export is written.', visibility: 'internal' }, effectStatus: 'none' });
     t.done(work);
     await t.journal.settled();
@@ -56,11 +58,11 @@ test('fold: the hand-over is pinned for good and my own work before it is hidden
     assert.equal(checkpoint.pinnedUntil, KEEP_PIN, 'pinned for good');
     const shown = items.filter((item) => item.state !== 'hidden').map((item) => `${item.kind}:${item.title.slice(0, 22)}`);
     assert.deepEqual(shown, [
-      'message:Please build the expor', 'file:File keep.md', 'tool:tasks.finish: tasks.fi', 'checkpoint:I built the export for',
+      'message:Please build the expor', 'file:File keep.md', 'tool:tasks.update: tasks.up', 'checkpoint:I built the export for',
     ].map((entry) => entry), JSON.stringify(shown));
     const hidden = items.filter((item) => item.state === 'hidden');
     assert.equal(result.hidden, hidden.length);
-    assert.deepEqual(hidden.map((item) => item.kind).sort(), ['assistant', 'assistant', 'file', 'file', 'reasoning', 'reasoning', 'skill', 'tool'], 'the shell call, the file read, the inner call of a script, the skill, both thoughts, my update and my closing words');
+    assert.deepEqual(hidden.map((item) => item.kind).sort(), ['assistant', 'assistant', 'file', 'file', 'reasoning', 'reasoning', 'skill', 'tool', 'tool'], 'the shell call, the file read, the inner call of a script, the skill, both thoughts, my update, the tasks.update that ended nothing and my closing words');
     assert.ok(hidden.every((item) => item.markedBy === 'fold' && item.markReason === FOLD_REASON));
     assert.ok(Object.keys(ids()).length > 0);
 
@@ -85,7 +87,7 @@ test('what a fold leaves: my words posted in a chat, and the finishes since my l
   try {
     const line = t.say('Please build the export');
     const first = t.turn(line.seq);
-    t.ourCall(first, 'tasks.finish', { id: 'tsk_export', summary: 'Export written: 2 rows' }, 'Task done.', 'c1');
+    t.ourCall(first, 'tasks.update', { id: 'tsk_export', status: 'done', result: 'Export written: 2 rows' }, 'Task done.', 'c1');
     t.journal.item(first, { kind: 'note', name: 'Answer', data: { answer: true, text: 'The export is written.', visibility: 'notify', messageId: 'msg_1' }, effectStatus: 'none' });
     t.journal.item(first, { kind: 'note', name: 'Answer', data: { answer: true, text: 'A note to myself, posted nowhere.', visibility: 'internal' }, effectStatus: 'none' });
     t.done(first);
@@ -101,19 +103,19 @@ test('what a fold leaves: my words posted in a chat, and the finishes since my l
     };
     assert.deepEqual(state('The export is written'), ['keep', 'assistant'], 'my own line in the chat stays in view, like the others\' lines');
     assert.deepEqual(state('A note to myself'), ['hidden', 'assistant'], 'words that reached no chat are work before the hand-over');
-    assert.deepEqual(state('tasks.finish'), ['keep', 'tool'], 'the finish since my last hand-over stays');
+    assert.deepEqual(state('tasks.update'), ['keep', 'tool'], 'the finish since my last hand-over stays');
     assert.deepEqual(t.ledger.lines(t.tom.id, 'main').map((item) => item.kind), ['message', 'assistant'], 'the chat lines of the thread: the person\'s and my posted words');
 
     // a second piece of work with its own finish, then the next hand-over
     const second = t.turn();
-    t.ourCall(second, 'tasks.finish', { id: 'tsk_import', summary: 'Import read back: 2 rows' }, 'Task done.', 'c2');
+    t.ourCall(second, 'tasks.update', { id: 'tsk_import', status: 'dropped', result: 'Import read back: 2 rows' }, 'Task done.', 'c2');
     t.done(second);
     await t.journal.settled();
     const foldTwo = t.turn();
     handOver(t, foldTwo, 'The export and the import are both done; out/export.csv holds 2 rows. Next: the weekly report.');
     await t.journal.settled();
     t.ledger.fold(t.tom.id, 'main', foldTwo);
-    const finishes = t.ledger.items(t.tom.id, 'main').filter((item) => item.title.startsWith('tasks.finish'));
+    const finishes = t.ledger.items(t.tom.id, 'main').filter((item) => item.title.startsWith('tasks.update'));
     assert.deepEqual(finishes.map((item) => [JSON.stringify(t.ledger.original(t.tom.id, 'main', item.itemId)?.args).includes('tsk_import'), item.state]),
       [[false, 'hidden'], [true, 'keep']], 'the export\'s finish is one line in the first hand-over now; the import\'s stays');
     assert.equal(t.ledger.items(t.tom.id, 'main').find((item) => item.title.includes('The export is written'))!.state, 'keep', 'my posted line still follows the chat lines\' reach, not the fold');

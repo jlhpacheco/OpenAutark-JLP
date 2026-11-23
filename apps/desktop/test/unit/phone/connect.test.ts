@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AdbPhone, sdkCandidates, type ExecResult } from '../../../src/runtime/phone/adb.ts';
 import { isWireless, notConnected, parseAddress, parseCode, parseMdns, pairThenConnect } from '../../../src/runtime/phone/connect.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import { MDNS, fakeAdb, out } from './fakes.ts';
 

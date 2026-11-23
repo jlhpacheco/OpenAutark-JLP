@@ -18,9 +18,9 @@ import { mediaSetup } from './setup.ts';
 
 const F = '```';
 
-function workspaceWith(files: string[]) {
+function workspaceWith(files: string[], name = 'workspace') {
   const temp = tempDir();
-  const workspace = path.join(temp.dir, 'workspace');
+  const workspace = path.join(temp.dir, name);
   for (const file of files) {
     mkdirSync(path.dirname(path.join(workspace, file)), { recursive: true });
     writeFileSync(path.join(workspace, file), 'x');
@@ -29,7 +29,7 @@ function workspaceWith(files: string[]) {
 }
 
 test('link targets and code spans that exist under the workspace become absolute; the rest stays as written', async () => {
-  const w = workspaceWith(['versand/x.md', 'notes.md', 'a b/c.md']);
+  const w = workspaceWith(['versand/x.md', 'notes.md', 'a b/c.md'], 'workspace with spaces');
   try {
     const body = [
       'See [Bericht](versand/x.md) and `versand/x.md`, [notes](notes.md#part-2) and `a b/c.md`.',
@@ -39,7 +39,7 @@ test('link targets and code spans that exist under the workspace become absolute
     ].join('\n');
     assert.equal(hasRelativePaths(body), true);
     const out = absolutePaths(w.workspace, body).split('\n');
-    assert.equal(out[0], `See [Bericht](${w.at('versand/x.md')}) and \`${w.at('versand/x.md')}\`, [notes](${w.at('notes.md')}#part-2) and \`${w.at('a b/c.md')}\`.`);
+    assert.equal(out[0], `See [Bericht](<${w.at('versand/x.md')}>) and \`${w.at('versand/x.md')}\`, [notes](<${w.at('notes.md')}#part-2>) and \`${w.at('a b/c.md')}\`.`);
     assert.equal(out[1], body.split('\n')[1], 'a missing path, a URL and an absolute path stay');
     assert.equal(out[2], body.split('\n')[2], 'patterns and a span without a separator stay');
     assert.deepEqual(out.slice(3), [F, 'cat versand/x.md `versand/x.md`', F], 'a fence stays as written');

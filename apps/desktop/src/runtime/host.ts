@@ -28,8 +28,9 @@ export interface HostMedia {
    * B-058 G10: a stored image (JPEG, PNG, WebP, GIF, BMP, AVIF, ICO, SVG; EXIF rotation applied) as JPEG/PNG
    * ≤ maxPx on its longest edge (IMAGE_LIMITS; never scaled up, except SVG), optionally a region (fractions
    * 0..1). Missing on hosts without app windows; rejects with a user-safe WorkforceError (HEIC/TIFF not supported).
+   * 21.11.2026: `cover` (fractions of the whole image) painted solid black, `maxBytes` below IMAGE_LIMITS.maxBytes.
    */
-  image?(input: { fileId: string; mime?: string; maxPx?: number; region?: ImageRegion }): Promise<NormalizedImage>;
+  image?(input: { fileId: string; mime?: string; maxPx?: number; region?: ImageRegion; cover?: ImageRegion[]; maxBytes?: number }): Promise<NormalizedImage>;
   /**
    * 17.11.2026 (task_d4pdwppg): a light copy of a stored video (blob id) – H.264 in MP4 with its index in front, short edge ≤ 720 px, ≈ 2.5 Mbit/s
    * (shared/model/video-preview.ts) – written by main's hidden preview window to a temp file of main's own; the caller stores it and removes the
@@ -64,16 +65,6 @@ export interface Host {
     input(args: HostOps['sideInput']['args']): Promise<HostOps['sideInput']['result']>;
     nav(args: HostOps['sideNav']['args']): Promise<HostOps['sideNav']['result']>;
   };
-  /**
-   * Owner 07.11.2026: a dictation sent to the Codex plan's voice over WebRTC (host ops voice.rtc*, main/voice-rtc.ts; used by
-   * voice/codex-hear.ts). offer: the take decoded and an SDP offer; answer: the server's SDP – resolves once the take was sent in
-   * real time; close: ends the job. Missing on hosts without app windows (no WebRTC in Node).
-   */
-  voiceRtc?: {
-    offer(args: HostOps['voice.rtcOffer']['args']): Promise<HostOps['voice.rtcOffer']['result']>;
-    answer(args: HostOps['voice.rtcAnswer']['args']): Promise<HostOps['voice.rtcAnswer']['result']>;
-    close(args: HostOps['voice.rtcClose']['args']): Promise<HostOps['voice.rtcClose']['result']>;
-  };
   /** Called by the host on resume/suspend/lock/unlock so timers can re-arm, and (B-044) 'online' when the app window's network came back. */
   onPower(listener: (event: PowerEvent) => void): () => void;
   /** Seconds since last user input on this machine (human-presence for computer use). */
@@ -96,8 +87,8 @@ export interface Host {
    * Missing on hosts without the app (headless: the person or the service manager installs there).
    */
   install?(installer: string): Promise<void>;
-  /** 19.11.2026 (system.update): this PC's Update button – check the official feed, download and install. Missing headless. */
-  update?(): Promise<void>;
+  /** 19.11.2026 (system.update): this PC's Update button – check the official feed, download and install; E4: the updater's verdict. Missing headless. */
+  update?(): Promise<import('../shared/model/devices.ts').UpdateAnswer>;
   /** B-072: opens a company on this PC (main/companies.ts): its window opens, this one goes to the tray. Missing headless. */
   openCompany?(input: { id?: string | null; create?: boolean; start?: CompanyStart }): Promise<{ ok: true; id: string | null }>;
   /** 16.11.2026: takes a company off this PC (main/company-remove.ts): it stops and its folder goes to the recycle bin. Missing headless. */

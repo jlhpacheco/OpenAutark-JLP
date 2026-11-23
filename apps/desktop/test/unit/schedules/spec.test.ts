@@ -4,7 +4,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { firesBetween, localParts, nextFire, validateSpec } from '../../../src/runtime/schedules/spec.ts';
+import { firesBetween, nextFire, validateSpec } from '../../../src/runtime/schedules/spec.ts';
+import { wallOf } from '../../../src/shared/text/when.ts';
 
 const H = 3_600_000;
 const D = 24 * H;
@@ -71,7 +72,7 @@ test('DST: a daily local time fires exactly once per day, at the right local hou
   // Spring (2026-03-29: 02:00 CET → 03:00 CEST): 02:30 does not exist; it fires once, an hour later.
   const spring = firesBetween({ cron: '30 2 * * *', tz }, Date.UTC(2026, 2, 28, 12), Date.UTC(2026, 2, 30, 12));
   assert.deepEqual(iso(spring), ['2026-03-29T01:30:00.000Z', '2026-03-30T00:30:00.000Z']);
-  assert.deepEqual(spring.map(t => localParts(t, tz).date), ['2026-03-29', '2026-03-30']);
+  assert.deepEqual(spring.map(t => wallOf(t, tz).date), ['2026-03-29', '2026-03-30']);
   // New York (2026-11-01 fall back): 09:00 local moves from 13:00Z to 14:00Z.
   assert.deepEqual(iso(firesBetween({ cron: '0 9 * * *', tz: 'America/New_York' }, Date.UTC(2026, 9, 31, 0), Date.UTC(2026, 10, 2, 0))), [
     '2026-10-31T13:00:00.000Z', '2026-11-01T14:00:00.000Z',
@@ -80,7 +81,7 @@ test('DST: a daily local time fires exactly once per day, at the right local hou
 
 test('DST: an hourly local cron never fires twice for the repeated hour', () => {
   const fires = firesBetween({ cron: '0 * * * *', tz: 'Europe/Berlin' }, Date.UTC(2026, 9, 24, 23, 30), Date.UTC(2026, 9, 25, 3, 30));
-  const local = fires.map(t => localParts(t, 'Europe/Berlin'));
+  const local = fires.map(t => wallOf(t, 'Europe/Berlin'));
   assert.equal(new Set(local.map(l => `${l.date} ${l.minutes}`)).size, fires.length, 'each local wall time at most once');
   assert.ok(fires.every((t, i) => i === 0 || t > fires[i - 1]));
 });
@@ -131,10 +132,4 @@ test('firesBetween: (from, to], ordered, capped by limit', () => {
   assert.deepEqual(firesBetween(spec, T0, T0 + 3 * H), [T0 + H, T0 + 2 * H, T0 + 3 * H]);
   assert.deepEqual(firesBetween(spec, T0 - 1, T0 + 100 * H, 5), [T0, T0 + H, T0 + 2 * H, T0 + 3 * H, T0 + 4 * H]);
   assert.deepEqual(firesBetween({ at: T0 }, T0, T0 + D), []);
-});
-
-test('localParts: date and minute of day in a zone (midnight is 0, not 24)', () => {
-  assert.deepEqual(localParts(Date.UTC(2026, 9, 24, 22, 0), 'Europe/Berlin'), { date: '2026-10-25', minutes: 0 });
-  assert.deepEqual(localParts(Date.UTC(2026, 9, 24, 22, 0), 'UTC'), { date: '2026-10-24', minutes: 22 * 60 });
-  assert.deepEqual(localParts(Date.UTC(2026, 9, 25, 23, 59), 'Europe/Berlin'), { date: '2026-10-26', minutes: 59 });
 });

@@ -15,9 +15,11 @@ import type { ClientScope, RpcResponse } from '../../../src/shared/api/protocol.
 import type { PwaApi } from '../../../src/runtime/rpc/extras.ts';
 import { ManualClock, memoryDb, silentLog } from '../devices/fakes.ts';
 
-export const LAUNCH_TOKEN = 'launch-token-0123456789abcdefghijkl';
-export const DEVICE_TOKEN = 'device-token-0123456789abcdefghijkl';
-export const REMOVED_TOKEN = 'removed-token-0123456789abcdefghijk';
+export const LAUNCH_TOKEN = 'fixture-launch-token-00000000000000';
+/** FX1: the in-memory person token (owner scope marked `person`). */
+export const PERSON_TOKEN = 'fixture-person-token-00000000000000';
+export const DEVICE_TOKEN = 'fixture-device-token-00000000000000';
+export const REMOVED_TOKEN = 'fixture-removed-token-0000000000000';
 export const BLOB_ID = 'a'.repeat(64);
 export const BLOB_TEXT = '0123456789abcdefghijklmnopqrstuvwxyz';
 export const MESSAGE_ID = 'msg_01jab3k9z7mx2c4q';
@@ -118,6 +120,7 @@ export function fixture(options: { port?: number; pwaEnabled?: boolean; bindHost
     mesh,
     staticDir: ui,
     launchToken: LAUNCH_TOKEN,
+    personToken: PERSON_TOKEN,
     bind: () => ({ host: options.bindHost ?? '127.0.0.1', port: options.port ?? 0 }),
     allowedHosts: options.allowedHosts,
     log: options.log ?? silentLog,

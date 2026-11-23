@@ -74,6 +74,8 @@ export interface TurnRequest {
   /** B-054 fix: the note of the outside event that origin came from (WakeGroup.originNote). */
   originNote?: string;
   notes: Array<{ text: string; at: number; reason?: WakeReason }>;
+  /** Runde „Halb“ 21.11.2026: other chats due at the turn's start, riding along – their notes; their unseen lines come with them (agents/turn-riders.ts). */
+  riders?: Array<{ conversationId: string; notes: Array<{ text: string; at: number; reason?: WakeReason }> }>;
   /** An earlier attempt in this same run failed; the next input can explain its retry. */
   interruption?: { at: number; reason: string };
   signal: AbortSignal;

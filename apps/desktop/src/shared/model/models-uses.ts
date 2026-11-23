@@ -4,15 +4,15 @@
 // models.uses), or a model of any connection. Work = every agent turn (a model id, or a plan's
 // provider id such as "codex" = that plan's best model for each turn); Decisions = small fast calls (choices,
 // sorting, summaries, compaction); Voice = realtime conversations; stt … sound = the media functions ("off" turns
-// one off; tts "local" = the local voice, image "codex" = the ChatGPT plan); Embeddings = what vector.embed and vector.search embed with ("off" turns them off, "local" = this PC's small model). What a use resolves to is the runtime's job (routing/pins.ts, models/functions.ts, calls/realtime, models/uses.ts says it).
-// Also the one-time move of the older keys (functions.<fn>, decisionModel, helper, workPlan, voice.realtimeModel) into
-// the uses – settings.json's read applies it once (settings/read.ts), and every reader of a use goes through it, so an
-// older object reads the same.
-// Owns: the list, its labels and texts, which models serve which use, and that move. Never: reads settings or the
-// catalog itself, or decides a route.
+// one off; tts "local" = the local voice, image "codex" = the ChatGPT plan; stt "auto" and "codex" = the ChatGPT plan's
+// dictation first while its login is here, "local" = this PC's model first – 21.11.2026); Embeddings = what vector.embed and vector.search embed with ("off" turns them off, "local" = this PC's small model). What a use resolves to is the runtime's job (routing/pins.ts, models/functions.ts, calls/realtime, models/uses.ts says it).
+// Owns: the list, its labels and texts, which models serve which use and the one mapping of a use's value onto settings
+// (useWrite). Never: reads settings or the catalog itself, or decides a route.
 
 import type { AbilityAction, AbilityState } from './abilities.ts';
+import type { LocalSpeechOffer } from './local-speech-models.ts';
 import type { ModelInfo, ProviderId } from './providers.ts';
+import type { RoutingSettings, VoiceSettings } from './system.ts';
 
 export const MODEL_USES = ['work', 'decision', 'voice', 'stt', 'tts', 'image', 'video', 'music', 'sound', 'embeddings'] as const;
 export type ModelUse = (typeof MODEL_USES)[number];
@@ -25,6 +25,25 @@ export const USE_OFF = 'off';
 export const USE_LOCAL = 'local';
 /** The stored value that names a kind's free route (media/generate-route.ts). */
 export const FREE_ROUTE_CHOICE = { speech: USE_LOCAL, image: 'codex' } as const;
+/** routing.stt: the ChatGPT plan's dictation (voice/plan-transcribe.ts) – also what "auto" takes first while a plan login is here. */
+export const PLAN_DICTATION = 'codex';
+export const PLAN_DICTATION_NAME = 'ChatGPT dictation';
+
+/** The plan writes a dictation down first: nothing picked, or the plan picked ("local" or a model: that one first). */
+export function planHears(routing: unknown): boolean {
+  const value = useValue(routing, 'stt');
+  return value === USE_AUTO || value === PLAN_DICTATION;
+}
+
+/** One value a use can take, for the AI (models.uses `choices`; models.setUse takes `value`) and the fit hints in Settings. */
+export interface UseChoice {
+  value: string;
+  label: string;
+  /** A local model: how it fits this PC (local-speech-models.ts memoryFit). */
+  fit?: 'good' | 'tight' | 'too-big';
+  /** One short fact: "on this PC", "650 MB download", the account. */
+  note?: string;
+}
 
 /**
  * What a use resolves to right now (models.uses, runtime/models/uses.ts) – what Settings' selects show.
@@ -51,6 +70,8 @@ export interface UseNow {
   gone?: string;
   /** This PC can run a model for this use. */
   thisPc?: boolean;
+  /** The values this use can take now (runtime/models/use-choices.ts). */
+  choices?: UseChoice[];
 }
 
 /** Uses that can be turned off (the media functions, embeddings). */
@@ -65,9 +86,9 @@ export const USE_LABELS: Readonly<Record<ModelUse, string>> = {
 export const USE_ABOUT: Readonly<Record<ModelUse, string>> = {
   work: 'Every agent turn – a chat\'s or an agent\'s own model choice comes first',
   decision: 'Small fast calls: choices, sorting, summaries, compaction',
-  voice: 'Talking in a call: a real-time model (OpenAI or Google key), or this PC\'s speech (voice.realtime "off")',
-  stt: 'Turns speech into text (this PC\'s speech model comes first)',
-  tts: 'Reads text aloud',
+  voice: 'The live spoken call with an agent: a real-time model, or this PC hearing with Speech to text and speaking with Text to speech',
+  stt: 'Dictation and call transcripts',
+  tts: 'The voice that reads replies aloud',
   image: 'Makes images',
   video: 'Makes videos',
   music: 'Makes music and songs',
@@ -78,50 +99,51 @@ export const USE_ABOUT: Readonly<Record<ModelUse, string>> = {
 /** The uses as stored (settings.json routing.<use>). */
 export type ModelUses = Record<ModelUse, string>;
 
-type Plain = Record<string, unknown>;
-const isPlain = (value: unknown): value is Plain => typeof value === 'object' && value !== null && !Array.isArray(value);
-const filled = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() ? value.trim() : undefined);
-/** A stored choice that names a model (not "auto" or the older helper default "subscription"). */
-const named = (value: unknown): string | undefined => {
-  const text = filled(value);
-  return text && text !== USE_AUTO && text !== 'subscription' ? text : undefined;
-};
-
-/** Keys of the Models section before the uses (moved once, then gone). */
-const OLD_KEYS = ['functions', 'decisionModel', 'helper', 'workPlan'] as const;
-
-/**
- * The Models section with the older keys moved into the uses: functions.chat → work, workPlan (a plan's provider id)
- * → work, decisionModel / helper (a model id) / functions.compaction → decision, functions.<media> → that use,
- * `realtimeModel` (voice.realtimeModel, "<accountId>:<model>") → voice. A use already set wins; the older keys go.
- * Anything else stays as it is (the settings reader drops what it does not know). Pure; the same object again when
- * there was nothing to move.
- */
-export function migrateRouting(routing: unknown, realtimeModel?: unknown): Plain {
-  const section: Plain = isPlain(routing) ? routing : {};
-  const voice = filled(realtimeModel);
-  if (!OLD_KEYS.some((key) => key in section) && !voice) return section;
-  const out: Plain = { ...section };
-  for (const key of OLD_KEYS) delete out[key];
-  const functions = isPlain(section.functions) ? section.functions : {};
-  const plan = filled(section.workPlan);
-  const moved: Partial<Record<ModelUse, string | undefined>> = {
-    work: named(functions.chat) ?? (plan && plan !== 'none' ? plan : undefined),
-    decision: named(section.decisionModel) ?? named(section.helper) ?? named(functions.compaction),
-    voice,
-    stt: filled(functions.stt), tts: filled(functions.tts), image: filled(functions.image),
-    video: filled(functions.video), music: filled(functions.music), sound: filled(functions.sound),
-  };
-  for (const use of MODEL_USES) {
-    const value = moved[use];
-    if (value && !named(out[use]) && !(OFFABLE_USES.has(use) && filled(out[use]) === USE_OFF)) out[use] = value;
-  }
-  return out;
+/** The settings change one value of a use makes (routing.<use>, for speech and voice also the voice keys; a local model not on this PC yet: its download). */
+export interface UseWrite {
+  routing?: Partial<RoutingSettings>;
+  voice?: Partial<VoiceSettings>;
+  /** A local model that has to come to this PC first (the download chooses it). */
+  download?: string;
 }
 
-/** The stored value of a use: "auto", "off" or a model (or plan) id; an older object reads through migrateRouting. */
+/** This PC's local speech model `offer` for stt or tts: chosen when it is here, else fetched first. */
+function localWrite(use: 'stt' | 'tts', offer: Pick<LocalSpeechOffer, 'id' | 'installed'> | undefined): UseWrite {
+  const routing: Partial<RoutingSettings> = { [use]: USE_LOCAL };
+  if (!offer) return { routing };
+  if (!offer.installed) return { routing, download: offer.id };
+  return { routing, voice: use === 'stt' ? { localStt: offer.id } : { localTts: offer.id } };
+}
+
+/**
+ * The one mapping of a use's value onto settings (Settings' selects and models.setUse): "auto", "off" (the offable uses),
+ * "local" (this PC: tts, embeddings, voice = a call on this PC's speech), a local speech model's id (stt, tts – and voice:
+ * the model a call on this PC hears with), "codex" (stt: the ChatGPT plan's dictation; work and image: that plan), else a
+ * model id. Speech to text on another model than this PC's forgets the local choice, so that one does not come first.
+ */
+export function useWrite(use: ModelUse, value: string, offers: readonly Pick<LocalSpeechOffer, 'id' | 'purpose' | 'installed'>[]): UseWrite {
+  const offer = offers.find((entry) => entry.id === value && (entry.purpose === use || (use === 'voice' && entry.purpose === 'stt')));
+  if (use === 'voice') {
+    if (value === USE_AUTO) return { routing: { voice: USE_AUTO }, voice: { realtime: 'auto' } };
+    if (value === USE_LOCAL) return { voice: { realtime: 'off' } };
+    if (offer || value === PLAN_DICTATION) {
+      const hear = useWrite('stt', value, offers);
+      return { ...hear, voice: { ...hear.voice, realtime: 'off' } };
+    }
+    return { routing: { voice: value }, voice: { realtime: 'auto' } };
+  }
+  if (use === 'stt' || use === 'tts') {
+    if (offer || value === USE_LOCAL) return localWrite(use, offer);
+    if (use === 'stt' && value !== USE_AUTO && value !== PLAN_DICTATION) return { routing: { stt: value }, voice: { localStt: '' } };
+  }
+  return { routing: { [use]: value } };
+}
+
+const filled = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() ? value.trim() : undefined);
+
+/** The stored value of a use: "auto", "off" or a model (or plan) id. */
 export function useValue(routing: unknown, use: ModelUse): string {
-  const value = filled(migrateRouting(routing)[use]);
+  const value = filled(typeof routing === 'object' && routing !== null ? (routing as Record<string, unknown>)[use] : undefined);
   if (!value || (value === USE_OFF && !OFFABLE_USES.has(use))) return USE_AUTO;
   return value;
 }

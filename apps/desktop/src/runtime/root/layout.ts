@@ -6,6 +6,7 @@
 // Owns: these names and the path split. Never: reads or writes files, decides what an entry holds.
 
 import { AGENT_CORE_DIR } from '../../shared/model/agent-core.ts';
+import { SECURITY_DIR } from '../../shared/model/security-settings.ts';
 
 /** Generated map of the folder: every entry, what it does and how to change it. */
 export const ROOT_README = 'README.md';
@@ -19,6 +20,8 @@ export const ROOT_PROMPTS = 'prompts';
 export const ROOT_MODES = 'modes';
 /** <id>.md secret metadata (never a value or a hash). */
 export const ROOT_SECRETS = 'secrets';
+/** <mode>/<topic>.md: the security mode's texts for the team (runtime/security/topics.ts, owner 19.11.2026). */
+export const ROOT_SECURITY = SECURITY_DIR;
 /** The tabs of the global pane and of each chat's area above its messages, websites and panels (main/workspace-tabs.ts owns the file). */
 export const ROOT_SIDE_TABS = 'side-tabs.json';
 /** The person's browsing history (main/workspace-history.ts owns the file). */
@@ -36,7 +39,7 @@ export const ROOT_CONNECTORS = 'connectors';
 export const ROOT_CHATS = 'chats';
 
 /** Every documented entry, in the order the README map lists them. */
-export const ROOT_ENTRIES: readonly string[] = [ROOT_README, ROOT_SETTINGS, ROOT_AGENTS, ROOT_PROMPTS, ROOT_MODES, ROOT_SECRETS, ROOT_CONNECTORS, ROOT_THEME, ROOT_PAGES, ROOT_SIDE_TABS, ROOT_BROWSER_HISTORY, ROOT_BROWSER_ZOOM];
+export const ROOT_ENTRIES: readonly string[] = [ROOT_README, ROOT_SETTINGS, ROOT_AGENTS, ROOT_PROMPTS, ROOT_MODES, ROOT_SECRETS, ROOT_SECURITY, ROOT_CONNECTORS, ROOT_THEME, ROOT_PAGES, ROOT_SIDE_TABS, ROOT_BROWSER_HISTORY, ROOT_BROWSER_ZOOM];
 
 /** App-managed entries: never reported, never registered ('db' = workforce.db and its journal files). */
 export const EXCLUDED: ReadonlySet<string> = new Set([

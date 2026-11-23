@@ -2,7 +2,7 @@
 // shared/model/side-browser.ts). The person works there with the AI all day, so an agent works like a careful colleague:
 // it reads the page as an accessibility snapshot and then only what changed, finds elements by words, acts in batches
 // that stop at the first failure, debugs with console, network and eval, and waits on page events. Its mouse moves along
-// the shared motion model and always travels here – a glide, a hand when the call asks for one, never a jump (B-081), so the
+// the shared motion model and travels here like a hand unless the call passes glide or instant (21.11.2026), so the
 // person sees where it goes – and its named cursor (shared/model/agent-cursor.ts, leaning) is drawn in the page.
 // The person goes first: a step within 2 s of their input in that tab is refused (personActive); a page showing a human check says so (humanCheck). A tab an agent opens
 // carries the agent and its chat; without newTab it is the agent's preview tab there until the person's click or key in
@@ -17,7 +17,7 @@
 
 import { GLOBAL_SPACE, browserUrl } from '../../shared/api/workspace-browser.ts';
 import { cursorColor, tilted } from '../../shared/model/agent-cursor.ts';
-import { thinSteps, type MotionStep } from '../../shared/model/pointer-motion.ts';
+import { DEFAULT_MOTION, thinSteps, type MotionStep } from '../../shared/model/pointer-motion.ts';
 import { POINTER_PATH_MAX, surfaceKey, type PointerAction } from '../../shared/model/pointers.ts';
 import type { SideBrowserCall, SideBrowserResult } from '../../shared/model/side-browser.ts';
 import type { PageOpener } from '../../shared/api/workspace-browser.ts';
@@ -29,8 +29,6 @@ import type { SideDriverDeps } from './surface.ts';
 import { SideTab, type PersonInput } from './tab.ts';
 import { checkCall } from './validate.ts';
 import { waitFor } from './wait.ts';
-
-export type { SideDriverDeps, SideTabsLike } from './surface.ts';
 
 export const PERSON_PRIORITY_MS = 2000;
 const LOAD_MS = 15_000;
@@ -237,7 +235,7 @@ export class SideDriver {
   /** Steps in order, stopping at the first that fails; then what changed since the agent's last look. */
   private async act(tab: SideTab, call: SideBrowserCall, key: string): Promise<SideBrowserResult> {
     const agent = call.agent;
-    const style = call.motion === 'human' ? 'human' : 'glide'; // the person's browser never jumps, whatever a batch passes
+    const style = call.motion ?? DEFAULT_MOTION; // like everywhere: a hand unless the call passes glide or instant
     const group = newStepGroup(); // this act's own object group, so a parallel act's release never frees these nodes
     const ctx: StepContext = {
       tab, agentId: agent.id, style, group, now: () => this.now(), sleep: (ms) => this.sleep(ms),

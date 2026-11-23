@@ -14,7 +14,8 @@ import { can } from '../lib/session.ts';
 import { toolError, toolResult } from './app-host.ts';
 import type { BridgeResult } from './app-host.ts';
 import { appUpload } from './app-upload.ts';
-import { openLink, theme, uploadBlob, wfTokens } from './host.ts';
+import { openLink, theme, wfTokens } from './host.ts';
+import { uploadBlob } from '../lib/files.ts';
 import { renderMermaid } from './mermaid.ts';
 
 export function hostContext(mode: 'inline' | 'fullscreen', frame: HTMLIFrameElement | null): AppHostContext {

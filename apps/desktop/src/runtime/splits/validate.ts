@@ -1,6 +1,7 @@
 // The checks of a new split group (B-057 S8/S10/S11/S16), all before anything is written: the agent exists and is active
 // (not archived, not paused by the person – S13), a goal, 1–12 parts with a title, a brief and an optional 'returns'
-// within SPLIT_LIMITS, context fork|brief, model same|cheap|strong|a known and usable catalog model, an effort of the
+// within SPLIT_LIMITS, context fork|brief, model same|cheap|strong|a known and usable catalog model – Halb 21.11.2026: a
+// fresh part without one names its needs check|chain|judgment, stored as its model word –, an effort of the
 // Effort scale, a temperature 0..2 (B-083), `after` naming only lower parts, a worktree part only with a working folder,
 // at most SPLIT_LIMITS.activeGroupsPerAgent groups of the agent pending or running.
 // B-083 (owner 08.11.2026: parts are the agent): a part's own call adds parts to its group – depth stays 1, the group holds
@@ -12,13 +13,12 @@
 
 import { WorkforceError, type ErrorCode } from '../../shared/errors.ts';
 import type { Effort, ModelInfo } from '../../shared/model/providers.ts';
-import { SPLIT_LIMITS, type SplitContext, type SplitGroup, type SplitPartInput } from '../../shared/model/splits.ts';
+import { SPLIT_LIMITS, SPLIT_NEEDS, type SplitContext, type SplitGroup, type SplitNeeds, type SplitPartInput } from '../../shared/model/splits.ts';
 import type { SplitCreateContext } from '../contracts/splits.ts';
 import { EFFORT_ORDER } from '../models/efforts.ts';
 import { catalogModel } from '../agents/next-route.ts';
 import { BUSY_GROUPS, type SplitCore } from './core.ts';
 
-export const MODEL_WORDS = ['same', 'cheap', 'strong'] as const;
 /** The temperature range (as model.set's). */
 export const TEMPERATURE_MAX = 2;
 
@@ -45,7 +45,7 @@ function textOf(value: unknown, what: string, max: number, required: boolean): s
 
 /**
  * 'cheap' | 'strong' | a catalog id; undefined for 'same' or nothing. B-080: a name resolves through the one model lookup
- * (agents/next-route.ts catalogModel – model.set, tasks.create and tasks.give use it too), so a part and a delegation name a model alike.
+ * (agents/next-route.ts catalogModel – model.set, tasks.add and tasks.update use it too), so a part and a delegation name a model alike.
  */
 function modelOf(core: SplitCore, given: unknown, part: string): string | undefined {
   if (given === undefined || given === null || given === '') return undefined;
@@ -62,6 +62,20 @@ function modelOf(core: SplitCore, given: unknown, part: string): string | undefi
   if (found === undefined) return no(`${part}: unknown model "${name.slice(0, 80)}" – use same, cheap, strong or a model id from models.list.`, 'not_found');
   if (typeof found === 'string') return no(`${part}: ${found} It also takes same, cheap or strong.`); // unknown, or no usable account
   return found.id;
+}
+
+/** The needs line an old call or a wrong value gets (the model calls again with one of the three). */
+export const NEEDS_TEXT = 'needs says what its hardest step asks: check (its result can be held line by line against what is given), chain (a long way over many sources, cases or steps) or judgment (meaning, tone, a decision or edge cases that must hold).';
+
+/**
+ * Halb 21.11.2026: a fresh part without a model of its own names its needs, stored as its model word (the router maps it,
+ * routing/split-route.ts); a fork part runs on my model and context, so its needs plays no part.
+ */
+function needsOf(given: unknown, context: SplitContext, part: string): SplitNeeds | undefined {
+  if (context === 'fork') return undefined;
+  if (given === undefined || given === null || given === '') return no(`${part} starts fresh: ${NEEDS_TEXT}`);
+  if (typeof given === 'string' && (SPLIT_NEEDS as readonly string[]).includes(given)) return given as SplitNeeds;
+  return no(`${part}: ${NEEDS_TEXT}`);
 }
 
 function effortOf(given: unknown, part: string): Effort | undefined {
@@ -100,7 +114,7 @@ function partOf(core: SplitCore, cwd: string | undefined, given: SplitPartInput,
   if (given.worktree !== undefined && given.worktree !== null && typeof given.worktree !== 'boolean') no(`${part}: worktree must be true or false.`);
   const worktree = given.worktree === true;
   if (worktree && !cwd) no(`${part} asks for its own worktree, but this turn has no working folder (a git repository in the workspace).`, 'conflict');
-  const model = modelOf(core, given.model, part);
+  const model = modelOf(core, given.model, part) ?? needsOf(given.needs, context, part);
   const effort = effortOf(given.effort, part);
   const temperature = temperatureOf(given.temperature, part);
   const chat = textOf(given.chat, `${part}'s chat`, 80, false);

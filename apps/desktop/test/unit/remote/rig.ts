@@ -3,8 +3,13 @@
 // other PC's handler (JSON round trip), LAN hello probes to a shared fake LAN, timers are fired by hand.
 // F17: peer methods (remote/mirror.ts) go straight to the other PC's registered handler, checked by link kind as the
 // mesh does, while the two PCs are `up` (link / up / down stand in for the mesh's links).
+// Eine-ID 22.11.2026: `treesOf` opens a PC's two ID trees (remote/code.ts) – only where a test needs them, so the other
+// PCs answer as before; `bodies` keeps what a PC sent, `edit` changes an answer it receives (an older PC, a forged one);
+// `connectYes` connects and gives the person's yes where the answer asks for it (review H1).
 // Owns: the rig only.
 
+import type { Db } from '../../../src/runtime/db/database.ts';
+import { openCodes } from '../../../src/runtime/remote/code.ts';
 import type { Bus } from '../../../src/runtime/bus.ts';
 import { DeviceIdentity } from '../../../src/runtime/devices/identity.ts';
 import { DeviceMesh, type LinkKind } from '../../../src/runtime/devices/mesh.ts';
@@ -14,7 +19,7 @@ import type { Candidate, HelloAnswer } from '../../../src/runtime/devices/discov
 import { RemoteService, type RemoteDeps } from '../../../src/runtime/remote/service.ts';
 import type { Timers } from '../../../src/runtime/remote/requests.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
-import type { RemoteIncoming, RemoteState } from '../../../src/shared/model/remote.ts';
+import type { RemoteIncoming, RemoteOutgoing, RemoteState } from '../../../src/shared/model/remote.ts';
 import { ManualClock, fakeHost, memoryDb, recordingBus, silentLog } from '../devices/fakes.ts';
 
 /** One-shot timers fired by hand. */
@@ -49,8 +54,12 @@ export interface Pc {
   from: string;
   /** POSTs from this PC that get lost on the way (a network failure). */
   drop?: (body: Record<string, unknown>) => boolean;
-  /** Every POST this PC sent (kinds). */
+  /** Every POST this PC sent (kinds), and the bodies. */
   sent: string[];
+  bodies: Array<Record<string, unknown>>;
+  /** Changes an answer this PC receives (by the kind it asked). */
+  edit?: (kind: string, reply: Record<string, unknown>) => Record<string, unknown>;
+  db: Db;
   bus: Bus;
   /** The peer methods registered here (remote/mirror.ts) and the PCs whose link is up (rig: link / up / down). */
   handlers: Map<string, { handler: PeerHandler; kinds: readonly LinkKind[] }>;
@@ -79,7 +88,7 @@ export class Lan {
     const mesh = new DeviceMesh({ db, identity, clock, log: silentLog, bus, timers, dial: async () => { throw new Error('no network in this rig'); } });
     mesh.updateSelf({ addresses: [address] });
     const pc = {
-      name, address, identity, mesh, repo: new DevicesRepo(db), clock, timers, paired: [], states: [], shown: [], notes: [], admitted: [], sent: [],
+      name, address, identity, mesh, repo: new DevicesRepo(db), db, clock, timers, paired: [], states: [], shown: [], notes: [], admitted: [], sent: [], bodies: [],
       findable: options.findable ?? true, from: address.replace(/^http:\/\/|:\d+$/g, ''), bus, handlers: new Map(), online: new Set<string>(), calls: [],
     } as unknown as Pc;
     const add = mesh.add.bind(mesh);
@@ -103,9 +112,12 @@ export class Lan {
       ...(options.linked === false ? {} : { linked: (note: { title: string; body: string }) => { pc.notes.push(note); } }),
       post: async (target, body) => {
         const other = [...this.pcs.values()].find((entry) => entry.address === target);
-        pc.sent.push(String((body as { kind?: unknown }).kind));
+        const kind = String((body as { kind?: unknown }).kind);
+        pc.sent.push(kind);
+        pc.bodies.push(json(body as Record<string, unknown>));
         if (!other || pc.drop?.(body as Record<string, unknown>)) throw new Error('unreachable');
-        return JSON.parse(JSON.stringify(await other.remote.handle(JSON.parse(JSON.stringify(body)), { address: pc.from })));
+        const reply = json(await other.remote.handle(json(body as Record<string, unknown>), { address: pc.from }) as Record<string, unknown>);
+        return pc.edit ? pc.edit(kind, reply) : reply;
       },
       wellKnownAt: async (target) => {
         const other = [...this.pcs.values()].find((entry) => entry.address === target);
@@ -155,5 +167,14 @@ export class Lan {
     }
   }
 }
+
+/** Connect, and – where the answer would make `pc` one of someone's devices (review H1 'confirm') – the person's yes. */
+export async function connectYes(pc: Pc, input: { target: string; name?: string }): Promise<RemoteOutgoing> {
+  const out = await pc.remote.connect(input);
+  return out.status === 'confirm' ? pc.remote.confirm() : out;
+}
+
+/** Opens the PC's two ID trees (the company's, my own), as the meeting-server part does at start. */
+export const treesOf = (pc: Pc) => openCodes(pc.db, pc.identity, () => pc.clock.now());
 
 export const linkedIds = (pc: Pc) => pc.repo.list({ kinds: ['pc'] }).filter((device) => !device.self && device.status !== 'revoked').map((device) => device.id);

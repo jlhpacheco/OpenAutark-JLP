@@ -25,8 +25,6 @@ import type { OrgService, RuntimeServices } from '../contracts.ts';
 import { keepsItsMembers, workRoomFor } from '../chat/direct.ts';
 import type { TaskServiceImpl } from './service.ts';
 import { giveTask, nameOf, tell } from './give.ts';
-import { nextLook } from './next.ts';
-import { STUCK_MS } from '../../shared/model/task-stuck.ts';
 
 
 type OrgView = Pick<OrgService, 'get' | 'list' | 'managers'>;
@@ -189,16 +187,14 @@ export function handOver(t: TaskServiceImpl, agentId: string): void {
   }
 }
 
-/** No manager can take it over: it waits on the person, who hears of it once; it is looked at again after the stuck time. */
+/** No manager can take it over: it waits on the person, who hears of it once. */
 function waitOnPerson(t: TaskServiceImpl, task: Task, previous: string): void {
   const why = `Owner archived: ${previous}`;
-  const next = t.s.clock.now() + STUCK_MS;
-  if (task.status === 'waiting' && task.waitingOn?.on === 'who' && task.waitingOn.who === HUMAN_ID && task.waitingOn.why === why) { t.repo.setNext(task.id, next); return; }
+  if (task.status === 'waiting' && task.waitingOn?.on === 'who' && task.waitingOn.who === HUMAN_ID && task.waitingOn.why === why) return;
   t.emit(t.mutate(task.id, (draft) => {
     draft.status = 'waiting';
     draft.waitingOn = { on: 'who', who: HUMAN_ID, why, since: t.s.clock.now() };
     draft.ledger = { ...draft.ledger, facts: [...(draft.ledger.facts ?? []), `${previous} was archived; no manager could take this over.`].slice(-20) };
-    draft.nextAt = next;
   }));
   tell(t.s, HUMAN_ID, { kind: 'blocker', title: excerpt(task.title, 80), body: why, conversationId: task.conversationId, taskId: task.id });
 }
@@ -211,14 +207,13 @@ export function pauseTask(t: TaskServiceImpl, id: string, by: string): Task | un
   const task = t.mutate(id, (draft) => {
     draft.status = 'waiting';
     draft.waitingOn = { on: 'who', who: by === SYSTEM_ID ? HUMAN_ID : by, why: PAUSED_REASON, since };
-    delete draft.nextAt;
   });
   for (const agentId of new Set([before.assigneeId].filter((id): id is string => Boolean(id)))) t.s.wakes.cancel(agentId, { taskId: id });
-  if (!task.parentId) t.line(task, { type: 'note', text: `Paused: ${excerpt(task.title, 60)}`, details: { taskId: id, status: task.status } }, by);
+  t.line(task, { type: 'note', text: `Paused:${excerpt(task.title, 60)}`, details: { taskId: id, status: task.status } }, by);
   return task;
 }
 
-/** Ends a pause: open again, its look now (its owner goes on). Undefined when not paused. */
+/** Ends a pause: open again, its owner hears it and goes on. Undefined when not paused. */
 export function resumeTask(t: TaskServiceImpl, id: string, by: string): Task | undefined {
   const before = t.require(id);
   if (!isPaused(before)) return undefined;
@@ -226,10 +221,9 @@ export function resumeTask(t: TaskServiceImpl, id: string, by: string): Task | u
   const task = t.mutate(id, (draft) => {
     draft.status = 'open';
     delete draft.waitingOn;
-    draft.ledger = { ...draft.ledger, movedAt: now, stalls: 0 };
-    draft.nextAt = nextLook(draft, now, t.openPieces(draft));
+    draft.ledger = { ...draft.ledger, movedAt: now };
   });
-  if (!task.parentId) t.line(task, { type: 'note', text: `Resumed: ${excerpt(task.title, 60)}`, details: { taskId: id, status: task.status } }, by);
+  t.line(task, { type: 'note', text: `Resumed:${excerpt(task.title, 60)}`, details: { taskId: id, status: task.status } }, by);
   if (task.assigneeKind === 'agent' && task.assigneeId && by !== task.assigneeId) {
     tell(t.s, task.assigneeId, { reason: 'task', taskId: id, conversationId: task.conversationId, note: `${nameOf(t.s, by)} resumed my task "${excerpt(task.title, 120)}".` });
   }

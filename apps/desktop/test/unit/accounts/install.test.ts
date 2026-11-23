@@ -78,7 +78,7 @@ test('Codex: the script route failing falls back to npm (when npm exists, found 
   });
   assert.equal(await installCli('codex', { supervisor: r.supervisor, finder: r.finder, platform: 'win32', env: ENV }), true);
   assert.deepEqual(r.calls.map((call) => call.command), ['powershell.exe', 'cmd.exe']);
-  assert.deepEqual(r.calls[1].args, ['/d', '/s', '/c', 'npm', 'install', '-g', '@openai/codex']);
+  assert.deepEqual(r.calls[1].args, ['/d', '/s', '/c', 'npm', 'install', '-g', '@openai/codex@latest']);
   assert.equal(r.calls[1].options.env?.CODEX_NON_INTERACTIVE, undefined, 'npm runs with the caller env');
   assert.deepEqual(r.lookups.filter((lookup) => lookup.id === 'npm'), [{ id: 'npm', force: true }], 'Node.js installed meanwhile is found');
 });
@@ -86,7 +86,7 @@ test('Codex: the script route failing falls back to npm (when npm exists, found 
 test('Codex: a script that exits 0 without a CLI the finder sees is a failed route too', async () => {
   const r = rig({ codex: null, npm: '/usr/bin/npm' }, (call, map) => { if (call.command !== '/bin/bash') map.codex = '/usr/local/bin/codex'; return 0; });
   assert.equal(await installCli('codex', { supervisor: r.supervisor, finder: r.finder, platform: 'linux' }), true);
-  assert.deepEqual(r.calls.map((call) => [call.command, ...call.args].join(' ')), ['/bin/bash -c set -o pipefail; curl -fsSL https://chatgpt.com/codex/install.sh | sh', '/usr/bin/npm install -g @openai/codex']);
+  assert.deepEqual(r.calls.map((call) => [call.command, ...call.args].join(' ')), ['/bin/bash -c set -o pipefail; curl -fsSL https://chatgpt.com/codex/install.sh | sh', '/usr/bin/npm install -g @openai/codex@latest']);
 });
 
 test('Codex: every route failed (no npm, or npm failed too) → one clear error', async () => {

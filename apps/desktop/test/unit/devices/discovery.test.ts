@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { createSocket } from 'node:dgram';
 import { broadcastAddresses, discover, DiscoveryResponder, loopbackOnly, loopbackTargets, MAX_HELLO_ANSWERS, parseAnswer, type Candidate, type UdpSocket } from '../../../src/runtime/devices/discovery.ts';
 import { remoteIdOf } from '../../../src/runtime/remote/id.ts';
+import { chainTo, keyOf } from '../remote/chain-keys.ts';
 
 const FP = 'a'.repeat(64);
 const identity = (id = 'dev_aaaaaaaaaaaa'): Candidate => ({ deviceId: id, name: 'Laptop', fingerprint: FP, addresses: ['http://192.168.1.20:47812'], remoteId: remoteIdOf(FP) });
@@ -159,4 +160,20 @@ test('real sockets on 127.0.0.1: a directed hello is answered', async () => {
   } finally {
     responder.close();
   }
+});
+
+test('Eine-ID: parseAnswer keeps the company chain and the `me` chain, each only when it ends at the answering key', () => {
+  const [company, meRoot, member, stranger] = [keyOf(140), keyOf(141), keyOf(142), keyOf(143)];
+  const base = { a: 'wf-hello', v: 1, n: 'n', deviceId: 'dev_mmmmmmmmmmmm', name: 'Seat', fingerprint: member.fingerprint, addresses: [], remoteId: remoteIdOf(member.fingerprint) };
+  const answer = (extra: Record<string, unknown>) => parseAnswer(Buffer.from(JSON.stringify({ ...base, ...extra })), 'n');
+  const both = answer({ chain: chainTo(company, member), me: chainTo(meRoot, member) });
+  assert.deepEqual(both?.chain, chainTo(company, member));
+  assert.deepEqual(both?.me, chainTo(meRoot, member));
+  const wrong = answer({ chain: chainTo(company, stranger), me: chainTo(meRoot, stranger) });
+  assert.ok(wrong, 'the PC still answers');
+  assert.equal(wrong?.chain, undefined, 'a chain ending at another key is dropped');
+  assert.equal(wrong?.me, undefined);
+  assert.equal(answer({})?.me, undefined, 'an older PC sends none');
+  const deep = { root: company.pub, links: Array.from({ length: 8 }, () => chainTo(company, member).links[0]) };
+  assert.ok(Buffer.byteLength(JSON.stringify({ ...base, n: 'n'.repeat(64), chain: deep, me: deep, company: '€'.repeat(80), addresses: Array(8).fill('http://192.168.100.200:47812') })) < 4096, 'two full chains fit one message');
 });

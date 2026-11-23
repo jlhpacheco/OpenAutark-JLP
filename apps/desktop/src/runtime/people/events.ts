@@ -3,7 +3,8 @@
 // becomes 'conversation.removed', ids only), 'chat:<id>' (messages of a chat they belong to, from their visible
 // time on), 'tasks' (tasks they may read) and 'org' (the agents they see as colleagues, the people directory,
 // activity of those agents, their spaces) – each payload seen from the person's perspective (perspective.ts).
-// 18.11.2026: from 'system' only tabs.changed, as the tabs shared with them (rpc-pane.ts sharedPane).
+// 18.11.2026: from 'system' only tabs.changed, as the tabs shared with them (rpc-pane.ts sharedPane; 21.11.2026 with their
+// own space 'person:<id>' as their global pane).
 // Also the rights key of a person's connection
 // (personRights): changed rights close it (rpc/server.ts).
 // F13: a CEO's device hears every company chat it reads (access.ts chatAccess) and their tasks (readsTask), and gets

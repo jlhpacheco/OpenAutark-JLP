@@ -1,27 +1,26 @@
 // Pane tab › Activity: one overview for everyone, people and agents side by side – per member what they finished today,
 // what they are on right now, how much is open and how much is stuck (team/activity-model.ts), with the totals on top:
 // Robin's "Dashboard über alles, was alle machen", the admin view of what everyone did. People first (the org order: the
-// top, then whom they lead), then the agents by name. A row opens that member's page; "now" opens the task (without
-// anything running: an agent's status line, a person's title). Work nobody owns yet is a last row "No owner yet" while
-// there is any (the totals then match Work and Home), and each count opens that part of Work for the member
-// (#/tasks/stuck?owner=…, #/tasks?owner=…, #/tasks/done?owner=…). The counts follow Work's scope (tasks/work-model.ts
-// onWork, as Work and Home count): the viewer's own to-dos are My day's, so no total here says more than Work and Home,
-// and no count opens an empty list.
-// Data: the store's open tasks and to-dos, the done store (loaded from the start of today in the profile's zone, then
-// kept fresh by task events) and the live runs – no new RPC, no polling; the day clock moves "today" at midnight.
+// top, then whom they lead), then the agents by name. A row opens that member's page; "now" opens the task's detail
+// (without anything running: an agent's status line, a person's title). Work nobody owns yet is a last row "No owner
+// yet" while there is any, and each count opens that part of the Tasks page for the member (#/tasks/stuck?owner=…,
+// #/tasks?owner=…, #/tasks/done?owner=…). The counts are to-dos, everyone's – the viewer's own too: the Tasks page
+// shows them all on one page (Quests round 20.11.2026).
+// Data: the store's open tasks (a quest's to-dos as its steps) and to-dos, the done store (loaded from the start of
+// today in the profile's zone, then kept fresh by task events) and the live runs – no new RPC, no polling; the day
+// clock moves "today" at midnight.
 // Owns: the activity overview. Never: a second task store, or a control this connection may not use.
 
 import { useEffect, useState } from 'preact/hooks';
 import type { Agent } from '../../shared/model/org.ts';
 import { dayClock, dayRange, dayZone, localDate } from '../lib/day-store.ts';
-import { isPersonSession, peopleMap } from '../lib/people.ts';
+import { peopleMap } from '../lib/people.ts';
 import { go } from '../lib/router.ts';
 import { can } from '../lib/session.ts';
 import { activity, agentName, agents, tasks, todos } from '../lib/store.ts';
 import { AgentAvatar, EmptyState } from '../lib/ui.tsx';
 import { doneTasks, ensureDone } from '../tasks/done-store.ts';
-import { openTask } from '../tasks/jump.ts';
-import { onWork } from '../tasks/work-model.ts';
+import { openTaskDetail } from '../tasks/jump.ts';
 import type { ActivityMember, ActivityRow } from './activity-model.ts';
 import { NO_OWNER, activityRows, activityTotals } from './activity-model.ts';
 import { peopleTree } from './org-state.ts';
@@ -77,7 +76,7 @@ function MemberRow(props: { row: ActivityRow; doneKnown: boolean }) {
           {now
             ? (
               <button type="button" class="activity-now" title={now.note ? `${now.title} · ${now.note}` : now.title}
-                disabled={!now.taskId} onClick={() => { const task = tasks.value.find((entry) => entry.id === now.taskId) ?? todos.value.find((entry) => entry.id === now.taskId); if (task) openTask(task); }}>
+                disabled={!now.taskId} onClick={() => { if (now.taskId) openTaskDetail(now.taskId); }}>
                 {now.title}{now.note && <span class="activity-note"> · {now.note}</span>}
               </button>
             )
@@ -109,10 +108,8 @@ export function ActivityView() {
     return () => { live = false; };
   }, [allowed, dayStart, attempt]);
   const doneKnown = doneState === 'ready';
-  const workScope = { keepOwn: isPersonSession() }; // as Work and Home
   const rows = activityRows(members(peopleTree.value), {
     open: tasks.value, todos: todos.value, done: doneTasks.value, live: activity.value, now: Date.now(), dayStart,
-    counted: (task) => onWork(task, workScope),
   }).filter((row) => row.member.kind !== 'team' || row.open > 0 || row.doneToday > 0); // "No owner yet" only while there is such work
   const totals = activityTotals(rows);
   return (

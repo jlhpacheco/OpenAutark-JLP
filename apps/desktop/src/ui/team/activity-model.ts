@@ -1,26 +1,24 @@
 // Activity, pure: one row per member – people and agents side by side – with what they finished today, what they are on
 // right now, how much is open and how much is stuck; plus the totals line. Robin's "Dashboard über alles, was alle machen":
-// the owner's admin overview. Stuck is the shared rule (shared/model/task-stuck.ts stuckOf: nothing moved for two days
-// unless a planned time is ahead, paused, no owner) and, for a human, work past its due time (a timer is never stuck). Working
-// now: an agent's live run (its task's title, else what started it, the origin's label, else the run's note, else
-// "Working"; the live note beside it when it says more; its own turn, never one of its splits); a person's task marked
-// with a running focus timer. Open counts all open work given to the member except what waits for a ring
-// (snoozed, a repeating timer between rings). Work nobody owns yet (an older PC's row the watcher still places) is a row of
-// its own ({ id: 'team', kind: 'team' } – "No owner yet"), so the totals match Work and Home. The caller may narrow what
-// is counted to Work's own scope (`counted`, ActivityView: tasks/work-model.ts onWork – the viewer's own to-dos are My
-// day's, not Work's): done today, open and stuck then say what Work, Home and a count's link show; "now" still sees every
-// task (a focus timer on an own to-do).
+// the owner's admin overview. Counted are to-dos (Quests round 20.11.2026: a quest is a goal, its to-dos are the work):
+// each to-do once, in a quest or not – a quest's to-dos are read from its steps, so a colleague's to-do in someone else's
+// quest counts for the colleague. Stuck is the one rule of the views (shared/model/task-stuck.ts stuckOf: nothing moved
+// for two days unless its time is ahead, paused, no owner). Working now: an agent's live run (its task's title – a to-do
+// or a quest –, else what started it, the origin's label, else the run's note, else "Working"; the live note beside it
+// when it says more; its own turn, never one of its splits); a person's open to-do whose time on their calendar is now
+// (`at` for `minutes`, the calendar's default length without). Work nobody owns yet (an older PC's row the watcher still
+// places) is a row of its own ({ id: 'team', kind: 'team' } – "No owner yet").
 // Owns: these rules (unit-tested in test/unit/team-view/activity-model.test.ts). Never: imports the store, rpc or the DOM,
 // or loads anything – callers pass the store's tasks, the done store and the live runs in.
 
 import { HUMAN_ID } from '../../shared/ids.ts';
+import { DEFAULT_MINUTES } from '../../shared/model/calendar.ts';
 import type { AgentActivity } from '../../shared/model/runs.ts';
-import type { Task, TaskView } from '../../shared/model/tasks.ts';
-import { waitsForRing } from '../../shared/model/todo-later.ts';
-import { finishedAt } from '../tasks/work-model.ts';
+import { everyTask, isFinished, type Task, type TaskView } from '../../shared/model/tasks.ts';
 import { stuckOf } from '../../shared/model/task-stuck.ts';
+import { finishedAt } from '../tasks/work-model.ts';
 
-/** A member's row – or, kind 'team' (id 'team', Work's owner filter for no owner), the work nobody owns yet. */
+/** A member's row – or, kind 'team' (id 'team', the owner filter for no owner), the work nobody owns yet. */
 export interface ActivityMember { id: string; kind: 'person' | 'agent' | 'team' }
 
 /** The "No owner yet" row's member. */
@@ -43,9 +41,9 @@ export interface ActivityRow {
 }
 
 export interface ActivityInput {
-  /** The store's open tasks. */
+  /** The store's open tasks (quests carry their to-dos as steps). */
   open: readonly TaskView[];
-  /** The caller's to-dos (steps included). */
+  /** The caller's to-dos. */
   todos: readonly TaskView[];
   /** Finished tasks loaded so far (the done store, loaded from `dayStart`). */
   done: readonly TaskView[];
@@ -54,21 +52,13 @@ export interface ActivityInput {
   now: number;
   /** Start of today (local midnight in the profile's zone). */
   dayStart: number;
-  /** What the counts include (default: everything; ActivityView: Work's scope). */
-  counted?: (task: TaskView) => boolean;
 }
+
+const MIN = 60_000;
 
 /** True when `task` is given to the human `personId` ('human' = the caller, whose own to-dos may carry no id). */
 function assignedToPerson(task: Pick<Task, 'assigneeKind' | 'assigneeId'>, personId: string): boolean {
   return task.assigneeKind === 'human' && (task.assigneeId ?? HUMAN_ID) === personId;
-}
-
-/** The store's open tasks and the caller's to-dos (steps included) as one list, each task once. */
-function openWork(open: readonly TaskView[], todos: readonly TaskView[]): TaskView[] {
-  const byId = new Map<string, TaskView>();
-  for (const task of open) byId.set(task.id, task);
-  for (const task of todos) if (!byId.has(task.id)) byId.set(task.id, task);
-  return [...byId.values()];
 }
 
 /** True when `task` belongs to `member`: an agent's by assignee id, a person's by theirs. */
@@ -77,40 +67,36 @@ export function ownedByMember(task: Pick<Task, 'assigneeKind' | 'assigneeId'>, m
   return member.kind === 'agent' ? task.assigneeKind === 'agent' && task.assigneeId === member.id : assignedToPerson(task, member.id);
 }
 
-/** Stuck: Work's rule (stuckOf) – or a human's work past its due time; never what waits for a ring (a snooze, a timer). */
-export function isStuck(task: Parameters<typeof stuckOf>[0] & Pick<Task, 'dueAt' | 'widget'>, now: number): boolean {
-  if (waitsForRing(task)) return false;
-  if (stuckOf(task, now)) return true;
-  return task.assigneeKind === 'human' && task.widget?.type !== 'timer' && task.dueAt !== undefined && task.dueAt < now;
+/** A person's open to-do whose time on the calendar is now – `at` for `minutes` (DEFAULT_MINUTES without). */
+export function onCalendarNow(task: Pick<Task, 'status' | 'at' | 'minutes'>, now: number): boolean {
+  return task.status === 'open' && task.at !== undefined && task.at <= now && now < task.at + (task.minutes ?? DEFAULT_MINUTES) * MIN;
 }
 
-function nowOf(member: ActivityMember, mine: readonly TaskView[], input: ActivityInput): ActivityNow | undefined {
+function nowOf(member: ActivityMember, mine: readonly Task[], every: ReadonlyMap<string, Task>, input: ActivityInput): ActivityNow | undefined {
   if (member.kind === 'agent') {
     const run = input.live.find((entry) => entry.agentId === member.id && !entry.split); // a split is not the agent's own work
     if (!run) return undefined;
-    const task = run.taskId ? mine.find((entry) => entry.id === run.taskId) ?? input.open.find((entry) => entry.id === run.taskId) : undefined;
-    const label = task?.title ?? run.origin?.label; // a chat-free run without a task says what started it
+    const label = (run.taskId ? every.get(run.taskId)?.title : undefined) ?? run.origin?.label; // a chat-free run without a task says what started it
     const title = label || run.note || 'Working';
     return {
       title, ...(label && run.note && run.note !== title ? { note: run.note } : {}),
       ...(run.taskId ? { taskId: run.taskId } : {}), conversationId: run.conversationId,
     };
   }
-  const busy = mine.filter((task) => task.timerStartedAt !== undefined)
-    .sort((a, b) => (b.timerStartedAt ?? 0) - (a.timerStartedAt ?? 0) || b.updatedAt - a.updatedAt)[0];
-  return busy ? { title: busy.title, taskId: busy.id, conversationId: busy.conversationId } : undefined;
+  const busy = mine.filter((task) => onCalendarNow(task, input.now)).sort((a, b) => b.at! - a.at! || b.updatedAt - a.updatedAt)[0];
+  return busy ? { title: busy.title, taskId: busy.id, ...(busy.conversationId ? { conversationId: busy.conversationId } : {}) } : undefined;
 }
 
 /** One row per member, in the order given. */
 export function activityRows(members: readonly ActivityMember[], input: ActivityInput): ActivityRow[] {
-  const open = openWork(input.open, input.todos).filter((task) => task.status !== 'done' && task.status !== 'dropped' && !waitsForRing(task));
-  const counts = input.counted ?? (() => true);
+  const every = everyTask(input.open, input.todos, input.done);
+  const todos = [...every.values()].filter((task) => task.kind !== 'quest');
+  const open = todos.filter((task) => !isFinished(task.status));
   return members.map((member) => {
     const mine = open.filter((task) => ownedByMember(task, member));
-    const counted = mine.filter(counts);
-    const doneToday = input.done.filter((task) => task.status === 'done' && ownedByMember(task, member) && finishedAt(task) >= input.dayStart && counts(task)).length;
-    const now = nowOf(member, mine, input);
-    return { member, doneToday, ...(now ? { now } : {}), open: counted.length, stuck: counted.filter((task) => isStuck(task, input.now)).length };
+    const doneToday = todos.filter((task) => task.status === 'done' && ownedByMember(task, member) && finishedAt(task) >= input.dayStart).length;
+    const now = nowOf(member, mine, every, input);
+    return { member, doneToday, ...(now ? { now } : {}), open: mine.length, stuck: mine.filter((task) => stuckOf(task, input.now)).length };
   });
 }
 

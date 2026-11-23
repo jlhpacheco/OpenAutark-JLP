@@ -50,6 +50,7 @@ import { APP_FILES_NS } from '../tasks/app-files.ts';
 import type { ConversationRepo } from './conversation-repo.ts';
 import type { MessageRepo } from './message-repo.ts';
 import { OF_CHAT_MESSAGE, canReclaim, chatAppTakes, queueReclaim } from './reclaim.ts';
+import { KvRepo } from '../store/kv.ts';
 
 export type ChatDeps = Pick<RuntimeServices, 'db' | 'bus' | 'clock'> & Partial<Pick<RuntimeServices, 'org' | 'delivery' | 'log' | 'files' | 'paths' | 'tasks'>>;
 
@@ -156,7 +157,7 @@ export function removeMessage(core: ChatCore, message: Message, by: string): voi
   if (by !== message.authorId && by !== HUMAN_ID && by !== SYSTEM_ID) throw new WorkforceError('forbidden', 'Only the author can delete this message.');
   core.s.db.tx(() => {
     core.msgs.delete(message.id);
-    core.s.db.run('DELETE FROM kv WHERE ns = ? AND substr(key, 1, ?) = ?', [BLOCK_STATE, message.id.length + 1, `${message.id}:`]);
+    new KvRepo(core.s.db).deletePrefix(BLOCK_STATE, `${message.id}:`);
   });
   core.s.bus.emit('message.removed', { id: message.id, conversationId: message.conversationId });
   core.emitConversation(message.conversationId);

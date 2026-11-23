@@ -2,7 +2,7 @@
 // Colleagues join only by the chat's starter and never a person's default 1:1 (the reviewer's probe B: the owner's
 // private line with an agent is not opened to a colleague); a colleague sits only with agents they may work with
 // (their spaces), while a pair the room already had stays; members may be named by name – the full name, or a first
-// name only one has, never a guess between two; chat.remove_members takes `members` like chat.add_members.
+// name only one has, never a guess between two; chat.update takes members to remove like members to add.
 // Owns: these assertions only. Never: real engines, timers or network.
 
 import { test } from 'node:test';
@@ -48,23 +48,23 @@ function setup() {
 test('probe B: the person\'s default 1:1 is never opened to a colleague; colleagues join only by the chat\'s starter', async () => {
   const h = setup();
   const direct = findOrCreateDirect(h.services, HUMAN_ID, 'ag_ava', { createdBy: HUMAN_ID });
-  const refused = await h.run('chat.add_members', { chatId: direct, members: [ANNA] });
+  const refused = await h.run('chat.update', { chatId: direct, add: [ANNA] });
   assert.equal(refused.failed, true);
   assert.match(refused.text, /^Nothing was changed\. This 1:1 stays between the two of us\. For more people I start a group with chat\.create/, 'B-078 D7');
   assert.deepEqual(h.active(direct), ['ag_ava', HUMAN_ID].sort());
   assert.equal(h.chats.get(direct)!.settings.direct, true, 'still the person\'s default 1:1');
   const opened = (await h.run('chat.direct', { with: HUMAN_ID }, 'ag_ben')).chatId; // one the agent opened itself
-  assert.match((await h.run('chat.add_members', { chatId: opened, members: [ANNA] }, 'ag_ben')).text, /This 1:1 stays between the two of us/);
-  assert.match((await h.run('chat.add_members', { chatId: direct, members: ['ag_ben'] })).text, /This 1:1 stays between the two of us/, 'D7: agents too');
+  assert.match((await h.run('chat.update', { chatId: opened, add: [ANNA] }, 'ag_ben')).text, /This 1:1 stays between the two of us/);
+  assert.match((await h.run('chat.update', { chatId: direct, add: ['ag_ben'] })).text, /This 1:1 stays between the two of us/, 'D7: agents too');
 
   const group = h.chats.create({ title: 'Q4', agentIds: ['ag_ava', 'ag_ben'], createdBy: HUMAN_ID, lead: 'ag_ava' });
-  assert.match((await h.run('chat.add_members', { chatId: group.id, members: [ANNA] })).text, /Sam started this chat and brings colleagues into it; I ask them/, 'not even its lead');
+  assert.match((await h.run('chat.update', { chatId: group.id, add: [ANNA] })).text, /Sam started this chat and brings colleagues into it; I ask them/, 'not even its lead');
   assert.equal(h.active(group.id).includes(ANNA), false);
-  assert.equal((await h.run('chat.add_members', { chatId: group.id, members: ['ag_fin'] })).failed, false, 'agents join as before');
+  assert.equal((await h.run('chat.update', { chatId: group.id, add: ['ag_fin'] })).failed, false, 'agents join as before');
 
   const room = h.chats.create({ title: 'Launch', agentIds: ['ag_ava', 'ag_ben'], humans: true, createdBy: 'ag_ava', lead: 'ag_ava' });
-  assert.match((await h.run('chat.add_members', { chatId: room.id, members: [ANNA] }, 'ag_ben')).text, /Ava started this chat/);
-  assert.equal((await h.run('chat.add_members', { chatId: room.id, members: [ANNA] })).failed, false, 'its starter brings colleagues in');
+  assert.match((await h.run('chat.update', { chatId: room.id, add: [ANNA] }, 'ag_ben')).text, /Ava started this chat/);
+  assert.equal((await h.run('chat.update', { chatId: room.id, add: [ANNA] })).failed, false, 'its starter brings colleagues in');
   assert.ok(h.active(room.id).includes(ANNA));
 });
 
@@ -79,10 +79,10 @@ test('a colleague sits only with agents they may work with; a pair the room alre
   assert.match((await h.run('chat.create', { members: [CARL, 'ag_fin'] })).text, /^Nothing was created\. Carl Diaz does not work with Finn/);
 
   const room = (await h.run('chat.create', { title: 'Brand', members: [CARL, 'ag_ben'] })).chatId;
-  assert.match((await h.run('chat.add_members', { chatId: room, members: ['ag_fin'] })).text, /^Nothing was changed\. Carl Diaz does not work with Finn/, 'nor an agent added to his room');
+  assert.match((await h.run('chat.update', { chatId: room, add: ['ag_fin'] })).text, /^Nothing was changed\. Carl Diaz does not work with Finn/, 'nor an agent added to his room');
   assert.equal(h.active(room).includes('ag_fin'), false);
   h.chats.setMembers(room, { add: ['ag_fin'] }, HUMAN_ID); // the person may seat them together
-  assert.equal((await h.run('chat.add_members', { chatId: room, members: [ANNA] })).failed, false, 'an older pair does not block others');
+  assert.equal((await h.run('chat.update', { chatId: room, add: [ANNA] })).failed, false, 'an older pair does not block others');
 
   const old = findOrCreateDirect(h.services, CARL, 'ag_fin'); // e.g. opened by an escalation
   assert.equal((await h.run('chat.direct', { with: CARL }, 'ag_fin')).chatId, old, 'found again: nothing new is opened');
@@ -103,7 +103,7 @@ test('members by name: the full name or a first name only one has, case ignored;
   const two = await h.run('chat.direct', { with: 'Anna' });
   assert.equal(two.failed, true);
   assert.equal(two.text, '"Anna" fits Anna Berg (per_anna000000), Anna Lee (ag_anna): name one by id.');
-  assert.match((await h.run('chat.add_members', { chatId: room, members: ['Zed'] })).text, /^Nobody is called "Zed"\. Who I can name: Ava \(ag_ava\), Ben \(ag_ben\), Finn \(ag_fin\), Anna Lee \(ag_anna\), Anna Berg \(per_anna000000\), Carl Diaz \(per_carl000000\), Sam \(human\)\./);
+  assert.match((await h.run('chat.update', { chatId: room, add: ['Zed'] })).text, /^Nobody is called "Zed"\. Who I can name: Ava \(ag_ava\), Ben \(ag_ben\), Finn \(ag_fin\), Anna Lee \(ag_anna\), Anna Berg \(per_anna000000\), Carl Diaz \(per_carl000000\), Sam \(human\)\./);
   assert.match((await h.run('chat.direct', { with: 'ag_nobody' })).text, /Nobody is called "ag_nobody"\. Who I can name: Ava \(ag_ava\)/, 'B-080: an unknown id-like value names the ones who exist');
 });
 
@@ -131,19 +131,19 @@ test('B-080: an id-like value that is no id is an agent\'s name after its prefix
   assert.match((await h.run('chat.direct', { with: 'ag_anna' })).text, /Nobody is called "ag_anna"/, 'among agents only: ag_anna does not pick Anna Berg');
 });
 
-test('chat.remove_members takes members like chat.add_members; a colleague who started a chat stays', async () => {
+test('chat.update remove takes members like add; a colleague who started a chat stays', async () => {
   const h = setup();
-  const tool = chatTools.find((item) => item.name === 'chat.remove_members')!;
-  assert.deepEqual(validate({ chatId: 'chat_x', members: [ANNA] }, tool.inputSchema), [], 'the reviewer\'s K10-6 call');
+  const tool = chatTools.find((item) => item.name === 'chat.update')!;
+  assert.deepEqual(validate({ chatId: 'chat_x', remove: [ANNA] }, tool.inputSchema), [], 'the reviewer\'s K10-6 call');
   const room = h.chats.create({ title: 'Launch', agentIds: ['ag_ava', 'ag_ben'], people: [ANNA, CARL], humans: false, createdBy: 'ag_ava', lead: 'ag_ava' });
-  assert.equal((await h.run('chat.remove_members', { chatId: room.id, members: [ANNA] })).failed, false);
-  assert.equal((await h.run('chat.remove_members', { chatId: room.id, members: [CARL] })).failed, false);
-  assert.match(validate({ chatId: room.id, memberIds: [ANNA] }, tool.inputSchema).join(' '), /memberIds: unknown property/, 'the old name is gone; validation names the right one');
+  assert.equal((await h.run('chat.update', { chatId: room.id, remove: [ANNA] })).failed, false);
+  assert.equal((await h.run('chat.update', { chatId: room.id, remove: [CARL] })).failed, false);
+  assert.match(validate({ chatId: room.id, members: [ANNA] }, tool.inputSchema).join(' '), /members: unknown property/, 'the old name is gone; validation names the right one');
   assert.deepEqual(h.active(room.id), ['ag_ava', 'ag_ben']);
-  assert.match((await h.run('chat.remove_members', { chatId: room.id })).text, /Name the members to remove/);
+  assert.match((await h.run('chat.update', { chatId: room.id, remove: [] })).text, /Name the members to remove/);
 
   const hers = h.chats.create({ agentIds: ['ag_ava'], people: [ANNA], humans: false, createdBy: ANNA });
-  assert.match((await h.run('chat.remove_members', { chatId: hers.id, members: [ANNA] })).text, /Anna Berg stays in this chat: only a chat an agent started can lose them/);
+  assert.match((await h.run('chat.update', { chatId: hers.id, remove: [ANNA] })).text, /Anna Berg stays in this chat: only a chat an agent started can lose them/);
 });
 
 test('chat.create with one member and no title opens the pair\'s default 1:1 (K1, as chat.direct); chat.list marks only the agent\'s own default as direct', async () => {

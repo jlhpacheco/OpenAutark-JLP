@@ -51,8 +51,13 @@ export interface HttpServerDeps {
   mesh: MeshAccept;
   /** Built UI (app/ui): index.html, main.js, sw.js, chunks/, icons/, sandbox/wf.js. */
   staticDir: string;
-  /** Owner token of this runtime (desktop main / local CLI). Accepted from loopback only. */
+  /** Owner token of this runtime (runtime.json: `wf`, scripts, another company's main). Accepted from loopback only; never the person. */
   launchToken: string;
+  /**
+   * FX1 19.11.2026: the person token – owner scope marked `person`, from loopback only. It lives in memory: the headless
+   * CLI prints it on stdout to whoever started it, a test profile hands it in; never written to a file.
+   */
+  personToken?: string;
   /** Where to listen; read again on settings changes (bind host follows settings.pwa.bind). */
   bind: () => { host: string; port: number };
   log?: Logger;

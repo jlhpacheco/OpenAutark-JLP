@@ -1,5 +1,5 @@
 // B-044 integration: files.read / files.list in the agent's approved home project outside the workspace
-// (tools/builtin/files.ts readPath, agent-core/home-read.ts homeReadRoot):
+// (tools/builtin/files.ts readPath):
 //  - by absolute path the agent reads and lists its own usable home; relative paths stay in the workspace;
 //  - agents read anywhere on this PC (no home guard any more);
 //  - the "Home project" prompt section says so only for a home outside the workspace and when files.read is offered.

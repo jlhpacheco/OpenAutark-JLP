@@ -24,7 +24,7 @@ function sttModel(acc: Account, model: string): ModelInfo {
 function fakeServices(input: { acc?: Account; model: string; functions: Record<string, string>; voice: Record<string, unknown>; key?: string; files: unknown }): RuntimeServices {
   const { acc } = input;
   return {
-    settings: { get: () => ({ voice: input.voice, routing: { functions: input.functions } }) },
+    settings: { get: () => ({ voice: input.voice, routing: { ...input.functions } }) },
     catalog: { list: () => (acc ? [sttModel(acc, input.model)] : []) },
     accounts: { get: (id: string) => (acc && id === acc.id ? acc : undefined), candidates: () => (acc?.enabled ? [acc] : []), apiKey: async () => input.key ?? 'sk-test-key-123' },
     files: input.files,

@@ -202,7 +202,6 @@ test('desktop wiring: the manual download goes through the injected opener; only
     updater: fakeUpdater().updater,
     packaged: true, enabled: true, platform: 'darwin', arch: 'arm64', version: '0.2.0',
     autoDownload: () => true,
-    setAutoDownload: async () => {},
     renderer: { rendererReady: true, prepareRestart: async () => true },
     idleSeconds: () => 600,
     runtime: { readiness: async () => ({ ready: true }), prepareRestart: async () => {}, stop: async () => {}, start: () => {} },

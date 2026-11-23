@@ -20,7 +20,7 @@ import { createHelper, driverFor } from '../../../src/runtime/computer/drivers.t
 import { ComputerService } from '../../../src/runtime/computer/service.ts';
 import { judgePresence } from '../../../src/runtime/computer/presence.ts';
 import type { Lease, Supervisor } from '../../../src/runtime/system/supervisor.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import type { Host } from '../../../src/runtime/host.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 

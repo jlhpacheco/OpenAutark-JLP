@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const out = path.resolve(process.argv[2] ?? path.join(root, 'test-results', 'design-tour'));
@@ -34,7 +35,7 @@ const theme = async (scheme) => { await page.emulateMedia({ colorScheme: scheme 
 const escape = async () => { await page.keyboard.press('Escape'); await page.waitForTimeout(200); };
 await size(1280, 820);
 
-const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+const info = await runtimeInfo(profile);
 const rpc = await connect(info.port, info.token, 'cli');
 // A profile kept from an earlier run already has the agents and the chat: reuse them.
 const existing = await rpc.call('agents.list');

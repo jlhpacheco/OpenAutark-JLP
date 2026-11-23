@@ -13,7 +13,7 @@ test('the task text shows the notes whole – a long delegated brief keeps its e
   const chat = h.chats.create({ agentIds: ['ag_ava'], createdBy: HUMAN_ID });
   const notes = `${'Brief line with the person\'s words and the facts. '.repeat(160)}LAST LINE: what good looks like.`;
   const task = h.tasks.create({ conversationId: chat.id, title: 'Long brief', assigneeKind: 'agent', assigneeId: 'ag_ava', createdBy: HUMAN_ID, notes });
-  const text = renderTask(h.services as RuntimeServices, h.tasks.get(task.id)!, 'UTC');
+  const text = renderTask(h.services as RuntimeServices, h.tasks.get(task.id)!, 'UTC', '## Current to-do');
   assert.ok(notes.length > 8000);
   assert.ok(text.includes(notes), 'the whole notes stand in the task text');
   assert.doesNotMatch(text, /\(truncated\)/);

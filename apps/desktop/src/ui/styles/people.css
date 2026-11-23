@@ -3,27 +3,24 @@
 
 .person-scopes { display: flex; flex-direction: column; gap: 6px; margin: 14px 0 0; padding: 0; border: 0; min-width: 0; }
 .person-scopes legend { padding: 0; }
-.check-row { display: flex; align-items: center; gap: 8px; min-height: 28px; color: var(--text); font-size: 14px; }
+.check-row { display: flex; align-items: center; gap: 8px; min-height: 28px; color: var(--text); font-size: calc(14px * var(--ui-text, 1)); }
 .check-row input { flex: none; width: 16px; height: 16px; margin: 0; }
-.person-manager.select-button { width: 100%; min-height: 40px; padding: 8px 12px; font-size: 14px; }
+.person-manager.select-button { width: 100%; min-height: 40px; padding: 8px 12px; font-size: calc(14px * var(--ui-text, 1)); }
 .person-list { display: flex; flex-direction: column; margin: 0 0 6px; padding: 0; list-style: none; }
 .person-list-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; padding: 4px 0; border-bottom: 1px solid var(--line); min-width: 0; }
 .person-list-row:last-child { border-bottom: 0; }
 .person-list-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .person-list-text > span, .person-list-text > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.person-privacy, .person-invite-note { margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+.person-privacy { margin: 10px 0 0; font-size: calc(12px * var(--ui-text, 1)); color: var(--muted); }
 /* F13: Team › Add person (PersonNew.tsx) – the form, then their device's rows (settings.css rows) in the same column */
 .person-new { display: flex; flex-direction: column; gap: 14px; margin: 0 0 28px; }
 .person-new .agent-field .field-label { margin: 0 0 6px; }
 /* F13: the role's line keeps two lines' room for either role, so nothing below moves when it changes */
-.person-role-hint { display: block; margin: 4px 0 0; min-height: calc(2 * 1.4em); color: var(--muted); font-size: 12px; line-height: 1.4; }
+.person-role-hint { display: block; margin: 4px 0 0; min-height: calc(2 * 1.4em); color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: 1.4; }
 .person-details .details-heading { margin: 16px 0 4px; }
 .person-details .details-heading:first-child { margin-top: 0; }
 .person-history { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding: 4px 0; min-width: 0; flex-wrap: wrap; }
-.person-history .details-member-text { font-size: 13px; color: var(--secondary); }
-/* 17.11.2026: the invite as a card at the top of the person's page (PersonInvite.tsx), not a modal */
-.person-invite-card { margin: 0 0 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
-.person-invite-card:focus { outline: none; } /* focused only so Tab and Escape start inside it */
-.person-invite-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px; }
-.person-invite-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
-.person-invite-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.person-history .details-member-text { font-size: calc(13px * var(--ui-text, 1)); color: var(--secondary); }
+/* 17.11.2026: "Invite a device" as a card at the top of the person's page (PersonJoin.tsx), not a modal; its rows are settings rows */
+.person-join-card { margin: 0 0 20px; }
+.person-join-card:focus { outline: none; } /* focused only so Tab and Escape start inside it */

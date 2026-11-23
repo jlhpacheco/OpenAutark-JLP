@@ -22,12 +22,20 @@
 // agent line of the chat is read – the agent's opening line first. When the speaker changes, its name goes in front
 // (one reading voice for every agent). A chat whose call row shows another holder (another device took it over) ends
 // quietly, without calls.end. add() puts a pin from the browser in as a line of the call. Shapes, helpers: conversation-parts.ts.
+// Owner 19.11.2026: several devices of the person can be in one call (calls.start `joined`: this one is in beside the
+// holder; it ends quietly when the call ends). Every device's microphone feeds the call, and a reply is read only on the
+// device that heard the person's newest line of it: a person's line of my call said on another device makes this one
+// quiet until it hears one itself – so two devices in one room never speak at once.
+// Owner 21.11.2026 (people in one call): only my own lines ('human' on every device of mine) move the reading; another
+// person's line leaves it, so each person's devices read the replies to everybody. While another device reads, a take
+// here that repeats what others just said in the call (echoOf) is that device's voice and goes nowhere.
 // Owns: the chats, the reading queue and the microphone's view (publish's first argument; every chat is its
 // third). Never: touches a microphone, timer or platform global (all injected), or changes what was said.
 
-import { callHolder, callRecord } from '../model/call.ts';
+import { HUMAN_ID } from '../ids.ts';
+import { callMember, callRecord, type CallRecord } from '../model/call.ts';
 import type { Attachment, Message } from '../model/chat.ts';
-import { MAX_VOICE_SESSIONS, REPLY_TIMEOUT_MS, REPEAT_HINT, SESSIONS_FULL, TRANSCRIBE_TIMEOUT_MS, languageHint, sentencesDone, speakable, spokenMeta } from './conversation-parts.ts';
+import { MAX_VOICE_SESSIONS, REPLY_TIMEOUT_MS, REPEAT_HINT, SESSIONS_FULL, TRANSCRIBE_TIMEOUT_MS, echoOf, languageHint, sentencesDone, speakable, spokenMeta } from './conversation-parts.ts';
 import type { TalkingChat as Chat, Reading, VoiceSessionEntry, VoiceSessionView, VoiceSessionsDeps } from './conversation-parts.ts';
 
 export * from './conversation-parts.ts';
@@ -94,6 +102,7 @@ export class VoiceSessions {
       if (!this.chats.includes(chat)) { this.endCall(call?.callId); throw new Error('Voice conversation was cancelled.'); }
       chat.callId = call?.callId;
       chat.holder = call?.holder;
+      chat.joined = call?.joined === true;
       chat.starting = false;
       this.publish();
       return this.current();
@@ -143,6 +152,7 @@ export class VoiceSessions {
       this.transcribing = false;
       const target = this.chats.includes(chat) ? chat : this.chats[0];
       if (!text || !target) { this.hint = REPEAT_HINT; this.publish(); return; } // no words heard: say it again
+      if (this.otherReads(target) && echoOf(text, target.lately?.values() ?? [])) { this.publish(); return; } // another device of the call speaking
       this.submit(target, text);
     } catch {
       if (micId !== this.micId) return;
@@ -159,17 +169,20 @@ export class VoiceSessions {
     chat.awaiting = false;
     this.clearTimer(chat);
     this.publish();
+    chat.out = (chat.out ?? 0) + 1;
     try {
       const speech = { ...spokenMeta(true), ...(chat.callId ? { call: chat.callId } : {}) };
       const attachments = [{ fileId, name: 'Utterance.wav', mime: 'audio/wav', size: 0 }, ...(this.deps.shown ? await this.shown(chat) : [])]; // the runtime takes mime and size from the stored file
+      if (!this.chats.includes(chat)) return; // it ended meanwhile: a late line would bring this device back into the call
       const message = await this.deps.rpc.call('messages.send', { conversationId: chat.conversationId, body: '', attachments, clientId: this.deps.newId(), speech });
       if (!this.chats.includes(chat)) return;
       if (message.meta?.call?.id) chat.callId = message.meta.call.id;
       chat.sentSeq = Math.max(chat.sentSeq ?? 0, message.seq);
-      chat.awaiting = true;
-      this.armTimer(chat);
+      this.awaitReply(chat);
     } catch {
       this.hint = REPEAT_HINT; // not even sent: say it again
+    } finally {
+      chat.out = (chat.out ?? 1) - 1;
     }
     if (this.chats.includes(chat)) this.publish();
   }
@@ -224,21 +237,23 @@ export class VoiceSessions {
     const body = chat.pending;
     chat.pending = '';
     chat.sending = true;
+    chat.out = (chat.out ?? 0) + 1;
     this.publish();
     try {
       const speech = { ...spokenMeta(true), ...(chat.callId ? { call: chat.callId } : {}) };
       const attachments = this.deps.shown ? await this.shown(chat) : []; // no extra wait where nothing can be shown
+      if (!this.chats.includes(chat)) return; // it ended meanwhile: a late line would bring this device back into the call
       const message = await this.deps.rpc.call('messages.send', { conversationId: chat.conversationId, body, clientId: this.deps.newId(), speech, ...(attachments.length ? { attachments } : {}) });
       if (!this.chats.includes(chat)) return;
       const call = message.meta?.call?.id;
       if (call) chat.callId = call; // the runtime's call for this line – a new one when the device's connection had closed meanwhile or calls.start failed – so the end reaches it
       chat.sentSeq = message.seq;
-      chat.awaiting = true;
-      this.armTimer(chat);
+      this.awaitReply(chat);
     } catch (error) {
       if (this.chats.includes(chat)) this.end(chat, (error as Error).message);
     } finally {
       chat.sending = false;
+      chat.out = (chat.out ?? 1) - 1;
       if (chat.pending) { chat.awaiting = false; this.clearTimer(chat); void this.drain(chat); } // said meanwhile: out at once
       else if (this.chats.includes(chat)) this.publish();
     }
@@ -247,9 +262,12 @@ export class VoiceSessions {
   private observe(message: Message): void {
     const chat = this.chats.find((entry) => entry.conversationId === message.conversationId);
     const record = chat?.callId ? callRecord(message) : undefined;
-    if (chat && record && record.id === chat.callId && chat.holder && callHolder(record) !== chat.holder) { chat.callId = undefined; this.end(chat); return; } // taken over
+    if (chat && record && record.id === chat.callId && chat.holder && this.outOf(chat, record)) { chat.callId = undefined; this.end(chat); return; } // taken over, or over
+    if (chat?.callId !== undefined && message.authorKind === 'human' && message.authorId === HUMAN_ID && message.kind !== 'status' && message.meta.call?.id === chat.callId) { this.personSaid(chat, message); return; }
+    if (chat?.callId !== undefined && message.authorKind === 'human' && message.kind !== 'status' && message.meta.call?.id === chat.callId) this.remember(chat, message.id, message.body); // another person's line: its sound may reach my microphone (echoOf)
     const voice = message.authorKind === 'agent' || (message.authorKind === 'system' && chat?.callId !== undefined && message.meta.call?.id === chat.callId); // a system line of my call: the program speaks (runtime/calls/no-lane.ts)
-    if (!chat || chat.sentSeq === null || !voice || message.seq <= chat.sentSeq || message.kind === 'status' || message.silent) return;
+    if (chat && voice && message.kind !== 'status' && !message.silent) this.remember(chat, message.id, message.body);
+    if (!chat || chat.sentSeq === null || !voice || message.seq <= chat.sentSeq || message.kind === 'status' || message.silent || this.otherReads(chat)) return;
     if (message.state === 'streaming') { this.piece(chat, message); this.working(chat); return; }
     if (chat.spoken.has(message.id)) return;
     chat.spoken.add(message.id);
@@ -261,6 +279,46 @@ export class VoiceSessions {
     const whole = message.state === 'final' ? speakable(message.body) : '';
     const text = this.rest(chat, message, whole); // KI-Runde 17.11.: what of this answer was not already read while it was written
     if (text) this.read(chat, message, text); else this.publish();
+  }
+
+  /** B-081 / owner 19.11.2026: this device is out of the call – another device took it (the holder), or it is over (joined). */
+  private outOf(chat: Chat, record: CallRecord): boolean {
+    return chat.joined ? record.endedAt !== undefined : !callMember(record, chat.holder!);
+  }
+
+  /** Owner 19.11.2026: another device of the call reads the replies – it heard the person's newest line (or this one joined and heard none yet). */
+  private otherReads(chat: Chat): boolean {
+    if (chat.heard === undefined) return chat.joined === true && chat.sentSeq === null;
+    return chat.sentSeq === null || chat.heard > chat.sentSeq;
+  }
+
+  /** Owner 19.11.2026: a person's line of my call, here or on another device; said there, this device goes quiet: the other one reads. */
+  private personSaid(chat: Chat, message: Message): void {
+    if (message.seq <= (chat.heard ?? -1)) return;
+    chat.heard = message.seq;
+    if (chat.out || !this.otherReads(chat)) return; // a line of mine on its way
+    this.remember(chat, message.id, message.body);
+    this.queue = this.queue.filter((reading) => reading.chat !== chat);
+    chat.said = undefined;
+    chat.awaiting = false;
+    this.clearTimer(chat);
+    if (this.reading?.chat === chat) { this.reading = null; this.deps.silence(); this.readNext(); }
+    this.publish();
+    if (this.micId && !this.reading && !this.transcribing && this.held.length) void this.drainHeld(this.micId);
+  }
+
+  /** The newest words said in the call by others, by row (the echo check). */
+  private remember(chat: Chat, id: string, body: string): void {
+    const lately = chat.lately ??= new Map();
+    lately.delete(id);
+    lately.set(id, speakable(body));
+    if (lately.size > 4) lately.delete(lately.keys().next().value!);
+  }
+
+  /** A line of this device went out: its reply is awaited – unless another device heard a newer line meanwhile. */
+  private awaitReply(chat: Chat): void {
+    chat.awaiting = !this.otherReads(chat);
+    if (chat.awaiting) this.armTimer(chat);
   }
 
   /**

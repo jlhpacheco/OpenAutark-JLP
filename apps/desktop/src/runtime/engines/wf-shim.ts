@@ -22,6 +22,7 @@
 // B-085: AUTARK_AGENT (shared/api/protocol.ts AGENT_ENV) names the agent whose process it is – its `wf` then writes as
 // that agent (wf-cli/discover.ts → Hello `agent`). Set per agent (shell.exec per call, a Claude turn, a
 // Codex thread); the shared engine env (Codex app-server, ACP) never carries one, an inherited value is dropped.
+// Sicher-Runde 19.11.2026: AUTARK_AGENT_PROOF beside it (security/agent-proof.ts) – without it the runtime takes no agent's name.
 // Owns: the shim texts, writing them (only what changed, LF), the PATH order (the shim folder first, Codex's rg and
 // pwsh last), AUTARK_DATA, AUTARK_AGENT, PYTHONUTF8, PYTHONUNBUFFERED and POWERSHELL_TELEMETRY_OPTOUT of the agents'
 // env, where pwsh.exe is found.
@@ -32,7 +33,8 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { unpackedPath } from '../computer/service.ts';
-import { AGENT_ENV } from '../../shared/api/protocol.ts';
+import { AGENT_ENV, AGENT_PROOF_ENV } from '../../shared/api/protocol.ts';
+import { agentIdentity } from '../security/agent-proof.ts';
 
 export interface ShimFile { name: string; text: string }
 
@@ -102,14 +104,13 @@ function keyOf(env: NodeJS.ProcessEnv, name: string, platform: NodeJS.Platform):
 }
 
 /**
- * B-085: `env` with AUTARK_AGENT = `agentId` (the agent whose process it is: its `wf` writes as that agent), or without
- * it – an inherited value never passes on. The input stays as it was.
+ * B-085: `env` with AUTARK_AGENT = `agentId` (the agent whose process it is: its `wf` writes as that agent) and its proof
+ * (AUTARK_AGENT_PROOF), or without both – an inherited value never passes on. The input stays as it was.
  */
 export function asAgent(env: NodeJS.ProcessEnv, agentId: string | undefined, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = { ...env };
-  delete out[keyOf(out, AGENT_ENV, platform)];
-  if (agentId) out[AGENT_ENV] = agentId;
-  return out;
+  for (const name of [AGENT_ENV, AGENT_PROOF_ENV]) delete out[keyOf(out, name, platform)];
+  return agentId ? Object.assign(out, agentIdentity(agentId)) : out;
 }
 
 /**

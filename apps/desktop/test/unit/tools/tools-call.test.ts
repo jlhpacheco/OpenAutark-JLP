@@ -46,7 +46,7 @@ function rig(engine?: { ownTools: boolean; dynamicTools: boolean }) {
     describe: (args) => ({ summary: `Jot ${String((args as { text: string }).text)}`, reversible: true, external: false }),
     run: async (args) => { jots++; return { content: [{ type: 'text', text: `jotted ${String((args as { text: string }).text)} #${jots}` }] }; },
   }));
-  registry.register(tool('schedules.remind', 'think', {
+  registry.register(tool('tasks.remind', 'think', {
     description: 'Private reminder: at that time you get a turn with your own note (no chat post).',
     inputSchema: { type: 'object', properties: { at: { type: 'string' }, note: { type: 'string' }, repeat: { type: 'string', enum: ['daily', 'weekly'] } }, required: ['at', 'note'] },
   }));
@@ -155,7 +155,7 @@ test('tools.find: best fit first, direct tools marked, full schema for a name, f
   const { registry, base } = rig();
   const remind = textOf(await registry.call('tools.find', { query: 'remind me tomorrow to call the bank' }, base, 'f1'));
   const lines = remind.split('\n');
-  assert.equal(lines[1], '- schedules.remind (in my list): Private reminder: at that time you get a turn with your own note (no chat post).');
+  assert.equal(lines[1], '- tasks.remind (in my list): Private reminder: at that time you get a turn with your own note (no chat post).');
   assert.match(lines[2], /^ {2}Arguments: \{"type":"object","properties":\{"at":/, 'one find is enough: the best hit with its whole schema');
   assert.ok(lines.slice(3).every((line) => line.includes(' Arguments: ')), 'every other hit with its arguments');
   assert.ok(!remind.includes('computer.click'));

@@ -20,7 +20,8 @@
 //      effort of at least high (the last turn's where another effort would write the cache anew), with the system text and tools the session started with, no live block, and one note as its
 //      whole input (FOLD_NOTE). The router is not asked; its run counts as a request's, so its raised effort is nobody's to
 //      return to. A session that is not there to resume (it ended, the route moved to another account) fails the turn.
-//   4. Its closing text is the hand-over (endFold), in one transaction: journaled as the run's 'Hand-over' note(s) – the ledger
+//   4. Its closing text is the hand-over (endFold) – Quests round 20.11.2026: with my "## My quests" lines as they stand under
+//      it (FOLD_QUESTS), so a fold never drops an ask –, in one transaction: journaled as the run's 'Hand-over' note(s) – the ledger
 //      records them as checkpoint items –, the ledger pins it and hides everything of the agent's own work before it by 'fold'
 //      (context/ledger/service.ts fold) and the session is marked folded (SessionBinding.foldedAt). Nothing of it is posted:
 //      the turn has no chat, so the safety net has nowhere to go; blocks it addresses go out as always.
@@ -49,6 +50,8 @@ import { journalAnswer, splitAnswer } from './publishing.ts';
 import { SessionStore } from './sessions.ts';
 import { rebuildBlocked } from './rebuild.ts';
 import type { AttemptResult, RoutedTurn, TurnPlan, TurnRequest } from './turn-types.ts';
+import { myQuestsSection } from '../context/quest-text.ts';
+import { profileZone } from '../context/time.ts';
 
 declare module './turn-types.ts' {
   interface TurnRequest {
@@ -71,9 +74,13 @@ declare module './turn-types.ts' {
  */
 export const FOLD_NOTE = 'My turn is done, and my context holds {{size}}: I read all of it again on every step. '
   + 'I write my hand-over to myself now – it is all my next turn starts from, beside my chats with my own lines in them, '
-  + 'my open tasks and my files: what I am working on and for whom, what I decided and why, the exact names, paths, ids and '
-  + 'values I will need again, what is promised to whom, and what I do next. What is finished gets one line. '
+  + 'my quests and my files: what I am working on and for whom, what I decided and why, the exact names, paths, ids and '
+  + 'values I will need again, what is promised to whom, and what I do next. What is finished gets one line; an ask that is '
+  + 'not done stays open in its quest, and my quests as they stand now are added under my hand-over. '
   + 'The full record stays in reach (`context.restore`).';
+
+/** Quests round 20.11.2026: the heading of the "## My quests" lines a hand-over carries as they stood (endFold). */
+export const FOLD_QUESTS = 'My quests when I wrote this hand-over:';
 
 /** FOLD_NOTE with the session's size ("312,000 tokens"; without a count: "all I read on the way"). */
 export function foldNote(tokens: number | undefined): string {
@@ -83,8 +90,8 @@ export function foldNote(tokens: number | undefined): string {
 
 /** The run note name of a hand-over's part (data {checkpoint: true, text}; context/ledger/capture.ts records it as a checkpoint item). */
 export const CHECKPOINT_ITEM = 'Hand-over';
-/** The call whose presence in a run says a task was finished in it. */
-const FINISH_CALL = 'tasks.finish';
+/** The call that finishes a task (status done or dropped) – with a task of mine ended in the run it says a step ended. */
+const FINISH_CALL = 'tasks.update';
 /** The effort a fold turn runs at, at least. */
 const FOLD_EFFORT: Effort = 'high';
 /** The fold turn's route reason, as the run journal shows it. */
@@ -116,7 +123,7 @@ export function wantsFold(services: RuntimeServices, plan: TurnPlan, turn: Pick<
     if (rebuildBlocked(services, plan.agent.id, plan.thread, id)) return undefined;
     return foldWhy({
       tokens: session.contextTokens, compacted: attempt.result.compacted === true || session.compactedAt !== undefined,
-      finishedTask: (attempt.tools ?? []).some((use) => use.name === FINISH_CALL && use.ok !== false),
+      finishedTask: (attempt.tools ?? []).some((use) => use.name === FINISH_CALL && use.ok !== false) && endedInRun(services, plan.agent.id),
     });
   } catch (error) {
     services.log.warn('the fold was not weighed', { agentId: plan.agent.id, error: String(error) });
@@ -124,8 +131,28 @@ export function wantsFold(services: RuntimeServices, plan: TurnPlan, turn: Pick<
   }
 }
 
-/** The wakes a person's own step causes without a line of theirs: their answer, their approval, a run they started. */
-const PERSON_WAKES: ReadonlySet<WakeReason> = new Set<WakeReason>(['answer', 'approval', 'manual']);
+/** A task I own ended (done or dropped) since my newest run – the turn that just ended – started. */
+function endedInRun(services: RuntimeServices, agentId: string): boolean {
+  try {
+    const run = (services.runs.listTopLevel?.(agentId, 1) ?? services.runs.list(agentId, 1))[0];
+    if (run?.startedAt === undefined) return false;
+    return services.tasks.list({ assigneeKind: 'agent', assigneeId: agentId, completedSince: run.startedAt, includeSteps: true, limit: 1 }).length > 0;
+  } catch { return false; }
+}
+
+/** The "## My quests" lines as they stand now, under FOLD_QUESTS ('' when they cannot be read). */
+function questsNow(services: RuntimeServices, agentId: string): string {
+  try {
+    const lines = myQuestsSection(services, agentId, profileZone(services)).split('\n').slice(1);
+    return [FOLD_QUESTS, ...lines].join('\n');
+  } catch (error) {
+    services.log.warn('the hand-over got no quest lines', { agentId, error: String(error) });
+    return '';
+  }
+}
+
+/** The wakes a person's own step causes without a line of theirs: their answer, a run they started. */
+const PERSON_WAKES: ReadonlySet<WakeReason> = new Set<WakeReason>(['answer', 'manual']);
 /** How many unseen lines of a chat are read to see whether one of them is the person's. */
 const UNSEEN_LINES = 50;
 
@@ -249,8 +276,10 @@ export function endFold(services: RuntimeServices, plan: TurnPlan, turn: Pick<Ro
     note(services, request.runId, { fold: 'kept', why, reason: 'no hand-over written' });
     return;
   }
-  let clean = text;
-  try { clean = services.secrets.redact(text); } catch { /* the journal is local */ }
+  const quests = questsNow(services, agentId); // Quests round 20.11.2026: the asks stand in the hand-over as data, never as my retelling
+  const whole = quests ? `${text.trimEnd()}\n\n${quests}` : text;
+  let clean = whole;
+  try { clean = services.secrets.redact(whole); } catch { /* the journal is local */ }
   const parts = splitAnswer(clean);
   try {
     // One transaction: the hand-over's notes (the ledger records them as checkpoint items), the hides it pins and the mark on

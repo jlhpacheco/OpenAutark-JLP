@@ -14,7 +14,7 @@ import { TurnExecutor } from '../../../src/runtime/agents/turn.ts';
 import { SessionStore } from '../../../src/runtime/agents/sessions.ts';
 import { GENERAL_MODE } from '../../../src/runtime/modes/service.ts';
 import { journalAnswer } from '../../../src/runtime/agents/publishing.ts';
-import { CHANGED_MAX, changedLines, forgetSent, recordSent, sectionTitle, sentTo, STABLE_CHANGED, stableDelta, volatileDelta, type VolatileSection } from '../../../src/runtime/agents/volatile-delta.ts';
+import { CHANGED_MAX, carries, changedLines, forgetSent, recordSent, sectionTitle, sentTo, STABLE_CHANGED, stableDelta, volatileDelta, type VolatileSection } from '../../../src/runtime/agents/volatile-delta.ts';
 import type { Engine, EngineCaps, EngineTurnInput, EngineTurnResult } from '../../../src/runtime/engines/types.ts';
 import type { ModeInfo } from '../../../src/shared/model/knowledge.ts';
 import type { ModelInfo, RouteDecision } from '../../../src/shared/model/providers.ts';
@@ -182,21 +182,21 @@ test('turn path: new session full; resumed only what changed; a failed turn reco
   h.send('And?');
   await h.turn();
   const failed = volatileOf(h.calls[2]);
-  assert.match(failed, /## My tasks\n- [^\n]*Cut the launch video/, 'a changed section goes in full');
+  assert.match(failed, /## My quests\nOther:\n- [^\n]*Cut the launch video/, 'a changed section goes in full');
   h.state.fail = false;
   h.send('Again');
   await h.turn();
-  assert.match(volatileOf(h.calls[3]), /## My tasks/, 'the failed turn recorded nothing: sent again');
+  assert.match(volatileOf(h.calls[3]), /## My quests/, 'the failed turn recorded nothing: sent again');
   h.send('Once more');
   await h.turn();
-  assert.ok(!volatileOf(h.calls[4]).includes('## My tasks'), 'held after a finished turn');
+  assert.ok(!volatileOf(h.calls[4]).includes('## My quests'), 'held after a finished turn');
 
   new SessionStore(h.db).remove(h.vic.id, 'main', 'codex'); // S2: the session starts anew (a mode switch alone keeps it)
   h.send('Take a screenshot');
   await h.turn();
   const renewed = h.calls[5];
   assert.equal(renewed.session, undefined, 'a renewed (new) session');
-  for (const header of ['## Now', '## My chats', '## My tasks']) assert.ok(volatileOf(renewed).includes(header), `renewed: ${header}`);
+  for (const header of ['## Now', '## My chats', '## My quests']) assert.ok(volatileOf(renewed).includes(header), `renewed: ${header}`);
 });
 
 test('turn path: after the engine compacted the session (result.compacted) the next turn gets every section again', async () => {
@@ -246,4 +246,14 @@ test('turn path: a new session gets my latest answers from the run log right aft
   assert.ok(!volatileOf(renewed).includes('Die Liste ist geprüft'), 'not in the live part');
   const text = renewed.input.map((item) => (item.type === 'text' ? item.text : '')).join('\n');
   assert.match(text, /^My latest answers[^\n]*\n- [^\n]*Die Liste ist geprüft, drei Punkte offen\./, text);
+});
+
+test('carries: a section goes out on a new session, on a resumed one only when it changed – a reminder\'s quest then comes once (FIXREAL second round 3)', () => {
+  const first = volatileDelta([NOW_1, TASK], undefined);
+  assert.equal(carries([NOW_1, TASK], first, 'task'), true, 'a new session gets it');
+  assert.equal(carries([NOW_2, TASK], volatileDelta([NOW_2, TASK], first.sections), 'task'), false, 'unchanged on a resumed session: left out');
+  const moved = s('task', '## Current task\nTitle: Cut the video\nNow: one to-do open');
+  assert.equal(carries([NOW_2, moved], volatileDelta([NOW_2, moved], first.sections), 'task'), true, 'changed: sent again');
+  assert.equal(carries([NOW_1, s('task', '')], volatileDelta([NOW_1, s('task', '')], undefined), 'task'), false, 'no task this turn');
+  assert.equal(carries(undefined, undefined, 'task'), false);
 });

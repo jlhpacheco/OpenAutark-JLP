@@ -23,7 +23,7 @@ import type { Account, Effort, ModelInfo } from '../../shared/model/providers.ts
 import { isChatModel } from '../../shared/model/models-uses.ts';
 import { SYSTEM_ID } from '../../shared/ids.ts';
 import { headroom, selectCandidates } from '../accounts/candidates.ts';
-import { chargeOf } from '../models/pricing.ts';
+import { accountCharge } from '../../shared/model/charge.ts';
 import type { Pool } from './pool.ts';
 import { isPaid, tierRank } from './score.ts';
 
@@ -44,7 +44,7 @@ export function helperPlans(s: RuntimeServices): Set<string> {
   const now = s.clock.now();
   let accounts;
   try { accounts = s.accounts.candidates('codex'); } catch { return new Set(); }
-  return new Set(accounts.filter((account) => account.provider === 'codex' && chargeOf(account) === 'plan'
+  return new Set(accounts.filter((account) => account.provider === 'codex' && accountCharge(account) === 'plan'
     && (headroom(account, now) ?? 100) >= HELPER_MIN_HEADROOM).map((account) => account.id));
 }
 

@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BrowserService } from '../../src/runtime/browser/service.ts';
-import { MemoryLogger } from '../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../unit/fakes.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = path.join(here, 'fixtures', 'browser-check.html');

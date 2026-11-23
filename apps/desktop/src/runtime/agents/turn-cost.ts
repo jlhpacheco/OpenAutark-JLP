@@ -1,9 +1,8 @@
 // The cost of one finished turn (PR9): only real charges reach the agent's budget.
-// A failover turn is priced per attempt: turn.ts mergeAttempts keeps the final attempt's own
-// usage as `lastUsage`, the difference is the first attempt's, and the run's 'failover' note
-// names that attempt's account and model. Each attempt is priced on its own account and model
-// (models/pricing.ts with the catalog's Artificial Analysis prices and the shipped priors'
-// curated prices; the cached and the written input an attempt reported at their own prices); the paid amount is
+// A turn of two attempts (a session renewal or a failover) is priced per attempt: turn.ts mergeAttempts keeps the final
+// attempt's own usage as `lastUsage`, the difference is the earlier attempts', and a run's 'failover' note names that
+// attempt's account and model (none: a renewal, on the turn's own). Each attempt is priced on its own account and model
+// (models/pricing.ts with the shipped priors' curated prices and the daily list's prices on the catalog's models; the cached and the written input an attempt reported at their own prices); the paid amount is
 // booked as the agent's 'tokens' spend, the cost basis and a plan's notional list-price cost are stored on the run (store/run-cost.ts).
 // B-089 (11.11.2026: what a run costs, written down): runTokens gives the finish the run's cached input and model calls;
 // package C (17.11.2026) its cache writes too. An engine that reports a session's running total (Claude Code) gets the

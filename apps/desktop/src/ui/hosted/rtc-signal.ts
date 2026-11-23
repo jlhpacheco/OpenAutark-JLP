@@ -1,20 +1,20 @@
 // F25 P3 (18.11.2026): the iPhone web app's half of the direct way's signalling as plain data (rtc.ts runs the try), as
 // Android's relay/RtcSignal.java: reading the PC's offer (an id, SDP of at most 16 KiB, at most 32 of its candidates, and
-// from its ice list only stun: URLs, at most 4, so an empty list stays empty – exactly the browser's iceServers), and the
-// address filter. The PC's candidates are taken only as IP literals outside loopback, 0/8, link-local (169.254.169.254
+// from its ice list only the bundled Cloudflare STUN endpoint, if offered; no default for an empty or rejected list),
+// and the address filter. The PC's candidates are taken only as IP literals outside loopback, 0/8, link-local (169.254.169.254
 // too), multicast, broadcast and 240/4, ::/96, 64:ff9b::/96, fe80::/10 and ff00::/8 (an IPv4-mapped address counts as its
 // IPv4), UDP, port 1024 and up – never a name the browser would resolve first. This phone's own go out as the PC takes
 // them (runtime/devices/rendezvous/rtc.ts allowedCandidate): the same, or an mDNS .local name (how Safari and Chromium
 // name host candidates without a camera grant).
-// Owns: these limits and filters. Never: sends anything (rtc.ts does, only on the finished pinned channel A), resolves a
-// name, or logs.
+// The browser may resolve the single permitted STUN hostname, never an offer-supplied candidate name.
+// Owns: these limits and filters. Never: sends anything (rtc.ts does, only on the finished pinned channel A) or logs.
 
 import { utf8 } from './bytes.ts';
 
 export const RTC_VERSION = 1;
 export const MAX_SDP = 16 * 1024;
 export const MAX_CANDIDATES = 32;
-export const MAX_STUN = 4;
+const ALLOWED_STUN = 'stun:stun.cloudflare.com:3478';
 const MAX_LINE = 512;
 
 function ip4(text: string): number[] | undefined {
@@ -103,24 +103,23 @@ export function ownCandidate(line: string): string | undefined {
   return ok ? parts.type : undefined;
 }
 
-/** stun:host or stun:host:port – no user, query or transport, at most 200 characters. */
-export const stunUrl = (url: unknown): url is string =>
-  typeof url === 'string' && url.length <= 200 && /^(stun:[A-Za-z0-9.-]{1,190}(:[0-9]{1,5})?|stun:\[[0-9A-Fa-f:.]{2,45}\](:[0-9]{1,5})?)$/.test(url);
-
-/** The STUN URLs of an offer's ice list ([{urls: [..] or '..'}]): stun: only, at most 4, in the PC's order. */
+/**
+ * Accept only the exact bundled STUN endpoint, if the PC offers it. A paired PC can opt out, but cannot choose
+ * an arbitrary STUN destination. Do not normalize, resolve here or substitute a default.
+ */
 export function stunOf(ice: unknown): string[] {
-  const out: string[] = [];
-  if (!Array.isArray(ice)) return out;
+  if (!Array.isArray(ice)) return [];
   for (const server of ice) {
     const urls = (server as { urls?: unknown } | null)?.urls;
-    for (const url of Array.isArray(urls) ? urls : [urls]) if (stunUrl(url) && out.length < MAX_STUN && !out.includes(url)) out.push(url);
+    if (urls === ALLOWED_STUN || (Array.isArray(urls) && urls.includes(ALLOWED_STUN))) return [ALLOWED_STUN];
   }
-  return out;
+  return [];
 }
 
-/** The browser's settings for one try: the ICE servers are exactly `stun` (none for an empty list). */
+/** Reapply the same opt-in boundary before giving the list to the browser. */
 export function rtcConfig(stun: readonly string[]): RTCConfiguration {
-  return { iceServers: stun.length ? [{ urls: [...stun] }] : [], iceCandidatePoolSize: 0, bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' };
+  const iceServers = stun.includes(ALLOWED_STUN) ? [{ urls: [ALLOWED_STUN] }] : [];
+  return { iceServers, iceCandidatePoolSize: 0, bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' };
 }
 
 /** An SDP without its candidate lines (they travel one by one through the filter). */

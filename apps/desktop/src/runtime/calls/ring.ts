@@ -15,20 +15,24 @@
 // up (until 0, past on any clock), so the app phone's notice stops ringing. The PC that holds the row closes the phones'
 // ring notices (pwa/read-clear.ts clearNotice, its own call tag) and, for a decline or a missed ring, wakes the agent once with a
 // first-person note.
-// An employee's seat PC ('employer' link) neither rings nor lists the owner's calls (employees: after B-080).
+// An employee's seat PC ('employer' link) does not ring for the owner's agents; Team-Call 21.11.2026: it lists the running
+// calls of the chats it shares, and a call another person's PC holds is listed with `others` (Join, never Take over).
 // Owns: rings, the live list, the ring alerts and the decline. Never: holds a device's call (call-log.ts) or audio.
 
 import { WorkforceError } from '../../shared/errors.ts';
 import { SYSTEM_ID, newId } from '../../shared/ids.ts';
-import { RING_MS, callHolder, callRecord, callState, type CallDevice, type CallRecord, type CallState, type LiveCall } from '../../shared/model/call.ts';
+import { RING_MS, callDeviceNames, callHolder, callRecord, callState, type CallDevice, type CallRecord, type CallState, type LiveCall } from '../../shared/model/call.ts';
 import type { Message } from '../../shared/model/chat.ts';
 import type { RuntimeServices } from '../contracts.ts';
 import { chatWakeKey } from '../chat/delivery.ts';
-import { heldSubs, localSubs, ownerHeld, ownKey, pushTo, type HeldSub, type PushFetch } from '../devices/sync/held-push.ts';
+import { heldSubs, localSubs, ownerHeld, ownKey, pushTo, type HeldSub } from '../devices/sync/held-push.ts';
+import type { PushFetch } from '../pwa/push.ts';
 import { links } from '../devices/sync/home.ts';
 import { pushTarget } from '../pwa/push.ts';
 import { clearNotice } from '../pwa/read-clear.ts';
-import { thisPc, writeCallRow, type CallLog } from './call-log.ts';
+import type { CallLog } from './call-log.ts';
+import { otherPerson } from './call-peer.ts';
+import { thisPc, writeCallRow } from './call-row.ts';
 import type { CallTimers } from './realtime/session.ts';
 
 export { RING_MS };
@@ -148,22 +152,23 @@ export class Rings {
     return { say, by: ring.by };
   }
 
-  /** The ringing and running calls (empty on an employee's seat PC). */
+  /** The ringing and running calls (an employee's seat PC: the running ones only). */
   live(): LiveCall[] {
     const s = this.s;
-    if (this.seat()) return [];
+    const seat = this.seat();
     const now = s.clock.now();
     const pc = thisPc(s);
     const out: LiveCall[] = [];
     for (const [callId, { rowId, conversationId, record }] of this.entries) {
       const state = callState(record, now);
-      if (!this.goesOn(record, state, pc)) continue;
+      if (!this.goesOn(record, state, pc) || (seat && state !== 'running')) continue;
       const last = record.lines.at(-1);
       out.push({
         callId, rowId, conversationId, state,
         ...(record.ring ? { agentName: this.nameOf(record.ring.by), why: record.ring.why, until: record.ring.until } : {}),
-        ...(state === 'running' ? { device: record.name, holder: callHolder(record) } : {}),
+        ...(state === 'running' ? { device: callDeviceNames(record), holder: callHolder(record) } : {}), // owner 19.11.2026: with the devices joined beside it
         ...(last ? { last: { name: last.name, text: flat(last.text, LAST_TEXT) } } : {}),
+        ...(state === 'running' && record.pc && record.pc !== pc && otherPerson(s, record.pc) ? { others: true as const } : {}),
       });
     }
     return out;

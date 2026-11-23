@@ -98,14 +98,6 @@ export function fileSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** Initials for avatars: "Video Editor" → "VE", "mira" → "M". */
-export function initials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return '?';
-  if (words.length === 1) return words[0].slice(0, 1).toUpperCase();
-  return (words[0][0] + words[1][0]).toUpperCase();
-}
-
 /** Markdown's backslash escapes (CommonMark: ASCII punctuation), kept aside while markup is stripped. */
 const ESCAPED = /\\([!-/:-@[-`{-~])/g;
 /** Private-use stand-ins for escaped characters (U+E000 + the character's code). */
@@ -141,14 +133,6 @@ export function money(amount: number, currency: string): string {
   }
 }
 
-/** The currency's sign as money() writes it ("€" for EUR), e.g. an amount field's suffix; the code when there is none. */
-export function currencySign(currency: string): string {
-  try {
-    return new Intl.NumberFormat(locale, { style: 'currency', currency }).formatToParts(0).find((part) => part.type === 'currency')?.value ?? currency;
-  } catch {
-    return currency;
-  }
-}
 
 /**
  * An agent's live note as a person reads it: a bare tool name ("bash", "browser.show", "Browser show")

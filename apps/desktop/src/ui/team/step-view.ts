@@ -6,7 +6,7 @@
 // Owns: these rules (unit-tested in test/unit/ui/step-view.test.ts). Never: imports the store, rpc or the DOM.
 
 import type { RunItem } from '../../shared/model/runs.ts';
-import { reasoningHeadline, stepLabel, type StepKind, type StepLabel } from '../../shared/text/step-label.ts';
+import { parsedArgs, reasoningHeadline, stepLabel, type StepKind, type StepLabel } from '../../shared/text/step-label.ts';
 import type { IconName } from '../lib/icons.tsx';
 import type { RunEntry } from './model.ts';
 
@@ -18,12 +18,6 @@ export const STEP_ICONS: Record<StepKind, IconName> = {
 
 const KINDS = new Set(Object.keys(STEP_ICONS));
 const str = (value: unknown): string => (typeof value === 'string' ? value : '');
-
-/** Journaled args are a JSON preview (a string, maybe cut): the object when it still parses. */
-export function parsedArgs(value: unknown): unknown {
-  if (typeof value !== 'string') return value;
-  try { return JSON.parse(value); } catch { return {}; }
-}
 
 /** The line of a tool call: the runtime's own step when it journaled one, else derived here. */
 export function callStep(call: Pick<RunItem, 'name' | 'data'>): StepLabel {

@@ -127,7 +127,7 @@ test('who leads: an agent with reports, or one hired from the manager or head te
   w.agents.set(w.felix.id, { ...w.felix, archivedAt: 5 });
   assert.equal(leads(w.services.org, w.konrad), false, 'an archived report leads nobody');
   const alone = await w.route(w.konrad);
-  assert.deepEqual([alone.modelId, alone.reason], [SONNET, "executing runs on the strong tier's best value · chat"]);
+  assert.deepEqual([alone.modelId, alone.reason], [SONNET, "executing runs on the strong tier's best value · chat · not weighed · effort medium"]);
   assert.equal(leads({} as never, w.felix), false, 'an org without a list');
 });
 
@@ -136,9 +136,9 @@ test('Auto at a boundary: leading runs on the strongest tier\'s first choice, ex
   // a first turn: no model to be on
   const lead = await w.route(w.konrad);
   assert.equal(w.tier(lead.modelId), 'frontier', lead.reason);
-  assert.deepEqual([lead.by, lead.reason], ['rules', "leading runs on the frontier tier's first choice · chat"]);
+  assert.deepEqual([lead.by, lead.reason], ['rules', "leading runs on the frontier tier's first choice · chat · not weighed · effort medium"]);
   const doer = await w.route(w.felix);
-  assert.deepEqual([doer.modelId, doer.by, doer.reason], [SONNET, 'rules', "executing runs on the strong tier's best value · chat"]);
+  assert.deepEqual([doer.modelId, doer.by, doer.reason], [SONNET, 'rules', "executing runs on the strong tier's best value · chat · not weighed · effort medium"]);
 
   // On the code before 17.11.2026 the previous model simply continued: every employee stayed on its manager's model.
   const drifted = await w.route(w.felix, { previous: { modelId: OPUS, effort: 'high' }, boundary: true });
@@ -225,25 +225,18 @@ test('the person\'s Model choice shifts the kind\'s tier: Best puts everyone on 
   assert.equal(kindTier([], true, 'balanced'), undefined);
 });
 
-test('a person\'s new line raises the effort to high on the model I am on – it no longer moves the model', async () => {
+test("Runde „Halb“: a person's new line lifts no effort and moves no model – the weighing decides for every wake alike", async () => {
   const w = await world();
   w.addChat('ch_1', ['ag_felix'], {}, PERSON_LINE);
-  // On the code before 17.11.2026 the person rule moved the turn to the strongest model.
+  // On the code before 17.11.2026 the person rule moved the turn to the strongest model; before 21.11.2026 it was a floor at high.
   const line = await w.route(w.felix, { conversationId: 'ch_1', previous: { modelId: SONNET, effort: 'low' }, boundary: false });
-  assert.deepEqual([line.modelId, line.effort], [SONNET, 'high'], line.reason);
-  assert.equal(line.reason, "continues on my model · chat · a person's line · effort at least high");
-  // the lift is that turn's: its run reads as an effort asked for, so my next wake starts from my settled effort again
-  // (next-route.ts ownEffort; review 17.11.2026: the lift ratcheted into every later wake)
-  assert.equal(line.effortBy, 'request');
-  const settled = returnChoice([
-    run({ model: SONNET, effort: line.effort, route: { reason: line.reason, by: line.by, category: line.category, effortBy: line.effortBy } }),
-    run({ model: SONNET, effort: 'low', route: { reason: 'continues on my model · chat', by: 'previous', category: 'chat', effortBy: 'previous' } }),
-  ], undefined);
-  assert.equal(settled?.effort, 'low');
-  // my subconscious's low for their line is raised too; an effort above high stays
+  assert.deepEqual([line.modelId, line.effort], [SONNET, 'low'], line.reason);
+  assert.equal(line.reason, 'continues on my model · chat');
+  assert.equal(line.effortBy, 'previous');
+  // my subconscious's low for their line runs as it is – not a floor
   const sub = { modelId: SONNET, explicit: true, asked: 'effort' as const, by: 'subconscious' as const, why: 'a receipt' };
-  const raised = await w.route(w.felix, { conversationId: 'ch_1', previous: { ...sub, effort: 'low' }, boundary: false });
-  assert.equal(raised.effort, 'high', raised.reason);
+  const weighed = await w.route(w.felix, { conversationId: 'ch_1', previous: { ...sub, effort: 'low' }, boundary: false });
+  assert.equal(weighed.effort, 'low', weighed.reason);
   assert.equal((await w.route(w.felix, { conversationId: 'ch_1', previous: { ...sub, effort: 'xhigh' }, boundary: false })).effort, 'xhigh');
   // my own request and my fixed effort hold
   const own = await w.route(w.felix, { conversationId: 'ch_1', previous: { modelId: SONNET, effort: 'low', explicit: true, asked: 'effort' }, boundary: false });
@@ -274,7 +267,7 @@ test('a fresh part without a named model runs on the executing default when its 
   const part = (origin: string, fresh = true) => w.route(w.konrad, { previous: { modelId: origin, effort: 'high' }, split: { splitId: 'sp_1', ...(fresh ? { fresh: true as const } : {}) } });
   // On the code before 17.11.2026 such a part ran on its origin's model as "requested by the agent" (9 of 12 on the frontier tier).
   const down = await part(OPUS);
-  assert.deepEqual([down.modelId, down.reason], [SONNET, "executing runs on the strong tier's best value · chat"]);
+  assert.deepEqual([down.modelId, down.reason], [SONNET, "executing runs on the strong tier's best value · chat · not weighed · effort medium"]);
   const same = await part(SONNET);
   assert.deepEqual([same.modelId, same.reason, same.effort], [SONNET, "my origin's model · chat", 'high']);
   assert.equal((await part(HAIKU)).modelId, HAIKU, 'an origin below the strong tier keeps its model');

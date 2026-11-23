@@ -13,6 +13,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -41,6 +42,9 @@ test('after an update the window shows one start notice', { timeout: 240_000 }, 
   });
 
   current = await launch(profile);
+  // the window shows its shell before a fresh profile's runtime is up; it stores this start's version just before it
+  // listens (runtime/main.ts recordStart, then runtime.json)
+  await runtimeInfo(profile);
   await current.page.waitForTimeout(1500);
   assert.equal(await current.page.locator('.status-note', { hasText: 'Updated to' }).count(), 0, 'no notice on a first start');
   await current.app.close();

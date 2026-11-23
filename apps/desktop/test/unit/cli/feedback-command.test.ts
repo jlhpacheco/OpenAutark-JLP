@@ -16,8 +16,7 @@ const PHONE: FeedbackInboxItem = {
   text: 'Es hat nicht funktioniert.\nDa war irgendwas ganz Komisches mit der App.', appVersion: '0.3.9', os: 'win32 10.0.26300 x64', view: '#/home',
   client: 'Android app 0.3.15 · Android 16 · SM-S918B · 412×915', company: 'company-2', dictated: true,
   diagnostics: '2026-11-16T06:48:00Z warn engine failed', clientDiagnostics: 'android.os.NetworkOnMainThreadException\n\tat WebSocketClient.shutdown',
-  screenshot: { mime: 'image/jpeg', size: 150_000 },
-  audio: [{ mime: 'audio/webm', size: 300_000, file: 'c0fd8641-9cb7-46f5-b790-b6be9ba14381.a1.webm' }],
+  images: [{ mime: 'image/jpeg', size: 150_000 }, { mime: 'image/png', size: 90_000 }],
 };
 const OLD: FeedbackInboxItem = {
   id: '26730442-2d55-4bab-a41e-d50da8361467', receivedAt: AT - 9 * 86_400_000, createdAt: Date.UTC(2026, 10, 8, 14, 51), kind: 'bug', text: 'hi',
@@ -72,13 +71,13 @@ test('wf feedback show <no>: text, facts, both diagnostics and the report\'s fil
     'Es hat nicht funktioniert.\nDa war irgendwas ganz Komisches mit der App.',
     'Diagnostics (the sending PC\'s log):\n2026-11-16T06:48:00Z warn engine failed',
     'Device diagnostics:\nandroid.os.NetworkOnMainThreadException\n\tat WebSocketClient.shutdown',
-    `Screenshot: ${path.join(dir, `${PHONE.id}.jpg`)}`,
-    `Recording 1: ${path.join(dir, `${PHONE.id}.a1.webm`)} (audio/webm, 293 KB)`,
+    `Image 1: ${path.join(dir, `${PHONE.id}.jpg`)}`,
+    `Image 2: ${path.join(dir, `${PHONE.id}.2.png`)}`,
   ]) assert.ok(show.out.includes(line), `missing: ${line}\n${show.out}`);
   const old = await wf(['feedback', 'show', OLD.id], { runtime });
   assert.match(old.out, /Kind: bug/);
   assert.match(old.out, /Mark: not relevant \(/);
-  assert.doesNotMatch(old.out, /Screenshot:|Recording/);
+  assert.doesNotMatch(old.out, /Image \d:|Recording/);
   const missing = await wf(['feedback', 'show', 'ABCDEF12'], { runtime });
   assert.equal(missing.code === 0, false);
   assert.match(missing.err, /No report ABCDEF12 in the inbox on this PC/);

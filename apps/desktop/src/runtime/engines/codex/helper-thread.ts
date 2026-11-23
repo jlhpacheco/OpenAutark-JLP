@@ -8,7 +8,7 @@
 // - An agent thread keeps the shell with its patch tool, the shell snapshot, view_image (the only way it sees a stored image),
 //   image_generation (the plan's own pictures) and Codex's live web search; a new one asks for raw Responses items
 //   (code-mode.ts reads its exec calls there) and is stored as 'chatgpt_hidden', so the Codex desktop app does not list it.
-//   A plan-image thread has image_generation as its one tool, a dictation's hear thread realtime_conversation.
+//   A plan-image thread has image_generation as its one tool. An agent thread compacts near RUN_CEILING (agentLeanConfig).
 // - Opening waits THREAD_OPEN_MS, or for an agent turn until its signal (untilStopped, orStopped); a thread a late
 //   thread/start opened leaves the app-server again.
 // A Codex that refuses these settings fails the open with its own error – there is no plainer fallback.
@@ -17,6 +17,7 @@
 
 import type { RpcClient } from './rpc.ts';
 import { WORKSPACE_FEATURES } from './isolation.ts';
+import { RUN_CEILING } from '../../agents/compaction-policy.ts';
 
 /** How long opening a thread may take (a cold app-server needed ~65 s live). */
 export const THREAD_OPEN_MS = 120_000;
@@ -107,24 +108,6 @@ export function imageThread<T extends { config?: Record<string, unknown> }>(sett
   };
 }
 
-/** The plan's small model and effort for the hear thread and the dictation merge helper. */
-export const HEAR_MODEL = 'gpt-6-luna';
-export const HEAR_EFFORT = 'low';
-
-/**
- * thread/start settings of a dictation heard by the plan's realtime voice (voice/codex-hear.ts) – a lean, ephemeral helper
- * thread without environment whose one feature on is realtime_conversation, on HEAR_MODEL at HEAR_EFFORT. The voice hands
- * what it hears to the thread as a turn; with no environment and every tool off such a turn reaches nothing, and
- * codex-hear.ts interrupts it at once anyway.
- */
-export function hearThread<T extends { config?: Record<string, unknown> }>(settings: T, instructions: string): Omit<T, 'developerInstructions'> & {
-  model: string; config: Record<string, unknown>; environments: []; ephemeral: true; baseInstructions: string; developerInstructions: string;
-} {
-  const lean = helperThread({ ...settings, developerInstructions: '' });
-  const features = { ...(lean.config.features as Record<string, boolean>), realtime_conversation: true };
-  return { ...lean, model: HEAR_MODEL, config: { ...lean.config, features, model_reasoning_effort: HEAR_EFFORT }, baseInstructions: instructions };
-}
-
 /** What a helper thread knows about the functions Codex still offers it (its answer is its reply), naming no engine's tools. */
 export const HELPER_NOTE = 'The functions offered in this thread reach nothing, and no tool my instructions name is behind them. My answer is my reply, not a function call.';
 
@@ -133,9 +116,13 @@ export function helperConfig(): Record<string, unknown> {
   return leanConfig(HELPER_FEATURES_OFF);
 }
 
-/** Config keys of a lean agent thread (merged under isolation.ts's overrides), Codex's own live web search on. */
+/**
+ * Config keys of a lean agent thread (merged under isolation.ts's overrides), Codex's own live web search on, and (Runde "Halb"
+ * 21.11.2026) its own compaction near the run ceiling instead of the window's edge (`model_auto_compact_token_limit`, a key of
+ * codex-cli 0.167's config; agents/compaction-policy.ts RUN_CEILING).
+ */
 export function agentLeanConfig(): Record<string, unknown> {
-  return leanConfig(AGENT_FEATURES_OFF, AGENT_WEB_SEARCH);
+  return { ...leanConfig(AGENT_FEATURES_OFF, AGENT_WEB_SEARCH), model_auto_compact_token_limit: RUN_CEILING };
 }
 
 function leanConfig(off: readonly string[], webSearch: 'disabled' | 'live' = 'disabled'): Record<string, unknown> {

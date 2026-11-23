@@ -1,6 +1,6 @@
 // End-to-end (T01): own tasks and lead-less team tasks are picked up, over the real headless
 // runtime (built app/runtime-cli.mjs) with the deterministic fake engine and real WebSocket RPC.
-// Covers: an agent's own task (tasks.create, default assignee self) gets a turn of its own after
+// Covers: an agent's own task (tasks.add, default for me) gets a turn of its own after
 // the creating turn; a chat-free task given to "team" lands on one owner at once (tasks/give.ts pickOwner – the
 // responsible manager here), who gets a turn on it, and opens no chat.
 // Run: npm run build && node --test test/e2e/runtime-self-tasks.test.mjs
@@ -23,11 +23,11 @@ test('own tasks and lead-less team tasks get a turn', { timeout: 240_000 }, asyn
     await client.call('events.subscribe', { topics: [`chat:${chat.id}`] });
     await client.call('messages.send', {
       conversationId: chat.id,
-      body: 'Later [[tool:tasks.create {"title":"Compare hosting offers","doneWhen":"Three offers compared"}]]',
+      body: 'Later [[tool:tasks.add {"title":"Compare hosting offers","doneWhen":"Three offers compared"}]]',
     });
     const task = await client.waitFor('task.upserted', (item) => item.title === 'Compare hosting offers', 90_000);
     assert.equal(task.assigneeKind, 'agent');
-    assert.equal(task.assigneeId, manager.id, 'tasks.create defaults to the creating agent');
+    assert.equal(task.assigneeId, manager.id, 'tasks.add defaults to me, the creating agent');
     await client.waitFor('task.upserted', (item) => item.id === task.id && item.running === true, 90_000);
     // The fake engine only echoes, so the task would keep continuing (paced); stop it here.
     await client.call('tasks.finish', { id: task.id, status: 'dropped' });

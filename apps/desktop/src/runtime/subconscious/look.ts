@@ -2,33 +2,31 @@
 // die Suchergebnisse bekommt … Dann kann es dieses Suchergebnisse auswählen, die es glaubt, was wichtig ist. Es kann kompakten der
 // Kontext und Teile davon"; 13:27: the rule of three hits goes, the model condenses with a good explanation, leanText stays the net).
 // Hits: the word search the main AI's own knowledge.find runs (find/service.ts – notes, skills, references, documents, with the
-// agent's own reach) on the text that wakes the turn; the call chooses freely among them, and code opens each chosen one as the main
-// AI's own knowledge.open in the turn's trace (owner 01.11.2026: real calls in its history, never a hint in a prompt). Each hit shows
-// how it begins – a note's or reference's first words, read without opening it (opening counts as use) –, and the call says for each
-// one it opens what it changes in this turn: measured 15.11. on 39 hand-labelled live messages, titles alone had the call open 5.6
-// entries a message (9/13 helping, 4/26 wrong), with how each begins and that sentence 2.4 (9/13 helping, 2/26 wrong; v2/RESULTS-V2.md).
-// An entry shown to an agent in this runtime is not offered again in the same version: it stands in its context already.
-// Context: the biggest items still whole in the agent's record (the context ledger) – tool, file and skill items of every run but the
-// newest finished one, at least ITEM_TOKENS each –, read with how they start by the call beside the turn (route-turn.ts
-// condenseTurn, which nobody waits for). The call says for every item whether its job is done (17.11.2026: one yes or no per
+// agent's own reach) on the text that wakes the turn; the call chooses freely among them. Each hit shows how it begins – a note's or
+// reference's first words, read without opening it (opening counts as use). Runde „Halb“ 21.11.2026: a chosen hit reaches the turn
+// as the call's own line of what it changes there (hintsOf → hints.ts, the live block's "## From my memory"), not as an opened
+// entry in the trace – that stood whole in the context and was read again on every later model call. Measured 15.11. on 39
+// hand-labelled live messages: with how each begins and the call's sentence it chose 2.4 entries a message (9/13 helping, 2/26
+// wrong; v2/RESULTS-V2.md). An entry hinted to an agent in this runtime is not offered again in the same version.
+// Context (a forked part's first start only, route-turn.ts condensePart): the biggest items still whole in the part's copy of the
+// record (the context ledger) – tool, file and skill items of every run but the newest finished one, at least ITEM_TOKENS each –,
+// read with how they start. The call says for every item whether its job is done (17.11.2026: one yes or no per
 // item – with a single list to condense, items it only wanted to say "keep" about were condensed); a done one keeps its note of
 // what still matters – checked against the item and the text the call was shown –, then window.ts leanText of the original
 // (every id, path, file name and link: the net under the note) and the restore stamp. The call does not hide: on the 12 hard E2
 // cases under these conditions all its lost values and critical cuts came from hiding (net 0.77 with, 0.88 without; code alone
-// 0.89; v2/RESULTS-V2.md). Marks reach the session at the next rebuild that happens anyway (agents/rebuild.ts); what the call
-// leaves, the lean history condenses there once its run is finished.
-// Owns: which hits and items the call reads, how they read, opening the chosen hits and writing the chosen marks. Never: chooses
+// 0.89; v2/RESULTS-V2.md). The part starts from the record as the call leaves it (splits/fork.ts).
+// Owns: which hits and items the call reads, how they read, the chosen hits' lines and writing the chosen marks. Never: chooses
 // itself, shows an entry the agent cannot open, hides anything, marks a message, a pinned or nested item, or the newest finished run's work.
 
 import type { RuntimeServices } from '../contracts.ts';
 import type { Agent } from '../../shared/model/org.ts';
-import type { TraceCall } from '../../shared/model/subconscious.ts';
 import type { LedgerItem, LedgerKind, LedgerMark } from '../../shared/model/context-ledger.ts';
 import '../contracts/ledger.ts';
-import { findService, publicCandidate, type FindCaller } from '../find/service.ts';
+import { findService, type FindCaller } from '../find/service.ts';
 import type { Found } from '../find/candidates.ts';
-import { openedText } from '../find/render.ts';
 import { leanText } from '../context/ledger/window.ts';
+import { HINT_CHARS, HINTS, type MemoryHint } from './hints.ts';
 import { ageText } from '../knowledge/age.ts';
 import { inventedValues } from './context-tools.ts';
 
@@ -112,26 +110,26 @@ export function hitLines(hits: readonly Hit[]): string {
 }
 
 /**
- * The chosen hits opened as the main AI's own knowledge.open calls, in the order chosen; `chosen` holds the answer's entries ({id,
- * changes} – the sentence only makes the choice deliberate, it is not shown) or bare ids. An id not among `hits`, gone or out of reach
- * shows nothing.
+ * The call's picks as hints (hints.ts), in the order picked: `chosen` holds its entries ({id, line} – the line is its own sentence
+ * of what the entry changes in this turn). An id not among `hits` or without a line shows nothing. A secret opens by its handles
+ * (find/secrets.ts: names and handles, never a value), every other entry by knowledge.open with its id; lines and handles are
+ * redacted. Each hinted entry counts as shown to the agent in its version.
  */
-export async function openHits(services: RuntimeServices, input: Looked, chosen: readonly unknown[], hits: readonly Found[]): Promise<TraceCall[]> {
+export function hintsOf(services: RuntimeServices, agentId: string, chosen: readonly unknown[], hits: readonly Found[]): MemoryHint[] {
   const offered = new Map(hits.map((hit) => [hit.id, hit]));
   const seen = shownTo(services);
-  const calls: TraceCall[] = [];
-  const ids = chosen.map((entry) => String(typeof entry === 'object' && entry !== null ? (entry as { id?: unknown }).id ?? '' : entry));
-  for (const id of new Set(ids)) {
+  const out = new Map<string, MemoryHint>();
+  for (const entry of chosen) {
+    if (out.size >= HINTS) break;
+    const id = String((entry as { id?: unknown } | null)?.id ?? '');
     const hit = offered.get(id);
-    if (!hit) continue;
-    try {
-      const opened = await findService(services).open(callerOf(input), { id });
-      // as every tool output of ours (tools/outputs.ts finalizeOutput): a stored secret's value never reaches the engine
-      calls.push({ tool: 'knowledge.open', args: { id }, output: redact(services, openedText({ ...opened, candidate: publicCandidate(opened.candidate), follow: [] })) });
-      seen.set(`${input.agent.id}|${id}`, hit.version);
-    } catch { /* gone, or not this agent's to open: nothing shown */ }
+    const line = flat(redact(services, String((entry as { line?: unknown } | null)?.line ?? '')), HINT_CHARS - 2); // flat adds " …" to a cut line
+    if (!hit || !line || out.has(id)) continue;
+    const open = hit.kind === 'secret' ? redact(services, hit.handles ?? `secret://${id.slice('secret:'.length)}`) : `knowledge.open "${id}"`;
+    out.set(id, { id, line, open });
+    seen.set(`${agentId}|${id}`, hit.version);
   }
-  return calls;
+  return [...out.values()];
 }
 
 /** The newest finished run of the agent's own lane: its work stays whole (the coming message often goes on from it). */

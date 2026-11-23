@@ -6,10 +6,15 @@
 // Feedback 16.11.2026: the caption controls dim while the page says a modal's backdrop dims it (setTitleBarDim; a
 // reload starts undimmed), and the feedback shortcut pressed in the page goes to the page as IPC feedbackKey
 // (shared/api/workspace-browser-keys.ts FeedbackKey) – read before the page, so it works under every dialog.
+// Owner 19.11.2026: load() makes the page without showing the window (the floating bubble's call runs in it), and while
+// the page's voice is live (setVoiceLive) its background throttling is off, so a call or dictation goes on hidden;
+// onPageGone tells the bubble that a call held by the page ended with it (window closed, renderer gone). Closing the
+// window while voice is live only hides it, and the close happens once the voice ends (window-voice.ts); letGo() is
+// the quit's and the system's (sign-out, shutdown): from then on a close closes.
 // Owns: one BrowserWindow at a time and its event wiring. Never: decides whether closing quits
 // the app (desktop.ts does), grants permissions (session-guards.ts), talks RPC.
 
-import { BrowserWindow, dialog, nativeTheme, screen, shell } from 'electron';
+import { BrowserWindow, dialog, nativeTheme, powerMonitor, screen, shell } from 'electron';
 import { IPC } from '../shared/api/desktop.ts';
 import type { TitleBarLayout } from '../shared/api/desktop.ts';
 import { FeedbackKey } from '../shared/api/workspace-browser-keys.ts';
@@ -19,6 +24,7 @@ import { mainFrameNavigation, subFrameNavigationAllowed, windowOpenDecision } fr
 import { titleBarColors, titleBarOverlay, trafficLightPosition } from './title-bar.ts';
 import { MIN_HEIGHT, MIN_WIDTH, clampBounds } from './window-state.ts';
 import { RendererRecovery, stuckDialog, type CrashStep } from './window-recovery.ts';
+import { VoiceHold } from './window-voice.ts';
 import type { ThemePreference, WindowState } from './window-state.ts';
 
 export const APP_URL = 'app://app/index.html';
@@ -47,12 +53,17 @@ export class MainWindow {
   private captionLayout: TitleBarLayout = 'columns';
   /** A modal's backdrop dims the page (IPC titleBarDim); a new or reloaded page starts undimmed. */
   private captionDim = false;
+  /** A window loaded hidden (load) maximizes at its first show – maximize() would show it at once. */
+  private maximizeOnShow = false;
+  private readonly pageGone = new Set<() => void>();
+  private readonly voice = new VoiceHold();
 
   constructor(deps: MainWindowDeps) {
     this.deps = deps;
     this.state = deps.state;
     nativeTheme.themeSource = this.state.theme ?? 'system';
     nativeTheme.on('updated', () => this.recolor());
+    powerMonitor.on('shutdown', () => this.voice.letGo()); // the system ends: a close during a call never holds it up
   }
 
   get browserWindow(): BrowserWindow | null {
@@ -69,15 +80,38 @@ export class MainWindow {
   /** Shows the window, creating it when it was closed. */
   show(): void {
     const window = this.browserWindow;
-    if (!window) { this.create(); return; }
+    if (!window) { this.create(true); return; }
     // A renderer that crashed too often (or was killed) stays blank until the user asks again.
     if (window.webContents.isCrashed()) {
       this.recovery.reset();
       void window.loadURL(APP_URL).catch(error => this.deps.log(`window reload failed: ${(error as Error).message}`));
     }
+    this.voice.shown(); // brought back: a close that waited for the voice is off
+    if (this.maximizeOnShow) { this.maximizeOnShow = false; window.maximize(); }
     if (window.isMinimized()) window.restore();
     if (!window.isVisible()) window.show();
     window.focus();
+  }
+
+  /** Owner 19.11.2026: the page loaded without showing the window (a call from the floating bubble runs in it); an
+   *  existing window stays as it is – hidden, minimized or behind. */
+  load(): void {
+    if (!this.browserWindow) this.create(false);
+  }
+
+  /** A call, conversation or dictation of the page is live: its timers keep full speed while the window is hidden,
+   *  minimized or behind another app (voice goes on); without voice the page is throttled again. */
+  setVoiceLive(on: boolean): void {
+    try { this.browserWindow?.webContents.setBackgroundThrottling(!on); } catch { /* window closing */ }
+    if (this.voice.setLive(on)) this.browserWindow?.close(); // the close the person asked for while voice was live
+  }
+
+  /** A quit is under way (desktop.ts before-quit, an update's quit): a close closes, even while voice is live. */
+  letGo(): void { this.voice.letGo(); }
+
+  /** `listener` runs whenever the page is gone – the window closed or its renderer died (a call it held ended with it). */
+  onPageGone(listener: () => void): void {
+    this.pageGone.add(listener);
   }
 
   close(): void {
@@ -108,7 +142,7 @@ export class MainWindow {
     this.recolor();
   }
 
-  private create(): void {
+  private create(visible: boolean): void {
     const { deps } = this;
     this.captionLayout = 'columns';
     this.captionDim = false;
@@ -144,7 +178,8 @@ export class MainWindow {
       },
     });
     this.window = window;
-    if (this.state.maximized) window.maximize();
+    this.maximizeOnShow = !visible && this.state.maximized === true;
+    if (visible && this.state.maximized) window.maximize();
     const contents = window.webContents;
     deps.renderer.attach(contents);
 
@@ -172,7 +207,7 @@ export class MainWindow {
     // link "loading" forever – pushes queued, readiness lost.
     contents.on('did-navigate', () => { deps.renderer.loading(); this.setTitleBarDim(false); }); // a reloaded page has no dialog open
     contents.on('did-finish-load', () => deps.renderer.finishedLoading());
-    contents.on('render-process-gone', (_event, details) => this.recover(details.reason));
+    contents.on('render-process-gone', (_event, details) => { this.goneNow(); this.recover(details.reason); });
     const feedbackKey = new FeedbackKey(); // the feedback cell's press from the keyboard, also under a modal dialog
     contents.on('before-input-event', (event, input) => {
       const step = feedbackKey.step(input, mac);
@@ -187,22 +222,36 @@ export class MainWindow {
       });
     }
 
-    window.once('ready-to-show', () => { if (!window.isDestroyed()) window.show(); });
+    window.once('ready-to-show', () => { if (visible && !window.isDestroyed()) window.show(); });
     window.on('show', () => deps.onVisibilityChange(true));
     window.on('hide', () => deps.onVisibilityChange(false));
     window.on('focus', () => deps.onFocus());
     window.on('resize', () => this.scheduleSave());
     window.on('move', () => this.scheduleSave());
-    window.on('close', () => this.saveNow());
+    // Windows sign-out/shutdown: the session's end lets go before the windows close (never blocked by the voice hold)
+    window.on('query-session-end', () => this.voice.letGo());
+    window.on('session-end', () => this.voice.letGo());
+    window.on('close', event => {
+      this.saveNow();
+      if (this.voice.close() === 'close') return;
+      event.preventDefault(); // voice is live: the page goes on hidden
+      window.hide();
+    });
     window.on('closed', () => {
       if (this.window === window) this.window = null;
       if (this.saveTimer) clearTimeout(this.saveTimer);
       this.saveTimer = null;
       deps.renderer.detach();
       deps.onVisibilityChange(false);
+      this.goneNow();
       deps.onClosed();
     });
     void window.loadURL(APP_URL).catch(error => deps.log(`window load failed: ${(error as Error).message}`));
+  }
+
+  private goneNow(): void {
+    this.voice.pageGone();
+    for (const listener of this.pageGone) { try { listener(); } catch { /* a listener's failure stays its own */ } }
   }
 
   private recolor(): void {

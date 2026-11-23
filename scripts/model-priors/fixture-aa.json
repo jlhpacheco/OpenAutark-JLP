@@ -1,0 +1,123 @@
+[
+  {
+    "$fixture": "Test data in the shape of Artificial Analysis' GET /api/v2/language/models/free answer (docs/AGENT_RESEARCH/31_GESAMTUMBAU_RECHERCHE_2026_10_17/web-models.md 1.3). Intelligence indexes follow that research snapshot of 17.10.2026; the prices are test values, not current facts. Never publish a file built from it.",
+    "tier": "free",
+    "intelligence_index_version": "4.3.2",
+    "pagination": { "page": 1, "page_size": 12, "total_pages": 2, "has_more": true },
+    "data": [
+      {
+        "id": "aa-1", "name": "Claude Opus 5.5 (max, fallback)", "slug": "claude-opus-5-5-max", "release_date": "2026-09-22",
+        "model_creator": { "id": "anthropic", "name": "Anthropic" },
+        "evaluations": { "artificial_analysis_intelligence_index": 58, "artificial_analysis_coding_index": 66, "artificial_analysis_agentic_index": null },
+        "pricing": { "price_1m_input_tokens": 4, "price_1m_output_tokens": 20, "price_1m_cache_hit_tokens": 0.4 },
+        "performance": { "median_output_tokens_per_second": 97, "median_time_to_first_token_seconds": 728 }
+      },
+      {
+        "id": "aa-2", "name": "Claude Opus 5.5 (high)", "slug": "claude-opus-5-5-high", "release_date": "2026-09-22",
+        "model_creator": { "id": "anthropic", "name": "Anthropic" },
+        "evaluations": { "artificial_analysis_intelligence_index": 54, "artificial_analysis_coding_index": 60, "artificial_analysis_agentic_index": null },
+        "pricing": { "price_1m_input_tokens": 4, "price_1m_output_tokens": 20, "price_1m_cache_hit_tokens": 0.4 },
+        "performance": { "median_output_tokens_per_second": 83, "median_time_to_first_token_seconds": 35 }
+      },
+      {
+        "id": "aa-3", "name": "Claude Opus 5.5 (low)", "slug": "claude-opus-5-5-low", "release_date": "2026-09-22",
+        "model_creator": { "id": "anthropic", "name": "Anthropic" },
+        "evaluations": { "artificial_analysis_intelligence_index": 44, "artificial_analysis_coding_index": 50, "artificial_analysis_agentic_index": null },
+        "pricing": { "price_1m_input_tokens": 4, "price_1m_output_tokens": 20, "price_1m_cache_hit_tokens": 0.4 },
+        "performance": { "median_output_tokens_per_second": 90, "median_time_to_first_token_seconds": 4 }
+      },
+      {
+        "id": "aa-4", "name": "Claude Sonnet 5.5 (high)", "slug": "claude-sonnet-5-5-high", "release_date": "2026-09-22",
+        "model_creator": { "id": "anthropic", "name": "Anthropic" },
+        "evaluations": { "artificial_analysis_intelligence_index": 47, "artificial_analysis_coding_index": 55, "artificial_analysis_agentic_index": null },
+        "pricing": { "price_1m_input_tokens": 2, "price_1m_output_tokens": 10, "price_1m_cache_hit_tokens": 0.2 },
+        "performance": { "median_output_tokens_per_second": 110, "median_time_to_first_token_seconds": 12 }
+      },
+      {
+        "id": "aa-5", "name": "GPT-6.1 Sol (xhigh)", "slug": "gpt-6-1-sol-xhigh", "release_date": "2026-10-01",
+        "model_creator": { "id": "openai", "name": "OpenAI" },
+        "evaluations": { "artificial_analysis_intelligence_index": 51, "artificial_analysis_coding_index": 63, "artificial_analysis_agentic_index": null },
+        "pricing": { "price_1m_input_tokens": 2, "price_1m_output_tokens": 10, "price_1m_cache_hit_tokens": 0.2 },
+        "performance": { "median_output_tokens_per_second": 45, "median_time_to_first_token_seconds": 121 }
+      },
+      {
+        "id": "aa-6", "name": "GPT-6.1 Sol (medium)", "slug": "gpt-6-1-sol-medium", "release_date": "2026-10-01",
+        "model_creator": { "id": "openai", "name": "OpenAI" },
+        "evaluations": { "artificial_analysis_intelligence_index": 48, "artificial_analysis_coding_index": 61, "artificial_analysis_agentic_index": null },
+        "pricing": { "price_1m_input_tokens": 2, "price_1m_output_tokens": 10, "price_1m_cache_hit_tokens": 0.2 },
+        "performance": { "median_output_tokens_per_second": 66, "median_time_to_first_token_seconds": 3.9 }
+      },
+      {
+        "id": "aa-7", "name": "GPT-6 Astra (max)", "slug": "gpt-6-astra-max", "release_date": "2026-08-12",
+        "model_creator": { "id": "openai", "name": "OpenAI" },
+        "evaluations": { "artificial_analysis_intelligence_index": 53, "artificial_analysis_coding_index": 62, "artificial_analysis_agentic_index": null },
+        "pricing": { "price_1m_input_tokens": 10, "price_1m_output_tokens": 50 },
+        "performance": { "median_output_tokens_per_second": 57, "median_time_to_first_token_seconds": 269 }
+      },
+      {
+        "id": "aa-8", "name": "Grok 4.7 (high)", "slug": "grok-4-7-high", "release_date": "2026-09-30",
+        "model_creator": { "id": "xai", "name": "xAI" },
+        "evaluations": { "artificial_analysis_intelligence_index": 46, "artificial_analysis_coding_index": null, "artificial_analysis_agentic_index": null },
+        "pricing": { "price_1m_input_tokens": 3, "price_1m_output_tokens": 15 },
+        "performance": { "median_output_tokens_per_second": 91, "median_time_to_first_token_seconds": 27 }
+      },
+      {
+        "id": "aa-9", "name": "Grok 4.7 Fast", "slug": "grok-4-7-fast", "release_date": "2026-09-30",
+        "model_creator": { "id": "xai", "name": "xAI" },
+        "evaluations": { "artificial_analysis_intelligence_index": 40, "artificial_analysis_coding_index": null, "artificial_analysis_agentic_index": null },
+        "pricing": { "price_1m_input_tokens": 0.2, "price_1m_output_tokens": 0.5 },
+        "performance": { "median_output_tokens_per_second": 180, "median_time_to_first_token_seconds": 2 }
+      },
+      {
+        "id": "aa-10", "name": "Qwen3.8 Max", "slug": "qwen3-8-max", "release_date": "2026-09-10",
+        "model_creator": { "id": "alibaba", "name": "Alibaba" },
+        "evaluations": { "artificial_analysis_intelligence_index": 45, "artificial_analysis_coding_index": null, "artificial_analysis_agentic_index": null },
+        "pricing": { "price_1m_input_tokens": 1.2, "price_1m_output_tokens": 6 },
+        "performance": { "median_output_tokens_per_second": 38, "median_time_to_first_token_seconds": 3.1 }
+      },
+      {
+        "id": "aa-11", "name": "DeepSeek V4.1 Flash (max)", "slug": "deepseek-v4-1-flash-max", "release_date": "2026-10-05",
+        "model_creator": { "id": "deepseek", "name": "DeepSeek" },
+        "evaluations": { "artificial_analysis_intelligence_index": 39, "artificial_analysis_coding_index": null, "artificial_analysis_agentic_index": null },
+        "pricing": { "price_1m_input_tokens": 0.1, "price_1m_output_tokens": 0.4 },
+        "performance": { "median_output_tokens_per_second": 176, "median_time_to_first_token_seconds": 1.2 }
+      },
+      { "id": "aa-12", "nope": true }
+    ]
+  },
+  {
+    "tier": "free",
+    "intelligence_index_version": "4.3.2",
+    "pagination": { "page": 2, "page_size": 12, "total_pages": 2, "has_more": false },
+    "data": [
+      {
+        "id": "aa-13", "name": "Muse Wonder Full (max)", "slug": "muse-wonder-full-max", "release_date": "2026-10-08",
+        "model_creator": { "id": "meta", "name": "Meta" },
+        "evaluations": { "artificial_analysis_intelligence_index": 56, "artificial_analysis_coding_index": null, "artificial_analysis_agentic_index": null },
+        "pricing": { "price_1m_input_tokens": null, "price_1m_output_tokens": null },
+        "performance": { "median_output_tokens_per_second": null, "median_time_to_first_token_seconds": null }
+      },
+      {
+        "id": "aa-14", "name": "Gemini 4 Argon (high)", "slug": "gemini-4-argon-high", "release_date": "2026-09-18",
+        "model_creator": { "id": "google", "name": "Google" },
+        "evaluations": { "artificial_analysis_intelligence_index": 53, "artificial_analysis_coding_index": null, "artificial_analysis_agentic_index": null },
+        "pricing": { "price_1m_input_tokens": 2.5, "price_1m_output_tokens": 15 },
+        "performance": { "median_output_tokens_per_second": null, "median_time_to_first_token_seconds": null }
+      },
+      {
+        "id": "aa-15", "name": "GPT-6 Luna (low)", "slug": "gpt-6-luna-low", "release_date": "2026-08-12",
+        "model_creator": { "id": "openai", "name": "OpenAI" },
+        "evaluations": { "artificial_analysis_intelligence_index": 36, "artificial_analysis_coding_index": null, "artificial_analysis_agentic_index": null },
+        "pricing": { "price_1m_input_tokens": 0.15, "price_1m_output_tokens": 0.6 },
+        "performance": { "median_output_tokens_per_second": 200, "median_time_to_first_token_seconds": 1 }
+      },
+      {
+        "id": "aa-16", "name": "Gemma 4 31B", "slug": "gemma-4-31b", "release_date": "2026-07-01",
+        "model_creator": { "id": "google", "name": "Google" },
+        "evaluations": { "artificial_analysis_intelligence_index": 15, "artificial_analysis_coding_index": null, "artificial_analysis_agentic_index": null },
+        "pricing": null,
+        "performance": null
+      }
+    ]
+  }
+]

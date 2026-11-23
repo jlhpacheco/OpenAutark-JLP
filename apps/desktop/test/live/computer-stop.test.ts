@@ -16,7 +16,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { WindowsHelper } from '../../src/runtime/computer/helper.ts';
 import { ComputerService } from '../../src/runtime/computer/service.ts';
 import { Supervisor } from '../../src/runtime/system/supervisor.ts';
-import { MemoryLogger } from '../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../unit/fakes.ts';
 import type { Host } from '../../src/runtime/host.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));

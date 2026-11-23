@@ -2,8 +2,8 @@
 // runtime utility process + main's RpcClient, protocols, session guards, IPC, window, tray,
 // updates, power events, "Keep agents running" (launcher-tasks.ts registers it; after a
 // deliberate quit launcher-windows.ts writes the next due work's start; quit marks in run-state.json,
-// the system's session end via session-end.ts), close-to-tray (the closeToTray preference: off = closing
-// quits), the emergency stop of all agent work (tray entry, shortcut while agents work, notice afterwards;
+// the system's session end via session-end.ts), close-to-tray (closing the window keeps agents running; the tray's Quit
+// ends them), the emergency stop of all agent work (tray entry, shortcut while agents work, notice afterwards;
 // work-stop.ts), the hidden video-keyframe windows (hidden-windows.ts) and graceful quit. Speech runs in the
 // page and the runtime: main only opens the microphone (security.ts MediaArm). B-072: another company (companies.ts)
 // keeps its workspace and downloads in its own folder, has its own launcher task, names itself in the window title
@@ -13,7 +13,7 @@
 // the recycle bin once it has ended (company-remove.ts, 16.11.2026).
 // B-080: the host op app.install reaches the updater wiring (installFile), and a start with a window sets up the desktop
 // broker where it is missing (broker-setup.ts). B-081: the side tabs' Pin picker and the AI cursor over the screen (screen-cursor.ts).
-// 18.11.2026: the floating to-do button (float-bar*.ts; the first company only).
+// 18.11.2026: the floating to-do button (float-bar*.ts; the first company; 19.11.: tray Show/Hide, its call in the hidden page).
 // Owns: constructing and connecting the main-side modules. Never: business logic (runtime),
 // UI decisions (renderer), long work on the main thread.
 
@@ -45,12 +45,12 @@ import { ProtocolHandlers, registerProtocolHandlers } from './protocols/handlers
 import { RendererLink } from './renderer-link.ts';
 import { RuntimeHost } from './runtime-host.ts';
 import type { RuntimeChild } from './runtime-host.ts';
-import { RuntimeLink, runtimeEnv } from './runtime-link.ts';
+import { personTokenOf, RuntimeLink, runtimeEnv } from './runtime-link.ts';
 import { MediaArm } from './security.ts';
 import { sessionEnded, watchSessionEnd } from './session-end.ts';
 import { guardAllContents, installSessionGuards } from './session-guards.ts';
 import { SettingsView, changedPreferences } from './settings-view.ts';
-import { quitSteps, runShutdown } from './shutdown.ts';
+import { quitSteps, runShutdown } from './shutdown.ts'; import { quitWake, sleeperScript } from './sleeper.ts'; // 19.11.2026: goodbye + wake helper
 import { AppTray } from './tray.ts';
 import { DesktopUpdates, inactiveUpdater, loadUpdater, settleAfterStart, siblingUpdates, updateFromElsewhere } from './updates-wiring.ts';
 import { MainWindow } from './window.ts';
@@ -103,7 +103,7 @@ export async function startDesktop(options: DesktopOptions): Promise<Desktop> {
   const settings = new SettingsView(link.rpc);
   const company = options.company;
   const companies = options.companies ?? undefined;
-  const start = testMode ? undefined : startFlag(process.argv); // B-078: the "+" menu's --start=mine|employee (none in a test profile)
+  const start = testMode ? undefined : startFlag(process.argv); // B-078: the "+" menu's --start=join (none in a test profile)
   const title = () => (company ? `${productName} – ${companyLabel(settings.current?.profile, company)}` : productName);
   let updates: DesktopUpdates | null = null;
   const renderer = new RendererLink({
@@ -137,7 +137,7 @@ export async function startDesktop(options: DesktopOptions): Promise<Desktop> {
     onOpen: () => appWindow?.show(),
     onQuit: () => app.quit(),
     onStopWork: () => { void workStop.stop(); },
-    onResumeWork: () => { void workStop.resume(); },
+    onResumeWork: () => { void workStop.resume(); }, onBubble: show => { floatBar?.bar.setHidden(!show); }, // 19.11.2026: Show/Hide bubble
   });
   let badge = 0;
   /** B-072: another company names itself in the window title and the tray tooltip ("Autark – <label>"). */
@@ -210,7 +210,6 @@ export async function startDesktop(options: DesktopOptions): Promise<Desktop> {
       analyze: (request) => hidden.mediaAnalyzer.analyze(request), audio: (request) => hidden.mediaAnalyzer.audio(request),
       image: (request) => hidden.mediaAnalyzer.image(request), preview: (request) => hidden.mediaPreview.preview(request), // 17.11.2026
     },
-    voiceRtc: hidden.voiceRtc, // owner 07.11.2026: dictation heard by the Codex plan over WebRTC
     sideBrowser: call => sideDriver.call(call), // B-055 F1: checks every field itself
     sideView: { cast: args => caster.cast(args), input: args => caster.input(args), nav: args => caster.nav(args) }, // B-076
     window: {
@@ -245,7 +244,7 @@ export async function startDesktop(options: DesktopOptions): Promise<Desktop> {
     createChannel: () => new MessageChannelMain(),
     modulePath: paths.runtime,
     env: runtimeEnv(process.env, paths.data, app.getPreferredSystemLanguages()[0]), // F07: the display language, not the regional format
-    token: randomBytes(32).toString('hex'),
+    token: randomBytes(32).toString('hex'), personToken: personTokenOf(process.env), // FX1: a test profile's only
     app: { ...appInfo({ version: app.getVersion(), packaged: app.isPackaged, paths, executable: process.execPath, companies }), ...(start ? { start } : {}), pid: process.pid }, // B-080: pid – install records
     handle: request => host.handle(request),
     onStatus: status => link.handleStatus(status),
@@ -280,13 +279,12 @@ export async function startDesktop(options: DesktopOptions): Promise<Desktop> {
     arch: process.arch,
     version: app.getVersion(),
     autoDownload: () => settings.preferences().autoDownloadUpdates,
-    setAutoDownload: async enabled => { await settings.update({ preferences: { autoDownloadUpdates: enabled } }); },
     renderer,
     idleSeconds: () => powerMonitor.getSystemIdleTime(),
     runtime: {
       readiness: () => link.rpc.call('system.restartReadiness'),
       prepareRestart: async (cancel, to) => { await link.rpc.call('system.prepareRestart', cancel ? { cancel: true } : to ? { to } : {}, 30_000); },
-      stop: reason => link.stop(reason),
+      stop: reason => link.stop(reason), bye: (reason) => link.rpc.call('devices.bye', { reason }), // 19.11.2026: linked PCs hear "Updating…"
       start: () => link.start(),
     },
     install: { pid: process.pid, exe: process.execPath, appImage: process.env.APPIMAGE, logs: paths.logs, quit: () => app.quit(), args: companyArgs(company) }, // B-080: installFile
@@ -326,9 +324,7 @@ export async function startDesktop(options: DesktopOptions): Promise<Desktop> {
     saveState: state => { void saveWindowState(paths.windowState, state); },
     onClosed: () => {
       media.disarm();
-      // Close ≠ quit by default: the tray and the runtime (agents) keep running – unless the
-      // person turned closeToTray off.
-      if (!quitting && !settings.preferences().closeToTray) app.quit();
+      // Close ≠ quit: the tray and the runtime (agents) keep running; the tray's Quit ends them (20.11.2026: no toggle for it).
     },
     onVisibilityChange: visible => desktopUpdates.setVisible(visible),
     onFocus: () => desktopUpdates.checkIfDue(),
@@ -385,7 +381,7 @@ export async function startDesktop(options: DesktopOptions): Promise<Desktop> {
     clipboardWrite: text => clipboard.writeText(text),
     openExternal: url => shell.openExternal(url),
     titleBarLayout: layout => mainWindow.setTitleBarLayout(layout),
-    titleBarDim: dim => mainWindow.setTitleBarDim(dim),
+    titleBarDim: dim => mainWindow.setTitleBarDim(dim), voiceLive: on => mainWindow.setVoiceLive(on), bubbleCall: call => floatBar?.bar.setCall(call), // 19.11.2026
     log: line => log.line(line),
   }));
 
@@ -404,8 +400,8 @@ export async function startDesktop(options: DesktopOptions): Promise<Desktop> {
     flushDrafts: () => renderer.prepareRestart(3000),
     disposeUpdates: () => desktopUpdates.dispose(),
     stopRuntime: () => link.stop('quit'),
-    releasePower: () => host.releaseAll(),
-    destroyTray: () => tray.destroy(),
+    releasePower: () => host.releaseAll(), destroyTray: () => tray.destroy(),
+    ...quitWake({ by: runMarks.by, call: (method, params) => link.rpc.call(method, params), start: { exe: process.execPath, script: sleeperScript(path.dirname(paths.runtime)), dataDir: paths.data, args: companyArgs(company), log: line => log.line(line) } }),
   });
   app.on('before-quit', event => {
     if (desktopUpdates.blockFailedUpdateQuit()) {
@@ -416,7 +412,7 @@ export async function startDesktop(options: DesktopOptions): Promise<Desktop> {
     if (quitDone) return;
     event.preventDefault();
     if (quitting) return;
-    quitting = true;
+    quitting = true; mainWindow.letGo(); // 19.11.2026: a close during a call closes now (window-voice.ts)
     runMarks.quit(desktopUpdates.draining ? 'update' : 'person'); // tray Quit, menu, window close and the update install alike
     // 18.11.2026: one step that throws (a window already gone) left `quitting` set and the app unable to quit or update
     for (const step of [() => workStop.dispose(), () => screenCursor.dispose(), () => floatBar?.close(), () => hidden.dispose(), () => workspaceBrowser?.dispose()]) {
@@ -433,17 +429,17 @@ export async function startDesktop(options: DesktopOptions): Promise<Desktop> {
       });
   });
 
-  nativeUpdater.on('before-quit-for-update', () => desktopUpdates.markUpdateQuit());
+  nativeUpdater.on('before-quit-for-update', () => { desktopUpdates.markUpdateQuit(); mainWindow.letGo(); }); // an update closes windows first
 
   let floatBar: ReturnType<typeof startFloatBar> | null = null; // one per PC: the first company's (not in a test profile: its global shortcut, one window); after the main page (background: at once)
-  function startFloat(): void { if (!company && !testMode && !floatBar) floatBar = startFloatBar({ BrowserWindow, session, screen, globalShortcut, nativeImage }, { rpc: link.rpc, capture, file: path.join(paths.data, 'float-bar.json'), log: line => log.line(line), open: request => { mainWindow.show(); renderer.sendWhenLoaded(IPC.navigate, request); } }); } if (options.background) startFloat();
+  function startFloat(): void { if (!company && !testMode && !floatBar) floatBar = startFloatBar({ BrowserWindow, session, screen, globalShortcut, nativeImage, Menu }, { rpc: link.rpc, capture, file: path.join(paths.data, 'float-bar.json'), window: mainWindow, renderer, tray, log: line => log.line(line) }); } if (options.background) startFloat();
   // ---------------------------------------------------------------- go
   runtimeHost.start();
   tray.create();
   void sweepCompanies(); // a company removed before this start
   desktopUpdates.setVisible(!options.background); // tray only: the rarer check interval
   desktopUpdates.start();
-  if (!company) settleAfterStart({ dataDir: paths.data, version: app.getVersion(), launcher, log: line => log.line(line) }); // the rename's and updates' leftovers
+  if (!company) settleAfterStart({ dataDir: paths.data, version: app.getVersion(), launcher, log: line => log.line(line) }); // a Mac self-update's leftovers
   if (!options.background) mainWindow.show();
   return { show: () => mainWindow.show() };
 }

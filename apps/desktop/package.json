@@ -1,7 +1,7 @@
 {
   "name": "autark",
   "productName": "Autark",
-  "version": "0.3.17",
+  "version": "0.3.18",
   "private": true,
   "description": "Local-first AI workforce: agents, chats, tasks and a calm to-do list",
   "author": "Teydra",
@@ -14,6 +14,7 @@
     "start": "electron .",
     "runtime": "node scripts/build.mjs --only runtime && node app/runtime-cli.mjs",
     "wf": "node app/wf.mjs",
+    "electron:latest": "node scripts/electron-latest.mjs",
     "typecheck": "tsc -p tsconfig.shared.json && tsc -p tsconfig.runtime.json && tsc -p tsconfig.main.json && tsc -p tsconfig.ui.json",
     "boundaries": "node scripts/check-boundaries.mjs",
     "test": "node --test --test-concurrency=2 \"test/unit/**/*.test.ts\"",
@@ -47,7 +48,7 @@
     "@types/ws": "8.18.2",
     "7zip-bin": "5.2.0",
     "dompurify": "3.4.17",
-    "electron": "44.9.3",
+    "electron": "45.4.1",
     "electron-builder": "26.15.3",
     "esbuild": "0.28.2",
     "jsqr": "1.4.0",
@@ -86,6 +87,7 @@
       "resources/broker/*.exe",
       "app/wf.mjs",
       "app/meet.mjs",
+      "app/sleeper.mjs",
       "node_modules/sherpa-onnx-*/**",
       "node_modules/onnxruntime-web/**",
       "node_modules/onnxruntime-common/**"
@@ -128,7 +130,8 @@
       ],
       "artifactName": "autark-linux-x64.${ext}",
       "category": "Office",
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.png",
+      "extraFiles": [{ "from": "resources/linux/com.teydralab.workforce.metainfo.xml", "to": "usr/share/metainfo/com.teydralab.workforce.metainfo.xml" }]
     }
   }
 }

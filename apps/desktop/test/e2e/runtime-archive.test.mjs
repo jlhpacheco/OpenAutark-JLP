@@ -2,7 +2,7 @@
 // (built app/runtime-cli.mjs) with the deterministic fake engine and real WebSocket RPC.
 // Covers: in an archived chat the agent still answers and works on a task created there, and the
 // chat stays archived for ordinary replies; its important message (a <chat to … push> block) brings the
-// chat back with one 'unarchived' line; the lead removes a colleague with chat.remove_members, and
+// chat back with one 'unarchived' line; the lead removes a colleague with chat.update remove, and
 // a later @mention of the removed agent starts no turn for it.
 // Run: npm run build && node --test test/e2e/runtime-archive.test.mjs
 
@@ -28,7 +28,7 @@ test('archived chats keep working; the lead removes a member who is then not wok
     const chat = await client.call('chats.create', { title: 'Venue', agentIds: [manager.id] });
     await client.call('events.subscribe', { topics: [`chat:${chat.id}`] });
     await client.call('chats.archive', { id: chat.id });
-    const sent = await client.call('messages.send', { conversationId: chat.id, body: 'Please [[tool:tasks.create {"title":"Book the venue"}]]' });
+    const sent = await client.call('messages.send', { conversationId: chat.id, body: 'Please [[tool:tasks.add {"title":"Book the venue"}]]' });
     const task = await client.waitFor('task.upserted', (item) => item.title === 'Book the venue', 90_000);
     assert.equal(task.conversationId, chat.id);
     await client.waitFor('message.created', (message) => message.conversationId === chat.id && message.authorId === manager.id && message.seq > sent.seq, 90_000);
@@ -46,7 +46,7 @@ test('archived chats keep working; the lead removes a member who is then not wok
     const room = await client.call('chats.create', { title: 'Launch', agentIds: [manager.id, rhea.id] });
     await client.call('events.subscribe', { topics: [`chat:${room.id}`] });
     assert.equal((await client.call('chats.get', { id: room.id })).members.find((member) => member.role === 'lead')?.memberId, manager.id, 'the manager leads');
-    await client.call('messages.send', { conversationId: room.id, body: `@${manager.name} [[tool:chat.remove_members {"members":["${rhea.id}"]}]]` });
+    await client.call('messages.send', { conversationId: room.id, body: `@${manager.name} [[tool:chat.update {"remove":["${rhea.id}"]}]]` });
     await client.waitFor('message.created', (message) => message.conversationId === room.id && message.meta?.status?.type === 'member_removed', 90_000);
     const removed = (await client.call('chats.get', { id: room.id })).members.find((member) => member.memberId === rhea.id);
     assert.ok(!removed || removed.leftAt, 'Rhea left the room');

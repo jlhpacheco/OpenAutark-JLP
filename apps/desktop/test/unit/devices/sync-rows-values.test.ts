@@ -154,6 +154,12 @@ test('a plan login a PC found travels as metadata: its own home on the other PC,
   await settle();
   const home = new AccountRepo(a.h.db).get('acc_found')!;
   assert.deepEqual([home.label, home.home, home.detected], ['Codex Lena', undefined, true], 'the new name came back; A keeps its own login where it found it');
+
+  // 21.11.2026: B merges two rows of one login (accounts/twins.ts) – the twin goes on B only, A keeps its row
+  new AccountRepo(b.h.db).remove('acc_found');
+  b.h.bus.emit('account.removed', { id: 'acc_found', twinOf: 'acc_b' });
+  await settle();
+  assert.ok(new AccountRepo(a.h.db).get('acc_found'), 'a twin merged on B is no removal for A');
 });
 
 test('rows that never travelled reach a PC whose link has a cursor (stored files, knowledge, a plan login a PC found); a memory file\'s old version goes with its file', async () => {

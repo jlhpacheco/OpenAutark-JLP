@@ -1,10 +1,8 @@
 // The For-you query (F04, tasks/repo.ts todos via TaskService.todos – what todos.list returns):
-// a snoozed to-do and a repeating timer waiting for its next time stay listed (status 'waiting',
-// waitingOn.on 'schedule' – the UI keeps them under "Later"); any other wait, finished to-dos
-// and agent work are not listed; binding approvals come first, then what rang, then the rest by
-// due, the waiting ones last – so a small limit keeps what is due now; the shared rule
-// (shared/model/todo-later.ts, for the badge and the wf CLI) counts only what is due now
-// (B-041: a to-do due on a later day waits under Later).
+// the person's unfinished to-dos (Quests round: "Later" and a repeating timer move the to-do's `at`, it stays open),
+// finished to-dos and agent work are not listed; by time – a small limit keeps what is due now; the shared rule
+// (shared/model/todo-later.ts, for the badge and the wf CLI) counts only what is due now (a to-do on a later day waits
+// under Later).
 // Owns: these assertions only. Never: real timers or sleeps.
 
 import { test } from 'node:test';
@@ -20,7 +18,6 @@ function setup() {
   const h = harness();
   h.org.add(agent('ag_ava', 'Ava'));
   const chat = h.chats.create({ agentIds: ['ag_ava'], createdBy: HUMAN_ID });
-  h.scheduler.start();
   const todo = (title: string, extra: Record<string, unknown> = {}) => h.tasks.create({
     conversationId: chat.id, title, assigneeKind: 'human', createdBy: 'ag_ava', ...extra,
   });
@@ -28,37 +25,31 @@ function setup() {
   return { ...h, chat, todo, listed };
 }
 
-test('a snoozed to-do stays on the list as waiting for its ring, after the to-dos due now', () => {
+test('a to-do moved later stays on the list, open, after the ones with an earlier time', () => {
   const h = setup();
   const bread = h.todo('Take the bread out', { widget: { type: 'timer', label: 'Bread', duration: 'PT5M' } });
-  h.todo('Sign the form');
-  const snoozed = h.tasks.snooze(bread.id, h.clock.now() + 10 * M);
-  assert.equal(snoozed.status, 'waiting');
-  const list = h.tasks.todos();
-  assert.deepEqual(list.map((task) => task.title), ['Sign the form', 'Take the bread out'], 'listed, after what is due now');
-  const entry = list.find((task) => task.id === bread.id)!;
-  assert.equal(entry.status, 'waiting');
-  assert.equal(entry.waitingOn?.on, 'outside', 'flagged as waiting for a ring (the UI shows it under Later)');
-  assert.equal(entry.waitingOn?.why, 'Snoozed');
+  h.todo('Sign the form', { at: h.clock.now() + 2 * M });
+  const later = h.tasks.snooze(bread.id, h.clock.now() + 10 * M);
+  assert.equal(later.status, 'open');
+  assert.deepEqual(h.tasks.todos().map((task) => task.title), ['Sign the form', 'Take the bread out'], 'by time');
 });
 
-test('a repeating timer ticked off waits for its next time and stays listed', () => {
+test('a repeating timer ticked off stays listed, open, at its next time', () => {
   const h = setup();
   const nine = new Date(h.clock.now());
   nine.setHours(9, 0, 0, 0);
   if (nine.getTime() <= h.clock.now()) nine.setDate(nine.getDate() + 1);
   const pills = h.todo('Take the pills', { widget: { type: 'timer', label: 'Pills', at: nine.toISOString(), repeat: 'daily' } });
   h.clock.set(nine.getTime() + 1000);
-  if (h.timers.pending.length) h.timers.fire();
   h.tasks.answer({ taskId: pills.id, answer: { event: 'done' }, by: HUMAN_ID });
   const entry = h.tasks.todos().find((task) => task.id === pills.id);
-  assert.equal(entry?.status, 'waiting');
-  assert.equal(entry?.waitingOn?.why, 'Repeats');
+  assert.equal(entry?.status, 'open');
+  assert.equal(entry?.at, nine.getTime() + 24 * H);
 });
 
 
 
-test('the shared rule over todos.list counts only what is due now – snoozed and far timers wait under Later', () => {
+test('the shared rule over todos.list counts only what is due now – a far timer waits under Later, one moved a little later waits to ring', () => {
   const h = setup();
   const now = h.clock.now();
   const bread = h.todo('Take the bread out', { widget: { type: 'timer', label: 'Bread', duration: 'PT5M' } });
@@ -68,8 +59,8 @@ test('the shared rule over todos.list counts only what is due now – snoozed an
   const list = h.tasks.todos();
   assert.equal(list.length, 3, 'todos.list keeps the Later ones');
   assert.equal(countNow(list, now), 1, 'the count a phone tab shows');
-  assert.deepEqual(list.filter((task) => isLater(task, now)).map((task) => task.title).sort(), ['Dentist', 'Take the bread out']);
-  assert.equal(countNow(list, now + 3 * 24 * H - 12 * H + 1), 1, 'a timer within 12 h waits under Today until it rings (one rule with the Needs-you group)');
+  assert.deepEqual(list.filter((task) => isLater(task, now)).map((task) => task.title).sort(), ['Dentist']);
+  assert.equal(countNow(list, now + 3 * 24 * H - 12 * H + 1), 2, 'the bread rang and needs the person; the dentist within 12 h waits until it rings');
 });
 
 test('B-041: a to-do due on a later day stays listed and waits under Later – the count leaves it out until its day', () => {
@@ -77,7 +68,7 @@ test('B-041: a to-do due on a later day stays listed and waits under Later – t
   const now = h.clock.now();
   const midnight = new Date(now);
   midnight.setHours(24, 0, 0, 0);
-  h.todo('File the taxes', { dueAt: midnight.getTime() + 9 * H });
+  h.todo('File the taxes', { at: midnight.getTime() + 9 * H });
   h.todo('Sign the form');
   const list = h.tasks.todos();
   assert.equal(list.length, 2, 'todos.list keeps it');

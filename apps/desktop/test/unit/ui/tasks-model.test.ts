@@ -1,15 +1,12 @@
-// Pure task/to-do view helpers (src/ui/tasks/model.ts): grouping and ordering, progress text,
-// owners, binding approvals, "Show as…", recent-done windows, per-chat sections, the Work
-// index, evidence actions, due inputs and the leaving merge for the exit animation.
+// Pure task/to-do view helpers (src/ui/tasks/model.ts, todo-model.ts, work-model.ts): progress text, owners, "Show
+// as…", widget icons and the steps of a task card.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Task, TaskView } from '../../../src/shared/model/tasks.ts';
-import {
-  DAY_MS, askTargetOf, canToggleStep, compareTodos, dueState,
-  orderedSteps, ownerOf, progressLabel, progressPercent, progressShort,
-  recentDone, removedItems, searchTasks, showAsOptions, widgetIcon, withLeaving, withStep, withoutStep,
-} from '../../../src/ui/tasks/model.ts';
+import { canToggleStep, orderedSteps, progressLabel, progressPercent, withStep, withoutStep } from '../../../src/ui/tasks/model.ts';
+import { askTargetOf, showAsOptions, widgetIcon } from '../../../src/ui/tasks/todo-model.ts';
+import { ownerOf } from '../../../src/ui/tasks/work-model.ts';
 
 const NOW = Date.UTC(2026, 9, 18, 12, 0, 0);
 let seq = 0;
@@ -17,7 +14,7 @@ let seq = 0;
 function task(patch: Partial<TaskView> = {}): TaskView {
   seq++;
   return {
-    id: patch.id ?? `task_${seq}`, conversationId: 'ch_a', title: `Task ${seq}`, notes: '', status: 'open', assigneeKind: 'team',
+    id: patch.id ?? `task_${seq}`, kind: 'todo', conversationId: 'ch_a', title: `Task ${seq}`, notes: '', status: 'open', assigneeKind: 'team',
     createdBy: 'human', priority: 0, ledger: {}, sort: seq, rev: 1, createdAt: NOW - 1000 * seq, updatedAt: NOW,
     steps: [], progress: { done: 0, total: 0 }, conversationTitle: 'Alpha', running: false,
     ...patch,
@@ -30,27 +27,8 @@ function step(patch: Partial<Task> = {}): Task {
 }
 
 
-test('searchTasks matches title, notes and chat name case-insensitively', () => {
-  const a = task({ title: 'Render intro', notes: '' });
-  const b = task({ title: 'Other', notes: 'needs the INTRO music' });
-  const c = task({ title: 'Third', conversationTitle: 'Intro chat' });
-  const d = task({ title: 'Nothing' });
-  assert.deepEqual(searchTasks([a, b, c, d], 'intro').map((t) => t.id), [a.id, b.id, c.id]);
-  assert.equal(searchTasks([a, d], '  ').length, 2);
-});
-
-test('compareTodos: due first (none last), then priority, then age', () => {
-  const late = task({ dueAt: NOW + 5000 });
-  const soon = task({ dueAt: NOW + 1000 });
-  const urgent = task({ priority: 2 });
-  const old = task({ createdAt: NOW - 99_999 });
-  const sorted = [old, urgent, late, soon].sort(compareTodos).map((t) => t.id);
-  assert.deepEqual(sorted, [soon.id, late.id, urgent.id, old.id]);
-});
-
 test('progress helpers', () => {
   assert.equal(progressLabel({ done: 6, total: 10 }), '6 of 10');
-  assert.equal(progressShort({ done: 1, total: 3 }), '1/3');
   assert.equal(progressLabel({ done: 0, total: 0 }), '');
   assert.equal(progressPercent({ done: 1, total: 3 }), 33);
   assert.equal(progressPercent({ done: 5, total: 3 }), 100);
@@ -76,23 +54,6 @@ test('widget icons follow the widget type and record mode', () => {
   assert.equal(widgetIcon(undefined), 'check-circle');
 });
 
-test('dueState', () => {
-  assert.equal(dueState(undefined, NOW), 'none');
-  assert.equal(dueState(NOW - 1, NOW), 'overdue');
-  assert.equal(dueState(NOW + 3_600_000, NOW), 'soon');
-  assert.equal(dueState(NOW + 2 * DAY_MS, NOW), 'later');
-});
-
-test('recentDone: top-level finished inside the window, newest first', () => {
-  const recent = task({ status: 'done', completedAt: NOW - DAY_MS });
-  const newer = task({ status: 'done', completedAt: NOW - 1000 });
-  const old = task({ status: 'done', completedAt: NOW - 5 * DAY_MS });
-  const cancelled = task({ status: 'dropped', completedAt: NOW - 1000 });
-  const stepDone = task({ status: 'done', completedAt: NOW, parentId: 'task_x' });
-  assert.deepEqual(recentDone([recent, old, newer, cancelled, stepDone], NOW, 3).map((t) => t.id), [newer.id, recent.id]);
-  assert.deepEqual(recentDone([recent, cancelled], NOW, 3, ['done', 'dropped']).map((t) => t.id), [cancelled.id, recent.id]);
-});
-
 test('steps: only human steps toggle; order and progress stay consistent', () => {
   assert.equal(canToggleStep({ assigneeKind: 'human', status: 'open' }), true);
   assert.equal(canToggleStep({ assigneeKind: 'agent', status: 'open' }), false);
@@ -106,26 +67,4 @@ test('steps: only human steps toggle; order and progress stay consistent', () =>
   const added = withStep(updated, step({ status: 'open' }));
   assert.deepEqual(added.progress, { done: 1, total: 3 });
   assert.deepEqual(withoutStep(added, first.id).progress, { done: 0, total: 2 });
-});
-
-
-test('leaving items are re-inserted at their former place', () => {
-  const a = { id: 'a' }, b = { id: 'b' }, c = { id: 'c' };
-  const gone = removedItems([a, b, c], [a, c]);
-  assert.deepEqual(gone, [{ item: b, index: 1 }]);
-  assert.deepEqual(withLeaving([a, c], gone), [{ item: a, leaving: false }, { item: b, leaving: true }, { item: c, leaving: false }]);
-  // An item that came back is not duplicated.
-  assert.deepEqual(withLeaving([a, b, c], gone).map((row) => row.item.id), ['a', 'b', 'c']);
-  // Index past the end is clamped.
-  assert.deepEqual(withLeaving([], [{ item: c, index: 5 }]), [{ item: c, leaving: true }]);
-});
-
-test('only items gone from the whole list leave; items pushed past a limit or filtered out stay open', () => {
-  const a = { id: 'a' }, b = { id: 'b' }, c = { id: 'c' }, d = { id: 'd' };
-  // Visible slice [a, b, c] → [d, a, b]: c was pushed past the limit by d but is still a to-do.
-  assert.deepEqual(removedItems([a, b, c], [d, a, b], [d, a, b, c]), []);
-  // b was answered (gone from the whole list): only b leaves.
-  assert.deepEqual(removedItems([a, b, c], [a, c], [a, c, d]), [{ item: b, index: 1 }]);
-  // Switching the chat filter: the other chat's items still exist, nothing animates.
-  assert.deepEqual(removedItems([a, b], [c], [a, b, c]), []);
 });

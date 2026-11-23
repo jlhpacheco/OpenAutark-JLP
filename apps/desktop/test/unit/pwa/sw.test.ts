@@ -2,7 +2,7 @@
 // build does, run against a fake ServiceWorkerGlobalScope. A push shows the notification with the
 // payload's tag and url and still alerts when it replaces an older one (renotify); a tap focuses
 // an open app window and routes it in-app (or opens one); RPC traffic is never answered from the
-// worker; the offline For-you snapshot has a fallback; install precaches main.css and the chunks
+// worker (the page keeps its own offline copy); install precaches main.css and the chunks
 // main.js imports statically (scripts/sw-precache.mjs computes them from the build's metafile,
 // scripts/build.mjs passes them in), fails rather than keep part of that set, and serves the set
 // from the worker's own cache without refreshing it in place (review #20).
@@ -134,15 +134,13 @@ test('a tap focuses the open app window and routes it in-app; without one it ope
   assert.deepEqual(closed.opened, [`${ORIGIN}/#/home`]);
 });
 
-test('RPC and WebSocket requests are never answered by the worker; the offline list has a fallback', async () => {
+test('RPC and WebSocket requests are never answered by the worker; the old offline list endpoint is gone (19.11.2026)', async () => {
   const sw = worker();
   const request = (pathname: string) => ({ request: { method: 'GET', url: `${ORIGIN}${pathname}`, mode: 'cors' } });
   assert.equal(await sw.dispatch('fetch', request('/rpc')), undefined);
   assert.equal(await sw.dispatch('fetch', request('/ws')), undefined);
   assert.equal(await sw.dispatch('fetch', request('/files/fi_1')), undefined);
-  const offline = await sw.dispatch('fetch', request('/offline/todos.json'));
-  assert.ok(offline, 'answered from the worker');
-  assert.deepEqual(plain(await (await offline)!.json()), { at: 0, items: [] }, 'no snapshot (no IndexedDB here) → an empty list, not an error');
+  assert.equal(await sw.dispatch('fetch', request('/offline/todos.json')), undefined, 'the page keeps its own copy now (ui/pwa/offline-cache.ts)');
 });
 
 test('install precaches the boot shell: main.css always, the build\'s static chunks under a cache named by the build', async () => {

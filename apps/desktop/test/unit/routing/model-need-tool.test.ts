@@ -65,7 +65,7 @@ async function needToolSetup() {
   };
   Object.assign(h.services, {
     settings: { get: () => settings }, accounts, runs, dispatcher, secrets: { use: async () => { throw new Error('no secret'); } },
-    engines: { get: (id: EngineId) => engines.get(id)!, all: () => [...engines.values()], disposeIdle: async () => {} },
+    engines: { get: (id: EngineId) => engines.get(id)!, all: () => [...engines.values()] },
     modes: { get: (key: string) => { if (!MODES[key]) throw new Error(`unknown mode ${key}`); return MODES[key]; }, list: () => Object.values(MODES) },
   });
   const catalog = new Catalog({ services: () => h.services, priors: PRIORS, debounceMs: 0 });

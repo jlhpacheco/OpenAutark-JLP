@@ -11,7 +11,7 @@ import type { SideSpaces } from '../../../src/shared/api/workspace-browser.ts';
 const PC: SideSpaces = {
   global: { shown: 'remote:dev_pc:web-1', tabs: [
     { id: 'remote:dev_pc:web-1', panel: 'remote', device: 'dev_pc', tab: 'web-1', url: 'https://one.example/' },
-    { id: 'day', panel: 'day' },
+    { id: 'tasks', panel: 'tasks' },
     { id: 'file:/srv/a.md', panel: 'file', path: '/srv/a.md' },
     { id: 'remote:dev_b:web-9', panel: 'remote', device: 'dev_b', tab: 'web-9', url: 'https://other.example/' },
   ] },
@@ -23,9 +23,9 @@ test('phoneChanges: only spaces that differ, the remote tabs no space lists any 
   assert.equal(phoneChanges(PC, { ...structuredClone(PC), 'chat:ch_1': { tabs: [] } }), undefined, 'an empty space is no space');
   const tabs = PC.global!.tabs;
   assert.equal(phoneChanges(PC, { global: { tabs } }), undefined, 'a blank tab shown here leaves the PC\'s shown tab');
-  assert.deepEqual(phoneChanges(PC, { global: { shown: 'day', tabs } }), { spaces: { global: { shown: 'day', tabs } }, closed: [] });
-  assert.deepEqual(phoneChanges(PC, { global: { shown: 'day', tabs: [tabs[1]!, tabs[2]!] } }), {
-    spaces: { global: { shown: 'day', tabs: [tabs[1]!, tabs[2]!] } }, closed: ['remote:dev_pc:web-1', 'remote:dev_b:web-9'],
+  assert.deepEqual(phoneChanges(PC, { global: { shown: 'tasks', tabs } }), { spaces: { global: { shown: 'tasks', tabs } }, closed: [] });
+  assert.deepEqual(phoneChanges(PC, { global: { shown: 'tasks', tabs: [tabs[1]!, tabs[2]!] } }), {
+    spaces: { global: { shown: 'tasks', tabs: [tabs[1]!, tabs[2]!] } }, closed: ['remote:dev_pc:web-1', 'remote:dev_b:web-9'],
   });
 });
 
@@ -43,8 +43,8 @@ test('the phone\'s pane: the PC\'s spaces come in, what the person does goes bac
   assert.equal(sent.length, 0, 'taking the PC\'s spaces sends nothing back');
   assert.equal(pages.hasPane(), true);
 
-  pages.selectPage('day');
-  assert.deepEqual(sent.at(-1)?.spaces.global?.shown, 'day', 'choosing a tab goes to the PC');
+  pages.selectPage('tasks');
+  assert.deepEqual(sent.at(-1)?.spaces.global?.shown, 'tasks', 'choosing a tab goes to the PC');
 
   const before = sent.length;
   pages.addPage();

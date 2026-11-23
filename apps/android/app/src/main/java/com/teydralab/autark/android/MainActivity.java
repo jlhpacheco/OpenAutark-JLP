@@ -6,7 +6,8 @@
 // the system bar strips (SystemBars), places opened from notifications, shortcuts and a recreation (PhoneRoutes), shares
 // into Autark (ShareIn), the foreground service while paired (KeepAlive), the phone-use upgrade's dialog and a crashed
 // renderer's recovery. Back goes back layer by layer in the web UI (window.autarkBack) and, with nothing left, puts the
-// app in the background – it never closes itself. Its own screen besides pairing: "can't reach" (OfflineScreen), which
+// app in the background – it never closes itself. Its own screen besides pairing: "can't reach" (OfflineScreen: Try again,
+// Choose PC – no Forget there since 19.11.2026), which
 // opens the page again by itself once a PC of the company is linked.
 // Above them all, the update line (UpdateBar, UpdateCheck) when a newer Autark is there. Before everything, the last
 // start's crash report when there is one (CrashReport; its Report hands the trace to the page through NativePort); a
@@ -15,7 +16,8 @@
 // company's next PC (CompanyLink). The old company's link closes off the main thread. Feedback 16.11.2026 (F15): the
 // feedback video over the pairing screens on the first start and from their "How feedback works" (IntroTour), and on
 // the page volume up and volume down pressed together as the feedback cell's press (VolumePair → the page's
-// {t:'feedback', down}); one key alone stays the volume.
+// {t:'feedback', down}); one key alone stays the volume. W (19.11.2026): the page's 'wake' goes to CompanyLink.wake.
+// Owner 19.11.2026: with the page's voice live ('voice.live') a pause leaves the WebView running, KeepAlive the microphone.
 // Never: copies the UI, needs a VPN or a reachable PC address, reads the UI's storage, or runs agents.
 package com.teydralab.autark.android;
 
@@ -82,6 +84,7 @@ public final class MainActivity extends Activity implements PhoneNavigation.Host
     /** Volume up + down together on the page: the feedback cell's press; its wait runs on `keys`. */
     private final VolumePair volume = new VolumePair();
     private final Handler keys = new Handler(Looper.getMainLooper());
+    private boolean voiceLive, paused; // the page's voice is live (it runs on while paused); the activity is paused
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -228,7 +231,7 @@ public final class MainActivity extends Activity implements PhoneNavigation.Host
         });
     }
 
-    /** The web UI could not load: the reason, Try again, and Forget (the web profile menu is out of reach). */
+    /** The web UI could not load (no page of it on this phone yet): the reason, Try again and Choose PC – no Forget (19.11.2026). */
     @Override public void offline(String reason) {
         if (setup) return;
         leaveWeb();
@@ -237,7 +240,7 @@ public final class MainActivity extends Activity implements PhoneNavigation.Host
             PhoneConnection.Paired paired = companies.current();
             if (link != null) link.connection.check();
             if (paired != null) open(paired);
-        }, this::confirmForget);
+        }, this::pickPc);
     }
 
     /** "Forget this phone" (the profile menu: autark-app:forget or the port's 'forget') – the current company only. */
@@ -268,7 +271,7 @@ public final class MainActivity extends Activity implements PhoneNavigation.Host
         pageUp = false;
         chrome.cancelMedia();
         web.stopLoading();
-        web.loadUrl("about:blank"); // Leaving the app page releases its live camera/microphone streams.
+        web.loadUrl("about:blank"); port.close(); // Leaving the app page releases its live camera/microphone streams, port and voice.
         web.onPause();
         SystemBars.apply(null, null);
     }
@@ -345,6 +348,22 @@ public final class MainActivity extends Activity implements PhoneNavigation.Host
 
     @Override public void refused() { if (link != null) link.refused(); }
 
+    /** W (19.11.2026): the page's Wake while no PC answers – through this company's own meeting-server link. */
+    @Override public void wake(String id, String key, String name) {
+        if (link == null) port.woken(id, "This phone is not connected to a company yet.");
+        else link.wake(key, name, (error) -> port.woken(id, error));
+    }
+
+    /** The page's voice went live or ended: KeepAlive holds the microphone meanwhile; ended in the background, the page pauses now. */
+    @Override public void voiceLive(boolean on, String kind) {
+        voiceLive = on;
+        optional(() -> KeepAlive.voice(this, on, kind));
+        if (!on && paused && web != null) web.onPause();
+    }
+
+    /** The voice notice's End (KeepAlive): the page ends its voice; false without a page to ask. */
+    boolean voiceStop() { return !isDestroyed() && port != null && port.voiceStop(); }
+
     // ------------------------------------------------------------------ Back and the lifecycle
 
     /** Back: the pairing levels walk back; a native screen returns to the app; the web UI goes back one layer; with none left the app goes to the background. */
@@ -368,6 +387,7 @@ public final class MainActivity extends Activity implements PhoneNavigation.Host
     }
     private void resumed() {
         current = this;
+        paused = false;
         AppNotices.resumed(true);
         optional(() -> AppNotices.clear(this));
         if (link != null) { link.connection.check(); optional(() -> KeepAlive.start(this)); }
@@ -375,7 +395,7 @@ public final class MainActivity extends Activity implements PhoneNavigation.Host
         optional(() -> SelfUpdate.resumed(this, updates::step));
         optional(() -> UpdateCheck.start(this, updates));
     }
-    @Override protected void onPause() { AppNotices.resumed(false); if (web != null) { web.onPause(); CookieManager.getInstance().flush(); } super.onPause(); }
+    @Override protected void onPause() { paused = true; AppNotices.resumed(false); if (web != null) { if (!voiceLive) web.onPause(); CookieManager.getInstance().flush(); } super.onPause(); }
     @Override protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
         String place = web == null || setup ? null : PhoneRoutes.place(web.getUrl());

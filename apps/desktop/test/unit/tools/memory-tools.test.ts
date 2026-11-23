@@ -4,9 +4,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
 import { ctxFor, setup } from './helpers.ts';
-import { KnowledgeStore } from '../../../src/runtime/knowledge/service.ts';
+import { KnowledgeStore, type MemoryVectors } from '../../../src/runtime/knowledge/service.ts';
 import { memoryTools } from '../../../src/runtime/tools/builtin/memory.ts';
 import { findTools } from '../../../src/runtime/tools/builtin/find.ts';
 import { BASE_CORE } from '../../../src/runtime/tools/core-sets.ts';
@@ -18,21 +17,21 @@ const textOf = (out: ToolOutput) => (out.content[0] as { text: string }).text;
 
 function world() {
   const h = setup();
-  const changed: string[] = [];
-  const vectors = { available: () => true, embed: async () => ({ embedded: 0, reembedded: 0, unchanged: 0, skipped: [] }), search: async () => ({ hits: [], searched: { places: [], embeddedFiles: 0 } }), onFileChanged: (file: string) => { changed.push(file); }, onFileRemoved: () => undefined };
+  const forgotten: string[] = [];
+  const vectors: MemoryVectors = { available: () => true, rank: async (input) => ({ hits: input.words.slice(0, input.limit) }), forget: (key) => { forgotten.push(key); } };
   const knowledge = new KnowledgeStore({ db: h.db, clock: h.clock, vectors: () => vectors });
   (h.services as RuntimeServices).knowledge = knowledge;
-  return { h, knowledge, changed };
+  return { h, knowledge, forgotten };
 }
 
 test('memory.write goes to the caller\'s own folder by default, is findable by that, and memory.read returns it', async () => {
-  const { h, knowledge, changed } = world();
+  const { h, forgotten } = world();
   const out = await byName('memory.write').run({ title: 'Export-Einstellung', text: 'Immer H.264.', kind: 'experience', tags: ['video'] }, ctxFor(h));
   assert.equal(out.isError, undefined, textOf(out));
   const { path: file, outcome } = out.structured as { path: string; outcome: string };
   assert.equal(file, 'agents/ag_tom/export-einstellung.md');
   assert.equal(outcome, 'created');
-  assert.deepEqual(changed, [path.join(knowledge.memoryRoot, 'agents', 'ag_tom', 'export-einstellung.md')]);
+  assert.deepEqual(forgotten, [], 'a write takes no stored meaning along');
 
   const read = await byName('memory.read').run({ path: file }, ctxFor(h));
   assert.match(textOf(read), /^Export-Einstellung \(experience · video · \d{4}-\d{2}-\d{2} · run:run_1\)\n\nImmer H\.264\.$/);
@@ -78,4 +77,15 @@ test('memory.write is in every core set, the rest on demand; there is no memory 
   assert.equal('memory.write' in BASE_CORE, true);
   for (const name of ['memory.browse', 'memory.read', 'memory.forget']) assert.equal(name in BASE_CORE, false, `${name} is on demand`);
   assert.equal(memoryTools.some((t) => t.name === 'memory.search'), false);
+});
+
+test('Runde „Halb“: a note is a hint for a later me – its description is required and is the hint line; a way of working is a skill', () => {
+  const write = byName('memory.write');
+  const schema = write.inputSchema as { required: string[]; properties: { description: { description: string; minLength?: number } } };
+  assert.deepEqual(schema.required, ['title', 'text', 'description']);
+  assert.equal(schema.properties.description.minLength, 1);
+  assert.equal(schema.properties.description.description, 'The hint line: when it matters and what it changes.');
+  assert.match(write.description, /^Keeps one thing a later turn of mine would otherwise not think of/);
+  assert.match(write.description, /Its description is the line my later self gets as a hint/);
+  assert.match(write.description, /A way of working that needs more than a few lines is a skill \(skills\.save\)\./);
 });

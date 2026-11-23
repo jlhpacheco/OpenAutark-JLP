@@ -1,11 +1,16 @@
 // Chat model: conversations (WhatsApp-like channels), members and the canonical message log.
-// Owns: shapes for chats/messages/attachments, message levels (B-050), sub-chats and threads (B-078) and the chat's live bar
+// Owns: shapes for chats/messages/attachments, message levels (B-050), sub-chats and threads (B-078), what a task's own
+// thread is (Quests 20.11.2026: the conversation whose id is the task's – runtime/tasks/thread.ts) and the chat's live bar
 // (LiveRun: who works for the chat now – never a row in the history). A chat is NOT an agent; agents are members.
 // Never: duplicates message text anywhere else (tasks reference messages by id) – except a call row's transcript lines
 // (shared/model/call.ts), kept in step by runtime/calls/call-log.ts.
 
+import { isId } from '../ids.ts';
 import type { StepKind } from '../text/step-label.ts';
 import type { TextMarks } from '../voice/marks.ts';
+
+/** A task's own thread: the conversation whose id is a task id (runtime/tasks/thread.ts). */
+export const isTaskThread = (conversationId: string): boolean => isId(conversationId, 'task');
 
 export type MemberKind = 'human' | 'agent' | 'external';
 
@@ -173,7 +178,7 @@ export interface ConversationSettings {
   /**
    * Who last renamed the chat ('human' or an agent id) – set by the runtime on a rename, never by
    * a client. Absent: a title given at creation was given by `createdBy`. Agents never rename a
-   * chat the person named (tools/builtin/chat-members.ts).
+   * chat the person named (tools/builtin/chat-update.ts).
    */
   namedBy?: string;
   /** Reply mode per agent member in a group (absent = 'auto'; runtime/chat/reply-modes.ts). */
@@ -192,8 +197,10 @@ declare module '../api/methods.ts' {
   interface Methods {
     /** C2 ('chat'): the chat comes back into the list (archiving only hides it; its agents keep working). */
     'chats.unarchive': { params: { id: string }; result: { ok: true } };
-    /** B-078 ('chat'): the thread on a message – found, or opened now with its chat's members (runtime/chat/children.ts). */
-    'chats.thread': { params: { messageId: string }; result: Conversation };
+    /** B-078 ('chat'): the thread on a message – found, or opened now with its chat's members (runtime/chat/children.ts); with `taskId` the task's own thread, whose id is the task's (runtime/tasks/thread.ts). */
+    'chats.thread': { params: { messageId: string } | { taskId: string }; result: ConversationSummary };
+    /** Quests 20.11.2026 ('chat'): the tasks whose thread holds lines the caller has not read – the dot on a task. */
+    'chats.threadNews': { params: void; result: string[] };
   }
 }
 
@@ -224,10 +231,6 @@ export type MessageLevel = 'normal' | 'important' | 'silent';
 
 export function messageLevel(m: Pick<Message, 'priority' | 'silent'>): MessageLevel {
   return m.silent ? 'silent' : m.priority === 'important' ? 'important' : 'normal';
-}
-
-export function levelFields(level: MessageLevel): { priority: 'normal' | 'important'; silent: boolean } {
-  return { priority: level === 'important' ? 'important' : 'normal', silent: level === 'silent' };
 }
 
 export interface ConversationSettings {
@@ -273,6 +276,8 @@ export interface LiveRun {
   temperature?: number; temperatureSent?: boolean; taskId?: string;
   split?: { id: string; groupId: string; idx: number; of: number; parentRunId: string; title: string };
   deviceId?: string;
+  /** 22.11.2026: a context fold's run (AgentActivity.fold) – the bar shows "Folding its context". */
+  fold?: true;
 }
 
 export interface ConversationSummary {
@@ -285,7 +290,7 @@ export interface ConversationSummary {
 export interface ConversationSettings {
   /**
    * A sub-chat: the chat it sits under in the list (one level – the parent is never a sub-chat itself; checked by
-   * runtime/chat/children.ts). Set by the person (chats.update) or an agent (chat.set_parent, chat.thread).
+   * runtime/chat/children.ts). Set by the person (chats.update) or an agent (chat.update, chat.thread).
    */
   parentId?: string;
   /** A thread: the message of the parent chat it answers (always with parentId). A thread is never in the chat list. */

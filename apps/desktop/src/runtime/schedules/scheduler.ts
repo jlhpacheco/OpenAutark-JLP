@@ -5,7 +5,7 @@
 // (drop fires later than the grace period). Due wakes are announced to the dispatcher through onDueWakes(); wakes
 // due "now" are announced immediately (microtask batch). B-044: each arm reports the earliest due time to
 // `nextDue` (next-due.json, settled at stop); `pausedBy`: an agent never resumes the person's pause. B-054: only a
-// scheduled message requires a chat; a routine may have none (its tasks are then chat-free, fire.ts). B-080: a stopped
+// scheduled message requires a chat; a reminder needs none (Quests round 20.11.2026: the kinds are message and reminder). B-080: a stopped
 // schedule without a recorded pause has ended (its runs are used up) – a new spec brings it back. F06 (16.11.2026):
 // list/get show an active schedule another PC fires with its next time (`shown`, never stored).
 // Owns: schedule CRUD, timing and firing. Never: runs agents (the dispatcher claims wakes).
@@ -136,11 +136,11 @@ export class SchedulerImpl implements Scheduler {
 
   create(input: CreateInput): Schedule {
     const now = this.s.clock.now();
-    const error = validateSpec(input.spec, { minEveryMs: input.kind === 'timer' ? 1000 : 60_000 });
+    const error = validateSpec(input.spec, { minEveryMs: 60_000 });
     if (error) throw new WorkforceError('bad_request', error);
-    // B-054: only a scheduled message posts into a chat; routines, reminders and timers need none.
+    // B-054: only a scheduled message posts into a chat; a reminder needs none.
     if (input.kind === 'message' && !input.conversationId) throw new WorkforceError('bad_request', 'A scheduled message is posted in a chat: pass chatId.');
-    if (input.kind === 'reminder' && input.ownerId === HUMAN_ID) throw new WorkforceError('bad_request', 'Reminders belong to agents; use a timer.');
+    if (input.kind === 'reminder' && input.ownerId === HUMAN_ID) throw new WorkforceError('bad_request', 'Reminders belong to agents; the person keeps a time as a to-do (its at).');
     if (input.ownerId !== HUMAN_ID && this.repo.activeCount(input.ownerId) >= this.o.maxAgentSchedules) throw new WorkforceError('conflict', 'Too many active schedules for this agent.');
     const schedule: Schedule = {
       id: newId('sch', now), ownerId: input.ownerId, kind: input.kind, title: input.title.trim() || input.kind, spec: input.spec,
@@ -157,16 +157,17 @@ export class SchedulerImpl implements Scheduler {
     return schedule;
   }
 
-  update(id: string, patch: Partial<Pick<Schedule, 'title' | 'spec' | 'payload' | 'active'>>, by?: string): Schedule {
+  update(id: string, patch: Partial<Pick<Schedule, 'conversationId' | 'title' | 'spec' | 'payload' | 'active'>>, by?: string): Schedule {
     const schedule = this.require(id);
     const agent = by !== undefined && by !== HUMAN_ID;
     if (patch.active && !schedule.active && agent && this.pausedByPerson(schedule)) throw new WorkforceError('forbidden', 'The person paused this schedule; only they can resume it.');
     if (patch.spec) {
-      const error = validateSpec(patch.spec, { minEveryMs: schedule.kind === 'timer' ? 1000 : 60_000 });
+      const error = validateSpec(patch.spec, { minEveryMs: 60_000 });
       if (error) throw new WorkforceError('bad_request', error);
       schedule.spec = patch.spec;
     }
     if (patch.title !== undefined) schedule.title = patch.title.trim() || schedule.title;
+    if (patch.conversationId) schedule.conversationId = patch.conversationId; // Settings › Scheduled: a message moves to another chat
     if (patch.payload) schedule.payload = { ...schedule.payload, ...patch.payload };
     if (patch.active === false && by !== undefined && (schedule.active || !agent)) schedule.pausedBy = by; // the person's pause always counts
     else if (patch.active) delete schedule.pausedBy;

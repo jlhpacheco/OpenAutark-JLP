@@ -1,5 +1,5 @@
 // Feedback 16.11.2026 (F11, F13, F15) – the snapshot overlay. Every opening freezes the window (popover-state.ts
-// snapshot): the new shot replaces the draft's and its marks, the words stay; a snapshot while the overlay is shown is a
+// snapshot): the new shot replaces the draft's and its marks and is shown, the words and photos stay; a snapshot while the overlay is shown is a
 // snapshot of the overlay itself – the draft does not change before the image is there, and a failed capture keeps what
 // is shown. The cells register for the dialog slot's spot and the shortcut's pill. While a modal's backdrop dims the
 // window, main is told once (stacked dialogs: dim with the first, undim with the last). And the wiring: the overlay is
@@ -16,7 +16,7 @@ import { cellSpot, frozen, overlayShown, registerCell, snapshot, snapshotSettled
 import { DIMMING, dimReporter } from '../../../src/ui/lib/backdrop-dim.ts';
 
 const source = (path: string) => readFileSync(new URL(`../../../src/${path}`, import.meta.url), 'utf8');
-const box: PaintMark = { tool: 'box', from: [0, 0], to: [10, 10] };
+const box: PaintMark = { tool: 'pen', width: 10, points: [[0, 0], [10, 10]] };
 
 /** A capture that answers when told to. */
 function pendingCapture() {
@@ -26,9 +26,10 @@ function pendingCapture() {
   return { capture, answer: (image: string | null) => answer(image), calls: () => calls };
 }
 
-test('frozen: the new shot replaces the old one and its marks; the words, recordings and place stay unless given', () => {
-  const draft = { ...EMPTY_DRAFT, text: 'The list jumps', shot: 'data:old', painted: 'data:painted', marks: [box], withShot: false, where: { view: 'chat' } };
-  assert.deepEqual(frozen(draft, 'data:new'), { ...draft, shot: 'data:new', painted: null, marks: [], withShot: true });
+test('frozen: the new shot replaces the old one and its marks and is shown; the words, photos and place stay unless given', () => {
+  const photos = [{ id: 'p1', src: 'data:photo', marks: [box] }];
+  const draft = { ...EMPTY_DRAFT, text: 'The list jumps', shot: 'data:old', marks: [box], withShot: false, photos, onStage: 'p1', where: { view: 'chat' } };
+  assert.deepEqual(frozen(draft, 'data:new'), { ...draft, shot: 'data:new', marks: [], withShot: true, onStage: null });
   assert.deepEqual(frozen(draft, null, { view: 'home' }).where, { view: 'home' });
   assert.equal(frozen(draft, null).shot, null);
 });
@@ -145,7 +146,16 @@ test('wiring: the overlay is a modal over any dialog, Escape keeps the draft, ev
   assert.match(overlay, /if \(shown && !dialog\.open\) dialog\.showModal\(\);/, 'opened last: above any open dialog');
   assert.match(overlay, /onCancel=\{\(event\) => \{ event\.preventDefault\(\); closeFeedback\(\); \}\}/, 'Escape closes, the draft stays');
   assert.match(overlay, /<DialogSlot anywhere \/>/, 'the cell can be pressed again inside the overlay');
-  assert.match(overlay, /<AnnotationCanvas image=\{image\} marks=\{marks\}/, 'painted straight on the frozen screen');
+  assert.match(overlay, /<AnnotationCanvas image=\{image\} marks=\{shown\.marks\}/, 'painted straight on the image shown');
+  assert.match(overlay, /\{canCaptureWindow\(\) && \(/, 'no window shot here (the iPhone web app, a browser): no Screenshot chip – photos alone');
+  assert.match(overlay, /onClick=\{\(\) => updateDraft\(\{ onStage: photo\.id \}\)\}/, 'a click on a photo shows it to paint on');
+  assert.match(overlay, /onClick=\{\(\) => removePhoto\(photo\.id\)\}/, 'its × removes it');
+  assert.match(overlay, /disabled=\{draft\.shot === null \|\| going \|\| full\}/, 'a shot past the image cap cannot be ticked (its title says why)');
+  const panel = source('ui/feedback/FeedbackPanel.tsx');
+  assert.match(panel, /accept="image\/\*" multiple/, 'several photos at once');
+  assert.match(panel, /addPhotos\(/, 'the + adds photos');
+  assert.doesNotMatch(panel, /frozen\(/, 'a photo never replaces the window shot');
+  assert.match(panel, /flatten\(image\.src, image\.marks, budget\)/, 'each image flattened with its marks within its share');
   const dialog = source('ui/lib/dialog.tsx');
   assert.match(dialog, /\{props\.open && modal && <DialogSlot \/>\}/);
   assert.match(dialog, /useLayoutEffect\(watchBackdropDim, \[\]\)/);

@@ -115,7 +115,7 @@ test('a phone dictates: its take goes through the runtime to the transcription s
     assert.equal(take.mime, 'video/webm', 'sniffed from the bytes (a mime with codecs is only a hint)');
     assert.equal(take.name, 'Dictation 2026-10-20 09-30.webm', 'the name is kept as the page made it');
     heard = await phone.call('voice.transcribe', { fileId: take.id, language: 'de-DE' });
-    assert.deepEqual(heard, { text: SPOKEN }, 'the text, nothing made up');
+    assert.deepEqual(heard, { text: SPOKEN, by: 'service' }, 'the text, nothing made up – heard by the transcription service (F27: the answer names who heard it)');
     assert.equal(speech.requests.length, 1);
     const [request] = speech.requests;
     assert.deepEqual(
@@ -140,7 +140,7 @@ test('a phone dictates: its take goes through the runtime to the transcription s
   await t.test('a take without words comes back as empty text, not as a failure to attach', async () => {
     speech.state.silent = true;
     const take = await phone.call('files.upload', { name: 'Dictation 2026-10-20 09-31.webm', mime: 'audio/webm', dataBase64: webmTake().toString('base64') });
-    assert.deepEqual(await phone.call('voice.transcribe', { fileId: take.id }), { text: '' });
+    assert.deepEqual(await phone.call('voice.transcribe', { fileId: take.id }), { text: '', by: 'service' });
     assert.equal(speech.requests.length, 2);
   });
 });

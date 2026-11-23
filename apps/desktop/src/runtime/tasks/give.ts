@@ -1,4 +1,4 @@
-// Giving work – the one act behind tasks.create {to}, tasks.give, the composer, the person's and a colleague's device,
+// Giving work – the one act behind tasks.add {for}, tasks.update {for}, the composer, the person's and a colleague's device,
 // a routine, the successor of an archived agent and the watcher's owner pick for a row without one:
 //  - receiverOf: who a word names – "me", "team", an agent (id or name), the person (human, their name) or a colleague;
 //  - pickOwner ("team"): Autark picks one owner now – one cheap decision among the active agents and the colleagues the
@@ -7,7 +7,7 @@
 //    lands on the person's own list;
 //  - giveTask: the colleague rules (people/task-rules.ts) and the chat it lives in, the owner, "given by", its last move,
 //    the giver's note as "From <name>: …", the effort the work needs, a quiet line in its chat, the receiver
-//    told at once (tell) and its next look (tasks/next.ts);
+//    told at once (tell);
 //  - tell: an agent hears by a wake on the task, the person by a notification, a colleague by a push.
 // Owns: those. Never: gives finished work, gives to an archived or unknown agent, or leaves a task without an owner.
 
@@ -21,7 +21,6 @@ import type { Effort } from '../../shared/model/providers.ts';
 import type { WakeReason } from '../../shared/model/runs.ts';
 import type { NotificationInput, RuntimeServices } from '../contracts.ts';
 import type { TaskServiceImpl } from './service.ts';
-import { nextLook } from './next.ts';
 import { moveTaskChat, responsibleManager, routeOwner, stopRuns } from './owners.ts';
 import { checkMayGive } from '../people/task-rules.ts';
 import { SURE_CONFIDENCE } from '../decision/service.ts';
@@ -159,8 +158,7 @@ export function giveTask(t: TaskServiceImpl, id: string, to: Receiver, by: strin
     if (note) draft.notes = `${draft.notes.trim() ? `${draft.notes.trimEnd()}\n\n` : ''}From ${nameOf(s, by)}: ${note}`;
     const { givenIn: _before, ...ledger } = draft.ledger; // a new giver hears it where it gave it
     const givenIn = input.givenIn && input.givenIn !== draft.conversationId ? input.givenIn : undefined;
-    draft.ledger = { ...ledger, movedAt: now, stalls: 0, ...(givenIn ? { givenIn } : {}), ...(input.fact ? { facts: [...(draft.ledger.facts ?? []), input.fact].slice(-20) } : {}) };
-    draft.nextAt = nextLook(draft, now, t.openPieces(draft));
+    draft.ledger = { ...ledger, movedAt: now, ...(givenIn ? { givenIn } : {}), ...(input.fact ? { facts: [...(draft.ledger.facts ?? []), input.fact].slice(-20) } : {}) };
     recordChange(draft, before, by, 'give', now);
   });
   const previous = before.assigneeKind === 'agent' ? before.assigneeId : undefined;
@@ -179,15 +177,16 @@ export function giveTask(t: TaskServiceImpl, id: string, to: Receiver, by: strin
 
 /**
  * The receiver of new or given work hears of it at once ("<giver> gave me …"). Work I give myself is no news to me: a bare
- * wake starts it, so a wait I set in the turn that made it stands (FIXES-3b F2.3; agents/turn-prepare.ts B-047), and in its
- * own turn it needs no wake at all.
+ * wake starts a to-do, so a wait I set in the turn that made it stands (FIXES-3b F2.3; agents/turn-prepare.ts B-047), and
+ * in its own turn it needs no wake at all; a quest I make myself wakes me never – its to-dos carry the work (FIXREAL 6a,
+ * real run 20.11.: two wakes, one with 4 output tokens).
  */
 export function tellGiven(t: TaskServiceImpl, task: Task, by: string): void {
   const owner = task.assigneeKind === 'agent' ? task.assigneeId : task.assigneeId ?? HUMAN_ID;
   if (!owner || task.assigneeKind === 'team') return;
   const title = excerpt(task.title, 120);
   if (task.assigneeKind === 'agent') {
-    if (owner === by && t.isRunning(task.id, owner)) return; // its own turn on it plans its next look
+    if (owner === by && (task.kind === 'quest' || t.isRunning(task.id, owner))) return; // my own quest, or its own turn on it, knows
     tell(t.s, owner, { reason: 'task', taskId: task.id, conversationId: task.conversationId, ...(owner === by ? {} : { note: `${nameOf(t.s, by)} gave me "${title}".` }) });
     return;
   }

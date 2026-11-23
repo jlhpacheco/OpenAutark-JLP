@@ -36,9 +36,22 @@ export function runtimeEnv(env: Record<string, string | undefined>, dataDir?: st
   const out: Record<string, string | undefined> = { ...env };
   delete out.ELECTRON_RUN_AS_NODE;
   delete out.NODE_OPTIONS;
+  delete out[PERSON_TOKEN_ENV]; // FX1: never inherited by the runtime, its agents or their shells
   if (dataDir) out.AUTARK_DATA = dataDir;
   if (language?.trim()) out.AUTARK_SYSTEM_LANGUAGE = language.trim();
   return out;
+}
+
+/** FX1 19.11.2026: a test profile (WORKFORCE_TEST_DATA) may hand in a person token here; a real profile never has one. */
+export const PERSON_TOKEN_ENV = 'WORKFORCE_PERSON_TOKEN';
+
+/**
+ * The person token main hands the runtime in `init`: only in a test profile, from PERSON_TOKEN_ENV (16–128 safe chars);
+ * undefined otherwise – the person's window and main's link are their own MessagePorts, no token on disk or in env.
+ */
+export function personTokenOf(env: Record<string, string | undefined>): string | undefined {
+  const value = env[PERSON_TOKEN_ENV];
+  return env.WORKFORCE_TEST_DATA && value && /^[A-Za-z0-9_-]{16,128}$/.test(value) ? value : undefined;
 }
 
 interface Waiter<P> { resolve(port: P | null): void; timer: unknown }

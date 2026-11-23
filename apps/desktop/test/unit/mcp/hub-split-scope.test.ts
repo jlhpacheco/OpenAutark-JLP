@@ -7,8 +7,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Mcp } from '../../../src/runtime/mcp/hub.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { MemoryLogger } from '../fakes.ts';
+import { ManualClock } from '../fakes.ts';
 import { noteLearned, promoteLearned } from '../../../src/runtime/tools/learned.ts';
 import { memoryDb } from '../store/helpers.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';

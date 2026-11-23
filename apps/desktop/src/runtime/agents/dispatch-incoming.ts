@@ -23,7 +23,7 @@
 import type { RuntimeServices } from '../contracts.ts';
 import type { Task } from '../../shared/model/tasks.ts';
 import { addPick, settleWithin, type UrgentPick } from './dispatch-groups.ts';
-import { hasPerson, steerOtherResult, steerRelay, steerTurnResult, type SteerResult } from './dispatch-steer.ts';
+import { hasPerson, steerOther, steerRelay, steerTurn, type SteerResult } from './dispatch-steer.ts';
 import type { FoldRetries } from './dispatch-fold.ts';
 import { noteDeferred } from './dispatch-boundary.ts';
 import { abortTurn, type RunEntry, type RunningTurns, type TurnDeps } from './dispatch-runs.ts';
@@ -138,8 +138,8 @@ export class IncomingLines {
     if (personLine(services, entry.agentId, conversationId, { seq: taken })) this.endWait(entry);
     const stillRunning = () => this.runs.get(entry.agentId) === entry && !entry.controller.signal.aborted;
     const attempt = () => (entry.conversationId === conversationId
-      ? steerTurnResult(services, entry, conversationId, stillRunning)
-      : steerOtherResult(services, entry, conversationId, stillRunning));
+      ? steerTurn(services, entry, conversationId, stillRunning)
+      : steerOther(services, entry, conversationId, stillRunning));
     return this.folds.fold(`${entry.agentId}:${conversationId}`, attempt, stillRunning);
   }
 
@@ -161,14 +161,14 @@ export class IncomingLines {
     return steered;
   }
 
-  /** Whether a running turn gives way to urgent task work: not one on that or another priority-2 task, or serving the person's answer or approval. */
+  /** Whether a running turn gives way to urgent task work: not one on that or another priority-2 task, or serving the person's answer. */
   private yields(services: RuntimeServices, entry: RunEntry, taskId: string): boolean {
-    if (entry.taskId === taskId || entry.reason === 'answer' || entry.reason === 'approval') return false;
+    if (entry.taskId === taskId || entry.reason === 'answer') return false;
     return !entry.taskId || taskOf(services, entry.taskId)?.priority !== 2;
   }
 }
 
 /** The task a group works on, for its priority, due state and – stale hand-overs – status (a failed read counts as normal work). */
-export function taskOf(services: RuntimeServices, id: string): Pick<Task, 'priority' | 'dueAt' | 'status'> | undefined {
+export function taskOf(services: RuntimeServices, id: string): Pick<Task, 'priority' | 'at' | 'status'> | undefined {
   try { return services.tasks.get(id); } catch { return undefined; }
 }

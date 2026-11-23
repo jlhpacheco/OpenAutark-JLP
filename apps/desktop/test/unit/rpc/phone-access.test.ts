@@ -20,7 +20,7 @@ import type { ClientScope } from '../../../src/shared/api/protocol.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import { memoryDb, recordingBus } from '../devices/fakes.ts';
 
-const OWNER: ClientScope = { kind: 'owner' };
+const OWNER: ClientScope = { kind: 'owner', person: true }; // FX1: the person
 /** This PC's key fingerprint; its own Remote ID differs from the person code remote.state shows. */
 const PC_FP = 'c'.repeat(64);
 const OWN_ID = remoteIdOf(PC_FP);

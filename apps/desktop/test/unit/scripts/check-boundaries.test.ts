@@ -2,8 +2,8 @@
 // modules (reached from the entries through imports, re-exports, side-effect and dynamic imports
 // and @import chains; known orphans warn, stale ones too; import-like text in strings and comments
 // is no import; a missing target is reported, not followed), stylesheets without a rule, the
-// "Owns:" line in the leading comment (migrations and type declarations exempt), and the layer,
-// size, wf-cli and shared-globals rules it already had. On the real package: ENTRIES exist and
+// "Owns:" line in the leading comment (migrations and type declarations exempt), bridges two releases past the one
+// they ship in, and the layer, size, wf-cli and shared-globals rules it already had. On the real package: ENTRIES exist and
 // cover every bundle entry of scripts/build.mjs and every src module a script imports.
 // Owns: these assertions only. Never: writes files or runs the script as a process.
 
@@ -13,7 +13,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  checkTree, emptyStylesheets, ENTRIES, importSpecs, KNOWN_ORPHANS, layerProblems, leadingComment, missingOwnsHeaders,
+  bridgeWarnings, checkTree, emptyStylesheets, ENTRIES, importSpecs, KNOWN_ORPHANS, layerProblems, leadingComment, missingOwnsHeaders,
   orphanModules, readTree, resolveSpec, unresolvedImports,
 } from '../../../scripts/check-boundaries.mjs';
 
@@ -131,6 +131,24 @@ test('Owns headers: the leading comment must name what the file owns', () => {
   assert.equal(leadingComment('/* one line */ \nx'), '/* one line */ ');
 });
 
+test('bridges: one two releases past the one it ships in is named, one naming no release too', () => {
+  const bridge = (release: string) => `// Bridge ${release} (a round): one-time conversions.\n// Owns: them. Never: more.\n`;
+  const files = tree({
+    'src/runtime/bridge/a-1111.ts': bridge('0.3.14'),
+    'src/runtime/bridge/b-1311.ts': bridge('0.3.15'),
+    'src/runtime/bridge/c-1511.ts': bridge('0.3.16'),
+    'src/runtime/bridge/d-1611.ts': bridge('of the 16.11. round'),
+    'src/runtime/tasks/not-a-bridge.ts': bridge('0.1.0'),
+  });
+  assert.deepEqual(bridgeWarnings(files, '0.2.0'), [ // the tree's package.json: the newest bridge counts
+    'src/runtime/bridge/a-1111.ts: bridge 0.3.14 – two releases past it (0.3.16), delete it with its calls',
+    'src/runtime/bridge/d-1611.ts: names no release (write "bridge <version>" in its leading comment)',
+  ]);
+  assert.deepEqual(bridgeWarnings(files, '0.4.0').length, 4, 'a newer minor: every bridge with a release is due');
+  assert.deepEqual(bridgeWarnings(tree({ 'src/runtime/bridge/c-1511.ts': bridge('0.3.16') }), '0.3.17'), [], 'one release later: not yet');
+  assert.ok(checkTree(files, { entries: [], knownOrphans: {}, version: '0.2.0' }).warnings.some((line) => line.includes('a-1111.ts: bridge 0.3.14')));
+});
+
 test('layer, size, wf-cli and shared-global rules still hold', () => {
   const lines = (n: number) => `${HEADER}${'\n'.repeat(n - 3)}`;
   const { problems, warnings } = layerProblems(tree({
@@ -140,6 +158,7 @@ test('layer, size, wf-cli and shared-global rules still hold', () => {
     'src/shared/s.ts': `${HEADER}// setTimeout( in a comment is fine\nconst t = 'process.env';\nsetTimeout(() => {}, 1);\n`,
     'src/main/big.ts': lines(451),
     'src/main/mid.ts': lines(301),
+    'src/runtime/rpc/docs.generated.ts': lines(900),
     'src/main/ok.ts': `${HEADER}import { s } from '../shared/s.ts';\nimport { app } from 'electron';\n`,
   }));
   assert.deepEqual(problems, [

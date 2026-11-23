@@ -1,11 +1,11 @@
 // Pointer motion paths (B-055): how an agent's mouse pointer travels to a target. One pure model is
 // shared by the PC helper (runtime/computer), the browsers (CDP mouseMoved steps), the named cursors
 // drawn over browsers and the feedback tour's big cursor, so every visible cursor moves the same way.
-//   instant – jumps (fastest; when a caller passes it: computer use, an agent's own browser, decision-model runs –
-//             the person's side browser glides instead, B-081).
-//   glide   – a short eased glide (Fitts' law, ≤ 300 ms, almost straight): the default, visible, quick and cheap.
+//   instant – jumps (fastest; when a caller passes it).
+//   glide   – a short eased glide (Fitts' law, ≤ 300 ms, almost straight): visible, quick and cheap; when a caller passes it.
 //   human   – how a hand moves a mouse: bell-shaped speed that peaks early, a slight arc, an overshoot
-//             or undershoot with one corrective sub-movement on long moves, a little tremor (recordings).
+//             or undershoot with one corrective sub-movement on long moves, a little tremor: the default
+//             (owner 21.11.2026: an agent that names no motion moves like a hand; it can pass glide or instant).
 // Owns: the styles, the duration rule, the path shape and its seeded noise. Never: timers, input, DOM
 // or I/O (callers replay the steps), and nothing tuned to pass bot checks (B-055 Q12: those go to a person).
 // Robust inputs (track D, 29.10.): a non-finite size, pace or sample interval falls back to its default,
@@ -14,7 +14,7 @@
 export type MotionStyle = 'instant' | 'glide' | 'human';
 export const MOTION_STYLES: readonly MotionStyle[] = ['instant', 'glide', 'human'];
 /** The style used when a call names none. */
-export const DEFAULT_MOTION: MotionStyle = 'glide';
+export const DEFAULT_MOTION: MotionStyle = 'human';
 
 export interface Point { x: number; y: number }
 /** One step of a path: where the pointer is `t` ms after the move started. */

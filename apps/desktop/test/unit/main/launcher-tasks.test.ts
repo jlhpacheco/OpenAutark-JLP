@@ -2,7 +2,7 @@
 // runner: Windows – ONE per-user Task Scheduler task (UTF-16 XML through schtasks /Create /XML) whose action
 // is the app with --background --launcher (IgnoreNew), triggered at sign-in, 30 s after a crash or hang
 // event naming the executable's full path, and – written only by a deliberate quit, only when it changed –
-// at the next due work (next-due.json); the sign-in item of earlier versions removed; not created again
+// at the next due work (next-due.json); its sign-in trigger is the login item (none of its own); not created again
 // while unchanged, again when the installation moved; removed when turned off (only when this installation
 // registered it); on Windows also Task Scheduler's own validate-only check of both XML variants (nothing is
 // registered). macOS – the LaunchAgent (KeepAlive on a failed exit, no periodic start); Linux – the
@@ -107,10 +107,10 @@ test('Task Scheduler accepts both variants (validate only – nothing is registe
   assert.deepEqual(out.trim().split(/\r?\n/), ['valid', 'valid']);
 });
 
-test('Windows: one task, created once, again when the installation moved, the old sign-in item removed, removed when turned off', async () => {
+test('Windows: one task, created once, again when the installation moved, no login item of its own, removed when turned off', async () => {
   const h = harness('win32', 'win');
   await applyLauncher(true, h.deps);
-  assert.deepEqual(h.set, [{ openAtLogin: false, args: ['--background'] }], 'the task signs in now');
+  assert.deepEqual(h.set, [], 'the task signs in');
   assert.deepEqual(h.calls.map((call) => call.slice(0, 4)), [['schtasks', '/Create', '/TN', TASK]]);
   assert.deepEqual(h.calls[0].slice(4), ['/XML', path.join(h.deps.dataDir, 'tmp', 'launcher-task.xml'), '/F']);
   assert.match(h.xmls[0], /^\uFEFF<\?xml/, 'UTF-16 with BOM');
@@ -119,7 +119,6 @@ test('Windows: one task, created once, again when the installation moved, the ol
   assert.deepEqual([h.marker().task, h.marker().due], [TASK, null]);
   await applyLauncher(true, h.deps);
   assert.deepEqual(h.calls.slice(1), [['schtasks', '/Query', '/TN', TASK]], 'unchanged and present: only a query');
-  assert.equal(h.set.length, 1);
   await applyLauncher(true, { ...h.deps, executable: 'D:\\Other\\Workforce.exe' });
   assert.equal(h.calls.filter((call) => call[1] === '/Create').length, 2, 'a moved installation registers again');
   assert.match(h.xmls[1], /<Command>D:\\Other\\Workforce\.exe<\/Command>/);
@@ -235,7 +234,6 @@ test('B-072: another company keeps its own task, LaunchAgent, units and entry, s
   const win = harness('win32', 'win-company');
   const deps = { ...win.deps, name: 'Autark company-2', company: 'company-2' };
   await applyLauncher(true, deps);
-  assert.deepEqual(win.set, [], 'the old sign-in item is the first company\'s');
   assert.deepEqual(win.calls[0].slice(0, 4), ['schtasks', '/Create', '/TN', 'Autark company-2 Launcher (Ann)']);
   assert.match(win.xmls[0], /--company=company-2/);
   await applyLauncher(false, deps);

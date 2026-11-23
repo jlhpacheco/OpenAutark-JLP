@@ -17,7 +17,7 @@ import { BrowserService } from '../../src/runtime/browser/service.ts';
 import { BrowserView } from '../../src/runtime/browser/view.ts';
 import type { RuntimeServices } from '../../src/runtime/contracts.ts';
 import type { BrowserFrame, BrowserViewState } from '../../src/shared/model/browser.ts';
-import { MemoryLogger } from '../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../unit/fakes.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = path.join(here, 'fixtures', 'browser-check.html');

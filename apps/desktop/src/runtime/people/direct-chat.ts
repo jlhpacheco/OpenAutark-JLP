@@ -1,5 +1,5 @@
-// The 1:1 chat between two humans of the organisation (F-52, people.directChat): the owner and a
-// person, or two people. Also the 1:1 chat of an agent and a person (agentDirectChat), made by the system
+// The 1:1 chat between two humans of the organisation (F-52; tasks/quick.ts hands a person's to-do over in it): the
+// owner and a person, or two people. Also the 1:1 chat of an agent and a person (agentDirectChat), made by the system
 // when none exists.
 // B-050 K1: both are the pair's default 1:1 (chat/direct.ts findOrCreateDirect – found, archived too, adopted
 // from an older chat of exactly the two that names no topic, else created untitled); these stay as thin wrappers.

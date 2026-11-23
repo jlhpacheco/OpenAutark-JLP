@@ -4,8 +4,11 @@
 // QUIET_WINDOW_MS of the last SEARCH_MS. Inside a piece every pause longer than LONG_PAUSE_MS is shortened to
 // KEEP_PAUSE_MS (half kept at each edge, so a word's start or end is never cut): the hearing session counts silence.
 // A pause is a run of blocks under an adaptive quiet level: three times the room's floor (falls at once, rises over
-// FLOOR_RISE_MS), never above QUIET_MAX, so speech is never taken for a pause. joinPieces joins the pieces' texts
-// with one space and moves their marks along.
+// FLOOR_RISE_MS), never above QUIET_MAX, and – once the take's voice is heard (VOICE_MIN) – never above half of its
+// loudest recent block (falls over VOICE_FALL_MS) unless that is below 1.5 × the floor (steady noise alone stays a pause). STIMME 21.11.2026 ("another person's recording does not record
+// properly"): without that ceiling quiet speech in a noisy room (speech RMS 0.008 over noise 0.004, measured: 60 s of
+// dictation kept as 1 s) was all taken for one long pause and cut away. joinPieces joins the pieces' texts with one
+// space and moves their marks along.
 // Owns: these pure rules (16 kHz PCM16 mono bytes in, pieces out). Never: the microphone, uploads or text hearing.
 
 import type { MarkedText, SpanMark, TextMarks } from '../../shared/voice/marks.ts';
@@ -21,6 +24,9 @@ const BYTES_PER_MS = 32; // 16 kHz × 2 bytes
 const FLOOR_RISE_MS = 10_000;
 const QUIET_MIN = 0.003;
 const QUIET_MAX = 0.012;
+/** A take whose loudest recent block reaches this is heard speaking: its pauses lie below half of that. */
+const VOICE_MIN = 0.006;
+const VOICE_FALL_MS = 20_000;
 
 /** A finished piece: its PCM16 chunks (long pauses shortened) and their length. */
 export interface Piece { pcm: Uint8Array[]; ms: number }
@@ -44,6 +50,8 @@ export class PieceCutter {
   /** Quiet ms at the end of the current piece. */
   private run = 0;
   private floor = Infinity;
+  /** The loudest recent block (falls over VOICE_FALL_MS). */
+  private voice = 0;
 
   /** One block of 16 kHz PCM16; a finished piece when this block completed one. */
   push(pcm: Uint8Array): Piece | null {
@@ -82,7 +90,10 @@ export class PieceCutter {
   private isQuiet(level: number, ms: number): boolean {
     if (level < this.floor) this.floor = level;
     else this.floor += (level - this.floor) * Math.min(1, ms / FLOOR_RISE_MS);
-    return level <= Math.min(QUIET_MAX, Math.max(QUIET_MIN, this.floor * 3));
+    this.voice = Math.max(level, this.voice * (1 - Math.min(1, ms / VOICE_FALL_MS)));
+    // never below 1.5 × the floor: steady noise alone (its own "voice") still counts as pause and is trimmed
+    const ceiling = this.voice >= VOICE_MIN ? Math.min(QUIET_MAX, Math.max(this.voice / 2, this.floor * 1.5)) : QUIET_MAX;
+    return level <= Math.min(ceiling, Math.max(QUIET_MIN, this.floor * 3));
   }
 
   /** The index after CUT_PAUSE_MS / 2 of the pause the piece ends with. */

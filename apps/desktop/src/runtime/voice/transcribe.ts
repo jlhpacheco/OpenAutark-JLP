@@ -21,6 +21,8 @@
 // limit, the network) the usual order follows: this PC's model (its weakest words marked), then the service, then a
 // listener, which hears a dictation with the chat's last agent message and the learned words as context, its unsure
 // places marked. The earlier real-time WebRTC hearing with the comparison (B-080/B-082) is no longer on this path.
+// 21.11.2026 (owner: an employee's PC showed no Codex choice): the plan goes first only while routing.stt is "auto" or
+// "codex"; a person who picks this PC's model ("local") or a service gets that one first.
 // Once the plan heard a page's dictation, the page sends its next pieces as Ogg Opus (ui/lib/ogg-opus.ts, a tenth of
 // the WAV): the plan takes it as it is, and after a plan failure this PC's model reads it through the app's decoder.
 // B-082: voice.transcribe converts inline marks once (marks.ts spansFromInline) and answers plain text with the unsure
@@ -50,6 +52,7 @@ import { canListen, listenerReady, listenTranscript } from './listen-transcribe.
 import { audioExtension, endpointHeard, partialNote, uploadOf, uploadWay, type FetchFn, type Heard } from './transcribe-endpoint.ts';
 import type { Listener } from '../decision/listener.ts';
 import { planMissing, planReady, planTranscribe, type PlanTranscription } from './plan-transcribe.ts';
+import { planHears } from '../../shared/model/models-uses.ts';
 import { correctDictation } from './correct-dictation.ts';
 import { helperOf } from '../day/helper.ts';
 import type { StructuredRunner } from '../decision/types.ts';
@@ -173,9 +176,11 @@ export class Transcriber implements VoiceApi, SpeechToText {
     const model = local?.sttModel();
     const decodes = local?.hostDecodes() ?? false;
     const hearLocal = () => local!.hear({ fileId: input.fileId, mime: ref.mime, name: ref.name, language: input.language, dictation });
-    const plan = dictation ? this.deps.plan ?? (planReady(s) ? planTranscribe : undefined) : undefined;
+    // 21.11.2026: the plan first while nothing is picked or the plan is (routing.stt "auto" / "codex"); "local" or a model: that one
+    const picked = !planHears((() => { try { return s.settings.get().routing; } catch { return undefined; } })()); // a stub without settings: nothing picked
+    const plan = dictation && !picked ? this.deps.plan ?? (planReady(s) ? planTranscribe : undefined) : undefined;
     // A dictation without the plan says why: a weak transcript is otherwise unexplained (16.11.2026).
-    if (dictation && !plan) s.log?.info('plan transcription skipped', { reason: planMissing(s) }); // ?.: service stubs without a log
+    if (dictation && !plan) s.log?.info('plan transcription skipped', { reason: picked ? 'other_choice' : planMissing(s) }); // ?.: service stubs without a log
     let planMissed = false;
     if (plan) { // B-088: whenever the plan's login is here, one request; its text is the text
       const asked = Date.now();

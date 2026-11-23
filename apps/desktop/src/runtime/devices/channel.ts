@@ -1,5 +1,5 @@
 // Encrypted, authenticated message channel between two runtimes over a WebSocket-like socket.
-// Owns: the SocketLike abstraction (ws adapter + test pairs), running the handshake on either
+// Owns: the SocketLike abstraction (the ws adapter; a test pair: test/unit/devices/socket-pair.ts), running the handshake on either
 // side, and AES-256-GCM framing with strictly increasing counters (replay/reorder rejected).
 // Messages that arrive before anyone listens (frames right behind the client's auth, delivered
 // in the same tick – common through a relay) wait for the first listener instead of being lost.
@@ -7,9 +7,13 @@
 // minute without any frame (markSilent) reports SILENT_CLOSE instead of the plain 1006 of a network error.
 // B-087: a message whose frame would pass MAX_FRAME is refused in send() before its counter is used (the other PC would
 // drop the whole link for it); a hello with this PC's own key – its own dial come back – closes with 4000, never as a refusal.
+// Fest 22.11.2026 (two PCs' links died ~19 s after a send, 1006 on both sides): a socket error hands its cause along with
+// the 1006 (`CloseWhy`: the error's code and syscall, whether this side's address is still on this PC – never the address –, the
+// socket's age, bytes waiting to go), so the mesh's close line tells a vanished address from a peer that stopped answering.
 // Never: decides which devices are trusted (callers pass `trust`) or interprets payloads.
 
 import { createCipheriv, createDecipheriv } from 'node:crypto';
+import { networkInterfaces } from 'node:os';
 import type { WebSocket } from 'ws';
 import { WorkforceError } from '../../shared/errors.ts';
 import { clientFinish, clientHello, serverWelcome, type AuthMessage, type HelloMessage, type SessionKeys, type Signer, type WelcomeMessage } from './handshake.ts';
@@ -20,8 +24,11 @@ export interface SocketLike {
   close(code?: number, reason?: string): void;
   onMessage(listener: (data: Buffer, isText: boolean) => void): void;
   /** `code`: the close code when the socket knows one (B-077: 4003 = the other PC refused this one; a network error is 1006). */
-  onClose(listener: (code?: number) => void): void;
+  onClose(listener: (code?: number, why?: CloseWhy) => void): void;
 }
+
+/** Why a socket error ended a link (logged with the close; no content, no peer address). */
+export interface CloseWhy { error?: string; syscall?: string; localGone?: boolean; ageMs?: number; buffered?: number }
 
 /** The close code a PC sends when it does not accept the other (unknown device, bad key or signature). */
 export const REFUSED_CLOSE = 4003;
@@ -35,36 +42,13 @@ export function markSilent(ws: object): void { silenced.add(ws); }
 
 /** Adapts a `ws` WebSocket to SocketLike. */
 export function wrapWs(ws: WebSocket): SocketLike {
+  const opened = Date.now();
   return {
     send: (data) => ws.send(data),
     close: (code, reason) => ws.close(code, reason),
     onMessage: (listener) => ws.on('message', (data, isBinary) => listener(Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer), !isBinary)),
-    onClose: (listener) => { ws.on('close', (code: number) => listener(silenced.has(ws) ? SILENT_CLOSE : code)); ws.on('error', () => listener(1006)); },
+    onClose: (listener) => { ws.on('close', (code: number) => listener(silenced.has(ws) ? SILENT_CLOSE : code)); ws.on('error', (error) => listener(1006, closeWhy(ws, error, opened))); },
   };
-}
-
-/** In-memory connected socket pair (tests, same-process loopback). */
-export function socketPair(): [SocketLike, SocketLike] {
-  type Side = { message: Array<(d: Buffer, t: boolean) => void>; close: Array<(code?: number) => void>; closed: boolean };
-  const a: Side = { message: [], close: [], closed: false };
-  const b: Side = { message: [], close: [], closed: false };
-  const make = (self: Side, other: Side): SocketLike => ({
-    send(data) {
-      if (self.closed) return;
-      const isText = typeof data === 'string';
-      const copy = Buffer.from(data);
-      queueMicrotask(() => { if (!other.closed) other.message.forEach((l) => l(copy, isText)); });
-    },
-    close(code) {
-      if (self.closed) return;
-      self.closed = true;
-      other.closed = true;
-      queueMicrotask(() => { self.close.forEach((l) => l(code)); other.close.forEach((l) => l(code)); });
-    },
-    onMessage: (l) => { self.message.push(l); },
-    onClose: (l) => { self.close.push(l); },
-  });
-  return [make(a, b), make(b, a)];
 }
 
 /** The largest encrypted frame a PC takes (a dialed socket's maxPayload, compose/peer-dial.ts); a larger one ends the link. */
@@ -85,7 +69,7 @@ export class SecureChannel {
   /** 18.11.2026: the backlog goes out in a microtask, to every listener registered by then (phone.ts registers the
    * streams and then the WebRTC signalling – a phone's early rtc hello must reach the second one too). */
   private flushing = false;
-  private closeListeners: Array<(code?: number) => void> = [];
+  private closeListeners: Array<(code?: number, why?: CloseWhy) => void> = [];
   closed = false;
 
   constructor(socket: SocketLike, keys: SessionKeys, peerId: string, peerPub: Buffer) {
@@ -97,7 +81,7 @@ export class SecureChannel {
       if (isText) return this.close(); // after the handshake only encrypted binary frames are valid
       this.receive(data);
     });
-    socket.onClose((code) => this.markClosed(code));
+    socket.onClose((code, why) => this.markClosed(code, why));
   }
 
   /** Throws 'bad_request' (details.reachable false: nothing left this PC) for a message too large for one frame. */
@@ -146,17 +130,17 @@ export class SecureChannel {
     });
   }
   /** `code`: the socket's close code (1000 when this side closed it). */
-  onClose(listener: (code?: number) => void): void { this.closeListeners.push(listener); }
+  onClose(listener: (code?: number, why?: CloseWhy) => void): void { this.closeListeners.push(listener); }
 
   close(): void {
     this.socket.close(1000, 'bye');
     this.markClosed(1000);
   }
 
-  private markClosed(code?: number): void {
+  private markClosed(code?: number, why?: CloseWhy): void {
     if (this.closed) return;
     this.closed = true;
-    for (const listener of this.closeListeners) listener(code);
+    for (const listener of this.closeListeners) listener(code, why);
   }
 
   private open(frame: Buffer): unknown {
@@ -243,4 +227,22 @@ export async function acceptSecure(socket: SocketLike, self: Signer, trust: (pee
   ready = true;
   channel.feed(early);
   return channel;
+}
+
+/** A socket error's cause: its code and syscall, whether this PC still has the address the socket ran on, age, bytes waiting (no address is logged). */
+export function closeWhy(ws: WebSocket, error: unknown, opened: number): CloseWhy {
+  const err = error as { code?: unknown; syscall?: unknown; message?: unknown } | undefined;
+  const raw = (ws as unknown as { _socket?: { localAddress?: string; localPort?: number } })._socket;
+  const address = raw?.localAddress;
+  let localGone: boolean | undefined;
+  if (address) {
+    try { localGone = !Object.values(networkInterfaces()).flat().some((entry) => entry?.address === address.replace(/^::ffff:/, '')); } catch { localGone = undefined; }
+  }
+  return {
+    error: typeof err?.code === 'string' ? err.code : String(err?.message ?? err).slice(0, 80),
+    ...(typeof err?.syscall === 'string' ? { syscall: err.syscall } : {}),
+    ...(localGone !== undefined ? { localGone } : {}),
+    ageMs: Date.now() - opened,
+    buffered: ws.bufferedAmount,
+  };
 }

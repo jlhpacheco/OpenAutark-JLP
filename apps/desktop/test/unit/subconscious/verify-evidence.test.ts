@@ -44,7 +44,7 @@ function scriptedFetch() {
 }
 
 function doneTask(extra: Partial<Task> = {}): Task {
-  return { id: 'task_1', conversationId: 'ch_1', title: 'Render the intro', notes: '', status: 'done', assigneeKind: 'agent', createdBy: 'human', priority: 0, ledger: {}, sort: 0, rev: 1, createdAt: 0, updatedAt: 0, ...extra };
+  return { id: 'task_1', kind: 'todo', conversationId: 'ch_1', title: 'Render the intro', notes: '', status: 'done', assigneeKind: 'agent', createdBy: 'human', priority: 0, ledger: {}, sort: 0, rev: 1, createdAt: 0, updatedAt: 0, ...extra };
 }
 
 const result = (evidence: Evidence[]): TaskResult => ({ summary: 'Rendered and uploaded', evidence, verification: 'claimed_by_agent' });

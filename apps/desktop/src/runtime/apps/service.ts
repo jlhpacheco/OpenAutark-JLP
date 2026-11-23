@@ -1,5 +1,5 @@
 // Connectors: the service that turns the files in <data>/connectors (connectors.ts) into live connections and agent
-// tools. start() moves the old Settings › Apps records into the files once, applies the files and watches the folder
+// tools. start() applies the files and watches the folder
 // (the data folder watcher, owner of the entry 'connectors'). Applying: a new or changed entry connects and lists its
 // tools ('connecting' → 'ok', tools registered as `app.<id>.<tool>` for every agent); an entry that is gone loses its
 // tools, connection and sign-in; "disabled": true unregisters its tools ('off'). At start an entry whose tool list is
@@ -17,7 +17,7 @@ import { WorkforceError } from '../../shared/errors.ts';
 import type { AppStatus, ConnectedApp } from '../../shared/model/apps.ts';
 import type { Timers } from '../schedules/scheduler.ts';
 import type { ToolDef } from '../tools/types.ts';
-import { CONNECTORS_DIR, ensureFiles, migrateRecords, mutateConnectors, readConnectors, STATUS_FILE, writeStatus, type ConnectorMutation } from './connectors.ts';
+import { CONNECTORS_DIR, ensureFiles, mutateConnectors, readConnectors, STATUS_FILE, writeStatus, type ConnectorMutation } from './connectors.ts';
 import { AppConnections } from './connections.ts';
 import type { AppsDeps } from './deps.ts';
 import { MailUpkeep } from './mail-upkeep.ts';
@@ -77,8 +77,6 @@ export class Apps implements AppsService {
     this.stopped = false;
     this.connections.reopen();
     try {
-      const moved = migrateRecords(this.d.dataDir, this.d.kv);
-      if (moved) this.d.services.log?.info('connected apps moved into the connector files', { moved });
       ensureFiles(this.d.dataDir);
     } catch (error) {
       this.d.services.log?.warn('connector files could not be prepared', { error: error instanceof Error ? error.message : 'error' });

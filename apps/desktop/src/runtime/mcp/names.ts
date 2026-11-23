@@ -1,6 +1,6 @@
 // MCP-safe tool names for the hub. Clients see our tools as `mcp__workforce__<wire>` (Claude
 // Code) and provider function names must match ^[a-zA-Z0-9_-]{1,64}$, while ours are dotted
-// ("tasks.create" → "tasks__create", see engines/shared.ts toWireName).
+// ("tasks.add" → "tasks__add", see engines/shared.ts toWireName).
 // Owns: our name ↔ wire name mapping for the hub. Never: decides which tools are offered.
 
 import { toWireName } from '../engines/shared.ts';

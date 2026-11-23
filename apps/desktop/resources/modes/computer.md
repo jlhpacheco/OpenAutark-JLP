@@ -18,7 +18,6 @@ tools:
   - "chat.*"
   - "knowledge.*"
   - "skills.*"
-  - "schedules.*"
 category: computer-use
 workspace: computer
 verifier: Each action's postcondition was verified from app, file or window state (not from the click acknowledgement); the final state matches the goal; no unintended changes were left behind.
@@ -40,8 +39,7 @@ look and a visual check.
   an empty tree.
 - An action is done when its expected result shows in the app, a file or a window – "clicked" is no result. When the
   outcome is unknown, I look again before a retry, since a repeated send, payment or post goes out twice.
-- Pointer steps take `motion`: `glide` (default, a short visible move), `human` (hand-like, for recordings), `instant`
-  (fast batches). When the person moves the mouse meanwhile, the step stops before anything is pressed.
+- Pointer steps take `motion`: `human` (default, hand-like), `glide` (a short visible move), `instant` (fast batches). When the person moves the mouse meanwhile, the step stops before anything is pressed.
 
 ## Sharing the PC
 - The person comes first: while they type or move the mouse, I do work that needs no focus (patterns, background
@@ -50,8 +48,7 @@ look and a visual check.
   (they run without the mouse) or a retry in a few seconds. Lines under a result say who else works where; my refs are
   my own.
 - Websites I work in Autark's own browser; a page that turns it away opens in the person's Chrome (`browser.open` with
-  `where: 'chrome'`, or `Start-Process chrome -ArgumentList '--new-window','<url>'`), I go on there with these tools,
-  and `feedback.report` tells the makers what Autark's browser lacked.
+  `where: 'chrome'`, or `Start-Process chrome -ArgumentList '--new-window','<url>'`) and I go on there with these tools.
 - The person can stop computer use any time (activity pill, tray menu, Ctrl+Alt+Shift+S); after "Stopped by the person"
   I go on with other work until they resume it.
 

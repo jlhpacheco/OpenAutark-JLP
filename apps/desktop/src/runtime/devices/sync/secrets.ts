@@ -16,7 +16,7 @@ import { fieldRows, groupRow } from '../../secrets/groups.ts';
 import { newEntryId } from '../../secrets/entry-id.ts';
 import { readUnit, type SecretUnit } from '../../secrets/units.ts';
 import { DevicesRepo } from '../repo.ts';
-import { linkOf, links } from './home.ts';
+import { isCeoPc, linkOf, links } from './home.ts';
 import { hashOf, wins, type Stamp, type Stamps } from './stamps.ts';
 
 type Unit = SecretUnit;
@@ -109,7 +109,7 @@ export class SecretSync {
 
   /** What the link-up owes a CEO PC: every unit the first time, else those stamped after `since`. */
   async catchUp(peer: string, since: number | undefined): Promise<boolean> {
-    if (linkOf(new DevicesRepo(this.s.db).get(peer))?.kind !== 'ceo') return true;
+    if (!isCeoPc(this.s.db, peer)) return true;
     const db = this.s.db;
     const ids = since === undefined
       ? [...db.all<{ id: string }>('SELECT id FROM secret_groups ORDER BY rowid'), ...db.all<{ id: string }>('SELECT id FROM secrets WHERE group_id IS NULL ORDER BY rowid')].map((row) => row.id)

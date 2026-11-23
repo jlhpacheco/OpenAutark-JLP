@@ -9,7 +9,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CAST_FRAME_GAP_MS, CAST_IDLE_MS, CAST_INPUT_METHODS, SideCaster, castCommands, castNav } from '../../../src/main/side-driver/caster.ts';
+import { CAST_FRAME_GAP_MS, CAST_IDLE_MS, SideCaster } from '../../../src/main/side-driver/caster.ts';
+import { CAST_INPUT_METHODS, castCommands, castNav } from '../../../src/main/side-driver/cast-params.ts';
 import { DEVTOOLS_BUSY } from '../../../src/main/side-driver/cdp.ts';
 import { SideDriver } from '../../../src/main/side-driver/driver.ts';
 import { SideTab } from '../../../src/main/side-driver/tab.ts';

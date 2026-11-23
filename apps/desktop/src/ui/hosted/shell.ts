@@ -6,11 +6,12 @@
 // server (connection.ts), and then shows the PC's own UI – "the screens come from your PC": it fetches the PC's '/' over
 // the tunnel, checks the `autark-hosted` marker (else "Update Autark on your PC"), and injects the PC's main.css and
 // main.js into this document; their relative paths go through the service worker (sw.ts) and bridge.ts. The UI reaches
-// back through window.autarkHosted v1 (ui/pwa/hosted.ts): its /ws socket (ws.ts), the base path, frame URLs, Forget.
+// back through window.autarkHosted v1 (ui/pwa/hosted.ts): its /ws socket (ws.ts), the base path, frame URLs, Forget, Wake.
 // Without a tunnel within 4 s it boots from the worker's copy and shows its own "connecting" state. Every start step
 // that fails says so on screen (no endless spinner, one reload at most for the worker); the code screen keeps the
 // screen awake and the wait survives a lock; Forget removes this phone on the PC first (phone.forget, ≤ 3 s); a PC that
-// refuses the token shows "This phone was removed", PCs that stop answering add Forget to the waiting screen.
+// refuses the token shows "This phone was removed"; PCs that stop answering are said in the waiting screen's line
+// (19.11.2026, D4: no Forget on that path – it stays in Settings › Devices).
 // B-087: a new channel tells the PC UI at once (window.autarkResume → lib/rpc.ts checkAlive), as the Android app's
 // 'resume' does, so its socket does not wait out rpc's backoff after the PC came back.
 // F29: with '/' comes the PC's list of its UI files' SHA-256 (UI_HASHES_PATH), over the same channel; it is kept for the
@@ -190,7 +191,7 @@ async function run(screens: Screens, store: HostedStore, saved: Saved): Promise<
     status: (text, connected) => { screens.status(text); if (connected) (window as { autarkResume?: () => void }).autarkResume?.(); },
     pcsChanged: (pcs) => void store.savePcs(pcs),
     refused: () => { gone = true; connection.stop(); screens.removed(() => void clearHere()); },
-    unanswered: (on) => screens.offerForget(on),
+    // 19.11.2026 (D4): PCs that stop answering are said in the waiting line (connection.ts); Forget is not offered here.
   });
   const hosted: AutarkHosted = {
     v: 1,
@@ -198,6 +199,7 @@ async function run(screens: Screens, store: HostedStore, saved: Saved): Promise<
     socket: (path) => new StreamSocket((ms) => connection.awaitMux(ms), path),
     frameUrl: (path) => `${BASE}${path.replace(/^\//, '')}`,
     forget,
+    wake: (key, name) => connection.wake(key, name), // W 19.11.2026: this phone's own wake, also with no PC online
   };
   window.autarkHosted = hosted;
   startBridge(navigator.serviceWorker, (ms) => connection.awaitMux(ms));
@@ -214,7 +216,7 @@ async function run(screens: Screens, store: HostedStore, saved: Saved): Promise<
   });
   window.addEventListener('pageshow', () => connection.nudge());
   window.addEventListener('online', () => connection.nudge(Number.MAX_SAFE_INTEGER));
-  screens.waiting(undefined, () => void forget());
+  screens.waiting();
   connection.start();
   try { if (localStorage.getItem(TOKEN_KEY) !== saved.token) localStorage.setItem(TOKEN_KEY, saved.token); } catch { /* blocked */ }
   const mux = await connection.awaitMux(QUICK_MS);

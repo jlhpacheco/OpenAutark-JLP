@@ -1,5 +1,5 @@
 // Native rebuild of an agent's session from the context ledger (B-048 E2) – the executor's side, called by turn-prepare.ts
-// chooseSession. A session starts anew in five cases (KI-Runde 17.11.2026), and in no other:
+// chooseSession. A session starts anew in six cases (KI-Runde 17.11.2026, 'trim' 21.11.2026), and in no other:
 //   'switch'     the turn runs on another engine than the agent's last turn;
 //   'no_session' the engine has no usable session while the ledger has items (after a renewal, on another account, in the
 //                retry after an ended session – owner 13.11.2026: "der Kontext geht nie verloren");
@@ -9,10 +9,13 @@
 //                replay) the mark goes with it (SessionStore.unfolded) and the hides ride on the next rebuild that runs;
 //   'fit'        the session no longer fits the model's window (compaction-policy.ts pastFit);
 //   'cold'       the session rested past CACHE_COLD_MS: its cache is gone, the next call reads everything uncached either
-//                way, so the lean record costs nothing extra – unless the session already holds the record as it stands.
-// A warm session is never rebuilt for a saving (measured 15.–17.11.2026: 110 such rebuilds took 11 % off and each paid a full
-// cache write, a written token costing 40 read ones): the subconscious's marks and the lean history ride on the next rebuild
-// that happens anyway. The engine (caps.rebuild) starts a new native session holding the ledger view; the turn binds it and
+//                way, so the lean record costs nothing extra – unless the session already holds the record as it stands;
+//   'trim'       (Runde "Halb" 21.11.2026) a warm session at TRIM_AT or more whose lean view (the lean history plus the marks
+//                waiting) frees enough to pay back its own cache write within TRIM_PAYBACK_CALLS calls at the turn model's
+//                prices (compaction-policy.ts trimPays) – else it goes on as it is and nothing is written.
+// Until 17.11.2026 a warm session was rebuilt for any saving worth nine re-sends over the last run's calls: 110 such rebuilds
+// took 11 % off and each paid a full cache write (40 reads on Claude Code, not 9). The trim weighs the model's real ratio against
+// all it writes again (trimWeight) – an 11 % saving never pays, one that does is most of the session. The engine (caps.rebuild) starts a new native session holding the ledger view; the turn binds it and
 // sends only the new chat lines.
 // Owns: that choice (the view → RebuildItem mapping is rebuild-items.ts), the one call naming every condensed or hidden item
 // when the ledger holds marks (context/ledger/marks.ts; every rebuild is a new session, and a hidden item leaves no other trace;
@@ -24,9 +27,9 @@
 // engine for 6 h (process memory) – the turn renews as today; a rebuild that only timed out does not (a busy app-server; the
 // next turn simply tries again), and a later turn never judges an earlier rebuild after the fact.
 // Every rebuild replays the whole record of the turn's thread (the agent's main thread, which holds every chat it saw; a
-// split's part never rebuilds) and carries the lean history (window.ts leanMarks: the tool work of finished runs keeps its call
-// in place and leaves its output, their reasoning is hidden; kept in full: this run, the newest run here, every run on this
-// turn's open task, pins) and the chat lines' reach (oldChatLines), written only once the rebuild is certain to run (note
+// split's part never rebuilds) and carries the lean history (window.ts leanMarks: tool work keeps its call in place and leaves
+// its output, reasoning is hidden; kept in full: the thread's newest KEEP_STEPS tool steps, the reasoning of this run and the
+// newest run here, pins – open work included, Runde "Halb" 21.11.2026) and the chat lines' reach (oldChatLines), written only once the rebuild is certain to run (note
 // lean: {condensed, hidden, before, after}).
 // The fit (B-080, owner 08.11.2026: no fixed compaction size): a history that does not fit the model's window
 // (compaction-policy.ts fitLimit) gets its oldest tool work hidden (window.ts fitHides; ledger marks by 'window', named in the
@@ -53,8 +56,9 @@ import { marksCall, marksOf } from '../context/ledger/marks.ts';
 import '../contracts/ledger.ts';
 import { KvRepo } from '../store/kv.ts';
 import { SessionStore, type SessionBinding } from './sessions.ts';
-import { CACHE_COLD_MS, UNIT_DRIFT, fitLimit } from './compaction-policy.ts';
-import { FIT_REASON, LEAN_REASON, LEAN_TEXT, fitHides, leanMarks, oldChatLines, tokensOf, type LeanMark } from '../context/ledger/window.ts';
+import { CACHE_COLD_MS, TRIM_AT, UNIT_DRIFT, fitLimit } from './compaction-policy.ts';
+import { FIT_REASON, LEAN_REASON, LEAN_TEXT, fitHides, leanCall, leanMarks, oldChatLines, tokensOf, type LeanMark } from '../context/ledger/window.ts';
+import { leanKeep, trimWeight } from './rebuild-lean.ts';
 import { turnCwd } from '../git/records.ts';
 import type { ToolOffer } from './session-key.ts';
 import type { TurnPlan, TurnRequest } from './turn-types.ts';
@@ -71,7 +75,7 @@ const LAST_RUNS = 50;
 const MEMORY = 500;
 
 /** Why a session starts anew (see the header). */
-export type RebuildWhy = 'switch' | 'no_session' | 'fold' | 'fit' | 'cold';
+export type RebuildWhy = 'switch' | 'no_session' | 'fold' | 'fit' | 'cold' | 'trim';
 
 /** Process memory: the run that last rebuilt each chat and engine (rebuildFellBack), chats whose rebuild failed, running probes. */
 const pending = new Map<string, string>();
@@ -211,7 +215,8 @@ function whyOf(services: RuntimeServices, input: NativeRebuildInput, last: Engin
   if (!session) return 'no_session';
   if (session.foldedAt !== undefined) return 'fold';
   if (input.overLimit) return 'fit';
-  return services.clock.now() - session.updatedAt > CACHE_COLD_MS ? 'cold' : undefined;
+  if (services.clock.now() - session.updatedAt > CACHE_COLD_MS) return 'cold';
+  return (session.contextTokens ?? 0) >= TRIM_AT ? 'trim' : undefined; // weighed once the lean view is known (trimPays)
 }
 
 /** Rebuilds the turn's native session from the ledger when one of the cases holds; undefined: today's path. */
@@ -244,7 +249,7 @@ export async function nativeRebuild(services: RuntimeServices, input: NativeRebu
 
   let split: ReturnType<typeof rebuildItems> = { items: [] };
   let entries: LedgerViewItem[] = [];
-  const read = () => { entries = ledger.view(agentId, conversationId); split = rebuildItems(entries); };
+  const read = () => { entries = ledger.view(agentId, conversationId).map(leanCall); split = rebuildItems(entries); }; // condensed calls with their long arguments cut (window.ts)
   try { read(); } catch (error) { return fallback(`ledger: ${String(error).slice(0, 120)}`); }
   if (!split.items.length) { unfold(); return undefined; } // nothing of the agent's own work to replay: today's path
   let since = need?.since ?? 0;
@@ -254,11 +259,16 @@ export async function nativeRebuild(services: RuntimeServices, input: NativeRebu
   let tokens = historyTokens(items);
   // The lean history – only the tool work of unfinished work stays in full (window.ts leanMarks); sized here, written below
   const fitKeep = keptByFit(ledger, agentId, conversationId, entries, request.runId);
-  const lean: LeanMark[] = [...leanMarks(entries, leanKeep(services, plan, entries, fitKeep, request.runId)), ...chatReach(ledger, agentId, conversationId, entries, fitKeep.pinned)];
+  const lean: LeanMark[] = [...leanMarks(entries, leanKeep(entries, fitKeep, request.runId)), ...chatReach(ledger, agentId, conversationId, entries, fitKeep.pinned)];
   // A cold session that holds the record as the ledger has it, with nothing to set aside: starting it anew would change nothing
   if (why === 'cold' && !need && !lean.length) return undefined;
   const whole = tokens;
   const leaned = Math.max(0, whole - lean.reduce((sum, mark) => sum + mark.saves, 0));
+  // A warm session starts anew only when what it sheds pays for writing it again (the header's 'trim'); else nothing is written
+  const trim = why === 'trim' ? trimWeight(services, {
+    revert: Boolean(engine.caps.revert), modelId: input.route.modelId, volatile: input.prompt.volatile, sessionKey: session?.promptKey, promptKey: input.promptKey, overhead,
+  }, entries, lean, need, leaned) : undefined;
+  if (trim && !trim.pays) return undefined;
   // Sized by the rebuilt history. Past the fit the engine's own count of the session calibrates that size, so the new session
   // really is under the limit: the room shrinks by how far the count lies above the ledger's estimate of what the session
   // holds – at most UNIT_DRIFT, beyond that the difference is not the unit but content a rebuild does not replay.
@@ -308,7 +318,8 @@ export async function nativeRebuild(services: RuntimeServices, input: NativeRebu
   if (!probe.ok) return fallback(`probe ${probe.version}: ${probe.reason ?? 'failed'}`);
 
   // The session starts anew for certain now: it takes the turn's offer and prompt as they stand then (learned tools promoted).
-  const start = input.anew?.() ?? { offer: input.offer, prompt: input.prompt, promptKey: input.promptKey };
+  // A trim on the replaced session's own prompt and tools keeps that start, so their cache is read (rebuild-lean.ts samePrefix).
+  const start = (trim?.samePrefix ? undefined : input.anew?.()) ?? { offer: input.offer, prompt: input.prompt, promptKey: input.promptKey };
   const store = new SessionStore(services.db);
   const previous = session ?? store.get(agentId, conversationId, engine.id);
   let result: Awaited<ReturnType<NonNullable<Engine['rebuild']>>> | undefined;
@@ -319,7 +330,7 @@ export async function nativeRebuild(services: RuntimeServices, input: NativeRebu
   // B-049 F7: on an engine that can revert, a session that only sheds work keeps itself and its prompt cache (rebuild-revert.ts);
   // any refusal starts a new one. Never after a fold: its new session starts with the turn's own prompt and tools.
   const turnKey = { agentId, conversationId, engine: engine.id };
-  const revert = (why === 'fit' || why === 'cold') && session && engine.caps.revert ? revertPlan(services, turnKey, session.ref, since, entries, split.items) : undefined;
+  const revert = (why === 'fit' || why === 'cold' || why === 'trim') && session && engine.caps.revert ? revertPlan(services, turnKey, session.ref, since, entries, split.items) : undefined;
   if (revert && session) {
     try { result = await engine.rebuild({ ...base, items: withMarks(revert.items, marks), revert: { ref: session.ref, beforeTurn: revert.turn } }); } catch (error) {
       note(services, request.runId, { rebuild: 'revert_fallback', reason: error instanceof Error ? error.message.slice(0, 200) : 'failed' });
@@ -351,6 +362,7 @@ export async function nativeRebuild(services: RuntimeServices, input: NativeRebu
     ...(why === 'fit' && session?.contextTokens ? { live: session.contextTokens } : {}),
     ...(last && last !== engine.id ? { from: last } : {}), ...(marks ? { marks: true } : {}), ...(probe.tier ? { tier: probe.tier } : {}),
     ...(reverted && revert ? { revert: true, fromOrder: revert.from } : {}), ...(leanNote ? { lean: leanNote } : {}),
+    ...(trim ? { trim: { freed: trim.freed, rewritten: trim.rewritten, writeInReads: trim.writeInReads, samePrefix: trim.samePrefix } } : {}),
   });
   return { session: binding, sinceSeq: plan.memberCursor };
 }
@@ -361,21 +373,6 @@ function chatReach(ledger: NonNullable<RuntimeServices['ledger']>, agentId: stri
   try { rows = ledger.lines?.(agentId, thread) ?? ledger.items(agentId, thread, { kinds: ['message'] }); } catch { return []; }
   const shown = new Map(entries.map((entry) => [entry.itemId, entry]));
   return oldChatLines(rows, pinned).filter((mark) => shown.has(mark.itemId)).map((mark) => ({ ...mark, saves: tokensOf(shown.get(mark.itemId)!.text.length) }));
-}
-
-/**
- * The runs whose tool work the lean history keeps in full – this run, the newest run here (as the fit finds it) and every
- * run on this turn's task while that task is open; with the fit's pins (the closing words, what the main AI brought back).
- */
-export function leanKeep(services: Pick<RuntimeServices, 'runs'>, plan: Pick<TurnPlan, 'task'>, entries: readonly { runId?: string }[], fit: { newestRun?: string; pinned: Set<string> }, runId: string): { runs: Set<string>; pinned: Set<string> } {
-  const runs = new Set([runId, ...(fit.newestRun ? [fit.newestRun] : [])]);
-  const task = plan.task && plan.task.status !== 'done' && plan.task.status !== 'dropped' ? plan.task.id : undefined;
-  if (task) {
-    for (const id of new Set(entries.map((entry) => entry.runId).filter((id): id is string => Boolean(id) && !runs.has(id!)))) {
-      try { if (services.runs.get(id)?.taskId === task) runs.add(id); } catch { runs.add(id); } // unknown: kept, never set aside by guess
-    }
-  }
-  return { runs, pinned: fit.pinned };
 }
 
 /** The probe of the turn's engine (a throw reads as a failed probe). */

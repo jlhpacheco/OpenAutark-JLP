@@ -6,7 +6,7 @@ import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
 import type { Host } from '../../../src/runtime/host.ts';
 import type { Logger } from '../../../src/runtime/contracts.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 
 export function memoryDb(): Db {
   const db = new Db(':memory:');

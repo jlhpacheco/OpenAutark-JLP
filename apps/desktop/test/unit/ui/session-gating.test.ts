@@ -59,7 +59,7 @@ function runtimeFor(scope: ClientScope): { call: LoadCall; calls: string[]; refu
   return { call, calls, refused };
 }
 
-test('loadSession keeps the answer; before it and after a failure a phone may do nothing', async () => {
+test('loadSession keeps the answer; before it a phone may do nothing; a lost call keeps the last answer (D2), an error answer is the default', async () => {
   assert.equal(platform, 'pwa', 'unit tests run as the browser/phone build');
   session.value = null;
   assert.equal(can('todos.list'), false, 'no session answer yet: a phone shows no gated control');
@@ -68,8 +68,11 @@ test('loadSession keeps the answer; before it and after a failure a phone may do
   const info = await loadSession(async () => infoFor(FULL));
   assert.equal(info?.kind, 'device');
   assert.equal(can('todos.list'), true);
-  await loadSession(async () => { throw new RpcError({ code: 'unavailable', message: 'Connection to the runtime was lost.' }); });
-  assert.equal(session.value, null, 'a failed answer falls back to the conservative default');
+  await assert.rejects(loadSession(async () => { throw new RpcError({ code: 'unavailable', message: 'Connection to the runtime was lost.' }); }), /lost/);
+  assert.equal(session.value, info, '19.11.2026: only an answer replaces the session – the tabs and controls stay');
+  assert.equal(can('todos.list'), true);
+  await loadSession(async () => { throw new RpcError({ code: 'not_found', message: 'Unknown method.' }); });
+  assert.equal(session.value, null, 'an error answer falls back to the conservative default');
   assert.equal(can('todos.list'), false);
 });
 
@@ -131,13 +134,13 @@ test('shell gates: the owner and phones keep New chat (palette, mod+n) and the c
   session.value = null;
   assert.equal(chatRouteAllowed(), true, 'before the session answers, a chat route renders as before');
   as(OWNER);
-  assert.deepEqual([...paletteActions('ch_main')].sort(), ['a:day', 'a:feedback', 'a:new-chat', 'a:new-task', 'a:sidebar', 'a:work-resume', 'a:work-stop']);
+  assert.deepEqual([...paletteActions('ch_main')].sort(), ['a:feedback', 'a:new-chat', 'a:new-task', 'a:sidebar', 'a:tasks', 'a:work-resume', 'a:work-stop']);
   assert.equal(paletteActions().has('a:new-task'), false, 'New task in this chat needs an open chat');
   as(FULL);
   assert.equal(paletteActions('ch_main').has('a:new-chat'), true);
   assert.equal(canStartChat(), true);
   assert.equal(chatRouteAllowed(), true);
-  assert.ok(paletteActions('ch_main').has('a:day'), 'My day (todos.list) is on every paired device');
+  assert.ok(paletteActions('ch_main').has('a:tasks'), 'Tasks (todos.list) is on every paired device');
 });
 
 test('the boot asks only for what the session allows: no refused call for any tier', async () => {

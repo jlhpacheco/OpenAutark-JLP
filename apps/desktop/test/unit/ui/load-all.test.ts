@@ -3,8 +3,9 @@
 // when refused or not asked and never block `loaded` or set loadError – while a failing base
 // snapshot still reports an error.
 // A To-do-only device is refused chats, activity and tasks; it still boots with its For-you list.
-// The PWA's offline For-you snapshot is written only after the first successful load; the
-// in-memory copy the 'Offline' / 'Not paired' view shows follows every change at once.
+// A failed load – session.info too (D2, 19.11.2026) – keeps the session and the data as they were. The model catalog comes
+// with every load where the session allows it (Fest round 22.11.2026). The offline copy of what was loaded:
+// offline-copy.test.ts.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,9 +13,8 @@ import { loadSnapshots, OPEN_STATUSES, SCOPED_SNAPSHOTS } from '../../../src/ui/
 import type { LoadCall, OptionalSnapshot } from '../../../src/ui/lib/load.ts';
 import { rpc, RpcError } from '../../../src/ui/lib/rpc.ts';
 import { platform } from '../../../src/ui/lib/platform.ts';
-import { accounts, activity, conversations, loadAll, loadError, loaded, tasks, todos, usage } from '../../../src/ui/lib/store.ts';
-import { offlineSnapshot, readTodoSnapshot, watchTodoSnapshot } from '../../../src/ui/pwa/install.ts';
-import type { TodoSnapshot } from '../../../src/ui/pwa/install.ts';
+import { accounts, activity, conversations, loadAll, loadError, loaded, models, tasks, todos, usage } from '../../../src/ui/lib/store.ts';
+import { session } from '../../../src/ui/lib/session.ts';
 
 const OPTIONAL = new Set(['accounts.list', 'usage.list']);
 
@@ -167,58 +167,42 @@ test('store.loadAll: a failing snapshot sets loadError and keeps the data and `l
   assert.deepEqual(todos.value, [], 'nothing from the failed load is applied');
 });
 
-test('offline snapshot: written only after the first successful load, then on every change', async () => {
-  loaded.value = false;
-  loadError.value = null;
-  todos.value = [];
-  const written: TodoSnapshot[] = [];
-  const stop = watchTodoSnapshot(async (snapshot) => { written.push(snapshot); }, 0);
-  try {
-    await tick();
-    assert.equal(written.length, 0, 'the empty boot list is never written');
+test('store.loadAll: the model catalog comes with every (re)connect where this connection may read it (Fest round 22.11.2026)', async () => {
+  const chatPhone = { kind: 'device', capabilities: ['todo', 'chat'], secure: true, allowedMethods: ['todos.list', 'chats.list', 'agents.activity', 'models.list'] };
+  models.value = [];
+  stubRpc(deviceAnswers({ 'session.info': () => chatPhone, 'models.list': () => [{ id: 'gpt-x', name: 'GPT X' }] }));
+  await loadAll();
+  await tick();
+  assert.deepEqual(models.value.map((model) => model.id), ['gpt-x'], 'no view has to ask for it first');
 
-    stubRpc(deviceAnswers({ 'todos.list': () => { throw new RpcError({ code: 'unavailable', message: 'Connection to the runtime was lost.' }); } }));
-    await loadAll();
-    await tick();
-    assert.ok(loadError.value);
-    assert.equal(written.length, 0, 'a failed load writes nothing');
+  stubRpc(deviceAnswers({ 'session.info': () => chatPhone, 'models.list': () => [{ id: 'gpt-y', name: 'GPT Y' }] }));
+  await loadAll(); // the connection came back: a model that appeared meanwhile is there
+  await tick();
+  assert.deepEqual(models.value.map((model) => model.id), ['gpt-y']);
 
-    stubRpc(deviceAnswers());
-    await loadAll();
-    await tick();
-    assert.equal(written.length, 1, 'one write for the whole (batched) load');
-    assert.deepEqual(written[0].items.map((task) => task.id), ['ta_todo']);
-
-    todos.value = [];
-    await tick();
-    assert.equal(written.length, 2, 'later changes (an answered item) are written');
-    assert.deepEqual(written[1].items, []);
-  } finally {
-    stop();
-  }
+  const todoPhone = { kind: 'device', capabilities: ['todo'], secure: true, allowedMethods: ['todos.list'] };
+  const calls = stubRpc(deviceAnswers({ 'session.info': () => todoPhone }));
+  await loadAll();
+  await tick();
+  assert.ok(!calls.some((entry) => entry.method === 'models.list'), 'a connection that may not read it is not asked');
+  assert.deepEqual(models.value.map((model) => model.id), ['gpt-y'], 'and keeps what it had');
+  session.value = null;
+  models.value = [];
 });
 
-test('offline snapshot: the read-only view gets the current list at once, not the one read at app start', async () => {
+test('store.loadAll: a failed session.info (the socket died after opening) keeps the session, the data and `loaded` (D2)', async () => {
+  stubRpc(deviceAnswers({ 'session.info': () => ({ kind: 'device', capabilities: ['todo', 'chat', 'tasks'], secure: true, allowedMethods: ['todos.list', 'chats.list', 'tasks.list', 'agents.activity'] }) }));
   loaded.value = false;
   loadError.value = null;
-  todos.value = [];
-  offlineSnapshot.value = { at: 1, items: [] }; // what main.tsx read from IndexedDB at boot
-  const written: TodoSnapshot[] = [];
-  const stop = watchTodoSnapshot(async (snapshot) => { written.push(snapshot); }, 60_000);
-  try {
-    stubRpc(deviceAnswers());
-    await loadAll();
-    assert.deepEqual(offlineSnapshot.value?.items.map((task) => task.id), ['ta_todo'], 'mirrored without waiting for the debounced write');
-    assert.equal(written.length, 0, 'the IndexedDB write is still debounced');
-    const current = offlineSnapshot.value!;
-    assert.ok(current.at > 1);
-
-    todos.value = [];
-    assert.deepEqual(offlineSnapshot.value?.items, [], 'an answered item leaves the read-only list too');
-    // A late boot read of an older IndexedDB copy never replaces what this page knows.
-    assert.equal(await readTodoSnapshot(), offlineSnapshot.value);
-  } finally {
-    stop();
-    offlineSnapshot.value = null;
-  }
+  await loadAll();
+  assert.equal(loaded.value, true);
+  const before = session.value;
+  assert.equal(before?.kind, 'device');
+  stubRpc(deviceAnswers({ 'session.info': () => { throw new RpcError({ code: 'unavailable', message: 'Connection to the runtime was lost.' }); } }));
+  await loadAll();
+  assert.equal(session.value, before, 'only an answer replaces the session: the phone keeps its tabs and controls');
+  assert.equal(loaded.value, true);
+  assert.deepEqual(todos.value.map((task) => task.id), ['ta_todo'], 'the shown data stays');
+  assert.equal(loadError.value, 'Connection to the runtime was lost.');
+  session.value = null;
 });

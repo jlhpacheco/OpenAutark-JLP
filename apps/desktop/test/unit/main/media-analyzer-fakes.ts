@@ -15,7 +15,8 @@ import { imagePage } from '../../../src/main/media-analyzer-image.ts';
 import { analyzerPage } from '../../../src/main/media-analyzer-page.ts';
 import type { PageCanvas, PageEnv, PageVideo } from '../../../src/main/media-analyzer-page.ts';
 import { MediaAnalyzer } from '../../../src/main/media-analyzer.ts';
-import type { AnalyzerWindow, MediaAnalyzerDeps, Serve } from '../../../src/main/media-analyzer.ts';
+import type { MediaAnalyzerDeps } from '../../../src/main/media-analyzer.ts';
+import type { HiddenWindow, Serve } from '../../../src/main/hidden-jobs.ts';
 import { blobPath } from '../../../src/main/protocols/rules.ts';
 import { tempDir } from '../store/helpers.ts';
 import { FakeAudio, FakeAudioContext, FakeImg, fakeCreateImageBitmap, pictureOf, png } from './media-task-fakes.ts';
@@ -148,11 +149,13 @@ export class FakeCanvas implements PageCanvas {
   /** Each image drawn: the source and the numbers it was placed with. */
   readonly draws: Array<{ image: unknown; place: number[] }> = [];
   readonly encoded: Array<{ type: string; quality: number; size: number }> = [];
+  /** Each rectangle filled: its colour and x, y, width, height. */
+  readonly fills: Array<{ style: string; rect: number[] }> = [];
   private grey = 0;
   getContext() {
-    return {
+    const paint = {
       imageSmoothingEnabled: false, imageSmoothingQuality: 'low', fillStyle: '#000000',
-      fillRect: () => {},
+      fillRect: (...rect: number[]) => { this.fills.push({ style: paint.fillStyle, rect }); },
       drawImage: (image: unknown, ...place: number[]) => {
         this.draws.push({ image, place });
         if (image instanceof FakeVideo) this.grey = image.grey();
@@ -162,6 +165,7 @@ export class FakeCanvas implements PageCanvas {
         data: new Uint8ClampedArray(width * height * 4).fill(this.drawn ? (this.drawn.alpha ? 0 : 255) : this.grey),
       }),
     };
+    return paint;
   }
   toBlob(callback: (blob: Blob | null) => void, type = 'image/png', quality = 0.92): void {
     const bytes = type === 'image/png' ? png(this.width, this.height, this.drawn?.photo ? this.width * this.height * 4 : 100) : jpeg(this.width, this.height, `grey=${this.grey}`);
@@ -209,7 +213,7 @@ export function pageEnv(serve: Serve, url: string): FakePageEnv {
 export type WindowMode = 'run' | 'hang' | 'crash' | 'refuse';
 
 /** A fake hidden window: 'run' runs the real page in the fake browser. */
-export class FakeWindow implements AnalyzerWindow {
+export class FakeWindow implements HiddenWindow {
   destroyed = false;
   readonly loads: string[] = [];
   readonly pages: FakePageEnv[] = [];

@@ -22,16 +22,16 @@ test('a row round-trips with every field; a plain one has no optional keys', () 
   for (const key of ['taskId', 'title', 'notes', 'allDay', 'tz', 'externalId', 'etag', 'readOnly']) assert.equal(key in read, false, key);
 });
 
-test('a to-do block keeps no text, also when one is handed in', () => {
+test('a to-do with a time is a row read from its task (id = the task\'s, no text): open at its time, done when it was done', () => {
   const w = world();
-  const task = w.todo('Küche aufräumen');
-  w.row({ id: 'cev_block', kind: 'todo', taskId: task.id, title: 'Küche aufräumen', notes: 'copy', startAt: at('10:00'), endAt: at('10:30'), setBy: 'planner' });
-  const block = w.calendar.repo.get('cev_block')!;
-  assert.equal(block.title, undefined);
-  assert.equal(block.notes, undefined);
-  assert.equal(block.taskId, task.id);
-  assert.ok(w.calendar.repo.save({ ...block, title: 'again', rev: 1 }, 0));
-  assert.equal(w.calendar.repo.get('cev_block')!.title, undefined);
+  const task = w.todo('Küche aufräumen', { at: at('10:00'), minutes: 20 });
+  const row = w.calendar.repo.get(task.id)!;
+  assert.deepEqual([row.kind, row.taskId, row.title, row.notes, row.startAt, row.endAt, row.state, row.setBy], ['todo', task.id, undefined, undefined, at('10:00'), at('10:20'), 'planned', 'person']);
+  assert.equal(w.calendar.repo.get(w.todo('Ohne Zeit').id), undefined, 'no time: no row');
+  assert.equal(w.db.get<{ n: number }>('SELECT count(*) AS n FROM calendar_events')?.n, 0, 'never stored');
+  w.clock.set(at('09:00'));
+  w.tasks.finish(task.id, { status: 'done', summary: 'ok' }, 'human');
+  assert.deepEqual([w.calendar.repo.get(task.id)!.state, w.calendar.repo.get(task.id)!.startAt], ['done', at('09:00')]);
 });
 
 test('save is rev-checked; delete reports whether a row went', () => {
@@ -54,24 +54,16 @@ test('the window is an overlap of [from, to) and leaves out rows of hidden sourc
   w.row({ id: 'cev_hidden', startAt: at('09:15'), endAt: at('09:45'), sourceId: 'cal_hidden', readOnly: true, externalId: 'x2' });
   w.row({ id: 'cev_after', startAt: at('10:00'), endAt: at('11:00') });
   w.row({ id: 'cev_anna', ownerId: 'per_anna00000000', startAt: at('09:00'), endAt: at('10:00') });
-  assert.deepEqual(w.calendar.repo.inRange('human', at('09:00'), at('10:00')).map((row) => row.id), ['cev_across', 'cev_inside']);
+  const mine = w.todo('Bank', { at: at('09:40'), minutes: 60 });
+  assert.deepEqual(w.calendar.repo.inRange('human', at('09:00'), at('10:00')).map((row) => row.id), ['cev_across', 'cev_inside', mine.id]);
 });
 
-test('blocks by task (newest wins), mirrored rows by source id, removing a source, and the cascade bookkeeping reads', () => {
+test('mirrored rows by source id and removing a source', () => {
   const w = world();
-  const a = w.todo('Steuern');
-  const b = w.todo('Wäsche');
-  w.row({ id: 'cev_old', kind: 'todo', taskId: a.id, startAt: at('09:00'), endAt: at('09:30'), updatedAt: 1 });
-  w.row({ id: 'cev_new', kind: 'todo', taskId: a.id, startAt: at('11:00'), endAt: at('11:30'), updatedAt: 2 });
-  w.row({ id: 'cev_b', kind: 'todo', taskId: b.id, startAt: at('12:00'), endAt: at('12:30') });
   w.source('cal_1');
   w.row({ id: 'cev_m1', sourceId: 'cal_1', externalId: 'uid-1', readOnly: true, startAt: at('13:00'), endAt: at('14:00') });
   w.row({ id: 'cev_m2', sourceId: 'cal_1', externalId: 'uid-2', readOnly: true, startAt: at('15:00'), endAt: at('16:00') });
-  assert.equal(w.calendar.repo.byTask(a.id)?.id, 'cev_new');
-  assert.deepEqual(w.calendar.repo.byTasks([a.id, b.id]).map((row) => row.id), ['cev_old', 'cev_new', 'cev_b'], 'oldest change first');
   assert.equal(w.calendar.repo.byExternal('cal_1', 'uid-2')?.id, 'cev_m2');
-  assert.deepEqual(w.calendar.repo.taskBlocks().map((row) => row.id).sort(), ['cev_b', 'cev_new', 'cev_old']);
-  assert.deepEqual([...w.calendar.repo.existing(['cev_b', 'cev_gone', 'cev_m1'])].sort(), ['cev_b', 'cev_m1']);
   assert.deepEqual(w.calendar.repo.deleteBySource('cal_1').sort(), ['cev_m1', 'cev_m2']);
   assert.equal(w.calendar.repo.byExternal('cal_1', 'uid-1'), undefined);
 });

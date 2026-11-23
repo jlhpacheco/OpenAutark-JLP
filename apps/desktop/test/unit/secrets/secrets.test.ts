@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import { SecretVault, domainAllowed } from '../../../src/runtime/secrets/service.ts';
 
 /** Reversible fake "keychain": XOR so ciphertext never equals plaintext. */
@@ -45,20 +45,40 @@ test('no scope: a password and a card work for every agent on every site, nothin
   assert.ok(vault.list()[0].lastUsedAt);
 });
 
-test('redact replaces raw, base64, url-encoded and hex variants; short values are ignored', async () => {
+test('redact replaces raw, base64, url-encoded and hex variants; a short value only where it stands as a secret (22.11.2026)', async () => {
   const { vault } = setup();
   const key = await vault.save({ label: 'OpenAI key', kind: 'api_key', value: 'sk-test/abc+123=xyz' });
-  await vault.save({ label: 'PIN', kind: 'password', value: '1234' });
+  const pin = await vault.save({ label: 'PIN', kind: 'password', value: '1234' });
   const text = [
     'key sk-test/abc+123=xyz',
     Buffer.from('sk-test/abc+123=xyz').toString('base64'),
     encodeURIComponent('sk-test/abc+123=xyz'),
-    'pin 1234',
   ].join(' | ');
   const redacted = vault.redact(text);
   assert.equal(redacted.split(`secret://${key.id}`).length - 1, 3);
-  assert.ok(redacted.includes('pin 1234'));
   assert.ok(!redacted.includes('sk-test'));
+  assert.equal(vault.redact('Bestellung 1234 ist unterwegs'), 'Bestellung 1234 ist unterwegs', 'running text keeps a number');
+  assert.equal(vault.redact('Die PIN lautet 1234.'), `Die PIN lautet secret://${pin.id}.`);
+  assert.equal(vault.redact('- edit "PIN *" [ref=e4] = "1234"'), `- edit "PIN *" [ref=e4] = "secret://${pin.id}"`);
+});
+
+test('a stored card number is replaced in any grouping, its CVC and expiry next to their labels (live 16./17./21.11.2026)', async () => {
+  const { vault } = setup();
+  const number = await vault.save({ label: 'Firmenkarte Nummer', kind: 'note', value: '5555555555554444' });
+  const cvc = await vault.save({ label: 'Firmenkarte CVC', kind: 'note', value: '737' });
+  const expiry = await vault.save({ label: 'Firmenkarte Ablauf', kind: 'note', value: '10/28' });
+  // the three real result shapes (values replaced by a test card): Windows UI tree, browser diff, Stripe child line
+  const uiTree = '- edit "Card Number *" [ref=e401] #input-creditCardNumber = "5555 5555 5555 4444" (scroll_into_view) @757,322';
+  const diff = '+ textbox "Card number" [ref=f14e15]: 5555 5555 5555 4444\n+ textbox "Valid to" [ref=f14e29]: 10 / 28\n+ textbox "CVV2/CVC2 code" [active] [ref=f14e33]: "737"';
+  const stripe = '+ textbox "Sicherheitscode" [active] [ref=f10e114]:\n+ text: "737"\n+ button "Hinzufügen" [ref=e120]';
+  const all = vault.redact([uiTree, diff, stripe].join('\n'));
+  for (const shown of ['5555', '4444', '737', '10 / 28']) assert.ok(!all.includes(shown), `${shown} shows:\n${all}`);
+  assert.equal(all.split(`secret://${number.id}`).length - 1, 2);
+  assert.equal(all.split(`secret://${cvc.id}`).length - 1, 2);
+  assert.ok(all.includes(`secret://${expiry.id}`));
+  assert.equal(vault.redact('Rechnung 737 vom 10/28 Uhr'), 'Rechnung 737 vom 10/28 Uhr', 'no label, no secret place');
+  assert.equal(vault.redact('Karte 5555-5555-5555-4444 belastet'), `Karte secret://${number.id} belastet`);
+  assert.equal(vault.redact('5555 5555     5555 4444'), '5555 5555     5555 4444', 'a wide gap ends a value (table columns)');
 });
 
 test('init primes redaction from stored ciphertexts; remove forgets', async () => {

@@ -6,7 +6,8 @@
 // a file of another account (in any home), nor a refresh token another plan here holds or one list carries for two plans
 // (one login in two plans), and two calls at once take one login once; a plan
 // signed out here takes none until one is made here again; nothing
-// goes to or comes from an employee's PC, an emptied login never travels, Claude Code on a Mac has none to send or take.
+// goes to an employee's PC but the company's shared plans and only their refresh comes back (22.11.2026), an emptied login never travels, Claude Code on a Mac has none to send or take;
+// a catch-up in rhythm sends a PC only the logins it has not taken.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,6 +22,7 @@ import { WorkforceError } from '../../../src/shared/errors.ts';
 import { DevicesRepo, type DeviceRecord } from '../../../src/runtime/devices/repo.ts';
 import { LoginSync } from '../../../src/runtime/devices/sync/logins.ts';
 import { signedOut } from '../../../src/runtime/accounts/cli-homes.ts';
+import { markOrigin } from '../../../src/runtime/devices/sync/employee.ts';
 import { memoryDb, recordingBus, silentLog } from './fakes.ts';
 
 const record = (id: string, extra: Partial<DeviceRecord> = {}): DeviceRecord => ({
@@ -125,6 +127,33 @@ test('a plan\'s login reaches the other PC\'s own home whole and the account is 
   for (const off of offs) off();
 });
 
+test('22.11.2026: a catch-up in rhythm sends a PC only the logins it has not taken – none when nothing changed, one a failed send missed', async (t) => {
+  const pcs = new Map<string, Pc>();
+  const a = await makePc(pcs, 'dev_a');
+  const b = await makePc(pcs, 'dev_b');
+  t.after(async () => { for (const pc of [a, b]) await rm(pc.root, { recursive: true, force: true }); });
+  link(a, b);
+  a.accounts.push(plan('acc_cx', 'codex', { home: a.own('acc_cx'), email: 'lena@example.com' }));
+  b.accounts.push(plan('acc_cx', 'codex', { home: b.own('acc_cx'), email: 'lena@example.com', state: 'needs_login' }));
+  const mine = path.join(a.own('acc_cx'), 'auth.json');
+  const there = path.join(b.own('acc_cx'), 'auth.json');
+  const sent = () => a.calls.filter((call) => call === 'dev_a->dev_b').length;
+  await put(mine, codexLogin('r1', '2026-11-04T10:00:00Z'));
+  assert.equal(await a.logins.catchUp('dev_b'), true);
+  assert.equal(await a.logins.catchUp('dev_b', true), true);
+  assert.equal(sent(), 1, 'nothing new: no call');
+
+  await put(mine, codexLogin('r2', '2026-11-04T11:00:00Z')); // refreshed while the link was cut
+  pcs.delete('dev_b');
+  assert.equal(await a.logins.catchUp('dev_b', true), false, 'the send did not reach B');
+  pcs.set('dev_b', b);
+  assert.equal(await a.logins.catchUp('dev_b', true), true);
+  assert.equal(await read(there), codexLogin('r2', '2026-11-04T11:00:00Z'), 'the next round brought it');
+  assert.equal(sent(), 2);
+  await a.logins.catchUp('dev_b');
+  assert.equal(sent(), 3, 'a link-up sends every login again');
+});
+
 test('a login found in a CLI\'s default home travels and comes back there – never over a file of another account', async (t) => {
   const pcs = new Map<string, Pc>();
   const a = await makePc(pcs, 'dev_a');
@@ -170,7 +199,7 @@ test('a PC with the same login itself takes it into its own account (provider an
   assert.equal(await read(path.join(b.home, '.gemini', 'google_accounts.json')), JSON.stringify({ active: 'lena@example.com', old: [] }), 'both of its files');
 });
 
-test('never to or from an employee\'s PC, never an emptied login, and Claude Code on a Mac has none to send or take', async (t) => {
+test('22.11.2026: a shared plan goes to an employee\'s PC and its refresh comes back; the person\'s own plan stays, no other PC sends any', async (t) => {
   const pcs = new Map<string, Pc>();
   const a = await makePc(pcs, 'dev_a');
   const b = await makePc(pcs, 'dev_b');
@@ -179,16 +208,24 @@ test('never to or from an employee\'s PC, never an emptied login, and Claude Cod
   a.repo.upsert(record('dev_b', { personId: 'per_lena000001' }));
   b.repo.upsert(record('dev_a', { joinedAs: 'employee' }));
   link(a, mac);
-  a.accounts.push(plan('acc_cl', 'claude', { home: a.own('acc_cl', 'claude') }));
-  b.accounts.push(plan('acc_cl', 'claude', { home: b.own('acc_cl', 'claude'), state: 'needs_login' }));
+  a.accounts.push(plan('acc_cl', 'claude', { home: a.own('acc_cl', 'claude') }), plan('acc_lena', 'claude', { home: a.own('acc_lena', 'claude'), state: 'needs_login' }));
+  b.accounts.push(plan('acc_cl', 'claude', { home: b.own('acc_cl', 'claude'), state: 'needs_login' }), plan('acc_lena', 'claude', { home: b.own('acc_lena', 'claude') }));
   mac.accounts.push(plan('acc_cl', 'claude', { home: mac.own('acc_cl', 'claude'), state: 'needs_login' }));
-  const claude = JSON.stringify({ claudeAiOauth: { accessToken: 'a', refreshToken: 'r', expiresAt: 1_793_800_000_000, scopes: [], subscriptionType: 'max' } });
+  markOrigin(b.s.db, { t: 'accounts', id: 'acc_cl', row: {} }, 'dev_a', 0); // the company's plan came with its row
+  const login = (refresh: string, expiresAt: number) => JSON.stringify({ claudeAiOauth: { accessToken: 'a', refreshToken: refresh, expiresAt, scopes: [], subscriptionType: 'max' } });
+  const claude = login('r', 1_793_800_000_000);
   await put(path.join(a.own('acc_cl', 'claude'), '.credentials.json'), claude);
+  await put(path.join(b.own('acc_lena', 'claude'), '.credentials.json'), login('lena', 1_793_800_000_000));
 
   assert.equal(await a.logins.catchUp('dev_b'), true);
-  assert.deepEqual(a.calls.filter((call) => call === 'dev_a->dev_b'), [], 'nothing goes to an employee\'s PC');
-  await assert.rejects(b.logins.receive({ logins: [] }, 'dev_a'), (error: unknown) => error instanceof WorkforceError && error.code === 'forbidden');
-  await assert.rejects(a.logins.receive({ logins: [] }, 'dev_b'), (error: unknown) => error instanceof WorkforceError && error.code === 'forbidden', 'nor from one');
+  assert.equal(await read(path.join(b.own('acc_cl', 'claude'), '.credentials.json')), claude, 'the company\'s plan reaches the employee\'s PC');
+  assert.deepEqual(b.checked, ['acc_cl']);
+  await put(path.join(b.own('acc_cl', 'claude'), '.credentials.json'), login('r2', 1_793_850_000_000)); // Claude Code refreshed there
+  assert.equal(await b.logins.catchUp('dev_a'), true);
+  assert.equal(await read(path.join(a.own('acc_cl', 'claude'), '.credentials.json')), login('r2', 1_793_850_000_000), 'its refresh comes back to the company');
+  assert.equal(await read(path.join(a.own('acc_lena', 'claude'), '.credentials.json')), undefined, 'the person\'s own plan stays on their PC');
+  await assert.rejects(a.logins.receive({ logins: [] }, 'dev_x'), (error: unknown) => error instanceof WorkforceError && error.code === 'forbidden', 'nothing from a PC that is no link');
+  await put(path.join(a.own('acc_cl', 'claude'), '.credentials.json'), claude);
 
   await a.logins.catchUp('dev_mac');
   assert.equal(await read(path.join(mac.own('acc_cl', 'claude'), '.credentials.json')), undefined, 'a Mac keeps it in the Keychain: nothing written');
@@ -365,4 +402,52 @@ test('a login kept "Only on this PC" (17.11.2026, Account.thisPcOnly) is not sen
   delete kept.thisPcOnly; // "On all PCs of this company"
   assert.equal(await a.logins.catchUp('dev_b'), true);
   assert.equal(await read(path.join(b.own('acc_cx'), 'auth.json')), codexLogin('r1', '2026-11-04T10:00:00Z'), 'shared: it goes');
+});
+
+test('21.11.2026: a login that comes before its account\'s row waits for the row and is taken when it arrives', async (t) => {
+  const pcs = new Map<string, Pc>();
+  const a = await makePc(pcs, 'dev_a');
+  const b = await makePc(pcs, 'dev_b');
+  t.after(async () => { for (const pc of [a, b]) await rm(pc.root, { recursive: true, force: true }); });
+  link(a, b);
+  const off = b.logins.attach();
+  t.after(off);
+  a.accounts.push(plan('acc_cx', 'codex', { home: a.own('acc_cx'), email: 'lena@example.com' }));
+  await put(path.join(a.own('acc_cx'), 'auth.json'), codexLogin('r0', '2026-11-04T09:00:00Z'));
+  await a.logins.catchUp('dev_b');
+  await put(path.join(a.own('acc_cx'), 'auth.json'), codexLogin('r1', '2026-11-04T10:00:00Z'));
+  await a.logins.catchUp('dev_b');
+  const there = path.join(b.own('acc_cx'), 'auth.json');
+  assert.equal(await read(there), undefined, 'no account here yet: nothing written');
+
+  const row = plan('acc_cx', 'codex', { home: b.own('acc_cx'), email: 'lena@example.com', state: 'needs_login' });
+  b.accounts.push(row);
+  b.s.bus.emit('account.upserted', row); // the row came (tables.ts emit)
+  await until(async () => await read(there) !== undefined);
+  assert.equal(await read(there), codexLogin('r1', '2026-11-04T10:00:00Z'), 'the newest login that waited is taken');
+  assert.deepEqual(b.checked, ['acc_cx'], 'and the account is checked');
+});
+
+test('22.11.2026: a plan whose login is rejected here asks the PCs that share it at once, and gets the newer login', async (t) => {
+  const pcs = new Map<string, Pc>();
+  const a = await makePc(pcs, 'dev_a');
+  const b = await makePc(pcs, 'dev_b');
+  t.after(async () => { for (const pc of [a, b]) await rm(pc.root, { recursive: true, force: true }); });
+  link(a, b);
+  a.accounts.push(plan('acc_cx', 'codex', { home: a.own('acc_cx'), email: 'lena@example.com' }));
+  b.accounts.push(plan('acc_cx', 'codex', { home: b.own('acc_cx'), email: 'lena@example.com' }));
+  await put(path.join(a.own('acc_cx'), 'auth.json'), codexLogin('r1', '2026-11-04T10:00:00Z'));
+  await a.logins.catchUp('dev_b');
+  await put(path.join(a.own('acc_cx'), 'auth.json'), codexLogin('r2', '2026-11-04T12:00:00Z')); // A refreshed while the link was down: B has the rotated one
+  const off = b.logins.attach();
+  t.after(off);
+  b.accounts[0] = { ...b.accounts[0], state: 'needs_login' };
+  b.s.bus.emit('account.upserted', b.accounts[0]);
+  await until(async () => await read(path.join(b.own('acc_cx'), 'auth.json')) === codexLogin('r2', '2026-11-04T12:00:00Z'));
+  assert.equal(await read(path.join(b.own('acc_cx'), 'auth.json')), codexLogin('r2', '2026-11-04T12:00:00Z'), 'the rejected plan got the newer login at once');
+  const asked = b.calls.length;
+  assert.ok(asked >= 1, 'it asked A');
+  b.s.bus.emit('account.upserted', b.accounts[0]);
+  await settle();
+  assert.equal(b.calls.length, asked, 'it asks at most every 30 s');
 });

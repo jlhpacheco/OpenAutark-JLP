@@ -11,7 +11,7 @@ import type { HelperOp } from '../../../src/runtime/computer/protocol.ts';
 import type { Host } from '../../../src/runtime/host.ts';
 import { humanActive, isPresenceRefusal, judgePresence } from '../../../src/runtime/computer/presence.ts';
 import { pointerOrQuiet, quietEquivalent } from '../../../src/runtime/computer/quiet-actions.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 
 class FakeHelper implements HelperClient {

@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { expectStable } from './lib/stable.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -92,17 +93,17 @@ test('persistent desktop columns and real browser pane tabs', { timeout: 180_000
   const sidebar = page.getByRole('separator', { name: 'Resize sidebar' });
   const workspace = page.getByRole('separator', { name: 'Resize workspace' });
   await page.waitForSelector('.shell', { timeout: 60_000 });
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('settings.update', { onboarding: { step: 'done' } });
   await size(1440, 900);
-  await page.locator('.day-view').waitFor();
+  await page.locator('.main-slot .tasks-page').waitFor();
   const workspaceCell = page.locator('.frame-workspace-cell button');
   if ((await workspaceCell.getAttribute('aria-expanded')) !== 'true') await workspaceCell.click();
   await page.locator('.global-pane .browser-bar').waitFor();
   await shot('01-columns-home-light');
 
-  const aligned = await page.evaluate(() => ['.sidebar .frame-header', '.day-view > .frame-header'].map((selector) => {
+  const aligned = await page.evaluate(() => ['.sidebar .frame-header', '.main-slot .tasks-page > .frame-header'].map((selector) => {
     const box = document.querySelector(selector).getBoundingClientRect(); return { y: box.y, height: box.height, right: box.right };
   }));
   assert.ok(aligned.every((box) => box.y === 0 && Math.abs(box.height - 48) < 1), JSON.stringify(aligned));
@@ -111,7 +112,7 @@ test('persistent desktop columns and real browser pane tabs', { timeout: 180_000
   const paneTop = () => page.evaluate(() => document.querySelector('.global-pane').getBoundingClientRect().top);
   assert.ok(Math.abs(await paneTop() - 48) < 1, `the pane lies below the header row at its default width (top ${await paneTop()})`);
   assert.equal(await page.locator('.app-frame.strip-in-row').count(), 0, 'its strip is its first line, not cramped into the row');
-  const row = await headerRow(['.sidebar .frame-header', '.day-view > .frame-header']);
+  const row = await headerRow(['.sidebar .frame-header', '.main-slot .tasks-page > .frame-header']);
   assert.equal(row.count, 2);
   assert.equal(row.colors.length, 1, `one header row color (${row.colors.join(', ')})`);
   assert.ok(row.corners.every((radius) => radius === '0px'), `no rounded column corner: ${row.corners}`);
@@ -130,7 +131,7 @@ test('persistent desktop columns and real browser pane tabs', { timeout: 180_000
   await captionClear('settings with the browser pane');
   await shot('02-columns-settings-light');
   await page.getByRole('button', { name: 'Back to workspace', exact: true }).click();
-  await page.locator('.day-view').waitFor();
+  await page.locator('.main-slot .tasks-page').waitFor();
 
   // Both dividers: keyboard and pointer; the pane's width survives a reload.
   const widthBefore = Number(await sidebar.getAttribute('aria-valuenow'));

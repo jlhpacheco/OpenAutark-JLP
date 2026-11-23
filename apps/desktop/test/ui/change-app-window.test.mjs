@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { feedbackSubmitFixture } from '../e2e/lib/feedback-submit.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
 
@@ -43,7 +44,7 @@ test('app-change entry points are removed; feedback publishes marked images dire
     win.setContentSize(w, h);
   }, [width, height]);
   await size(1280, 820);
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('settings.update', { onboarding: { step: 'done' } });
   const shot = (name) => page.screenshot({ path: path.join(shots, `${name}.png`) });

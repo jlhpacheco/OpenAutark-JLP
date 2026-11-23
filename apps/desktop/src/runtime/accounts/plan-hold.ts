@@ -2,7 +2,7 @@
 // "cooling until 10:05" (a short pause after a provider error). Since 09.11.2026 every signed-in plan of a provider takes
 // turns (accounts/candidates.ts selectCandidates), so each account names its own hold; there is no primary that holds the
 // others back and no plan that stands outside.
-// Read by context/setup-facts.ts (app.status, the manager's team facts).
+// Read by context/setup-facts.ts (app.status, the manager's team facts); holdOf also by routing/unfit.ts (when models are back).
 // Also cleanLabel – an account label without e-mail addresses (moved here from context/setup-facts.ts, which re-exports it).
 // Owns: this reading and its words. Never: routing or an account.
 
@@ -27,9 +27,12 @@ export function cleanLabel(label: string, email?: string): string {
  * zone (context/time.ts), else this PC's.
  */
 export function holdState(account: Account, now: number, zone?: string, model?: string): string | undefined {
-  if (!account.enabled) return undefined;
+  const hold = account.enabled ? holdOf(account, now, model) : undefined;
+  return hold && `${hold.limited ? 'at its limit' : 'cooling'} until ${stampText(hold.until, zone, now)}`;
+}
+
+/** What holds `account` back from `model` now: until when, and whether a used-up window does (`limited`) or only a cooling; undefined when it runs. */
+export function holdOf(account: Account, now: number, model?: string): { until: number; limited: boolean } | undefined {
   const until = blockedUntil(account, now, model);
-  if (until === undefined) return undefined;
-  const limited = blockedUntil({ ...account, coolingUntil: undefined }, now, model) !== undefined;
-  return `${limited ? 'at its limit' : 'cooling'} until ${stampText(until, zone, now)}`;
+  return until === undefined ? undefined : { until, limited: blockedUntil({ ...account, coolingUntil: undefined }, now, model) !== undefined };
 }

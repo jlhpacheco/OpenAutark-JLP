@@ -7,11 +7,10 @@
 // and wake the authoring agent as for a line they typed; F06: the answer's stored files ride on that line –
 // tasks/answer-files.ts, tasks/answer-receipt.ts; the person's decline {declined, reason} drops the to-do instead –
 // tasks/decline.ts, never a mini-app's own data),
-// free-text to-dos (addTodo: a plain to-do from tasks/todo-draft.ts, no model), widget switching ("Show as…"; mini-apps keep theirs), snoozing (F03: the to-do waits and rings again – no receipt, nobody
-// woken; a snooze answer of older widgets is routed here) and repeating timers
-// (Done posts a receipt and waits for the next ring – due then; the author hears only the first
-// Done; "Stop repeating" ends it); every widget is armed by tasks/timers.ts (validated when an
-// agent wrote it, timer time absolute, one ring schedule). B-054: a to-do needs no chat – one typed into the
+// widget switching ("Show as…"; mini-apps keep theirs; a typed line is tasks/quick.ts), "Later" (F03: the
+// to-do's `at` moves – it rings then; no receipt, nobody woken; a snooze answer of older widgets is routed here) and repeating timers
+// (Done posts a receipt and the to-do's `at` moves to its next time; the author hears only the first Done; "Stop repeating"
+// ends it); every widget goes through tasks/timers.ts (validated when an agent wrote it, a timer's time is the to-do's `at`). B-054: a to-do needs no chat – one typed into the
 // list is chat-free, and an answer to a chat-free to-do is stored on its row (no receipt; the author's wake has
 // no chat). The old hidden To-do chat stays an inert row (migration 82 keeps it out of every chat list).
 // Mini-app to-dos (F01): every ```app todo=true fence of an agent's message becomes a to-do too
@@ -21,6 +20,9 @@
 // (shared/blocks/app-todo.ts) cannot be switched to a catalog one. X03: its answer carries the
 // files the app stored with wf.upload, and answering or declining releases the rest (tasks/app-files.ts).
 // F-52: in a chat with people an agent's ask goes to the human who wrote last (people/ask-target.ts).
+// Sicher-Runde 19.11.2026: a security request's to-do (tasks/approval-todo.ts) is answered by the security service –
+// no person's line, no author wake here (the service wakes the agent when no call waits).
+// Umzug 21.11.2026 (H2): a request another of the person's PCs holds gets the answer there (security/answer-relay.ts).
 // Owns: those flows. Never: puts agent work on the list.
 
 import { HUMAN_ID } from '../../shared/ids.ts';
@@ -29,7 +31,9 @@ import { APP_TODO_TITLE, appTodoWidget, appWidgetOf } from '../../shared/blocks/
 import { becomesTodo, isImportantAsk, type UiBlock } from '../../shared/blocks/catalog.ts';
 import { appTodosOf, uiBlocksOf } from '../../shared/blocks/parse.ts';
 import type { Message } from '../../shared/model/chat.ts';
-import { isFinished, type Task, type TaskView } from '../../shared/model/tasks.ts';
+import { isFinished, type Task, type TaskView, type TodoRepeat } from '../../shared/model/tasks.ts';
+import { nextWorkStart, ringAt } from '../../shared/model/day-settings.ts';
+import { dayZone, daySettings } from '../day/clock.ts';
 import type { TaskService } from '../contracts.ts';
 import type { TaskServiceImpl } from './service.ts';
 import { answerText, oneLine } from '../../shared/blocks/answer-text.ts';
@@ -38,13 +42,16 @@ import { releaseAppFiles } from './app-files.ts';
 import { evidenceFor, postAnswer } from './answer-receipt.ts';
 import { blockTodo } from './block-todo.ts';
 import { declineFrom, declineTodo } from './decline.ts';
-import { armTimer, dropTimers, dueAfter, prepareWidget, repeatingTimer, snoozeUntil } from './timers.ts';
-import { quickDraft } from './todo-draft.ts';
-import { REPEATS_REASON, SNOOZED_REASON } from '../../shared/model/todo-later.ts';
-import { isAskBlock, parseDue, titleForBlock, widgetOfType } from './widgets.ts';
+import { nextRepeat, prepareWidget, repeatOf, snoozeUntil } from './timers.ts';
+import { isAskBlock, titleForBlock, widgetOfType } from './widgets.ts';
+import { parseWhen } from '../tools/builtin/util.ts';
 import { askTarget } from '../people/ask-target.ts';
-
-export { notesFor, quickDraft, type TodoDraft } from './todo-draft.ts';
+import { approvalAnswer, approvalIdOf } from './approval-todo.ts'; // Sicher-Runde: security requests as to-dos
+import { answerAs } from '../security/rpc-guard.ts'; // FX1 H1: who may answer how
+import { relayAnswer } from '../security/answer-relay.ts'; // Umzug H2: an answer for a request another PC holds
+import { currentCaller } from '../rpc/caller.ts';
+import type { ApprovalAnswer } from '../../shared/model/security-settings.ts';
+import type { RuntimeServices } from '../contracts.ts';
 
 const DAY_MS = 86_400_000;
 
@@ -54,6 +61,7 @@ export class HumanTodos {
 
   ingestBlocks(message: Message, blocks: UiBlock[], indexes?: number[]): TaskView[] {
     const out: TaskView[] = [];
+    const zone = dayZone(this.t.s);
     blocks.forEach((block, position) => {
       if (!isAskBlock(block) || block.todo === false) return;
       const index = indexes?.[position] ?? position; // parse index = the chat's blockIndex
@@ -67,20 +75,18 @@ export class HumanTodos {
       // one, "todo": true or a timer becomes a to-do – and a block that updates an open to-do keeps it current.
       if (!previous && !becomesTodo(block)) return;
       if (previous) {
-        const armed = prepareWidget(block, message.createdAt, message.authorId);
+        const armed = prepareWidget(block, message.createdAt, message.authorId, zone);
         const updated = this.t.mutate(previous.id, draft => {
-          const due = dueAfter(draft, armed); // a due time the old timer set follows the new one
           draft.widget = armed.widget; draft.title = title; draft.messageId = message.id;
-          if (due !== undefined) draft.dueAt = due;
+          if (armed.at !== undefined) draft.at = armed.at; // a timer's time is the to-do's
         });
-        armTimer(this.t.s, updated);
         out.push(this.t.emit(updated));
         return;
       }
       const asked = askTarget(this.t.s.db, message.conversationId, message.seq, block); // the person who wrote last, else the owner
       const view = this.t.create({
         conversationId: message.conversationId, title, assigneeKind: 'human', ...(asked ? { assigneeId: asked } : {}), widget: block,
-        createdBy: message.authorId, priority: isImportantAsk(block) ? 1 : 0, dueAt: parseDue(block.due, message.createdAt),
+        createdBy: message.authorId, priority: isImportantAsk(block) ? 1 : 0, at: parseWhen(block.due, message.createdAt, zone),
         parentId: this.openParent(message),
       }, { anchor: message, clientId });
       out.push(view);
@@ -127,6 +133,8 @@ export class HumanTodos {
     if (input.taskId && !task) throw new WorkforceError('not_found', 'To-do not found.', { details: { taskId: input.taskId } });
     if (!task && !input.messageId) throw new WorkforceError('bad_request', 'An answer needs a taskId or a messageId.');
     if (task?.status === 'done' && task.result?.answer !== undefined) return this.t.views([task])[0]; // double answer
+    const approval = task ? approvalIdOf(s.db, task.id) : undefined; // a security request: its answer goes to the service, no chat line
+    if (task && approval) return this.answerApproval(task, approval, approvalAnswer(input.answer, declineFrom(input, task) !== undefined));
     // A snooze answer (older widgets) snoozes the to-do instead of finishing it.
     const snooze = task?.widget?.type === 'timer' ? snoozeUntil(input.answer, s.clock.now()) : undefined;
     if (task && snooze !== undefined) return this.snooze(task.id, snooze);
@@ -154,25 +162,18 @@ export class HumanTodos {
     let view: TaskView | undefined;
     let receiptKey = blockKey;
     let first = true;
-    const repeating = task?.widget?.type === 'timer' ? repeatingTimer(s, task.id) : undefined;
-    if (task && repeating) {
-      // A repeating timer is done for now: it waits for its next ring (each Done has its own receipt).
+    const repeat = task ? repeatOf(task.widget) : undefined;
+    if (task && repeat) {
+      // A repeating timer is done for now: its `at` moves to its next time (each Done has its own receipt).
       const count = (task.ledger.doneCount ?? 0) + 1;
       first = count === 1;
       receiptKey = `${blockKey}@${count}`;
-      dropTimers(s, task.id); // a pending snooze
       const now = s.clock.now();
-      const next = repeating.nextAt; // the scheduler moved it on before the ring ran
+      const next = nextRepeat(repeat, task.at ?? now, now);
       view = this.t.emit(this.t.mutate(task.id, draft => {
-        draft.status = 'waiting';
-        draft.waitingOn = { on: 'outside', why: REPEATS_REASON, since: now, ...(next !== undefined ? { until: next } : {}) };
         draft.ledger = { ...draft.ledger, doneCount: count };
-        draft.nextAt = next;
-        if (next === undefined || draft.widget?.type !== 'timer') return;
-        // Due at its next ring, not "overdue · yesterday" when it rings again (a due time given
-        // explicitly stays); the same clock time keeps the ring as it is.
-        draft.dueAt = dueAfter(draft, { dueAt: next });
-        draft.widget = { ...draft.widget, at: new Date(next).toISOString() };
+        draft.at = next;
+        if (draft.widget?.type === 'timer') draft.widget = { ...draft.widget, at: new Date(next).toISOString() };
       }));
     } else if (task) {
       view = this.t.finish(task.id, { status: 'done', summary, evidence: evidenceFor(summary, files, input.answer), answer: input.answer }, input.by);
@@ -184,9 +185,26 @@ export class HumanTodos {
     return view;
   }
 
+  /** Sicher-Runde: the person's answer to a security request (tasks/approval-todo.ts); the service ends the to-do. */
+  private answerApproval(task: Task, requestId: string, answer: ApprovalAnswer | undefined): TaskView {
+    if (!answer) throw new WorkforceError('bad_request', 'Answer with one of the request\'s options.');
+    const security = (this.t.s as Partial<Pick<RuntimeServices, 'security'>>).security;
+    if (!security) throw new WorkforceError('unavailable', 'Security requests are not available.');
+    const given = answerAs(currentCaller()?.scope, answer); // FX1 H1: a to-do-only phone's 'Always …' counts as 'once'
+    try { security.answer(requestId, given); } catch (error) {
+      if (!(error instanceof WorkforceError) || error.code !== 'not_found') throw error;
+      const drop = () => { const now = this.t.repo.get(task.id); if (now && !isFinished(now.status)) this.t.finish(task.id, { status: 'dropped', summary: 'No longer waiting', quiet: true, answer: { choice: given } }, HUMAN_ID); };
+      // Umzug 21.11.2026 (H2): the request is held on the PC that asked – the answer goes there (security/answer-relay.ts)
+      const relayed = isFinished(task.status) ? 'none' : relayAnswer(this.t.s as RuntimeServices, requestId, given, drop);
+      if (relayed === 'offline') throw new WorkforceError('unavailable', 'The PC that asked is not reachable right now; this request waits until it is back.');
+      if (relayed === 'none') drop(); // answered elsewhere or gone
+    }
+    return this.t.views([this.t.require(task.id)])[0];
+  }
+
   /**
-   * Snoozes a to-do (by id, or the to-do of a chat block) until `until`: it waits ('Snoozed', its
-   * end on waitingOn.until) and rings again then – no receipt, nobody woken.
+   * "Later": the to-do (by id, or the to-do of a chat block) moves to `until` – its `at`, so it rings then; no receipt,
+   * nobody woken (the person's Undo takes it back).
    */
   snooze(ref: string | { messageId: string; blockIndex: number }, until: number): TaskView {
     const s = this.t.s;
@@ -198,47 +216,41 @@ export class HumanTodos {
     if (isFinished(task.status)) throw new WorkforceError('conflict', 'This to-do is already finished.');
     const now = s.clock.now();
     if (!Number.isFinite(until) || until < now + 60_000 || until > now + 30 * DAY_MS) throw new WorkforceError('bad_request', 'Snooze for at least a minute and at most 30 days.');
-    if (!s.scheduler) throw new WorkforceError('unavailable', 'Reminders are not available.');
-    dropTimers(s, id); // the one-shot ring it had; a repeating one keeps its rhythm
-    const note = typeof task.widget?.label === 'string' ? task.widget.label : task.title;
-    s.scheduler.create({ ownerId: HUMAN_ID, conversationId: task.conversationId, taskId: id, kind: 'timer', title: task.title, spec: { at: until }, payload: { note } });
-    return this.t.emit(this.t.mutate(id, draft => {
-      draft.status = 'waiting';
-      draft.waitingOn = { on: 'outside', why: SNOOZED_REASON, since: now, until };
-      draft.nextAt = until;
-    }));
+    return this.t.update(id, { at: until }, HUMAN_ID);
   }
 
   /** "Stop repeating": the repeating timer ends and the to-do is done. */
   stopRepeating(id: string, by: string): TaskView {
     const task = this.t.require(id);
-    if (task.assigneeKind !== 'human' || !repeatingTimer(this.t.s, id)) throw new WorkforceError('bad_request', 'This to-do does not repeat.');
-    dropTimers(this.t.s, id, true);
+    if (task.assigneeKind !== 'human' || !repeatOf(task.widget)) throw new WorkforceError('bad_request', 'This to-do does not repeat.');
+    const { repeat: _ended, ...widget } = task.widget!;
+    this.t.mutate(id, (draft) => { draft.widget = widget as UiBlock; });
     return this.t.finish(id, { status: 'done', summary: 'Stopped repeating', evidence: [{ kind: 'note', label: 'Stopped repeating' }] }, by);
   }
 
-  /** A typed to-do: a plain to-do at once (chat-free unless a chat is given). */
-  async addTodo(text: string, conversationId?: string): Promise<TaskView> {
-    const draft = quickDraft(this.t.s, text);
-    return this.t.create({ ...(conversationId ? { conversationId } : {}), ...draft, assigneeKind: 'human', createdBy: HUMAN_ID });
-  }
-
-  changeWidget(id: string, type: string): TaskView {
+  /** "Show as" another widget (mini-apps keep theirs). With `repeat` (the menu's Repeat › Daily · Weekdays · Weekly, type
+   *  'timer') the to-do repeats at its own time – without one from the start of the next working day. */
+  changeWidget(id: string, type: string, repeat?: TodoRepeat): TaskView {
     const task = this.t.require(id);
     if (task.assigneeKind !== 'human') throw new WorkforceError('bad_request', 'Only human to-dos have a widget.');
     if (appWidgetOf(task.widget)) throw new WorkforceError('bad_request', 'A mini-app to-do keeps its mini-app.');
+    if (repeat && type !== 'timer') throw new WorkforceError('bad_request', 'Only a timer repeats.', { details: { type } });
     let block: UiBlock;
     try { block = widgetOfType(type, task.title, task.widget); } catch {
       throw new WorkforceError('bad_request', 'Unknown widget type.', { details: { type } });
     }
     const now = this.t.s.clock.now();
-    const armed = prepareWidget(block, now, HUMAN_ID);
+    const zone = dayZone(this.t.s);
+    if (repeat) {
+      const { workStart } = daySettings(this.t.s);
+      const at = ringAt(task, zone, workStart) ?? nextWorkStart(now, zone, workStart); // a day without a time: its work start
+      block = { ...block, repeat, at: new Date(at).toISOString() };
+    }
+    const armed = prepareWidget(block, now, HUMAN_ID, zone);
     const updated = this.t.mutate(id, draft => {
-      const due = dueAfter(draft, armed); // a due time the old timer set follows the new one
       draft.widget = armed.widget;
-      if (due !== undefined) draft.dueAt = due;
+      if (armed.at !== undefined) draft.at = armed.at; // a timer's time is the to-do's
     });
-    armTimer(this.t.s, updated);
     return this.t.emit(updated);
   }
 }

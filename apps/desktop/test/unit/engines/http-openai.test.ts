@@ -138,3 +138,13 @@ test('openai: 401 is unavailable without the key; efforts per model family in li
     'gpt-6-astra': 'low medium high xhigh', 'gpt-6.1-sol': 'low medium high xhigh', 'o4-mini': 'low medium high xhigh',
   }, 'B-083: GPT-6 Astra, GPT-6.1 Sol and the o-series refuse effort none, so it is not offered');
 });
+
+test('openai (Fest 22.11.2026): a later gpt generation lists with reasoning efforts from its first day', async (t) => {
+  const { server, engine, acc } = await setup((_req, res) => sendJson(res, 200, { data: ['gpt-7', 'gpt-7.1-luna', 'gpt-10-sol', 'gpt-7-codex', 'o5-mini', 'gpt-4o'].map((id) => ({ id })) }));
+  t.after(() => server.close());
+  const list = await engine.listModels(acc);
+  assert.deepEqual(Object.fromEntries(list.map((m) => [m.model, m.efforts.join(' ')])), {
+    'gpt-7': 'none low medium high xhigh', 'gpt-7.1-luna': 'none low medium high xhigh', 'gpt-10-sol': 'none low medium high xhigh',
+    'gpt-7-codex': 'low medium high xhigh', 'o5-mini': 'low medium high xhigh', 'gpt-4o': 'none',
+  }, 'before: gpt-7 listed with effort none only, so its effort could not be chosen');
+});

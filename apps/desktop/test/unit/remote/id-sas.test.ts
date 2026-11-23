@@ -6,7 +6,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { formatRemoteId, luhnDigit, parseTarget, remoteIdOf, validRemoteId } from '../../../src/runtime/remote/id.ts';
+import { formatRemoteId, parseTarget, remoteIdOf } from '../../../src/runtime/remote/id.ts';
+import { luhnDigit, validRemoteId } from '../../../src/shared/model/remote.ts';
 import { commitment, matchCode, newEphemeral, newNonce, sessionKey, signedBytes, transcript, verifySide } from '../../../src/runtime/remote/sas.ts';
 import { b64url, fingerprintOf, generateEd25519, rawPublic, signEd25519 } from '../../../src/runtime/devices/keys.ts';
 import type { PeerInfo } from '../../../src/runtime/devices/pair-proof.ts';

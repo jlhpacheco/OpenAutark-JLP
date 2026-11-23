@@ -21,7 +21,7 @@ const settings = defaultSettings({ locale: 'en-US', timezone: 'UTC' });
 settings.profile.name = 'Ada';
 const prompts = new PromptTemplates(() => path.join(RESOURCES, 'prompts'));
 const systemMd = (values: Readonly<Record<string, string>>, kind: StandardKind = 'agent') => prompts.renderText(`standard-${kind}`, { ...systemMdValues(settings), ...values });
-const HAVE = /\n\n## What I have here\n- This PC is my workplace, all of it: [^\n]*Ada's logins[^\n]*\n- Money: I weigh a purchase the way my skill money does\.\n- Under Ada's name: [^\n]*\n- Agreements with Ada: none yet\.$/;
+const HAVE = /\n\n## What I have here\n- This PC is my workplace: its files and apps, [^\n]*Ada's logins[^\n]*\n- Money: how I handle it stands in what Ada and I agreed; within that I weigh a purchase the way my skill money does\.\n- Under Ada's name: [^\n]*\n- Agreements with Ada: none yet\.$/;
 const START = 'I start from the team\'s standard text. In my first turn I take my name';
 
 function setup(template: (values: Readonly<Record<string, string>>, kind: StandardKind) => string | undefined = systemMd) {
@@ -69,9 +69,8 @@ test('without the standard a hire is unchanged; a text that would not fit beside
   assert.equal(withSystemMd('## My role\nMine.', '# How I work\nH.\n\n## My role\nR.\n\n## What I have here\n- this PC'), '# How I work\nH.\n\n## My role\nMine.\n\n## What I have here\n- this PC');
   assert.equal(withSystemMd('x'.repeat(59_990), '## My role\nR.\n\n## What I have here\n- this PC'), 'x'.repeat(59_990));
   assert.deepEqual(systemMdValues(settings), { owner: 'Ada', user_name: 'Ada' });
-  settings.profile.pcAccess = 'careful';
-  assert.match(systemMd({ role: 'Helper' }), /\n\n## My role\nHelper\.\n[^\n]+\n\n## What I have here\n- This PC is my workplace, the way Ada chose at the start \(careful\)/);
-  delete settings.profile.pcAccess;
+  // 19.11.2026: one PC line for every mode – the mode itself is the stable prompt's "What Ada and I agreed"
+  assert.match(systemMd({ role: 'Helper' }), /\n\n## My role\nHelper\.\n[^\n]+\n\n## What I have here\n- This PC is my workplace: its files and apps, [^\n]*stands under "What Ada and I agreed"\./);
 });
 
 test('B-047: a hire without a name gets a free human first name and keeps the template role', () => {

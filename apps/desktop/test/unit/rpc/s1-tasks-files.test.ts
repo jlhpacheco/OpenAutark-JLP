@@ -12,12 +12,14 @@ import { KnowledgeStore } from '../../../src/runtime/knowledge/service.ts';
 import { ChunkUploads } from '../../../src/runtime/rpc/uploads.ts';
 import { KvRepo } from '../../../src/runtime/store/kv.ts';
 import type { TaskView } from '../../../src/shared/model/tasks.ts';
+import type { QuickTaskResult } from '../../../src/shared/model/task-center.ts';
+import { createHandlerTable } from '../../../src/runtime/rpc/handlers/index.ts';
 import type { FileRef } from '../../../src/shared/model/system.ts';
 import type { KnowledgeItem } from '../../../src/shared/model/knowledge.ts';
 import { OWNER, PHONE, TODO_ONLY, TestClient, rpcFixture } from './s1-helpers.ts';
 
 function setup() {
-  const f = rpcFixture();
+  const f = rpcFixture({ table: createHandlerTable() }); // the whole table: the person's line is tasks.quickCreate (task-center.ts)
   f.org.add(agent('ag_ava', 'Ava'));
   const chat = f.chats.create({ agentIds: ['ag_ava'], createdBy: 'human' });
   return { ...f, chat, owner: new TestClient(f.server, OWNER), phone: new TestClient(f.server, PHONE), todo: new TestClient(f.server, TODO_ONLY) };
@@ -61,7 +63,7 @@ test('chunked uploads above the in-memory size keep the client mime (streamed pu
 test('tasks.complete on a widget to-do is an answer; todo-only devices cannot finish agent work', async (t) => {
   const f = setup();
   t.after(f.cleanup);
-  const todo = await f.todo.call<TaskView>('todos.add', { text: 'Call the bank about the card' });
+  const { task: todo } = await f.todo.call<QuickTaskResult>('tasks.quickCreate', { text: 'Call the bank about the card' });
   assert.equal(todo.assigneeKind, 'human');
   assert.equal(todo.conversationId, undefined, 'B-054: a to-do from the To-do area is chat-free');
   assert.ok(todo.widget);
@@ -77,11 +79,11 @@ test('tasks.complete on a widget to-do is an answer; todo-only devices cannot fi
   assert.equal((await f.phone.call<TaskView>('tasks.finish', { id: agentTask.id })).status, 'done');
 });
 
-test('B-054: todos.add without a chat makes a chat-free to-do; no hidden To-do chat is made', async (t) => {
+test('B-054: a typed line (tasks.quickCreate) makes a chat-free to-do; no hidden To-do chat is made', async (t) => {
   const f = setup();
   t.after(f.cleanup);
   const before = f.chats.list({ includeHidden: true }).length;
-  const todo = await f.owner.call<TaskView>('todos.add', { text: 'Sign the contract' });
+  const { task: todo } = await f.owner.call<QuickTaskResult>('tasks.quickCreate', { text: 'Sign the contract' });
   assert.equal(todo.conversationId, undefined);
   assert.equal(f.chats.list({ includeHidden: true }).length, before, 'no stand-in chat');
   assert.ok((await f.owner.call<TaskView[]>('todos.list')).some((entry) => entry.id === todo.id), 'on My day');
@@ -90,7 +92,7 @@ test('B-054: todos.add without a chat makes a chat-free to-do; no hidden To-do c
 test('todos.changeWidget and tasks.reorder keep other tasks in place', async (t) => {
   const f = setup();
   t.after(f.cleanup);
-  const todo = await f.owner.call<TaskView>('todos.add', { text: 'Record the intro' });
+  const { task: todo } = await f.owner.call<QuickTaskResult>('tasks.quickCreate', { text: 'Record the intro' });
   const switched = await f.owner.call<TaskView>('todos.changeWidget', { id: todo.id, type: 'confirm' });
   assert.equal(switched.widget?.type, 'confirm');
   const a = f.tasks.create({ conversationId: f.chat.id, title: 'A', createdBy: 'human' });

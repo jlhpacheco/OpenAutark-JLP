@@ -11,7 +11,7 @@
 // need no paid turn – so is a pure quiet pickup whose lines another turn read meanwhile; the quiet pickup's note
 // travels only on a pure review turn (B-050 K4). Plus small time helpers (B-080: no capacity default – no lane has a global limit).
 // B-050 group cost (live scenario 4: an AI-only work group answered twice and polled for replies):
-//  - a chat's plain message wakes ride along with a hand-over or a colleague's result ('handoff'/'child') in that
+//  - a chat's plain message wakes ride along with a colleague's result ('child') in that
 //    chat: one turn reads the line and takes the work (rideAlong), as 'message' – its answer reaches the other
 //    member of a room of two (K3) – at the better of both ranks (the line's);
 //  - a group that only answers colleagues' still running turns – every unseen line was posted by such a turn, its
@@ -21,24 +21,29 @@
 //  - a hand-over or a follow-up (handoff, retry or review only) whose task is finished needs no turn (isStaleHandOver,
 //    B-080 wave 3: follow-ups too); a hand-over that arrives after the agent already wrote in that chat without it carries
 //    a note naming those lines (answeredNote) instead of a second answer.
+// Runde „Halb“ 21.11.2026: chat groups due beside the group that runs ride along in its turn (ridersOf) – 459 turns in 42 h
+// started within 30 s of the same agent's previous one, each reading the whole context again.
 // Owns: those rules. Never: claims/releases wakes or runs turns (dispatcher.ts does).
 
 import { mailPartition } from '../tools/mail-scope.ts';
 import type { ChatService, Wake } from '../contracts.ts';
+import type { Message } from '../../shared/model/chat.ts';
+import { isHumanActor } from '../../shared/model/people.ts';
+import { isExternalAgent } from '../../shared/model/external-agents.ts';
 import type { WakeReason } from '../../shared/model/runs.ts';
 import type { Origin } from '../../shared/model/origin.ts';
 import type { Task, TaskStatus } from '../../shared/model/tasks.ts';
 import { QUIET_NOTE } from '../chat/quiet-pickup.ts';
 import { PICKED_NOTE } from '../chat/responders.ts';
+import { heldBack } from './dispatch-steer.ts';
 
 /** Lower runs first. */
 export const REASON_RANK: Record<WakeReason, number> = {
-  answer: 0, approval: 0, message: 0, manual: 0, // 07.11.2026: lines of people and colleagues before own follow-ups
-  handoff: 1, child: 1,
-  setup: 2, // B-044: a setup wake still queued from before B-066 (nothing queues one now)
+  answer: 0, message: 0, manual: 0, // 07.11.2026: lines of people and colleagues before own follow-ups
+  child: 1,
   task: 3, event: 3, // B-054: an outside event (a new mail) runs where mail ran before as 'task'
   schedule: 4,
-  retry: 5, review: 5, report: 5, // T08: a manager's bundled report of finished work is background like a review
+  retry: 5, review: 5,
   split: 6, // B-057: a split's run (its own lane) – never a queued wake, so it ranks last
   fold: 6, // KI-Runde 17.11.2026: a context fold's run (the dispatcher starts it itself) – never a queued wake
 };
@@ -82,8 +87,8 @@ function rankOf(reason: WakeReason): number {
   return REASON_RANK[reason] ?? REASON_RANK.retry;
 }
 
-/** What a chat's plain message wakes ride along with (B-050): a hand-over or a colleague's result in that chat. */
-const CARRIERS: ReadonlySet<WakeReason> = new Set<WakeReason>(['handoff', 'child']);
+/** What a chat's plain message wakes ride along with (B-050): a colleague's result in that chat. */
+const CARRIERS: ReadonlySet<WakeReason> = new Set<WakeReason>(['child']);
 
 /** A note that keeps a message wake plain: none, or the responder pick's (C4-live, chat/responders.ts PICKED_NOTE). */
 const plainNote = (wake: Wake): boolean => !(wake.note && wake.note.trim()) || wake.note === PICKED_NOTE;
@@ -161,11 +166,11 @@ export function groupWakes(wakes: Wake[]): WakeGroup[] {
 }
 
 /** Fills each task group's priority and overdue flag from its task (an unknown task counts as normal). */
-export function taskFacts(groups: WakeGroup[], taskOf: (id: string) => Pick<Task, 'priority' | 'dueAt'> | undefined, now: number): void {
+export function taskFacts(groups: WakeGroup[], taskOf: (id: string) => Pick<Task, 'priority' | 'at'> | undefined, now: number): void {
   for (const group of groups) {
     const task = group.taskId ? taskOf(group.taskId) : undefined;
     group.priority = task?.priority ?? 0;
-    group.overdue = task?.dueAt !== undefined && task.dueAt <= now;
+    group.overdue = task?.at !== undefined && task.at <= now;
   }
 }
 
@@ -214,6 +219,34 @@ export function nextGroup(live: WakeGroup[], picks: UrgentPick[] = []): { group?
   const pick = picks.find((item) => live.some((group) => isUrgent(group, item)));
   const group = pickGroup(live, pick);
   return { group, left: picks.filter((item) => item !== pick && live.some((other) => other !== group && isUrgent(other, item))) };
+}
+
+/** A line of a person – a person's chat answers it in a turn of its own: a plain final text reaches only that turn's chat. */
+const byPerson = (message: Message): boolean => message.authorKind === 'human' || isHumanActor(message.authorId)
+  || (message.authorKind === 'external' && !isExternalAgent(message.authorId)); // a bridged contact is a person too
+
+/**
+ * Runde „Halb“ 21.11.2026 (one turn takes what is due at its start): the groups of `rest` whose lines and notes ride along in
+ * `group`'s turn, each under its chat's label (agents/turn-riders.ts) – instead of a turn of their own that reads my whole
+ * context again. `group` still decides what the turn is about. Only a chat group without task and outside source rides: a
+ * task brings its own route, pause and ownership; a mail, a schedule or an event its own origin; a retry, a manual retry or a
+ * review other than the quiet pickup its own handling; a chat with a call, a live voice or a recording still to be heard is
+ * answered from a turn of its own (dispatch-steer.ts heldBack). Round 2 (e2e runtime-footprint): only agents' lines ride – a
+ * chat with an unseen line of a person, or a person's answer ('answer'), keeps its own turn, so its final text lands there
+ * (a plain final text reaches one chat only). A mail's own turn carries nothing.
+ */
+export function ridersOf(chats: Pick<ChatService, 'get' | 'members' | 'messages'>, agentId: string, group: WakeGroup, rest: readonly WakeGroup[]): WakeGroup[] {
+  if (mailPartition(group.origin)) return [];
+  return rest.filter((other) => {
+    if (!other.conversationId || other.taskId || other.origin || !other.wakes.every((wake) => (wake.reason === 'message' && !wake.taskId) || quietPickup(wake))) return false;
+    try {
+      if (!chats.get(other.conversationId)) return false;
+      const member = chats.members(other.conversationId).find((item) => item.memberId === agentId && !item.leftAt);
+      return Boolean(member) && !chats.messages(other.conversationId, { afterSeq: member!.readSeq, limit: 200 }).some((message) => message.authorId !== agentId && (byPerson(message) || heldBack(message)));
+    } catch {
+      return false;
+    }
+  });
 }
 
 export function wakeIds(groups: WakeGroup[]): string[] {
@@ -295,11 +328,11 @@ export function waitsFor(chats: Pick<ChatService, 'members' | 'messages'>, agent
   return [...colleagues];
 }
 
-/** The wakes that only carry the task itself on – a look back (retry, review) and an older build's hand-over. */
-const FOLLOW_UPS: ReadonlySet<WakeReason> = new Set<WakeReason>(['handoff', 'retry', 'review']);
+/** The wakes that only carry the task itself on – a look back (retry, review). */
+const FOLLOW_UPS: ReadonlySet<WakeReason> = new Set<WakeReason>(['retry', 'review']);
 
 /**
- * A look back at a task (only 'retry', 'review' or 'handoff' wakes) that is finished already: no paid turn. A 'message',
+ * A look back at a task (only 'retry' or 'review' wakes) that is finished already: no paid turn. A 'message',
  * 'answer', 'task' or 'child' wake on a finished task still runs (a line to read, a verifier's fact, how given work ended).
  */
 export function isStaleHandOver(group: WakeGroup, statusOf: (taskId: string) => TaskStatus | undefined): boolean {
@@ -315,26 +348,20 @@ export function isStaleHandOver(group: WakeGroup, statusOf: (taskId: string) => 
  * task instead of being said again. Undefined: nothing of the kind (or unknown state).
  */
 export function answeredNote(chats: Pick<ChatService, 'messages'>, agentId: string, group: WakeGroup): string | undefined {
-  if (!group.taskId || !group.conversationId || !group.wakes.some((wake) => wake.taskId === group.taskId && (wake.reason === 'task' || wake.reason === 'handoff'))) return undefined;
+  if (!group.taskId || !group.conversationId || !group.wakes.some((wake) => wake.taskId === group.taskId && wake.reason === 'task')) return undefined;
   try {
     const recent = chats.messages(group.conversationId, { limit: 100 });
-    // the task reached me with its anchor (tasks.create to me) or a give line naming me – the newest of them
+    // the task reached me with its anchor (tasks.add for me) or a give line naming me – the newest of them
     const since = recent.filter((message) => message.taskId === group.taskId
       && (message.kind === 'task' || (message.meta.status?.type === 'handoff' && message.meta.status.details?.to === agentId))).at(-1)?.seq;
     if (since === undefined) return undefined;
     const own = recent.filter((message) => message.seq > since && message.authorId === agentId && message.kind === 'text' && message.state !== 'streaming');
     if (!own.length) return undefined;
     const seqs = own.map((message) => `#${message.seq}`).join(', ');
-    return `I already wrote in this chat after this task reached me (${seqs}), in a turn that did not have the task yet. If that already does what it asks, I finish it with tasks.finish (evidence: ${seqs}) instead of saying it again; otherwise I continue the task.`;
+    return `I already wrote in this chat after this task reached me (${seqs}), in a turn that did not have the task yet. If that already does what it asks, I close it with tasks.update (status done, evidence: ${seqs}) instead of saying it again; otherwise I continue the task.`;
   } catch {
     return undefined;
   }
-}
-
-/** Start of the next calendar month in UTC (budget periods are UTC months). */
-export function nextUtcMonthStart(now: number): number {
-  const date = new Date(now);
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1);
 }
 
 /** Resolves when all promises settled or after `ms` (whichever comes first). */

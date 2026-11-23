@@ -5,7 +5,8 @@
 // detail in Work, same text and time; KI-Runde 17.11.2026: an agent's quiet line is a row there too – "<name>: <first
 // sentence>", a click shows the whole line under it, the row stays; a burst has one shape for one line and many, and its next
 // line comes below, so nothing above an opened line moves – message-rows.ts burstView). Failed/stopped messages show
-// their short error and Retry.
+// their short error and Retry. A person's line kept whole in a task's thread (a status line with details.quote) is a
+// quoted block of its own (KeptLine.tsx).
 // The meta row every message reserves holds the markers (important, silent, Ultra, scheduled, voice, from a
 // messenger), the model tag (model-tag-view.ts), the time and "edited"/"imported" – nothing moves on hover. The time's
 // title names what an agent's answer was written on (B-083: the model and effort the turn ended on, and its temperature).
@@ -22,7 +23,7 @@
 
 import { memo } from 'preact/compat';
 import { useMemo, useState } from 'preact/hooks';
-import { messageLevel, type Message } from '../../shared/model/chat.ts';
+import { isTaskThread, messageLevel, type Message } from '../../shared/model/chat.ts';
 import { fromBridgeOwner } from '../../shared/model/bridges.ts';
 import { isExternalAgent } from '../../shared/model/external-agents.ts';
 import { isAgentNotice } from '../../shared/model/message-changes.ts';
@@ -47,7 +48,8 @@ import type { MenuSection } from '../lib/popover.tsx';
 import { ReplyQuote } from './ReplyQuote.tsx';
 import { ScheduledLine } from './ScheduledLine.tsx';
 import { statusText } from './status-text.ts';
-import { burstView, isQuietLine, quietLineText } from './message-rows.ts';
+import { burstView, isQuietLine, quietLineText, quoteOf } from './message-rows.ts';
+import { KeptLine } from './KeptLine.tsx';
 import { messageModelTag } from './model-tag-view.ts';
 import { temperatureTitle } from './live-text.ts';
 import { ModelTagMark } from './ModelTagMark.tsx';
@@ -141,7 +143,10 @@ function MessageItemInner(props: { message: Message }) {
   if (message.kind === 'task') {
     return <div class="message task-message" data-message-id={message.id}><TaskMessage message={message} /></div>;
   }
-  if (message.kind === 'status') return <StatusGroup messages={[message]} />;
+  if (message.kind === 'status') {
+    const quote = quoteOf(message); // a person's line kept whole in a task's thread
+    return quote ? <KeptLine message={message} quote={quote} /> : <StatusGroup messages={[message]} />;
+  }
   const side = messageSide(message);
   const human = side === 'own'; // only the caller's own words are the right-hand bubble
   const open = message.authorKind === 'agent' ? () => go.agent(message.authorId) : side === 'person' ? () => go.person(message.authorId) : undefined;
@@ -188,7 +193,9 @@ function StatusLineRow(props: { message: Message; text: string }) {
   const { message } = props;
   const taskId = statusTaskId(message);
   const kind = 'status-line nested'; // a row of its burst (StatusGroup)
-  const parts = <><span>{props.text}</span><time class="tabular">{time(message.createdAt)}</time></>;
+  // In a task's own thread an agent's change line names who made it (the line carries no "(by …)" of its own then).
+  const who = isTaskThread(message.conversationId) && message.authorKind === 'agent' ? agentName(message.authorId) : '';
+  const parts = <><span>{who ? `${who} · ${props.text}` : props.text}</span><time class="tabular">{time(message.createdAt)}</time></>;
   if (!taskId) return <div class={kind} data-message-id={message.id}>{parts}</div>;
   return <button type="button" class={`${kind} open`} data-message-id={message.id} title="Open the task" onClick={() => openTaskDetail(taskId)}>{parts}</button>;
 }

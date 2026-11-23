@@ -16,9 +16,24 @@
 .composer.drag-over { border-color: var(--focus); border-style: dashed; background: color-mix(in srgb, var(--hover) 45%, var(--surface)); }
 .composer.important { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 
+/* slim (Composer `slim`: a task's thread in its detail – the mockup's line "Write to Clara about this…"): one row
+   [+] [round field] [mic] [send] on a line at the column's foot instead of the framed box; what stands above the field
+   (record bar, schedule bar, reply quote, files) keeps the full width over the row. The cells keep their boxes. */
+.composer-area.slim { width: auto; margin: 0; padding: 8px 10px 10px; border-top: 1px solid var(--line); }
+.mobile-shell .composer-area.slim { margin: 0; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+.composer-area.slim .composer { display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.composer-area.slim .composer > * { flex: 1 0 100%; min-width: 0; }
+.composer-area.slim .composer-actions { display: contents; }
+.composer-area.slim .composer-actions > * { flex: none; order: 3; }
+.composer-area.slim .composer-actions > .composer-plus { order: 1; }
+.composer-area.slim .composer-spacer { display: none; }
+.composer-area.slim .composer-field { flex: 1 1 0; order: 2; padding: 4px 12px; border: 1px solid var(--line); border-radius: 17px; background: var(--surface); }
+.composer-area.slim .composer-field:focus-within { border-color: color-mix(in srgb, var(--focus) 55%, var(--line)); }
+.composer-area.slim .composer-input { font-size: calc(13.5px * var(--ui-text, 1)); }
+
 .composer-input {
   display: block; width: 100%; min-height: 24px; padding: 0 2px; overflow-y: auto; resize: none;
-  border: 0; outline: none; background: transparent; color: var(--text); font: inherit; line-height: 24px;
+  border: 0; outline: none; background: transparent; color: var(--text); font: inherit; line-height: max(24px, calc(24px * var(--ui-text, 1)));
   white-space: pre-wrap; overflow-wrap: break-word; /* the textarea defaults, stated: the mirror wraps the same */
 }
 
@@ -35,10 +50,6 @@
 .dictation-wave.starting { animation: wf-wave-pulse 1.2s ease-in-out infinite; }
 @keyframes wf-wave-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .dictation-wave.starting { animation: none; } }
-/* the mic while its take is transcribed: the spinner with a small × in its middle – a click cancels (MicButton.tsx) */
-.dictation-transcribing { display: grid; place-items: center; }
-.dictation-transcribing > * { grid-area: 1 / 1; }
-.dictation-transcribing:hover .spinner { opacity: .5; }
 .composer-input:focus-visible { outline: none; } /* focus shows on the composer border */
 .composer-input::placeholder { color: var(--muted); }
 
@@ -51,9 +62,24 @@
 .composer-actions .chip { min-height: 32px; }
 .composer-actions .chip[aria-expanded=true] { background: var(--hover); color: var(--text); }
 
-/* Plus (D13: also while dictating – its menu then starts with "Discard dictation") */
+/* Plus */
 .composer-plus .icon { opacity: .85; }
 .composer-plus[aria-expanded=true] { background: var(--hover); }
+
+/* The + that turns into × (composer/PlusCancel.tsx; owner's feedback FCMWNSOZ 20.11.2026): while a take records or is
+   transcribed the plus turns 45° in one motion and the button cancels it. The same element and box in both states – only
+   the icon turns, so nothing moves. For every dictation: the feedback panel uses the same class (.plus-cancel, .is-cancel). */
+.plus-cancel .icon { transition: transform .2s cubic-bezier(.2, .7, .3, 1), opacity .2s; }
+.plus-cancel.is-cancel .icon { transform: rotate(45deg); opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .plus-cancel .icon { transition: none; } }
+
+/* Touch (feedback FCMWNRKJ 20.11.2026, the model chip "so fett" after a tap): a phone keeps :hover on the element tapped
+   last, so the chip and the row's buttons kept their hover box until the next tap elsewhere. Where nothing hovers, the
+   row shows no hover box – an open menu keeps its own. */
+@media (hover: none) {
+  .composer-actions .chip:hover:not([aria-expanded=true]),
+  .composer-actions .icon-button:hover:not(.selected):not([aria-expanded=true]) { background: none; }
+}
 
 
 /* model chip: one fixed width (the name ends in an ellipsis), the model name in text colour, effort or the
@@ -67,12 +93,12 @@
 .model-chip.placeholder { border-color: transparent; background: transparent; pointer-events: none; }
 .popover.model-menu { padding: 6px; }
 .menu-item.unavailable { color: var(--muted); }
-.menu-search.input { width: calc(100% - 8px); margin: 2px 4px 6px; padding: 7px 10px; border-radius: 8px; font-size: 13px; }
+.menu-search.input { width: calc(100% - 8px); margin: 2px 4px 6px; padding: 7px 10px; border-radius: 8px; font-size: calc(13px * var(--ui-text, 1)); }
 .model-list { max-height: min(300px, 45vh); overflow-y: auto; overscroll-behavior: contain; }
 .effort-row { display: flex; gap: 4px; margin-top: 4px; padding: 6px 4px 2px; border-top: 1px solid var(--line); }
 .effort {
   flex: 1 1 0; min-width: 0; min-height: 30px; padding: 4px 6px; border-radius: 8px;
-  color: var(--secondary); font-size: 12px; text-align: center; white-space: nowrap;
+  color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); text-align: center; white-space: nowrap;
 }
 .effort:hover { background: var(--hover); color: var(--text); }
 .effort.on { background: var(--selected); color: var(--text); } /* B-044 §2: selection = colour only, never weight */
@@ -81,10 +107,10 @@
    its value in a fixed cell ("0.3" / "Auto") and a text button "Auto" (no value); Auto dims the slider and the value
    (colour only: nothing in the row moves) */
 .temp-row { display: flex; align-items: center; gap: 6px; min-height: 36px; margin-top: 4px; padding: 6px 4px 2px 8px; border-top: 1px solid var(--line); }
-.temp-row .temp-label { flex: none; color: var(--secondary); font-size: 12px; }
+.temp-row .temp-label { flex: none; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); }
 .temp-row .temp-slider { flex: 1 1 auto; min-width: 0; height: 16px; margin: 0; accent-color: var(--secondary); cursor: pointer; }
-.temp-row .temp-value { flex: none; width: 32px; color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
-.temp-row .temp-auto { flex: none; min-height: 26px; padding: 4px 6px; border-radius: 8px; color: var(--secondary); font-size: 12px; }
+.temp-row .temp-value { flex: none; width: 32px; color: var(--text); font-size: calc(12px * var(--ui-text, 1)); font-variant-numeric: tabular-nums; text-align: right; }
+.temp-row .temp-auto { flex: none; min-height: 26px; padding: 4px 6px; border-radius: 8px; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); }
 .temp-row .temp-auto:hover:not(:disabled) { background: var(--hover); color: var(--text); }
 .temp-row .temp-auto:disabled { color: var(--muted); }
 .temp-row.auto .temp-slider { opacity: .45; }
@@ -112,7 +138,7 @@ body:has(.mobile-shell) .popover .temp-row .temp-auto { min-height: 44px; paddin
   max-height: min(264px, 40vh); padding: 6px; overflow-y: auto; overscroll-behavior: contain;
   border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-popover);
 }
-.suggestion-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 6px 10px; border-radius: 8px; color: var(--text); font-size: 13px; text-align: left; }
+.suggestion-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 6px 10px; border-radius: 8px; color: var(--text); font-size: calc(13px * var(--ui-text, 1)); text-align: left; }
 .suggestion-row[aria-selected=true] { background: var(--hover); }
 .suggestion-row > .icon { opacity: .6; }
 .suggestion-label { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -126,8 +152,8 @@ dialog textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
   .composer-actions > .model-chip { flex-basis: 120px; }
   .composer-actions { gap: 2px; }
 }
-.model-menu .menu-item .menu-hint { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
 .model-menu .model-option-details { overflow-wrap: anywhere; }
+.model-menu .menu-item .menu-hint { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
 
 /* the secret chip; the secret mode (Plus › Secret, settings/SecretRows.tsx ChatSecretBar) sits above the text like the
    schedule block – the rows and foot of the Secrets page's band (settings.css), two rows high and one line of words */
@@ -143,15 +169,15 @@ dialog textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
    menu of one place (MarkMenu.tsx): an overlay above the span inside the field's box – nothing moves */
 .mark-layer {
   position: absolute; inset: 0; padding: 0 2px; overflow-y: auto; pointer-events: none;
-  color: transparent; font: inherit; line-height: 24px; white-space: pre-wrap; overflow-wrap: break-word;
+  color: transparent; font: inherit; line-height: max(24px, calc(24px * var(--ui-text, 1))); white-space: pre-wrap; overflow-wrap: break-word;
 }
 .composer-field .composer-input { position: relative; } /* painted above the mirror */
-.mobile-shell .mark-layer { font-size: 16px; } /* the field's phone size (mobile.css) */
+.mobile-shell .mark-layer { font-size: calc(16px * var(--ui-text, 1)); } /* the field's phone size (mobile.css) */
 .mark-span { color: transparent; background: color-mix(in srgb, var(--warn) 18%, transparent); border-radius: 3px; }
 .mark-menu {
   position: absolute; z-index: 25; width: max-content; min-width: 180px; max-width: min(320px, 100%); padding: 6px;
   border: 1px solid var(--elevated-line); border-radius: var(--r-lg); background: var(--elevated); color: var(--text);
-  box-shadow: var(--shadow-popover); font-size: 13px;
+  box-shadow: var(--shadow-popover); font-size: calc(13px * var(--ui-text, 1));
   --hover: var(--elevated-hover);
 }
 .mark-alt { justify-content: space-between; }
@@ -179,7 +205,7 @@ dialog textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
 }
 .record-preview video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .record-preview video.is-mirrored { transform: scaleX(-1); }
-.record-status { display: flex; flex: 1 1 auto; align-items: center; gap: 8px; min-width: 0; overflow: hidden; color: var(--text); font-size: 13px; }
+.record-status { display: flex; flex: 1 1 auto; align-items: center; gap: 8px; min-width: 0; overflow: hidden; color: var(--text); font-size: calc(13px * var(--ui-text, 1)); }
 .record-status.error { color: var(--danger); }
 .record-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .record-status .w-record-device { margin-left: 0; }

@@ -27,7 +27,7 @@ const current = signal<OpenMenu | null>(null);
 const LONG_PRESS_MS = 500;
 const MOVE_SLOP = 10;
 /** Native controls keep their own right-click (text fields, links inside messages keep copy/paste). */
-const NATIVE = 'input, textarea, [contenteditable="true"], select';
+const NATIVE = 'input, textarea, [contenteditable="true"], [contenteditable="plaintext-only"], select';
 
 /** Opens the shared menu at a point (also usable from a ⋯ button: pass its rect's bottom-left). */
 export function openContextMenu(x: number, y: number, sections: MenuSection[], host?: HTMLElement | null): void {

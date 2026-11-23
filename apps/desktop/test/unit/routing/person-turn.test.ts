@@ -1,6 +1,7 @@
-// A person's own line (routing/person-turn.ts, 17.11.2026: the model settles): a turn with a new line of a person runs at
-// effort ≥ high on the model the turn runs on anyway – it no longer moves the model; turns without one, helper calls and a
-// fixed effort keep the usual effort. The strongest tier's first choice (smarts against list price) is where leading runs.
+// A person's own line (Runde „Halb“ 21.11.2026: no effort floor any more): a turn with a new line of a person runs at the same
+// effort as any other; with nothing set and no weighing, medium on every model, a person's line included (round 4, the bench's
+// nine days: previous.ts UNWEIGHED_EFFORT); a fixed effort and the settled effort stay; a runtime helper call keeps its category's. The model never moves for
+// the line. The strongest tier's first choice (smarts against list price) is where leading runs.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,7 +9,8 @@ import path from 'node:path';
 import { account, agent, mode, setup, standardSetup } from '../models/harness.ts';
 import { Priors } from '../../../src/runtime/models/priors.ts';
 import { SYSTEM_ID } from '../../../src/shared/ids.ts';
-import { firstChoice, personAsks, personEffort, personValue, topTier } from '../../../src/runtime/routing/person-turn.ts';
+import { firstChoice, personValue, topTier } from '../../../src/runtime/routing/person-turn.ts';
+import { UNWEIGHED_EFFORT, startEffortBy } from '../../../src/runtime/routing/previous.ts';
 import type { Message } from '../../../src/shared/model/chat.ts';
 import type { Effort } from '../../../src/shared/model/providers.ts';
 import type { RouteRequest } from '../../../src/runtime/contracts.ts';
@@ -33,71 +35,76 @@ function request(patch: Partial<RouteRequest> = {}): RouteRequest {
   return { agent: agent('ag_1'), mode: chat, conversationId: 'ch_1', ...patch };
 }
 
-test("a person's new line: effort high on the model the turn runs on; without one the usual effort", async () => {
+test("Runde „Halb“ round 4: a turn nobody weighed runs at medium and says so – a person's line like any other wake", async () => {
   const h = await withChat([{ seq: 1, authorKind: 'human' }]);
   const asked = await h.router.route(request());
-  assert.equal(asked.effort, 'high');
-  assert.match(asked.reason, /a person's line · effort at least high$/);
-
+  assert.equal(asked.effort, UNWEIGHED_EFFORT, asked.reason);
+  assert.match(asked.reason, /not weighed · effort medium$/);
+  assert.doesNotMatch(asked.reason, /person/);
+  assert.equal(asked.effortBy, 'default');
   const read = await withChat([{ seq: 1, authorKind: 'human' }, { seq: 2, authorKind: 'agent' }], 1);
   const background = await read.router.route(request());
-  assert.equal(background.effort, 'medium', 'nothing new from a person: the usual chat effort');
-  assert.doesNotMatch(background.reason, /person/);
-
-  const status = await withChat([{ seq: 1, authorKind: 'human', kind: 'status' }, { seq: 2, authorKind: 'human', kind: 'task' }]);
-  assert.doesNotMatch((await status.router.route(request())).reason, /person/, 'a status line or a task card is no request');
-  const answer = await withChat([{ seq: 1, authorKind: 'human', kind: 'answer' }]);
-  assert.match((await answer.router.route(request())).reason, /a person's line/, 'an answer to the agent is');
+  assert.deepEqual([background.modelId, background.effort, background.reason], [asked.modelId, asked.effort, asked.reason], 'with or without a line of the person: the same route');
 });
 
-test('helper calls, splits and turns without a chat keep the usual route', async () => {
+test("not a floor: a weighing of low or medium on a person's line runs as weighed; a fixed or requested effort holds", async () => {
   const h = await withChat([{ seq: 1, authorKind: 'human' }]);
-  assert.equal(personAsks(h.services, { agent: agent(SYSTEM_ID), conversationId: 'ch_1' }), false);
-  assert.equal(personAsks(h.services, { agent: agent('ag_1'), conversationId: 'ch_1', split: { splitId: 'sp_1' } }), false);
-  assert.equal(personAsks(h.services, { agent: agent('ag_1') }), false);
-  assert.equal(personAsks(h.services, { agent: agent('ag_9'), conversationId: 'ch_1' }), false, 'not a member of the chat');
-  assert.equal(personAsks(h.services, { agent: agent('ag_1'), conversationId: 'ch_1' }), true);
+  const sub = { modelId: 'claude:claude-opus-5-5', explicit: true, asked: 'effort' as const, by: 'subconscious' as const, why: 'a receipt', category: 'chat' };
+  for (const effort of ['low', 'medium'] as const) {
+    const weighed = await h.router.route(request({ previous: { ...sub, effort }, boundary: false }));
+    assert.equal(weighed.effort, effort, weighed.reason);
+    assert.doesNotMatch(weighed.reason, /not weighed/);
+    assert.match(weighed.reason, /my subconscious: a receipt/);
+  }
+  const fixed = await h.router.route(request({ agent: agent('ag_1', { modelPolicy: { effort: 'low' } }) }));
+  assert.equal(fixed.effort, 'low', 'the fixed effort of the agent stays');
+  const own = await h.router.route(request({ previous: { modelId: 'claude:claude-opus-5-5', effort: 'low', explicit: true, asked: 'effort' }, boundary: false }));
+  assert.equal(own.effort, 'low', 'my own request stays');
 });
 
-test('the line raises the effort on a Work model and in the cheaper cost mode too; a fixed effort stays', async () => {
+test("medium on every model, whatever the model lists: a Work model, a cheap model in economy, the chip", async () => {
   const pinned = await withChat([{ seq: 1, authorKind: 'human' }]);
   pinned.settings.update({ routing: { work: 'claude:claude-haiku-5-5' } });
   const byUse = await pinned.router.route(request());
-  assert.deepEqual([byUse.modelId, byUse.by, byUse.effort], ['claude:claude-haiku-5-5', 'pin', 'high']);
-
-  const fixed = await withChat([{ seq: 1, authorKind: 'human' }]);
-  const low = await fixed.router.route(request({ agent: agent('ag_1', { modelPolicy: { effort: 'low' } }) }));
-  assert.equal(low.effort, 'low', 'the fixed effort of the agent stays');
-  assert.doesNotMatch(low.reason, /person/);
-  // 13.11.2026: an effort the person suggests in the chat is information on their line – the rule's effort stands
-  fixed.addChat('ch_2', ['ag_1'], { efforts: { ag_1: 'low' } });
-  Object.assign(fixed.services.chats, { messages: () => [{ seq: 1, authorKind: 'human', kind: 'text' }] });
-  assert.equal((await fixed.router.route(request({ conversationId: 'ch_2' }))).effort, 'high');
-
-  const economy = await withChat([{ seq: 1, authorKind: 'human' }]);
+  assert.equal(pinned.catalog.get('claude:claude-haiku-5-5')!.defaultEffort, 'low', 'the test priors list low for Haiku');
+  assert.deepEqual([byUse.modelId, byUse.by, byUse.effort], ['claude:claude-haiku-5-5', 'pin', 'medium']);
+  // 13.11.2026: an effort the person suggests in the chat is information on their line – it never routes
+  pinned.addChat('ch_2', ['ag_1'], { efforts: { ag_1: 'xhigh' } });
+  assert.equal((await pinned.router.route(request({ conversationId: 'ch_2' }))).effort, 'medium');
+  const economy = await withChat([{ seq: 1, authorKind: 'agent' }]);
   economy.settings.update({ routing: { costMode: 'economy' } });
   const cheap = await economy.router.route(request());
   assert.equal(economy.catalog.get(cheap.modelId)!.tier, 'small', 'the cheaper cost mode keeps its cheaper model');
-  assert.equal(cheap.effort, 'high', 'thinking well on a cheap model is still cheap');
+  assert.equal(cheap.effort, 'medium');
 });
 
-test('17.11.2026: the line no longer moves the model – in a live session the turn stays where it is, at effort high or above', async () => {
+test("in a live session the turn keeps its settled effort – a person's line lifts nothing", async () => {
   const h = await withChat([{ seq: 1, authorKind: 'human' }]);
-  // On the code before 17.11.2026 a small previous model gave way to the strongest one on a person's line, on a live cache.
   const small = await h.router.route(request({ previous: { modelId: 'claude:claude-haiku-5-5', effort: 'low', category: 'chat' }, boundary: false }));
-  assert.deepEqual([small.modelId, small.effort], ['claude:claude-haiku-5-5', 'high'], small.reason);
-  const kept = await h.router.route(request({ previous: { modelId: 'claude:claude-opus-5-5', effort: 'medium', category: 'chat' }, boundary: false }));
-  assert.deepEqual([kept.modelId, kept.effort], ['claude:claude-opus-5-5', 'high']);
-  const higher = await h.router.route(request({ previous: { modelId: 'claude:claude-opus-5-5', effort: 'max', category: 'chat' }, boundary: false }));
-  assert.equal(higher.effort, 'max', 'a higher effort is never lowered');
-  assert.doesNotMatch(higher.reason, /person/, 'nothing raised: nothing said');
+  assert.deepEqual([small.modelId, small.effort], ['claude:claude-haiku-5-5', 'low'], small.reason);
+  assert.doesNotMatch(small.reason, /not weighed/, 'a settled effort is no fallback');
 });
 
-test('helpers: top tier and effort floor', () => {
+test("startEffortBy: nothing set – an agent's turn at medium and marked unweighed, a helper call at its category's default", () => {
+  const policy = {} as Parameters<typeof startEffortBy>[0];
+  assert.equal(UNWEIGHED_EFFORT, 'medium');
+  assert.deepEqual(startEffortBy(policy, undefined, 'chat', false, true), { effort: 'medium', requested: false, by: 'default', unweighed: true });
+  assert.equal(startEffortBy(policy, undefined, 'manager-planner', false, true).effort, 'medium', 'no category lift for an agent');
+  assert.equal(startEffortBy(policy, undefined, 'cheap-chat', false, true).effort, 'medium', 'no category drop either');
+  assert.deepEqual(startEffortBy(policy, undefined, 'cheap-chat', false), { effort: 'low', requested: false, by: 'default' }, 'a runtime helper call: its category default');
+  assert.equal(startEffortBy(policy, { modelId: 'x', effort: 'low', explicit: true, asked: 'effort', by: 'subconscious' }, 'chat', true, true).effort, 'low', 'a weighing that arrived decides');
+  assert.deepEqual(startEffortBy({ defaultEffort: 'xhigh' } as typeof policy, undefined, 'chat', false, true), { effort: 'xhigh', requested: false, by: 'default' }, "the person's global default comes first");
+});
+
+test('a runtime helper call keeps its category default', async () => {
+  const h = await withChat([{ seq: 1, authorKind: 'human' }]);
+  const helper = await h.router.route(request({ agent: agent(SYSTEM_ID), mode: mode('cheap-chat'), conversationId: undefined }));
+  assert.equal(helper.effort, 'low', helper.reason);
+});
+
+test('helpers: top tier', () => {
   const pool = [{ model: { tier: 'small' } }, { model: { tier: 'frontier' } }, { model: { tier: 'strong' } }, { model: { tier: 'frontier' } }] as Array<{ model: { tier: 'small' | 'strong' | 'frontier' } }>;
   assert.equal(topTier(pool as never[]).length, 2);
-  assert.equal(personEffort('low'), 'high');
-  assert.equal(personEffort('xhigh'), 'xhigh');
 });
 
 // B-078 (D16, live 06.11.2026: Fable and Astra ran at about 2.5x the cost of Opus): with the shipped priors the strongest tier's
@@ -141,7 +148,7 @@ test('an agent that leads and sits on Fable 5.1 or GPT-6.1 Sol stays there for t
   assert.equal(fable.modelId, 'claude:claude-fable-5-1', fable.reason);
   const sol = await h.router.route(request({ agent: lead, text: 'Bau mir bitte eine Landingpage mit Tailwind, frontend und user interface.', previous: { modelId: 'codex:gpt-6.1-sol', effort: 'medium', category: 'frontend-ui' } }));
   assert.equal(sol.category, 'frontend-ui', sol.reason);
-  assert.deepEqual([sol.modelId, sol.effort], ['codex:gpt-6.1-sol', 'high'], sol.reason);
+  assert.deepEqual([sol.modelId, sol.effort], ['codex:gpt-6.1-sol', 'medium'], sol.reason); // its settled effort: the owner's line lifts nothing
 });
 
 test('personValue and firstChoice: 2 points smarter at 2.5x the price loses, 20 points smarter at 1.5x wins', () => {

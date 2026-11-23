@@ -12,6 +12,7 @@ import { _electron as electron } from 'playwright-core';
 import { connect } from '../e2e/lib/runtime-client.mjs';
 import { feedbackSubmitFixture } from '../e2e/lib/feedback-submit.mjs';
 import { expectStable } from './lib/stable.mjs';
+import { runtimeInfo } from './lib/runtime-info.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const electronPath = path.join(root, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron');
@@ -38,7 +39,7 @@ test('feedback privacy is available before sending; the team inbox reads text an
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.waitForSelector('.shell', { timeout: 60_000 });
-  const info = JSON.parse(await readFile(path.join(profile, 'runtime.json'), 'utf8'));
+  const info = await runtimeInfo(profile);
   rpc = await connect(info.port, info.token, 'cli');
   await rpc.call('settings.update', { onboarding: { step: 'done' } });
   const size = (width, height) => app.evaluate(({ BrowserWindow }, [w, h]) => {
@@ -79,7 +80,7 @@ test('feedback privacy is available before sending; the team inbox reads text an
   await writeFile(delivery.receiverFile, receiver);
   await rpc.call('feedback.setup', { project: delivery.project, apiKey: delivery.apiKey, serviceAccountPath: delivery.serviceAccountFile });
   await feedback.click(); await menu.waitFor();
-  await menu.getByText('Text, the screenshot and recording you keep, and app/device details are sent encrypted to Teydra Lab.', { exact: false }).waitFor();
+  await menu.getByText('Text, the screenshot you keep, and app/device details are sent encrypted to Teydra Lab.', { exact: false }).waitFor();
   await menu.getByRole('button', { name: 'Inbox', exact: true }).waitFor();
   await menu.getByRole('button', { name: 'Feedback privacy', exact: true }).click(); await privacy.waitFor();
   assert.equal(delivery.docs.size, 0, 'configured privacy read still sends nothing');
@@ -100,7 +101,9 @@ test('feedback privacy is available before sending; the team inbox reads text an
   await inbox.locator('.feedback-inbox-text').getByText(report.text, { exact: true }).waitFor();
   await inbox.getByRole('img', { name: 'Feedback screenshot' }).waitFor();
   await page.waitForFunction(() => document.querySelector('.feedback-inbox-image img')?.naturalWidth === 48);
-  assert.equal(delivery.docs.size, 0, 'opened and saved on the team PC, then deleted from mailbox');
+  // 16.11.2026 (runtime/feedback/inbox.ts): opened and saved on this team PC, the letter stays in the mailbox for the
+  // team's other PCs; it leaves when the team removes the report (Delete, at the end)
+  assert.equal(delivery.docs.size, 1, 'opened and saved on the team PC; the letter stays in the mailbox');
   const received = (await rpc.call('feedback.inboxList'))[0];
   assert.equal((await rpc.call('feedback.inboxScreenshot', { id: received.id })).dataBase64, image);
   await inbox.getByRole('button', { name: 'Refresh', exact: true }).waitFor({ state: 'visible' });
@@ -159,6 +162,8 @@ test('feedback privacy is available before sending; the team inbox reads text an
   await inbox.getByRole('button', { name: 'Delete', exact: true }).click();
   await inbox.getByText('No reports yet.', { exact: true }).waitFor();
   assert.deepEqual(await rpc.call('feedback.inboxList'), []);
+  for (const end = Date.now() + 10_000; delivery.docs.size > 0 && Date.now() < end;) await page.waitForTimeout(200);
+  assert.equal(delivery.docs.size, 0, 'a removed report\'s letter leaves the mailbox');
   await shot('feedback-inbox-empty');
   await inbox.getByRole('button', { name: 'Close', exact: true }).click();
   await inbox.waitFor({ state: 'hidden' });

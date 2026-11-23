@@ -20,7 +20,7 @@
 .team-rows { display: flex; flex-direction: column; }
 .team-space + .team-space { margin-top: 12px; }
 /* group headings (People, Agents, one per space) read as headings: text colour, a size above the rows' preview */
-.team-space-title { padding: 10px 20px 6px; color: var(--text); font-size: 13px; font-weight: 600; line-height: 18px; }
+.team-space-title { padding: 10px 20px 6px; color: var(--text); font-size: calc(13px * var(--ui-text, 1)); font-weight: 600; line-height: max(18px, calc(18px * var(--ui-text, 1))); }
 /* one 20 px step per level; the caret slot (24 px) sits at 4 px + depth × 20 px */
 .team-row {
   position: relative; display: flex; align-items: center; min-height: 52px;
@@ -29,6 +29,11 @@
 .team-row:hover { background: var(--hover); }
 .team-row.active { background: var(--selected); }
 .team-row:has(.team-row-open:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
+.member-chats { display: flex; flex-direction: column; margin: 8px -16px 4px; } /* Team-Call 21.11.2026 (MemberChats.tsx): rows reach the column's gutters like the chat list's */
+.member-new-chat { display: flex; align-items: center; gap: 10px; min-height: var(--row-h); padding: 0 14px 0 16px; color: var(--text); text-align: left; }
+.member-new-chat:hover { background: var(--hover); }
+.member-new-chat-icon { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--hover); color: var(--secondary); }
+.team-row.drop-target { background: var(--selected); outline: 2px solid var(--focus); outline-offset: -2px; } /* Team-Call 21.11.2026: the one drop highlight (team-drag.ts) – colour only, nothing moves */
 .team-caret { display: grid; place-items: center; flex: none; width: 24px; height: 32px; border-radius: 6px; color: var(--muted); }
 .team-caret:hover { color: var(--text); }
 .team-caret-space { flex: none; width: 24px; }
@@ -53,7 +58,7 @@
 .team-empty { padding: 8px 20px; }
 /* the collapsed "Archived (n)" group at the end of the list (ArchivedGroup.tsx): one fixed toggle row, opening adds rows below it only */
 .team-archived { margin-top: 10px; }
-.team-archived-toggle { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 32px; padding: 0 20px; color: var(--muted); font-size: 12px; font-weight: 600; text-align: left; }
+.team-archived-toggle { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 32px; padding: 0 20px; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); font-weight: 600; text-align: left; }
 .team-archived-toggle:hover { color: var(--text); }
 .team-row.archived .row-title { color: var(--secondary); }
 @media (pointer: coarse) { .team-archived-toggle { min-height: 44px; } }
@@ -64,18 +69,18 @@
 .agent-column { max-width: 740px; margin: 0 auto; padding: 24px clamp(16px, 4vw, 40px) 56px; }
 /* #/team on a computer (TeamView.tsx): the headline and the whole tree, read-only, in a calm column */
 .team-overview { max-width: 740px; margin: 0 auto; padding: 20px clamp(16px, 4vw, 40px) 56px; }
-.team-headline { padding: 0 20px 6px; color: var(--secondary); font-size: 13px; line-height: 18px; }
+.team-headline { padding: 0 20px 6px; color: var(--secondary); font-size: calc(13px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); }
 .team-overview .team-row { border-radius: var(--r-md); }
 
 /* ---------------------------------------------------------------- agent page */
 .agent-column > .spinner { display: block; margin: 24px auto; }
-.agent-archived { display: inline-block; margin-bottom: 12px; padding: 2px 10px; border-radius: 10px; background: var(--hover); color: var(--secondary); font-size: 12px; }
+.agent-archived { display: inline-block; margin-bottom: 12px; padding: 2px 10px; border-radius: 10px; background: var(--hover); color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); }
 .agent-profile { margin-bottom: 32px; }
 .agent-identity { display: flex; align-items: center; gap: 16px; }
 .agent-identity-text { flex: 1 1 auto; min-width: 0; }
-.agent-name { color: var(--text); font-size: 22px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
-.agent-role { margin-top: 2px; color: var(--secondary); font-size: 13px; }
-.agent-status-line { margin-top: 4px; color: var(--secondary); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.agent-name { color: var(--text); font-size: calc(22px * var(--ui-text, 1)); font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.agent-role { margin-top: 2px; color: var(--secondary); font-size: calc(13px * var(--ui-text, 1)); }
+.agent-status-line { margin-top: 4px; color: var(--secondary); font-size: calc(13px * var(--ui-text, 1)); line-height: 1.45; overflow-wrap: anywhere; }
 .agent-status-label { font-weight: 500; }
 .agent-status-line.status-working .agent-status-label { color: var(--text); }
 .agent-status-line.status-waiting .agent-status-label { color: var(--warn); }
@@ -83,21 +88,21 @@
 .agent-editor { display: flex; flex-direction: column; margin-top: 18px; padding: 16px; border: 1px solid var(--line); border-radius: var(--r-lg); }
 .agent-editor .field-label { margin-top: 10px; }
 .agent-editor .field-label:first-child { margin-top: 0; }
-.agent-instructions-input.input { min-height: 160px; resize: vertical; font-size: 13px; line-height: 1.5; }
+.agent-instructions-input.input { min-height: 160px; resize: vertical; font-size: calc(13px * var(--ui-text, 1)); line-height: 1.5; }
 .agent-editor-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
-.agent-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 22px 0 0; font-size: 13px; }
+.agent-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 22px 0 0; font-size: calc(13px * var(--ui-text, 1)); }
 .agent-facts > div { display: contents; }
 .agent-facts dt { color: var(--muted); }
 .agent-facts dd { display: flex; flex-wrap: wrap; gap: 6px 14px; min-width: 0; margin: 0; color: var(--text); }
-.agent-link { display: inline-flex; align-items: center; gap: 6px; color: var(--text); font-size: 13px; }
+.agent-link { display: inline-flex; align-items: center; gap: 6px; color: var(--text); font-size: calc(13px * var(--ui-text, 1)); }
 button.agent-link:hover { text-decoration: underline; text-underline-offset: 2px; }
 .agent-link > .ai-tag { margin-left: -1px; } /* the link's 6 px gap less 1: the same 5 px before "AI" as in every other list */
-.agent-section-title { margin: 0 0 8px; color: var(--text); font-size: 15px; font-weight: 600; }
+.agent-section-title { margin: 0 0 8px; color: var(--text); font-size: calc(15px * var(--ui-text, 1)); font-weight: 600; }
 .agent-instructions { margin-top: 22px; }
 /* the instructions as rendered Markdown, compact: headings in the text's size, tight lists; until "Show
    more" only the first blocks (no ellipsis after the text's own full stop) */
-.agent-instructions-text.md { color: var(--secondary); font-size: 13px; line-height: 1.55; }
-.agent-instructions-text.md :is(h1, h2, h3, h4, h5, h6) { margin: 8px 0 2px; color: var(--text); font-size: 13px; line-height: 1.55; }
+.agent-instructions-text.md { color: var(--secondary); font-size: calc(13px * var(--ui-text, 1)); line-height: 1.55; }
+.agent-instructions-text.md :is(h1, h2, h3, h4, h5, h6) { margin: 8px 0 2px; color: var(--text); font-size: calc(13px * var(--ui-text, 1)); line-height: 1.55; }
 .agent-instructions-text.md > :first-child { margin-top: 0; }
 .agent-instructions-text.md :is(p, ul, ol) { margin: 0 0 4px; }
 .agent-instructions-text.md li + li { margin-top: 0; }
@@ -106,7 +111,7 @@ button.agent-link:hover { text-decoration: underline; text-underline-offset: 2px
 .agent-instructions-text.clipped > :nth-child(n+4), .agent-instructions-text.clipped li:nth-child(n+3) { display: none; }
 /* a heading as the last shown block would stand alone over "Show more" (its text is hidden): it goes too */
 .agent-instructions-text.clipped > :is(h1, h2, h3, h4, h5, h6):nth-child(3) { display: none; }
-.agent-instructions .text-button { font-size: 12px; }
+.agent-instructions .text-button { font-size: calc(12px * var(--ui-text, 1)); }
 /* the Browser view (AgentBrowser.tsx): two halves of the page, never sized by their content – the live view of the
    agent's own browser above, its area (a workspace surface on agent:<id>) below, one 1 px line between; in the area's
    full view the area alone takes the view */
@@ -125,11 +130,11 @@ button.agent-link:hover { text-decoration: underline; text-underline-offset: 2px
 .agent-log > .empty-state { padding: 8px 0; }
 .log-list { margin: 0; padding: 0; list-style: none; }
 .log-earlier { margin: 0 0 6px; }
-.log-day { margin: 14px 0 2px; padding: 0 4px; color: var(--muted); font-size: 11px; font-weight: 600; }
+.log-day { margin: 14px 0 2px; padding: 0 4px; color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); font-weight: 600; }
 .log-list > .log-day:first-child { margin-top: 0; }
-.log-system { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 4px; color: var(--muted); font-size: 12px; }
+.log-system { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 4px; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); }
 .log-system > .button { flex: none; height: 24px; min-height: 24px; padding: 0 8px; }
-.log-time { flex: none; width: 40px; font-size: 11px; }
+.log-time { flex: none; width: 40px; font-size: calc(11px * var(--ui-text, 1)); }
 .log-mark { display: inline-grid; flex: none; place-items: center; width: 16px; height: 16px; color: var(--secondary); }
 .log-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--secondary); }
 .log-dot.done { background: var(--success); }
@@ -137,19 +142,19 @@ button.agent-link:hover { text-decoration: underline; text-underline-offset: 2px
 .log-dot.unknown { background: var(--warn); }
 .log-system-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-end.failed .log-system-text { color: var(--danger); }
-.log-route { margin: 0 4px 2px 76px; font-size: 11px; }
+.log-route { margin: 0 4px 2px 76px; font-size: calc(11px * var(--ui-text, 1)); }
 .log-steps.run-items { margin: 0 0 0 59px; }
 .log-error.run-error { margin-left: 76px; }
-.log-steps .run-item:is(.commentary, .answer) .run-item-text { color: var(--text); font-size: 13px; }
+.log-steps .run-item:is(.commentary, .answer) .run-item-text { color: var(--text); font-size: calc(13px * var(--ui-text, 1)); }
 .log-steps .run-item.answer > .run-item-head[aria-expanded=true]:not(:hover) { background: none; }
-.run-error { margin: 0 6px 8px 36px; color: var(--danger); font-size: 12px; overflow-wrap: anywhere; }
+.run-error { margin: 0 6px 8px 36px; color: var(--danger); font-size: calc(12px * var(--ui-text, 1)); overflow-wrap: anywhere; }
 .run-loading { padding: 10px 36px; }
 .run-items { margin: 0 0 12px 30px; padding: 0 0 0 12px; border-left: 1px solid var(--line); list-style: none; }
 .run-items > .empty-state { padding: 8px 0; }
 /* D5 step lines (run-items.tsx): one 24 px line each – a fixed 16 px icon slot (a spinner while the call
    runs), the verb, the target with an ellipsis; red when it failed; a thought is muted and shimmers while
    it is written. Nothing on the line changes size between running and done. */
-.run-item { padding: 0; font-size: 13px; }
+.run-item { padding: 0; font-size: calc(13px * var(--ui-text, 1)); }
 .run-item-head { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; min-height: 24px; padding: 0 4px; border-radius: 6px; color: var(--text); line-height: 1.4; text-align: left; }
 .run-item-head:hover, .run-item-head[aria-expanded=true] { background: var(--hover); }
 .run-item .icon { flex: none; opacity: .6; }
@@ -157,7 +162,7 @@ button.agent-link:hover { text-decoration: underline; text-underline-offset: 2px
 .run-item-icon > .spinner { opacity: .8; }
 .run-item-verb { flex: none; color: var(--secondary); white-space: nowrap; }
 .run-item-target { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.run-item-target.mono { font: 12px/1.4 var(--mono); }
+.run-item-target.mono { font: calc(12px * var(--ui-text, 1))/1.4 var(--mono); }
 .run-item.failed :is(.run-item-icon, .run-item-verb, .run-item-target) { color: var(--danger); }
 .run-item.failed .run-item-icon .icon { opacity: 1; }
 .run-item:is(.reasoning, .answer, .more, .system) :is(.run-item-verb, .run-item-target) { color: var(--muted); }
@@ -168,24 +173,24 @@ button.agent-link:hover { text-decoration: underline; text-underline-offset: 2px
 }
 @keyframes wf-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
 @media (prefers-reduced-motion: reduce) { .run-item.reasoning.live .run-item-head :is(.run-item-verb, .run-item-target) { animation: none; background: none; color: var(--muted); } }
-.run-thought { color: var(--secondary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.run-thought { color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); line-height: 1.5; overflow-wrap: anywhere; }
 .run-thought > strong { display: block; margin: 4px 0 2px; color: var(--text); font-weight: 600; }
 .run-thought > p { margin: 0 0 6px; white-space: pre-wrap; }
-.run-item-note { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
-.run-effect { flex: none; margin-left: auto; padding: 0 6px; border-radius: 6px; background: var(--hover); color: var(--secondary); font-size: 11px; }
+.run-item-note { margin: 6px 0 0; color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); }
+.run-effect { flex: none; margin-left: auto; padding: 0 6px; border-radius: 6px; background: var(--hover); color: var(--secondary); font-size: calc(11px * var(--ui-text, 1)); }
 .run-effect.confirmed { color: var(--success); }
 .run-effect.failed { color: var(--danger); }
 .run-effect.unknown, .run-effect.pending { color: var(--warn); }
 .run-item-body { padding: 4px 4px 8px 26px; }
 .run-item-body > .run-item-text { margin-left: 0; }
 .run-data + .run-data { margin-top: 6px; }
-.run-data-label { display: block; margin-bottom: 2px; color: var(--muted); font-size: 11px; }
+.run-data-label { display: block; margin-bottom: 2px; color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); }
 .run-data-value {
   max-height: 260px; margin: 0; padding: 8px 10px; overflow: auto; border: 1px solid var(--line); border-radius: 8px;
-  background: var(--sidebar); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--sidebar); font: calc(12px * var(--ui-text, 1))/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.run-item-text { margin: 2px 0 4px 26px; color: var(--secondary); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-.run-plan { margin: 2px 0 4px 26px; padding-left: 16px; color: var(--secondary); font-size: 12px; }
+.run-item-text { margin: 2px 0 4px 26px; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.run-plan { margin: 2px 0 4px 26px; padding-left: 16px; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); }
 
 /* ---------------------------------------------------------------- hire dialog */
 .new-agent .input { margin-bottom: 12px; }
@@ -206,7 +211,7 @@ button.agent-link:hover { text-decoration: underline; text-underline-offset: 2px
 .agent-editor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 14px 16px; }
 .agent-field { display: flex; flex-direction: column; min-width: 0; }
 .agent-editor .agent-field .field-label { margin: 0 0 6px; }
-.agent-field-hint { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.agent-field-hint { margin-top: 4px; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: 1.4; }
 .agent-editor > .agent-editor-actions { margin-top: 0; }
 .avatar-picker { display: flex; flex-direction: column; gap: 12px; }
 .avatar-picker-head { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
@@ -223,7 +228,7 @@ button.agent-link:hover { text-decoration: underline; text-underline-offset: 2px
 .avatar-swatch[data-color="5"] { background: var(--av-5-bg); color: var(--av-5-fg); }
 .avatar-emoji-picker { display: flex; flex-direction: column; gap: 8px; }
 .avatar-emoji-picks { display: flex; flex-wrap: wrap; gap: 4px; }
-.avatar-emoji-pick { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; font-size: 20px; line-height: 1; }
+.avatar-emoji-pick { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; font-size: calc(20px * var(--ui-text, 1)); line-height: 1; }
 .avatar-emoji-pick:hover { background: var(--hover); }
 .avatar-emoji-pick.on { background: var(--selected); }
 .avatar-emoji-input.input { max-width: 220px; }
@@ -236,15 +241,15 @@ button.agent-link:hover { text-decoration: underline; text-underline-offset: 2px
 .mobile-shell .agent-editor { padding: 14px 12px; }
 
 /* ---------------------------------------------------------------- humans and AI (B-041 §8: parts.tsx AiTag) */
-.ai-tag { flex: none; margin-left: 5px; color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: .04em; line-height: 1; }
+.ai-tag { flex: none; margin-left: 5px; color: var(--muted); font-size: calc(10px * var(--ui-text, 1)); font-weight: 600; letter-spacing: .04em; line-height: 1; }
 .team-row-name { display: flex; align-items: baseline; min-width: 0; }
 .team-row-name .row-title { flex: 0 1 auto; } /* on the line's baseline with the "AI" (as in the sidebar), not raised */
-.agent-name .ai-tag { margin-left: 8px; font-size: 11px; vertical-align: baseline; }
+.agent-name .ai-tag { margin-left: 8px; font-size: calc(11px * var(--ui-text, 1)); vertical-align: baseline; }
 
 /* ---------------------------------------------------------------- name dropdown in a page header (TitleMenu.tsx) */
 .title-menu {
   display: inline-flex; align-items: center; gap: 7px; justify-self: start; min-width: 0; max-width: 100%; height: 26px;
-  margin: -3px 0 -3px -6px; padding: 0 6px; border-radius: var(--r-sm); color: var(--text); font-size: 14px; font-weight: 500; line-height: 20px;
+  margin: -3px 0 -3px -6px; padding: 0 6px; border-radius: var(--r-sm); color: var(--text); font-size: calc(14px * var(--ui-text, 1)); font-weight: 500; line-height: max(20px, calc(20px * var(--ui-text, 1)));
 }
 .title-menu:hover { background: var(--hover); }
 .title-menu-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -258,14 +263,15 @@ button.agent-link:hover { text-decoration: underline; text-underline-offset: 2px
 .agent-row { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 6px 6px; border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
 .agent-row:hover { background: var(--hover); }
 .agent-row-text { display: flex; flex-direction: column; gap: 1px; flex: 1 1 auto; min-width: 0; }
-.agent-row-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-.agent-row-hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.agent-row-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(14px * var(--ui-text, 1)); }
+.agent-row-hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); }
 .agent-human { display: block; width: 100%; height: 104px; resize: none; line-height: 1.5; margin: 4px 0; } /* a fixed cell: typing scrolls inside */
-.agent-work-link { margin: -16px 0 24px; padding: 0; font-size: 13px; }
+.agent-human-hint { display: block; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); } /* a sentence under the field: it wraps (a row hint is one cut line) */
+.agent-work-link { margin: -16px 0 24px; padding: 0; font-size: calc(13px * var(--ui-text, 1)); }
 /* a folded group at a section's end – "Paused (n)" under Schedules, "N older open" / "N waiting" on the Work page
    (agent-work.css): one fixed toggle row like "Archived (n)", opening it only adds rows below */
-.agent-fold-toggle { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 32px; padding: 0 6px; color: var(--muted); font-size: 12px; font-weight: 600; text-align: left; }
+.agent-fold-toggle { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 32px; padding: 0 6px; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); font-weight: 600; text-align: left; }
 .agent-fold-toggle:hover { color: var(--text); }
 @media (pointer: coarse) { .agent-fold-toggle { min-height: 44px; } }
 /* the phone's Add: a quiet text button at the top of the team list (the side header has the plus on a computer) */
-.team-add { display: block; padding: 8px 20px; font-size: 14px; }
+.team-add { display: block; padding: 8px 20px; font-size: calc(14px * var(--ui-text, 1)); }

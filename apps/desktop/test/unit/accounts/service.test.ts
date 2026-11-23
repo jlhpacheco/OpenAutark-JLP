@@ -11,7 +11,7 @@ import os from 'node:os';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { DismissedLogins } from '../../../src/runtime/accounts/dismissed.ts';
 import { signedOut } from '../../../src/runtime/accounts/cli-homes.ts';
-import { chargeOf } from '../../../src/runtime/models/pricing.ts';
+import { accountCharge } from '../../../src/shared/model/charge.ts';
 import { costFactor, isPaid } from '../../../src/runtime/routing/score.ts';
 import { HandlerTable, secureScope, type HandlerContext } from '../../../src/runtime/rpc/table.ts';
 import { register as registerProviders } from '../../../src/runtime/rpc/handlers/providers.ts';
@@ -119,7 +119,7 @@ test('a key from the environment: the account names the variable; the key is rea
   const stored = JSON.stringify(h.db.all('SELECT * FROM accounts'));
   assert.ok(stored.includes('OPENAI_API_KEY') && !stored.includes(ENV_KEY), 'the table holds the name, never the value');
   assert.ok(!JSON.stringify(h.upserts).includes(ENV_KEY), 'account events carry no key');
-  assert.deepEqual([isPaid(added), costFactor(added, h.clock.now()), chargeOf(added)], [true, 1, 'paid'], 'billed per use like a typed key');
+  assert.deepEqual([isPaid(added), costFactor(added, h.clock.now()), accountCharge(added)], [true, 1, 'paid'], 'billed per use like a typed key');
   assert.equal((await h.service.add({ provider: 'openai', envVar: 'OPENAI_API_KEY' })).id, added.id, 'one account per variable');
 
   // The variable is gone (the next start): no key, and the check says needs_login without asking the provider.

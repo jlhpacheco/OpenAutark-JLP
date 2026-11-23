@@ -11,7 +11,8 @@
 
 import type { PhonePc } from '../../shared/api/methods-phone.ts';
 import { b64url, fromB64url, random, type Bytes } from './bytes.ts';
-import { fingerprint, newDeviceKey, newX25519, sign, validRemoteId, verify, type DeviceKey } from './crypto.ts';
+import { validRemoteId } from '../../shared/model/remote.ts';
+import { fingerprint, newDeviceKey, newX25519, sign, verify, type DeviceKey } from './crypto.ts';
 import { RelayLink, type Found, type WsFactory } from './relay.ts';
 import { commitment, mac, macOk, matchCode, sessionKey, signedBytes, transcript } from './sas.ts';
 

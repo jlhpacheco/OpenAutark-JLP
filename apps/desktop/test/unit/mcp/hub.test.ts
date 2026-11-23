@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Mcp } from '../../../src/runtime/mcp/hub.ts';
 import { McpToolNames, mcpWireName } from '../../../src/runtime/mcp/names.ts';
-import { MemoryLogger } from '../../../src/runtime/system/log.ts';
+import { MemoryLogger } from '../fakes.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import type { ToolContext, ToolOutput, ToolSpec } from '../../../src/runtime/tools/types.ts';
 import type { Agent } from '../../../src/shared/model/org.ts';

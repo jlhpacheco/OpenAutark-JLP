@@ -2,8 +2,8 @@
 // (call-log.ts – one value per call in its chat), the realtime sessions over `ws` (realtime/session.ts), the call voice as
 // one kept conversation per call on the helper lane (talker.ts with decision/engine-runner.ts createChatOpener; the end of
 // a call reaches it through CallLog.onEnd), an agent's rings (ring.ts, B-081) and the lookups the RPC handlers, the
-// chat.call tool and the context fold use (callLogOf, realtimeOf, talkerOf, ringsOf, inLiveCall). A call otherwise runs on
-// the device (shared/voice/conversation.ts).
+// chat.call tool and the context fold use (callLogOf, realtimeOf, talkerOf, ringsOf, inLiveCall); Team-Call 21.11.2026: the
+// mesh method between people's PCs (call-peer.ts). A call otherwise runs on the device (shared/voice/conversation.ts).
 // Shutdown: stopCalls (compose/lifecycle.ts); start-up: endCallsLeftOpen (main.ts reconciliation, after the sync listens).
 // Owns: that wiring. Never: provider protocol.
 
@@ -11,8 +11,9 @@ import WebSocket from 'ws';
 import { WorkforceError } from '../../shared/errors.ts';
 import type { RuntimeServices } from '../contracts.ts';
 import { createChatOpener, type ChatOpener } from '../decision/engine-runner.ts';
-import type { PushFetch } from '../devices/sync/held-push.ts';
+import type { PushFetch } from '../pwa/push.ts';
 import { CallLog } from './call-log.ts';
+import { registerCallPeer } from './call-peer.ts';
 import type { EngineSocket, SocketFactory } from './realtime/engine.ts';
 import { RealtimeCalls, type CallTimers } from './realtime/session.ts';
 import { Rings } from './ring.ts';
@@ -37,6 +38,7 @@ export function createCalls(services: RuntimeServices, options: { connect?: Sock
   const talker = new CallTalker({ services: () => services, voice: options.voice ?? createChatOpener(services), calls: log });
   log.onStart((conversationId, callId) => talker.started(conversationId, callId)); // the voice's session opens with the call (decision 7.1)
   log.onEnd((conversationId, callId, handOver) => talker.ended(conversationId, callId, handOver)); // the voice's last act (decision 8.4)
+  registerCallPeer(services); // Team-Call: join notes and WebRTC signals between people's PCs
   const ring = new Rings({ services: () => services, log, timers: options.timers ?? timers, fetch: options.fetch });
   logs.set(services, log);
   realtimes.set(services, realtime);

@@ -1,23 +1,22 @@
-// calendar.add (B-041 – a clicked free slot, then typed or dictated): the marked range is the time, the first line the
-// title (more lines are its notes). It is a to-do unless the caller says 'event' (kind 'auto' = to-do – no guessing from
-// words). An event is a local row with its title. A to-do is the person's own to-do – made like the To-do list's own
-// input (tasks/todo-draft.ts quickDraft, chat-free, origin todo-list "Calendar") with the range as its estimate – plus
-// its block the person set. With My day's "Only me" switch (settings.day.aiHelps off) the to-do is private. An agent's
-// event may not cover a timed event or a block the person set. Resent with the same clientId it answers what the first
-// one made.
-// Owns: that flow. Never: a model call, a to-do made for the person by an agent here (agents use the calendar tools),
-// or task text on the block.
+// calendar.add (B-041 – a clicked free slot, then typed or dictated; Quests round 20.11.2026): the marked range is the
+// time, the first line the title (more lines are its notes). It is a to-do unless the caller says 'event' (kind 'auto' =
+// to-do – no guessing from words). An event is a local row with its title. A to-do is the person's line at that time –
+// the one intake, tasks/quick.ts (their own chat-free to-do with `at`/`minutes` from the range, sorted by their
+// assistant; with settings.day.aiHelps off it is "Only me" – sorted too, never handed to an agent – as every line
+// there). An agent's event may not cover a timed
+// event or a to-do the person placed. Resent with the same clientId it answers what the first one made.
+// Owns: that flow. Never: a model call, a to-do made for the person by an agent here (agents use the task tools), or task
+// text on a row.
 
 import { WorkforceError } from '../../shared/errors.ts';
-import { DEFAULT_ESTIMATE_MIN, type CalendarAddInput, type CalendarEvent } from '../../shared/model/calendar.ts';
-import { daySettingsOf } from '../../shared/model/day-settings.ts';
+import type { CalendarAddInput, CalendarEvent } from '../../shared/model/calendar.ts';
 import { isHumanActor } from '../../shared/model/people.ts';
 import { excerpt } from '../../shared/text/chat-names.ts';
 import type { TaskView } from '../../shared/model/tasks.ts';
-import { ORIGINS } from '../../shared/model/origin.ts';
-import { quickDraft } from '../tasks/todo-draft.ts';
 import type { CalendarServiceImpl } from './service.ts';
 import { ownerOf, setByOf } from './rules.ts';
+import { todoRow } from './repo.ts';
+import { quickCreate } from '../tasks/quick.ts';
 
 const MIN = 60_000;
 /** An event's length when neither the range nor the text gives one. */
@@ -38,14 +37,14 @@ export function readSlot(input: CalendarAddInput): Slot {
 }
 
 /** calendar.add (see the header). */
-export function addFromSlot(calendar: CalendarServiceImpl, input: CalendarAddInput, by: string): { event: CalendarEvent; task?: TaskView } {
+export async function addFromSlot(calendar: CalendarServiceImpl, input: CalendarAddInput, by: string): Promise<{ event: CalendarEvent; task?: TaskView }> {
   const s = calendar.s;
   const slot = readSlot(input);
   const ownerId = ownerOf(by);
   const setBy = setByOf(by);
   const text = input.text.trim();
-  const notes = text.includes('\n') ? { notes: text } : {}; // several lines: the whole text stays with it
   if (slot.kind === 'event') {
+    const notes = text.includes('\n') ? { notes: text } : {}; // several lines: the whole text stays with it
     const sent = input.clientId ? calendar.recentEvents.get(`${by}:${input.clientId}`) : undefined;
     const before = sent ? calendar.repo.get(sent) : undefined;
     if (before) return { event: before };
@@ -55,24 +54,14 @@ export function addFromSlot(calendar: CalendarServiceImpl, input: CalendarAddInp
     if (input.clientId) remember(calendar.recentEvents, `${by}:${input.clientId}`, event.id);
     return { event };
   }
-  if (!isHumanActor(by)) throw new WorkforceError('bad_request', 'An agent puts a to-do into the calendar with calendar.place_task.');
-  const estimate = slot.endAt !== undefined
-    ? { minutes: Math.max(1, Math.round((slot.endAt - slot.startAt) / MIN)), source: 'said' as const }
-    : { minutes: DEFAULT_ESTIMATE_MIN, source: 'default' as const };
-  const only = onlyMe(s);
-  const task = s.tasks.create({
-    origin: { source: ORIGINS.todoList.source, label: 'Calendar' }, ...quickDraft(s, slot.title), ...notes,
-    assigneeKind: 'human', createdBy: by, clientId: input.clientId, estimateMin: estimate.minutes, estimateSource: estimate.source,
-    ...(only ? { private: true } : {}),
-  });
-  const existing = calendar.repo.byTask(task.id);
-  const event = existing ?? calendar.upsertBlock(task.id, slot.startAt, slot.endAt ?? slot.startAt + estimate.minutes * MIN, 'person', by);
-  return { event, task: s.tasks.get(task.id) ?? task };
-}
-
-/** My day's switch says "Only me" (settings.day.aiHelps off; unreadable settings: the default "AI helps"). */
-function onlyMe(s: CalendarServiceImpl['s']): boolean {
-  try { return !daySettingsOf(s.settings.get()).aiHelps; } catch { return false; }
+  if (!isHumanActor(by)) throw new WorkforceError('bad_request', 'An agent gives the person a to-do with a time through its task tools.');
+  const minutes = slot.endAt !== undefined ? Math.max(1, Math.round((slot.endAt - slot.startAt) / MIN)) : undefined;
+  const { org, chats, wakes } = s;
+  if (!org || !chats || !wakes) throw new WorkforceError('unavailable', 'The Tasks page is not available yet.');
+  const { task } = await quickCreate({ ...s, org, chats, wakes }, { text, at: slot.startAt, ...(minutes !== undefined ? { minutes } : {}), ...(input.clientId ? { clientId: input.clientId } : {}) }, by);
+  const event = task ? todoRow(task) : undefined;
+  if (!task || !event) throw new WorkforceError('internal', 'The to-do was not made.');
+  return { event, task };
 }
 
 function remember(recent: Map<string, string>, key: string, id: string): void {

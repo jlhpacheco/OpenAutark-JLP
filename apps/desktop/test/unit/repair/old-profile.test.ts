@@ -1,6 +1,6 @@
-// Upgrade of a representative old profile (schema 9, test/unit/repair/old-profile.ts) to this
+// Upgrade of a representative old profile (the baseline's schema, test/unit/repair/old-profile.ts) to this
 // version through the real start path (db/upgrade.ts openDatabase): the pre-update copy holds the
-// untouched schema-9 data; after the migration the agents (with org and mode), the chat with its
+// untouched old data; after the migration the agents (with org and mode), the chat with its
 // messages and attachment, the finished task with its step, the human to-do, the stored file with
 // its media description and tags, both accounts' metadata and the agent memory are all still there.
 // The service-level proof over RPC is test/e2e/runtime-upgrade.test.mjs.
@@ -15,7 +15,7 @@ import { SCHEMA_VERSION } from '../../../src/runtime/db/migrate.ts';
 import { listUpgradeBackups, openDatabase, storedSchema, upgradeBackupFile } from '../../../src/runtime/db/upgrade.ts';
 import { FIXTURE, IMAGE_ID, OLD_SCHEMA, writeOldProfile } from './old-profile.ts';
 
-test('an old schema-9 profile upgrades with one pre-update copy; tasks, media, accounts and agents survive', (t) => {
+test('an old profile at the baseline upgrades with one pre-update copy; tasks, media, accounts and agents survive', (t) => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'wf-old-profile-'));
   t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   writeOldProfile(dir);

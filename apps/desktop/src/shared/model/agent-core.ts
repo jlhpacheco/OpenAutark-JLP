@@ -4,12 +4,11 @@
 //                   home project – the ONE place it is stored, so a disk edit counts as the person's edit
 //   SYSTEM.md       the agent's instructions: the ONE text the runtime prompt and the agent editor use
 //   skills/<name>/SKILL.md  its Main Skills (agentskills.io front matter name + description, like every skill)
-//   HUMAN.md        (owner 15.11.2026) the person's lines to this agent, near the end of its system prompt (only the
-//                   person's lines to every agent, settings profile.forEveryAgent, come after them); the person writes
+//   HUMAN.md        (owner 15.11.2026) the person's lines to this agent, last in its system prompt; the person writes
 //                   it on the agent page or as a file, and the agent may change it too (owner 16.11.2026: "die dürfen
 //                   alles in unserem System") – no standard or update ever rewrites it
 // Shapes for agents.core / agents.saveMainSkill / agents.setHome and the 'agentCore.changed' event, the limits and the
-// default line of profile.forEveryAgent.
+// old "I'm not a robot" line the bridges recognise.
 // Owns: these shapes and constants. Never: behaviour (runtime/agent-core).
 
 import type { SkillInfo } from './knowledge.ts';
@@ -20,12 +19,13 @@ export const SYSTEM_FILE = 'SYSTEM.md';
 export const MAX_SYSTEM_MD = 60_000;
 export const CORE_MANIFEST = 'agent.json';
 export const HUMAN_FILE = 'HUMAN.md';
-/** The longest HUMAN.md the prompt and the agent page take (a longer one is cut in the prompt); profile.forEveryAgent too. */
+/** The longest HUMAN.md the prompt and the agent page take (a longer one is cut in the prompt). */
 export const MAX_HUMAN_MD = 4_000;
 
 /**
- * Owner 15./16.11.2026: the line the person's text for every agent (settings profile.forEveryAgent) starts with, by the
- * app's language (German, else English). Until 0.3.9 each new HUMAN.md started with it (bridge/kontext-1311.ts).
+ * Owner 15./16.11.2026: the "I'm not a robot" line by the app's language (German, else English) – until 0.3.9 each new
+ * HUMAN.md started with it, until 19.11.2026 the old text for every agent did
+ * (bridge/sicher-1119.ts drops it there: the topic file security/<mode>/captcha.md carries it now).
  */
 export function humanDefault(language: string | undefined): string {
   return language?.trim().toLowerCase().startsWith('de')

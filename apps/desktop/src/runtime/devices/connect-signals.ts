@@ -17,7 +17,7 @@ export function connectNotice(view: RemoteIncoming): NotificationInput & { route
   const phone = view.role === 'phone';
   return {
     kind: 'important', title: phone ? `Phone ${view.name} asks to connect · code ${view.code}` : `${view.name} wants to connect · code ${view.code}`,
-    body: `${view.role === 'employee' ? 'As an employee. ' : ''}Accept in Settings › Devices if ${phone ? 'the phone' : view.name} shows the same code.`,
+    body: `${view.role === 'employee' ? 'As a new member. ' : ''}Accept in Settings › Devices if ${phone ? 'the phone' : view.name} shows the same code.`,
     route: DEVICES_ROUTE,
   };
 }

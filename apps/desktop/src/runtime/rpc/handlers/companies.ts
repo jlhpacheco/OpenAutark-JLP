@@ -5,7 +5,10 @@
 // scope: all are about this PC (another company's runtime calls with this one's owner token, over loopback).
 // 16.11.2026: companies.list with facts (each other company's own, for Settings › General › Companies), companies.remove
 // (main takes it off this PC: main/company-remove.ts), companies.export (this one here, another one by itself over
-// loopback) and companies.import (portability/company.ts).
+// loopback) and companies.import (portability/company.ts). 20.11.2026 (owner: "austreten"): the company taken off is this
+// one (its folder is this runtime's data folder – from its window, or main asking it over loopback after writing the
+// removal mark) – it first says the goodbye 'left' to every live link (devices/away.ts), so its linked PCs drop this PC
+// and keep the company. A company that does not run says none (main removes it without starting it).
 // Owns: these registrations and their params. Never: the folder rule, starting or removing a company or running a tool itself.
 
 import path from 'node:path';
@@ -16,13 +19,19 @@ import { exportCompany, importCompany } from '../../portability/company.ts';
 import { callCompany, companyFolder, listCompanies, withOtherFacts } from '../../root/companies.ts';
 import { runCompanyTool, withOwnFacts } from '../../tools/builtin/companies.ts';
 import { bad, input, onlyKeys, optBool, optObj, optText, text } from '../params.ts';
-import type { HandlerTable } from '../table.ts';
+import type { HandlerContext, HandlerTable } from '../table.ts';
+import type { MeshApi } from '../extras.ts';
+import type { DeviceMesh } from '../../devices/mesh.ts';
+import { LEFT } from '../../devices/away.ts';
 
 /** How long companies.list with facts waits for each other company's own. */
 const FACTS_MS = 3_000;
 
 /** A company id from companies.list, or null for the first one. */
 const companyId = (raw: unknown): string | null => (raw === null ? null : isCompanyId(raw) ? raw : bad('id', 'a company id from companies.list, or null for the first company'));
+
+/** The goodbye 'left' to every live link (at most BYE_MS); a mesh without it (a test profile) has none to tell. */
+const leave = (ctx: HandlerContext): Promise<void> => (ctx.extras.mesh as (MeshApi & Partial<Pick<DeviceMesh, 'bye'>>) | undefined)?.bye?.(LEFT) ?? Promise.resolve();
 
 /** An absolute path param (paths on this PC never resolve against the runtime's cwd). */
 function absolute(o: Record<string, unknown>, key: string): string {
@@ -38,14 +47,17 @@ export function register(table: HandlerTable): void {
     const companies = withOwnFacts(ctx.services, listCompanies(app));
     return { companies: optBool(o, 'facts') === true ? await withOtherFacts(app, companies, { signal: ctx.signal, timeoutMs: FACTS_MS }) : companies };
   });
-  table.add('companies.remove', (params, ctx) => {
+  table.add('companies.remove', async (params, ctx) => {
     const o = input(params);
     onlyKeys(o, ['id']);
     if (!('id' in o)) bad('id', 'a company id from companies.list, or null for the first company');
     const id = companyId(o.id);
     const { host } = ctx.services;
     if (!host.removeCompany || !host.app.companies) throw new WorkforceError('unavailable', 'Companies are removed only in the desktop app.');
-    const name = listCompanies(host.app).find((entry) => entry.id === id)?.label;
+    const all = listCompanies(host.app); // a company main already marked for removal is no longer in it
+    const self = path.resolve(companyFolder(host.app, id)!) === path.resolve(host.app.dataDir); // by its folder: main asks a marked one over loopback
+    if (self && all.some((item) => item.id !== id)) await leave(ctx); // this PC leaves the company (the only one stays, main/company-remove.ts): its linked PCs drop it before it stops
+    const name = all.find((item) => item.id === id)?.label;
     return host.removeCompany({ id, ...(name ? { name } : {}) });
   });
   table.add('companies.export', async (params, ctx) => {
@@ -73,7 +85,7 @@ export function register(table: HandlerTable): void {
     onlyKeys(o, ['id', 'create', 'start']);
     const id = o.id === undefined ? null : companyId(o.id);
     const create = optBool(o, 'create') === true;
-    const start = o.start === undefined ? undefined : isCompanyStart(o.start) ? o.start : bad('start', "'new', 'mine' or 'employee'");
+    const start = o.start === undefined ? undefined : isCompanyStart(o.start) ? o.start : bad('start', "'new' or 'join'");
     const { host } = ctx.services;
     if (!host.openCompany || !host.app.companies) throw new WorkforceError('unavailable', 'Other companies open only in the desktop app.');
     return host.openCompany(create ? { id, create, ...(start ? { start } : {}) } : { id });

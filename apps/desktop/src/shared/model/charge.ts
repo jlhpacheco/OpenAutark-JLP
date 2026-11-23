@@ -1,13 +1,13 @@
-// The pure charge rule of an account, shared so the UI labels pay-per-use models the way the
-// runtime bills them (runtime/models/pricing.ts chargeOf keeps the same rule; a unit test holds
-// both together): an API key or environment key pays per use, a Codex/Claude Code CLI signed in
-// with an API key (status plan 'api') too – unless it holds a plan's monthly API credits (B-083 `credits`: prepaid and
-// lost at the end of the billing month, so it counts as a plan); local runtimes and keyless servers are free; every
-// other login is a plan. Plus the UI's "first usable account" of a model (SG cost-guide labels) and which accounts
+// The pure charge rule of an account – the one rule: the runtime books (models/pricing.ts), routes (routing/score.ts isPaid,
+// accounts/candidates.ts) and labels (routing/model-facts.ts) by it, and the UI labels pay-per-use models with it: an API key
+// or environment key pays per use, a CLI signed in with an API key (status plan 'api') too – unless it holds a plan's
+// monthly API credits (B-083 `credits`: prepaid and lost at the end of the billing month, so it counts as a plan); local
+// runtimes and keyless servers are free; every other sign-in is a plan – Codex, Claude Code and the ACP CLIs (Gemini CLI,
+// Copilot, Kimi Code) alike. Plus the UI's "first usable account" of a model (SG cost-guide labels) and which accounts
 // can hold plan credits at all, and (17.11.2026) which plan can go on past its limit on the provider's extra usage.
-// Owns: this rule for UI use. Never: I/O, prices, or which account a turn really gets (routing).
+// Owns: this rule. Never: I/O, prices, or which account a turn really gets (routing).
 
-import type { Account, ModelInfo } from './providers.ts';
+import type { Account } from './providers.ts';
 
 export type AccountCharge = 'paid' | 'plan' | 'free';
 
@@ -48,12 +48,4 @@ export function extraUsageOf(account: Pick<Account, 'auth' | 'provider' | 'plan'
   if (account.auth !== 'cli') return { ok: false, why: charge === 'free' ? 'This is free and has no limit to go past.' : 'An API key has no plan limit to go past: every use is billed already.' };
   if (!EXTRA_USAGE_PROVIDERS.has(account.provider)) return { ok: false, why: 'No paid extra usage for this plan – it waits for its reset.' };
   return { ok: true };
-}
-
-/** The account a model would most likely run on: its provider, listed accounts, enabled and signed in, lowest priority first. */
-export function firstAccount(model: Pick<ModelInfo, 'provider' | 'accounts'>, accounts: readonly Account[]): Account | undefined {
-  return accounts
-    .filter((account) => account.provider === model.provider && account.enabled && account.state !== 'disabled' && account.state !== 'needs_login'
-      && (!model.accounts.length || model.accounts.includes(account.id)))
-    .sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id))[0];
 }

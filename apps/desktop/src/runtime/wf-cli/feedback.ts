@@ -6,7 +6,7 @@
 //   wf feedback status    whether this build sends and whether this PC receives.
 // 16.11.2026 (the team works through its inbox in the terminal; the report number is the one both sides show):
 //   wf feedback list [--open]             one line per report: number, date, mark, where it was written, first line;
-//   wf feedback show <no>                 the whole report: text, facts, both diagnostics, its files on this PC;
+//   wf feedback show <no>                 the whole report: text, facts, both diagnostics, its screenshot on this PC;
 //   wf feedback mark <no> done|irrelevant|open   marks it (a marked report leaves this PC 7 days later) or opens it again.
 // The runtime reads the key file itself (feedback.setup, owner only) – it is passed as an absolute path.
 // Owns: what these call and print. Never: prints a private key or the service account (the runtime never returns
@@ -14,7 +14,7 @@
 
 import path from 'node:path';
 import {
-  FEEDBACK_HANDLED_KEEP_MS, FEEDBACK_IMAGE_EXT, INBOX_DIR, reportNumber, type FeedbackHandled, type FeedbackInboxFetch, type FeedbackInboxItem, type FeedbackSetupResult, type FeedbackStatus,
+  FEEDBACK_HANDLED_KEEP_MS, inboxImageFile, INBOX_DIR, reportNumber, type FeedbackHandled, type FeedbackInboxFetch, type FeedbackInboxItem, type FeedbackSetupResult, type FeedbackStatus,
 } from '../../shared/model/feedback-delivery.ts';
 import { flag, text, type Parsed } from './args.ts';
 import type { Command, Ctx } from './commands.ts';
@@ -77,8 +77,6 @@ function listLines(items: readonly FeedbackInboxItem[], open: boolean, now: numb
   return shown.map((item) => `${reportNumber(item.id)}  ${clock(item.createdAt, now)}  [${markOf(item)}]  ${origin(item)}${item.fromAgent ? ' · agent' : ''}  –  ${firstLine(item.text)}`);
 }
 
-const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
-
 function showLines(item: FeedbackInboxItem, dir: string, now: number): string[] {
   const facts = [
     `Written: ${clock(item.createdAt, now)} · fetched ${clock(item.receivedAt, now)}`,
@@ -91,10 +89,7 @@ function showLines(item: FeedbackInboxItem, dir: string, now: number): string[] 
     ...(item.dictated ? ['Dictated: the words are a transcript – read them for what was meant.'] : []),
     `Mark: ${markOf(item)}${item.handled ? ` (${clock(item.handled.at, now)})` : ''}`,
   ];
-  const files = [
-    ...(item.screenshot ? [`Screenshot: ${path.join(dir, `${item.id}.${FEEDBACK_IMAGE_EXT[item.screenshot.mime]}`)}`] : []),
-    ...(item.audio ?? []).map((take, index) => `Recording ${index + 1}: ${path.join(dir, take.file)} (${take.mime}, ${kb(take.size)})`),
-  ];
+  const files = (item.images ?? []).map((image, index) => `Image ${index + 1}: ${path.join(dir, inboxImageFile(item.id, index, image.mime))}`);
   return [
     `Report ${reportNumber(item.id)} (${item.id})`, ...facts, '', item.text,
     ...(item.diagnostics ? ['', 'Diagnostics (the sending PC\'s log):', item.diagnostics] : []),

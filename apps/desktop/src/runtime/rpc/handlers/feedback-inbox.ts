@@ -6,10 +6,10 @@
 // Owns: param checks. Never: the inbox or setup behaviour (runtime/feedback/inbox.ts, setup.ts).
 
 import { WorkforceError } from '../../../shared/errors.ts';
-import { FEEDBACK_AUDIO_MAX } from '../../../shared/model/feedback-delivery.ts';
 import { DOCUMENT_ID } from '../../feedback/drop.ts';
 import type { FeedbackApi } from '../extras.ts';
 import { bad, input, num, onlyKeys, optBool, text, type Obj } from '../params.ts';
+import { FEEDBACK_IMAGES_MAX } from '../../../shared/model/feedback-delivery.ts';
 import type { HandlerContext, HandlerTable } from '../table.ts';
 
 const SECURE_SETTINGS = { capability: 'settings', secure: true } as const;
@@ -47,15 +47,10 @@ export function register(table: HandlerTable): void {
     if (as !== null && as !== 'done' && as !== 'irrelevant') bad('as', '"done", "irrelevant" or null');
     return inbox(ctx).mark(reportId(o), as as 'done' | 'irrelevant' | null);
   }, SECURE_SETTINGS);
-  table.add('feedback.inboxScreenshot', (params, ctx) => {
-    const o = input(params);
-    onlyKeys(o, ['id']);
-    return inbox(ctx).screenshot(reportId(o));
-  }, SECURE_SETTINGS);
-  table.add('feedback.inboxAudio', (params, ctx) => {
+  table.add('feedback.inboxImage', (params, ctx) => {
     const o = input(params);
     onlyKeys(o, ['id', 'index']);
-    return inbox(ctx).audio(reportId(o), num(o, 'index', { min: 0, max: FEEDBACK_AUDIO_MAX - 1, integer: true }));
+    return inbox(ctx).image(reportId(o), num(o, 'index', { integer: true, min: 0, max: FEEDBACK_IMAGES_MAX - 1 }));
   }, SECURE_SETTINGS);
   table.add('feedback.setup', (params, ctx) => {
     const o = input(params);

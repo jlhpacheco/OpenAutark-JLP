@@ -8,8 +8,6 @@ import { rpc } from '../lib/rpc.ts';
 import { openExternal, platform } from '../lib/platform.ts';
 
 export { platform };
-/** Chunked uploads (≤ 4 MB per frame) live with the other file helpers. */
-export { uploadBlob } from '../lib/files.ts';
 
 /** Opens an agent-provided link through the host (system browser), allowlisted protocols only. */
 export function openLink(url: string): void {

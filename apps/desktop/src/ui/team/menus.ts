@@ -4,7 +4,8 @@
 // Change reports-to… (both "set up with AI": the Manager's chat opens with
 // the request, the skill agent-duplicate does the copy) · Export · Archive; an archived agent offers Restore.
 // Person: Message · Edit · Invite a device · Devices and chats · Remove access – F14: for someone who never joined
-// "Remove" instead (people.remove: they leave the team for good). Text only, no icons.
+// "Remove" instead (people.remove: they leave the team for good); a company colleague on an employee's PC
+// (Person.fromEmployer) offers nothing: no chat here can hold them. Text only, no icons.
 // Owns: which items an agent or a person offers and what they call. Never: draws a menu or a dialog (the
 // person dialogs are mounted by person-dialogs.tsx; Browser is shown by AgentView).
 
@@ -92,7 +93,7 @@ async function removeAccess(person: Person): Promise<void> {
   try { upsertPerson(await rpc.call('people.revoke', { id: person.id })); } catch (error) { toastError(error, 'Could not remove the access'); }
 }
 
-/** F14: a person who never joined leaves the team for good (people.remove; PersonInvite's Withdraw invite does the same). */
+/** F14: a person who never joined leaves the team for good (people.remove). */
 async function removePerson(person: Person): Promise<void> {
   if (!(await confirm({ title: `Remove ${person.name}?`, body: 'They never joined: their invite ends and they leave the team. Anyone who reported to them moves up.', confirmLabel: 'Remove', danger: true }))) return;
   try {
@@ -105,7 +106,7 @@ async function removePerson(person: Person): Promise<void> {
   }
 }
 
-/** 17.11.2026: the invite is a card on the person's page (PersonInvite.tsx) – that page opens with it, no modal. */
+/** 17.11.2026: "Invite a device" is a card on the person's page (PersonJoin.tsx) – that page opens with it, no modal. */
 function inviteDevice(person: Person): void {
   const current = route.value;
   if (!(current.view === 'team' && current.personId === person.id)) navigate({ view: 'team', personId: person.id });
@@ -113,11 +114,11 @@ function inviteDevice(person: Person): void {
 }
 
 export function personMenu(person: Person): MenuSection[] {
-  const admin = can('people.save');
+  const admin = can('people.save') && !person.fromEmployer; // Team-Call 21.11.2026: a company colleague on an employee's PC is read-only here
   const others = admin && !person.owner;
   const joined = hasJoined(person);
   return [
-    { items: person.id !== 'human' && person.status === 'active' && directReachable(person.id) ? [{ label: 'Message', onSelect: () => void openDirect(person.id) }] : [] },
+    { items: person.id !== 'human' && person.status === 'active' && !person.fromEmployer && directReachable() ? [{ label: 'Message', onSelect: () => void openDirect(person.id) }] : [] },
     { items: [
       ...(admin ? [{ label: 'Edit', onSelect: () => { personDialog.value = { kind: 'edit', id: person.id }; } }] : []),
       ...(others ? [{ label: person.status === 'revoked' ? 'Invite again' : 'Invite a device', onSelect: () => inviteDevice(person) }] : []),

@@ -2,9 +2,14 @@
 // wf-file://float/ in the button's own session. It draws the view main sends back after every action – the dot, the
 // panel or the edge tab – and posts the person's actions as JSON to wf-file://float/act. Dragging moves the window by
 // pointer screen coordinates (one move in flight at a time, the newest wins); a press that does not travel is a tap.
-// Dictation: the microphone's audio at 16 kHz, kept as PCM while the mic is on and posted as one WAV when it stops.
+// Dictation: the microphone's audio at 16 kHz, kept as PCM while the mic is on and posted as one WAV when it stops. While a
+// take records or is heard the panel's × cancels it (the recording is thrown away, late words go nowhere – act 'unhear';
+// the owner's + → × of feedback FCMWNSOZ 20.11.2026, this panel has no +) and Send takes its words along.
 // Owner 18.11.2026: holding the dot (HOLD_MS without moving) is the quick task – the screen at the hold's start, the
 // words while held, sent at the release (act 'hold' then 'quick'); without a microphone the hold opens the panel.
+// Owner 19.11.2026: a right-click anywhere asks main for the menu (act 'menu': Open Autark, Hide bubble); while the app's
+// page holds a call the dot is the call pill – a live mark and who, Open (the app at that chat) and End (act 'hangup') –
+// and a folded tab shows the call by its colour.
 // Owns: the look and the input of the button. Never: talks to anything but its own /act, keeps text or audio after a
 // post, or loads anything from outside.
 
@@ -16,6 +21,8 @@ const ICONS: Record<string, string> = {
   send: '<path d="M12 19V5M5 12l7-7 7 7"/>',
   fold: '<path d="M15 6l-6 6 6 6"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  app: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>',
+  end: '<path d="M3 15c5-4.5 13-4.5 18 0l-2.5 2.5-3.5-1.5v-2.5a10 10 0 0 0-6 0V16l-3.5 1.5z"/>',
 };
 
 const STYLE = `
@@ -35,6 +42,14 @@ button.go:hover { background: #4f7bf5; }
 #dot.rec { background: rgba(200,40,40,.92); box-shadow: 0 0 0 3px rgba(255,90,90,.45); }
 #dot.busy { opacity: .6; }
 #tab { position: fixed; inset: 0; border-radius: 6px; background: rgba(28,28,32,.75); border: 1px solid rgba(255,255,255,.18); cursor: pointer; touch-action: none; }
+#tab.live { background: rgba(46,160,90,.92); }
+#pill { position: fixed; inset: 0; border-radius: 22px; background: rgba(24,24,28,.95); border: 1px solid rgba(70,200,120,.6); display: flex; align-items: center; gap: 2px; padding: 0 6px 0 12px; }
+#who { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 100%; cursor: grab; touch-action: none; }
+#who span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pulse { flex: none; width: 10px; height: 10px; border-radius: 50%; background: #3ccf78; animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+button.end { background: #d93a3a; color: #fff; border-radius: 50%; }
+button.end:hover { background: #e5484d; }
 #panel { position: fixed; inset: 0; border-radius: 14px; background: rgba(24,24,28,.95); border: 1px solid rgba(255,255,255,.16); padding: 6px; display: flex; flex-direction: column; gap: 5px; }
 .row { display: flex; align-items: center; gap: 2px; }
 #grip { cursor: grab; touch-action: none; }
@@ -65,6 +80,10 @@ function render(next) {
   $('dot').hidden = view.look !== 'dot';
   $('tab').hidden = view.look !== 'tab';
   $('panel').hidden = view.look !== 'panel';
+  $('pill').hidden = view.look !== 'call';
+  $('tab').classList.toggle('live', !!view.call);
+  $('name').textContent = view.call ? view.call.title : '';
+  $('who').title = view.call ? 'Call with ' + view.call.title + ' · tap: open in the app · drag: move' : '';
   $('dot').classList.toggle('done', !!view.done);
   if (view.done) setTimeout(() => $('dot').classList.remove('done'), 1200);
   const field = $('text');
@@ -128,17 +147,35 @@ async function record() {
     return wav(parts, 16000);
   } };
 }
-let rec = null;
+let rec = null, hearing = null, takes = 0; // hearing: the stopped take's words on their way ({ n, done })
+function takeState() { // while a take runs the × cancels it
+  const on = !!rec || !!hearing, close = $('close');
+  close.title = on ? 'Cancel dictation' : 'Close'; close.setAttribute('aria-label', close.title);
+}
 async function micToggle() {
   if (rec) {
-    const current = rec; rec = null; $('mic').classList.remove('on');
+    const current = rec, n = ++takes; rec = null; $('mic').classList.remove('on');
     $('note').textContent = 'Listening back…';
+    let done; hearing = { n, done: new Promise((r) => { done = r; }) }; takeState();
     const audio = await current.stop();
-    await act({ act: 'text', text: $('text').value });
-    await act({ act: 'hear', wav: audio });
+    if (hearing && hearing.n === n) {
+      await act({ act: 'text', text: $('text').value });
+      if (hearing && hearing.n === n) await act({ act: 'hear', wav: audio });
+      if (hearing && hearing.n === n) $('text').value = view.text || ''; // the field holds the words, focused or not
+    }
+    if (hearing && hearing.n === n) { hearing = null; takeState(); }
+    done();
     return;
   }
-  try { rec = await record(); $('mic').classList.add('on'); } catch { $('note').textContent = 'No microphone.'; }
+  try { rec = await record(); $('mic').classList.add('on'); takeState(); } catch { $('note').textContent = 'No microphone.'; }
+}
+/** Throws the running take away, or drops the words still being heard; true when there was one. */
+function cancelTake() {
+  if (!rec && !hearing) return false;
+  if (rec) { const current = rec; rec = null; $('mic').classList.remove('on'); current.stop().catch(() => {}); }
+  if (hearing) { hearing = null; act({ act: 'unhear' }); }
+  $('note').textContent = ''; takeState();
+  return true;
 }
 function wav(parts, rate) {
   const length = parts.reduce((n, p) => n + p.length, 0);
@@ -175,7 +212,7 @@ async function holdUp() {
 
 async function post(call) {
   if (busy) return;
-  if (rec) await micToggle();
+  if (rec) await micToggle(); else if (hearing) await hearing.done; // the take's words go along
   busy = true; $('note').textContent = call ? 'Calling…' : 'Sending…';
   await act({ act: 'send', text: $('text').value, call });
   busy = false;
@@ -184,26 +221,35 @@ async function post(call) {
 document.addEventListener('DOMContentLoaded', () => {
   for (const b of document.querySelectorAll('[data-icon]')) b.innerHTML = icon(b.dataset.icon);
   draggable($('dot'), () => act({ act: 'open' }), { down: holdDown, up: holdUp });
-  draggable($('grip'), () => act({ act: 'close' }));
+  draggable($('grip'), () => { cancelTake(); act({ act: 'close' }); });
   $('tab').addEventListener('click', () => act({ act: 'unfold' }));
+  draggable($('who'), () => act({ act: 'app' }));
+  $('app').onclick = (e) => { e.stopPropagation(); act({ act: 'app' }); };
+  $('end').onclick = (e) => { e.stopPropagation(); act({ act: 'hangup' }); };
+  document.addEventListener('contextmenu', (e) => { e.preventDefault(); if (e.target !== $('text')) act({ act: 'menu' }); });
   $('shot').onclick = () => act({ act: 'shot' });
   $('mic').onclick = micToggle;
   $('call').onclick = () => post(true);
   $('send').onclick = () => post(false);
   $('fold').onclick = () => act({ act: 'fold' });
-  $('close').onclick = () => act({ act: 'close' });
+  $('close').onclick = () => { if (!cancelTake()) act({ act: 'close' }); };
   $('text').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); post(false); }
   });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') act({ act: 'close' }); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !cancelTake()) act({ act: 'close' }); });
   $('text').addEventListener('change', () => act({ act: 'text', text: $('text').value }));
   act({ act: 'view' });
 });
 `;
 
 const BODY = `
-<div id="dot" role="button" aria-label="To-do: tap to open, hold to talk and send, drag to move" title="To-do · tap: open · hold: talk and send · drag: move (Ctrl+Alt+N)" data-icon="todo"></div>
+<div id="dot" role="button" aria-label="To-do: tap to open, hold to talk and send, drag to move" title="To-do · tap: open · hold: talk and send · drag: move · right-click: hide (Ctrl+Alt+N)" data-icon="todo"></div>
 <div id="tab" role="button" aria-label="Show the to-do button" title="To-do" hidden></div>
+<div id="pill" hidden>
+  <div id="who" role="button" aria-label="Open the call in the app"><i class="pulse"></i><span id="name"></span></div>
+  <button id="app" data-icon="app" title="Open in the app" aria-label="Open in the app"></button>
+  <button id="end" class="end" data-icon="end" title="End the call" aria-label="End the call"></button>
+</div>
 <div id="panel" hidden>
   <div class="row">
     <button id="grip" data-icon="todo" title="Drag to move · tap to close" aria-label="Close"></button>

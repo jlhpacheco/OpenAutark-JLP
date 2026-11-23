@@ -24,7 +24,7 @@ import { CLOSE, ClientSockets, Keepalive } from '../../../src/runtime/http/ws.ts
 import { createHandlerTable } from '../../../src/runtime/rpc/handlers/index.ts';
 import { mayReceive } from '../../../src/runtime/rpc/scopes.ts';
 import { HandlerTable, allowedScope, scopeDenial } from '../../../src/runtime/rpc/table.ts';
-import { nullLogger } from '../../../src/runtime/system/log.ts';
+import { nullLogger } from '../fakes.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import { agent } from '../chat/harness.ts';
 import { OWNER, TestClient, rpcFixture } from '../rpc/s1-helpers.ts';

@@ -17,8 +17,8 @@ test('109 numbers itself after 108, so no version is left free for a profile to 
   migrate(db, { until: 108 });
   assert.equal(Number(db.get<{ value: string }>(`SELECT value FROM meta WHERE key = 'schema'`)!.value), 108);
   migrate(db);
-  assert.equal(SCHEMA_VERSION, 109);
-  assert.deepEqual(migrate(db), { from: 109, to: 109 }, 'applied once');
+  assert.ok(SCHEMA_VERSION >= 109);
+  assert.deepEqual(migrate(db), { from: SCHEMA_VERSION, to: SCHEMA_VERSION }, 'applied once');
 });
 
 test('the session keeps when it was folded and when the engine compacted it; the ledger\'s rows are read in the new unit', () => {

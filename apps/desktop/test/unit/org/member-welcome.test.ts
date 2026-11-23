@@ -9,7 +9,7 @@ import path from 'node:path';
 import { HUMAN_ID } from '../../../src/shared/ids.ts';
 import { managerAgent } from '../../../src/shared/text/manager-chat.ts';
 import { Org } from '../../../src/runtime/org/service.ts';
-import { canWelcome, markExistingMembers, welcomeMember } from '../../../src/runtime/org/member-welcome.ts';
+import { canWelcome, welcomeMember } from '../../../src/runtime/org/member-welcome.ts';
 import { WakeQueueImpl } from '../../../src/runtime/wakes/queue.ts';
 import { clock, memoryDb, recordingBus, RESOURCES } from '../store/helpers.ts';
 
@@ -50,13 +50,3 @@ test('welcomeMember: one wake for the personal manager per person, in its own vo
   assert.equal(welcomeMember(s, { id: 'per_ben', label: 'Ben' }), true, 'another person gets their own wake');
 });
 
-test('markExistingMembers: people active before B-078 count as welcomed once; someone invited then is welcomed when they join', () => {
-  const { db, org, wakes, s } = setup();
-  const seed = org.ensureSeed()!;
-  db.run(`INSERT INTO people (id, name, status, created_at, updated_at) VALUES ('per_old', 'Olga', 'active', 0, 0), ('per_inv', 'Ivo', 'invited', 0, 0), ('per_gone', 'Gus', 'revoked', 0, 0)`);
-  assert.equal(markExistingMembers(s), 1);
-  assert.equal(markExistingMembers(s), 0, 'once');
-  assert.equal(welcomeMember(s, { id: 'per_old', label: 'Olga' }), false, 'her second phone after the update: no wake');
-  assert.equal(welcomeMember(s, { id: 'per_inv', label: 'Ivo' }), true, 'he joins now');
-  assert.equal(wakes.list(seed.id).length, 1);
-});

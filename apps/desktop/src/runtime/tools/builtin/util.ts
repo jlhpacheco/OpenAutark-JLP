@@ -12,6 +12,7 @@ import { WorkforceError } from '../../../shared/errors.ts';
 import { HUMAN_ID } from '../../../shared/ids.ts';
 import type { Conversation, Member } from '../../../shared/model/chat.ts';
 import { displayTitle } from '../../../shared/text/chat-names.ts';
+import { findTimes, stripTime, wallTime } from '../../../shared/text/when.ts';
 import { externalMemberLabel } from '../../../shared/model/external-agents.ts';
 import { isPersonId } from '../../../shared/model/people.ts';
 import { activePerson } from '../../people/repo.ts';
@@ -35,12 +36,18 @@ export const internal = (summary: string, resource?: string) => ({ summary, reso
 
 const DURATION = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/i;
 const RELATIVE = /^(?:in\s+)?\+?(\d+(?:\.\d+)?)\s*(m|min|minutes?|h|hours?|d|days?|w|weeks?)$/i;
+/** An ISO date or datetime without a zone: a wall time in the zone. */
+const ISO_WALL = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3})\d*)?)?)?$/i;
+/** A written time with its own zone (ISO "…Z" / "…+02:00", "… GMT"): read as written. */
+const ZONED = /\d{4}.*(?:\dz|\bgmt|\butc|\d[+-]\d{2}:?\d{2})$/i;
 
 /**
- * Parses a point in time: epoch ms, ISO datetime, ISO duration ("PT2H" = from now) or a
- * short relative form ("+24h", "in 30m", "2d"). Returns epoch ms or undefined.
+ * A point in time as WHEN_PROPERTY says: epoch ms; an ISO time (with a zone as written; without one a wall time in `zone`,
+ * this process's zone when none is given; a bare date is its 00:00); an ISO duration ("PT2H" = from now); a short relative
+ * form ("+24h", "in 30m", "2d"); or words that are exactly one time phrase of the app's one finder (shared/text/when.ts:
+ * "tomorrow 9:00", "Fr 15 Uhr", "am 24.12."). Anything else – two phrases, words left over – is undefined.
  */
-export function parseWhen(value: unknown, now: number): number | undefined {
+export function parseWhen(value: unknown, now: number, zone?: string): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value !== 'string' || !value.trim()) return undefined;
   const text = value.trim();
@@ -57,8 +64,19 @@ export function parseWhen(value: unknown, now: number): number | undefined {
     const factor = unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : unit === 'd' ? 86_400_000 : 604_800_000;
     return now + amount * factor;
   }
-  const parsed = Date.parse(text);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  const wall = ISO_WALL.exec(text);
+  if (wall) {
+    const [, y, mo, d, h = '0', mi = '0', s = '0', ms = '0'] = wall;
+    const day = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)));
+    if (day.getUTCMonth() !== Number(mo) - 1 || day.getUTCDate() !== Number(d) || Number(h) > 23 || Number(mi) > 59 || Number(s) > 59) return undefined;
+    return wallTime(`${y}-${mo}-${d}`, Number(h) * 60 + Number(mi), zone) + Number(s) * 1000 + Number(ms.padEnd(3, '0'));
+  }
+  if (ZONED.test(text)) {
+    const parsed = Date.parse(text);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  const found = findTimes(text, now, zone);
+  return found.length === 1 && !stripTime(text, found[0]) ? found[0].at : undefined;
 }
 
 /** The chat a tool acts on: explicit id, else the run's chat. Checks the agent is a member. An archived

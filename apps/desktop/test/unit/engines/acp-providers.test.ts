@@ -19,7 +19,7 @@ import { Priors } from '../../../src/runtime/models/priors.ts';
 import { Db } from '../../../src/runtime/db/database.ts';
 import { migrate } from '../../../src/runtime/db/migrate.ts';
 import { Bus } from '../../../src/runtime/bus.ts';
-import { ManualClock } from '../../../src/runtime/system/clock.ts';
+import { ManualClock } from '../fakes.ts';
 import type { SpawnFn } from '../../../src/runtime/system/supervisor.ts';
 import type { Account, EngineId, ProviderId } from '../../../src/shared/model/providers.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
@@ -229,7 +229,7 @@ test('acp providers: routing reaches a Gemini CLI plan; its turn runs through th
   const supervisor = testSupervisor(spawn);
   const launches = new AcpLaunches({ finder: fakeFinder({ gemini: '/bin/gemini' }), supervisor, cwd: NEUTRAL, env: {} });
   const engine = new AcpEngine({ supervisor, cwd: NEUTRAL, version: '1.0.0', launch: (a) => launches.resolve(a) });
-  (h.services as any).engines = { get: (id: EngineId) => { if (id !== 'acp') throw new Error(`engine ${id} missing`); return engine; }, all: () => [engine], disposeIdle: async () => {} };
+  (h.services as any).engines = { get: (id: EngineId) => { if (id !== 'acp') throw new Error(`engine ${id} missing`); return engine; }, all: () => [engine] };
   const gemini = routedAccount('acc_gemini', 'gemini-cli', { auth: 'cli' });
   h.accounts.upsert(gemini, false);
   await h.catalog.refresh({ force: true });

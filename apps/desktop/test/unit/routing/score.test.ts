@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { costFactor, scoreModel } from '../../../src/runtime/routing/score.ts';
+import { UNKNOWN_HEADROOM, costFactor, isPaid, scoreModel } from '../../../src/runtime/routing/score.ts';
 import type { Account, LimitWindow, ModelInfo } from '../../../src/shared/model/providers.ts';
 
 const NOW = Date.UTC(2026, 9, 20, 9, 0, 0);
@@ -48,4 +48,14 @@ test('scoreModel: less headroom for the scored model means a lower score on the 
   const tight = scoreModel({ ...base, model: opusModel });
   assert.ok(tight < roomy, `Opus with its own window at 90 % (${tight}) scores below Opus without it (${roomy})`);
   assert.equal(scoreModel({ ...base, model: sonnetModel }), scoreModel({ ...base, model: sonnetModel, account: plan([weekly(20)]) }), 'Sonnet ignores the Opus window');
+});
+
+test('a plan sign-in of an ACP CLI (Gemini CLI, Copilot, Kimi Code) costs like a plan whose headroom is unknown, not like a paid key', () => {
+  for (const provider of ['gemini-cli', 'copilot', 'kimi-cli'] as const) {
+    const acp: Account = { ...plan([]), id: `acc_${provider}`, provider, limits: undefined };
+    assert.equal(isPaid(acp), false, provider);
+    assert.equal(costFactor(acp, NOW), UNKNOWN_HEADROOM, `${provider}: a plan without limit readings`);
+    assert.equal(costFactor({ ...acp, plan: 'api' }, NOW), 1, `${provider} signed in with an API key pays per use`);
+  }
+  assert.equal(costFactor({ ...plan([]), provider: 'compatible', auth: 'none', limits: undefined }, NOW), 0.5, 'a keyless server stays in the middle');
 });

@@ -1,13 +1,14 @@
 // Team › People › a person › Access (F-52, the owner as admin): their devices (Remove ends that
 // device's access at once), their chats as titles and members only – never their messages; chats
 // without you stay theirs (Join adds you openly), even though they are stored on this PC – and the
-// latest audit lines.
+// latest audit lines – read when shown and again after every reconnect (lib/use-load.ts).
 // Owns: this dialog. Never: opens a person's chat or shows its messages.
 
 import { useEffect, useState } from 'preact/hooks';
 import type { Person, PersonAudit, PersonChat } from '../../shared/model/people.ts';
 import { Button, Dialog, confirm } from '../lib/ui.tsx';
 import { rpc } from '../lib/rpc.ts';
+import { useLoad } from '../lib/use-load.ts';
 import { upsertPerson } from '../lib/people.ts';
 import { relative } from '../lib/format.ts';
 import { toastError } from '../lib/toasts.ts';
@@ -23,8 +24,8 @@ export function PersonDetails(props: { person: Person | null; onClose: () => voi
   const person = props.person;
   const [chats, setChats] = useState<PersonChat[]>([]);
   const [audit, setAudit] = useState<PersonAudit[]>([]);
-  useEffect(() => {
-    setChats([]); setAudit([]);
+  useEffect(() => { setChats([]); setAudit([]); }, [person?.id]); // another person: never the last one's rows
+  useLoad(() => {
     if (!person) return;
     let alive = true;
     rpc.call('people.chats', { id: person.id }).then((list) => { if (alive) setChats(list); }, () => undefined);

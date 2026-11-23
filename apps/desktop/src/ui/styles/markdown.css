@@ -1,5 +1,5 @@
 /* Markdown typography inside messages and notes (<Markdown>, ui/blocks/markdown.tsx): text, lists, links,
-   inline code, clickable paths ([data-path], B-081), tables, click-to-load remote images.
+   inline code, paths as file chips (a[data-path], B-081; 20.11.2026), tables, click-to-load remote images.
    Owns: these looks. Never: display blocks or code blocks (blocks.css), message chrome (chat.css), colors
    outside tokens.css. */
 
@@ -9,10 +9,13 @@
 .md > :last-child { margin-bottom: 0; }
 .md p { margin: 0 0 .75em; }
 .md :is(h1, h2, h3, h4, h5, h6) { margin: 1.25em 0 .45em; color: var(--text); font-weight: 600; line-height: 1.35; letter-spacing: -.1px; }
-.md h1 { font-size: 21px; }
-.md h2 { font-size: 17px; }
-.md h3 { font-size: 15px; }
-.md :is(h4, h5, h6) { font-size: 14px; }
+.md h1 { font-size: calc(21px * var(--ui-text, 1)); }
+.md h2 { font-size: calc(17px * var(--ui-text, 1)); }
+.md h3 { font-size: calc(15px * var(--ui-text, 1)); }
+.md :is(h4, h5, h6) { font-size: calc(14px * var(--ui-text, 1)); }
+/* a task's notes (the Tasks page's detail, a task card in a chat): headings never larger than the task's title (15 px
+   in the detail, 14 px in a card) – the weight sets them apart (Quests round 20.11.2026: one title size) */
+.md.task-notes :is(h1, h2, h3, h4, h5, h6) { margin: .9em 0 .3em; font-size: calc(14px * var(--ui-text, 1)); }
 .md :is(ul, ol) { margin: 0 0 .75em; padding-left: 1.5em; }
 .md li + li { margin-top: .25em; }
 .md li > :is(ul, ol) { margin: .25em 0 0; }
@@ -28,11 +31,28 @@
   padding: 1px 5px; border: 1px solid var(--line); border-radius: var(--r-xs);
   background: var(--sidebar); font: .9em/1.4 var(--mono);
 }
-[data-path] { cursor: pointer; } /* a path in agent text opens on click, in .md and <Inline> cells alike (path-links.ts) */
-code[data-path]:hover { border-color: var(--focus); } /* colour only, nothing moves */
+/* A path in agent text is a file chip, in .md and <Inline> cells alike (path-links.ts): the file or folder icon and the
+   last name in one quiet box, the folders before it hidden (the title shows the whole path); a long name ends in "…"
+   instead of breaking the line. Hover and focus change the border colour only: nothing moves. */
+a[data-path] {
+  --path-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Cpath d='M213.66,82.34l-56-56A8,8,0,0,0,152,24H56A16,16,0,0,0,40,40V216a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V88A8,8,0,0,0,213.66,82.34ZM160,51.31,188.69,80H160ZM200,216H56V40h88V88a8,8,0,0,0,8,8h48V216Z'/%3E%3C/svg%3E");
+  display: inline-block; max-width: 100%; overflow: hidden; vertical-align: bottom; white-space: nowrap; text-overflow: ellipsis;
+  padding: 0 7px 0 6px; border: 1px solid var(--line); border-radius: var(--r-xs); background: var(--sidebar);
+  color: var(--text); font-size: .93em; line-height: 1.6; text-decoration: none; cursor: pointer;
+}
+a[data-path][data-folder] {
+  --path-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Cpath d='M216,72H131.31L104,44.69A15.86,15.86,0,0,0,92.69,40H40A16,16,0,0,0,24,56V200.62A15.4,15.4,0,0,0,39.38,216H216.89A15.13,15.13,0,0,0,232,200.89V88A16,16,0,0,0,216,72ZM40,56H92.69l16,16H40ZM216,200H40V88H216Z'/%3E%3C/svg%3E");
+}
+a[data-path]::before {
+  content: ''; display: inline-block; width: 1.05em; height: 1.05em; margin-right: 5px; vertical-align: -.17em;
+  background-color: currentColor; opacity: .7; -webkit-mask: var(--path-icon) center / contain no-repeat; mask: var(--path-icon) center / contain no-repeat;
+}
+a[data-path] > [data-dir] { display: none; }
+a[data-path]:focus-visible { outline: none; border-color: var(--focus); }
+@media (hover: hover) { a[data-path]:hover { border-color: var(--focus); } } /* a touch leaves no box behind */
 .md pre {
   margin: 0 0 .75em; padding: 14px; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-md);
-  background: var(--sidebar); font: 12px/1.6 var(--mono); white-space: pre; tab-size: 2;
+  background: var(--sidebar); font: calc(12px * var(--ui-text, 1))/1.6 var(--mono); white-space: pre; tab-size: 2;
 }
 .md pre code { font: inherit; }
 .md img { max-width: 100%; height: auto; border-radius: var(--r-md); }
@@ -40,10 +60,10 @@ code[data-path]:hover { border-color: var(--focus); } /* colour only, nothing mo
 .md img.md-remote-image {
   display: inline-flex; min-width: 120px; min-height: 40px; padding: 10px 14px; vertical-align: middle;
   border: 1px dashed var(--field); border-radius: var(--r-md); background: var(--sidebar);
-  color: var(--secondary); font-size: 12px; cursor: pointer;
+  color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); cursor: pointer;
 }
 .md img.md-remote-image:hover { border-color: var(--focus); color: var(--text); }
-.md table { display: block; max-width: 100%; margin: 0 0 .75em; overflow-x: auto; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
-.md th { padding: 7px 14px 7px 0; border-bottom: 1px solid var(--line); color: var(--secondary); font-size: 12px; font-weight: 600; text-align: left; }
+.md table { display: block; max-width: 100%; margin: 0 0 .75em; overflow-x: auto; border-collapse: collapse; font-size: calc(13px * var(--ui-text, 1)); font-variant-numeric: tabular-nums; }
+.md th { padding: 7px 14px 7px 0; border-bottom: 1px solid var(--line); color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); font-weight: 600; text-align: left; }
 .md td { padding: 7px 14px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 .md tr:last-child td { border-bottom: 0; }

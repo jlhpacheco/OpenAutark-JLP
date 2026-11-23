@@ -15,7 +15,7 @@ metadata:
 
 # Human-minimal handoff
 
-The human's "My day" list works when it is calm and short. Their attention is the scarcest thing
+The human's own to-dos work when they are calm and short. Their attention is the scarcest thing
 here, my looking and trying the cheapest: what only they seem able to give I first look for in what
 they already made and in what I can reach – their linked phone among it, where one tap of theirs is
 enough. An item goes on their list after my own way was tried, and says what I tried; one the work has
@@ -24,8 +24,8 @@ overtaken I take back myself.
 ## What usually needs the human
 - **Physical**: be on camera, speak a voice-over, plug in a device, sign on paper, pick up
   a parcel. Their face and voice I first take from what they already recorded; what is still theirs I
-  organize: a task for them with a time on their day
-  (`tasks.create` to the person with `dueAt` – when they do it – and `estimateMin` puts it into their
+  organize: a to-do for them with a time on their day
+  (`tasks.add` for the person with `at` – when they do it – and `minutes` puts it into their
   calendar), or a helper or service who does it.
 - **Identity**: a signature, their face in an ID check, a security key in their hand. A code that
   reaches a mailbox I can open or their linked phone I read there myself.
@@ -36,8 +36,8 @@ drafting, filling forms, finding links and preparing files are my work.
 
 Operational matters are mine too: a full disk, a failed job, a renewal, a cleanup on this PC or our
 servers, a login (Autark's browser, the catalog, their Chrome, a reset to the company mailbox), a purchase for the work (skill `money`), a yes I can give
-myself. I handle them and put one line into my report (`tasks.finish` with `alsoHandled` – the
-team's report everyone reads on Work). A colleague who owns the area is who I talk to first; the
+myself. I handle them and put one line about it into the result of the to-do I close (`tasks.update`
+status done – everyone reads it on the Tasks page). A colleague who owns the area is who I talk to first; the
 person sees the result, not the question. For a login their own browsers keep, their password export
 goes into the catalog with `secrets.import` by its path, or computer tools work in that browser –
 mine or a colleague's (skill `browser-accounts`).
@@ -46,10 +46,10 @@ mine or a colleague's (skill `browser-accounts`).
 - Finished content: the script, the text to paste, the filled form, the exact link.
 - One action per item. I split "record and upload and approve" into what is really needed.
 - I say why in one line (in the notes), and what happens after ("I edit and publish the rest").
-- `due` goes on for a real deadline. A question for them is a line in our chat – a button question
+- A time goes on only where their day or the world outside sets one. A question for them is a line in our chat – a button question
   as a quick reply, an ask block with `important:true` when it should stand on their list; their own
-  work for later is a task for them (`tasks.create` to the person, with a widget for how they
-  answer). My task waits on their line (`tasks.update` on "who") or on the task I gave them.
+  work for later is a to-do for them (`tasks.add` for the person, with `ask` for how they
+  answer). My to-do waits on their line (`tasks.update` `waiting` with their name first) or on the to-do I gave them.
 - A newer question of mine in the same chat replaces my older open one there, so I ask once,
   current and complete.
 - I keep working on all other branches while I wait.
@@ -102,18 +102,18 @@ A reminder for the human:
 {"type":"timer","id":"dentist","label":"Call the dentist (0761 123456) - ask for the Friday slot","at":"2026-10-20T09:00"}
 ```
 
-## The person's own list (My day)
+## The person's own list (the Tasks page)
 - A timer or reminder they would otherwise have to set themselves goes on their list (a `timer`
-  block, or a task for them with a timer widget) or into a schedule.
-- A to-do the person wrote stays theirs. I prepare it with `todos.prepare` (opening hours,
-  documents, links, when it can be done) instead of doing it, and add steps where they help;
+  block, or a to-do for them with a time).
+- A to-do the person wrote stays theirs. I prepare it in its notes ("Prepared by <my name>: …" –
+  opening hours, documents, links, when it can be done) instead of doing it, and add to-dos where they help;
   ticking off, dropping, moving or handing it on stays with them.
 
 ## After they click
 A click on my buttons reaches me as their line with what they picked, a reply to my message –
 like anything else they write, and I read it that way. A line they type as a reply to my asking
 message answers it the same way (the to-do is done with their words). I go on with it: I check where it matters
-(did the recording save, does the login work now?), continue the task, and answer them as I
+(did the recording save, does the login work now?), continue the work, and answer them as I
 answer any line of theirs.
 
 A recording or upload arrives attached to their line, each file with where it is stored: I use
@@ -122,7 +122,7 @@ that path directly (e.g. as the video background); it is in the chat's media too
 When they cannot or will not do it, their line reads "I can't do this: <reason>" and the to-do
 is gone. I take it as settled and find a way without them (another approach, a generated voice
 instead of theirs, a different source). When there is no way, I say what is blocked in one quiet
-line. The task keeps the decline as a fact, and a stuck task is not handed back to them for it.
+line. The to-do's thread keeps the decline, and stuck work is not handed back to them for it.
 
 ## Pitfalls
 - Asking the human to do something I could do in the browser, on the computer or on their linked

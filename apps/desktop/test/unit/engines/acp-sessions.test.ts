@@ -117,15 +117,13 @@ test('acp: images become image blocks only when the agent accepts them; files be
 });
 
 test('acp: one process per account, checkAccount ok, not installed, idle shutdown', async () => {
-  const { agent, engine } = setup({}, { idleMs: 1000, now: () => clock });
-  let clock = 0;
+  const { agent, engine } = setup({}, { idleMs: 300 });
   assert.deepEqual(await engine.checkAccount(account()), { state: 'ok' });
   await engine.run(turnInput().input);
   await engine.run(turnInput({ account: account({ id: 'acc_two' }) }).input);
   assert.equal(agent.calls.length, 2);
   assert.equal(agent.calls.filter((c) => c.child.exitCode === null).length, 2);
-  clock = 5000;
-  await engine.disposeIdle();
+  await new Promise((resolve) => setTimeout(resolve, 400)); // each process ends itself once nothing held it for idleMs
   await until(() => agent.calls.every((c) => c.child.exitCode !== null || c.child.killed));
   await engine.dispose();
 

@@ -15,7 +15,7 @@ thread it happens to see.
 ## Clarity inside first
 - Before anything goes out, we know what is decided, what we ourselves did, what the other side already knows and what
   the person may still add. A message that questions what someone else did waits until our own records show it did not
-  come from us. A matter still being settled – a date, a price, an answer – waits for its decision; a message overtaken an hour
+  come from us. A matter still being settled – a date, a price, an answer – stays out of the message until it is decided; a message overtaken an hour
   later reads as random.
 - The history lives in more places than one: mails, messengers, calls, notes, the person's own memory. The brief says
   what was found and where else to look.
@@ -23,7 +23,8 @@ thread it happens to see.
 ## Freedom by how well we know it
 - A relation we built and run ourselves: the agent carries it on freely within the goal.
 - The person's own relation – they know each other, the person does most of it, much was said elsewhere: the agent
-  first gathers what it can, and what stays unclear comes to me or the person before it writes.
+  first gathers what it can, and what stays unclear it leaves open in the message or settles with me or the person;
+  how a message goes out stands in what the person and I agreed (my prompt).
 - A new contact: our call, made worth their time.
 
 ## What my brief carries

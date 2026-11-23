@@ -3,7 +3,8 @@
 //   read them) → session/prompt/input (S2: a changed prompt key keeps the session on its start record; it starts anew
 //   only at a switch, no session, a fold, past the fit or a cold cache – rebuild.ts) →
 //   run journal + streaming message → engine attempt → session renewal once when the native
-//   session cannot continue (context full, thread gone; another folder, details.folder: quietly)
+//   session cannot continue (context full, thread gone; another folder, details.folder: quietly; the ended attempt's
+//   tokens and cost stay the run's – mergeAttempts)
 //   → the account learns what the attempt says about it (always, also after tool calls) →
 //   failover on limit/unavailable (renewal only when no tool ran; failover also after tool calls whose effects are all known – PR3: the
 //   continuation gets them as "What I already did then" (in the cut-off note); finish then judges and books every attempt:
@@ -102,10 +103,10 @@ export function turnRoute(plan: Pick<TurnPlan, 'temperature'>, route: RouteDecis
 }
 
 /**
- * The turn after a failover: the second attempt's result, text, session, context size and time,
+ * The turn after a session renewal or a failover: the second attempt's result, text, session, context size and time,
  * plus what both did – their tools (progress, approach line), the latest plan, tokens and cost
- * (the run and the agent's budget book both). `lastUsage` keeps the second attempt's own usage
- * for its model's outcome (the first attempt's limit/outage says nothing about a model).
+ * (the run and the agent's budget book both; each attempt's cost is already its own share, attempt-cost.ts). `lastUsage`
+ * keeps the second attempt's own usage for its model's outcome (the first attempt's end says nothing about a model).
  */
 export function mergeAttempts(first: AttemptResult, second: AttemptResult): AttemptResult {
   const paid = first.usage.costUsd !== undefined || second.usage.costUsd !== undefined;
@@ -200,7 +201,7 @@ export class TurnExecutor {
         turn = await buildTurn(services, plan, retry, turn.route, repairNotes);
         bindTurn(request, turn);
         if (!folder) this.statusLine(services, plan, request.runId, 'note', 'Continued in a fresh session', { renewed: true, cause: attempt.result.error?.message });
-        attempt = await runAttempt(services, plan, turn, request, out);
+        attempt = mergeAttempts(attempt, await runAttempt(services, plan, turn, request, out)); // the ended attempt's tokens and cost stay the run's
       } catch (error) {
         services.log.warn('session renewal retry could not start', { agentId: plan.agent.id, error: toErrorData(error).message });
       }

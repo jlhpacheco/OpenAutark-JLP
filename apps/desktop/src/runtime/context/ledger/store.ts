@@ -6,7 +6,8 @@
 // inside a code-mode script) is read with every row from its journal row – the call id there starts with "exec-"
 // (shared NESTED_CALL_PREFIX) – so rows captured before F9 count too, without a column; a pin's room counts no nested row
 // and no checkpoint (a hand-over is pinned by the fold, not out of the room the agent keeps things in). KI-Runde 17.11.2026:
-// the rows of one tool by its journal name (callItems – the fold leaves tasks.finish calls) and a pin set directly (pin).
+// the rows of one tool by its journal name (callItems – the fold leaves the tasks.update calls that finished a task, Quests
+// round 20.11.2026: their arguments hold status done or dropped) and a pin set directly (pin).
 // Never: decides what to capture or mark, reads originals or deletes rows other than a removed chat's.
 
 import type { Db } from '../../db/database.ts';
@@ -158,12 +159,19 @@ export class LedgerStore {
     ).map((row) => row.item_id));
   }
 
-  /** The ids of the tool rows whose call is `name`, read from their journal row (a call through tools.call is journaled under its target's name). */
-  callItems(agentId: string, conversationId: string, name: string): Set<string> {
+  /**
+   * The ids of the tool rows whose call is `name`, read from their journal row (a call through tools.call is journaled under its
+   * target's name); `argsLike`: only those whose journaled arguments match one of these LIKE patterns.
+   */
+  callItems(agentId: string, conversationId: string, name: string, argsLike: readonly string[] = []): Set<string> {
+    // A row may point at the call or at its result: the arguments are read from the call with the same callId in that run.
+    const like = (alias: string) => argsLike.map(() => `CAST(json_extract(${alias}.data, '$.args') AS TEXT) LIKE ?`).join(' OR ');
+    const args = argsLike.length ? ` AND EXISTS (SELECT 1 FROM run_items c WHERE c.run_id = ri.run_id AND c.kind = 'tool_call'
+         AND json_extract(c.data, '$.callId') = json_extract(ri.data, '$.callId') AND (${like('c')}))` : '';
     return new Set(this.db.all<{ item_id: string }>(
       `SELECT item_id FROM context_items WHERE ${KEY} AND kind = 'tool' AND ref LIKE 'item:%'
-         AND EXISTS (SELECT 1 FROM run_items ri WHERE ri.id = substr(context_items.ref, 6) AND ri.name = ?)`,
-      [agentId, conversationId, name],
+         AND EXISTS (SELECT 1 FROM run_items ri WHERE ri.id = substr(context_items.ref, 6) AND ri.name = ?${args})`,
+      [agentId, conversationId, name, ...argsLike],
     ).map((row) => row.item_id));
   }
 

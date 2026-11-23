@@ -19,7 +19,7 @@
 // file with where it is stored (context/render.ts attachmentLines; the extracted text and the image input stay for a
 // delta); a row still streaming – a colleague's visible answer too – is passed: it takes a new seq when it ends
 // (chat/publish-message.ts), so it reaches the agent later in full (before, a visible one stopped the fold of every line after it).
-// A dictated line is folded like a typed one (23.10.). steerTurnResult/steerOtherResult say why a fold did not go
+// A dictated line is folded like a typed one (23.10.). steerTurn/steerOther say why a fold did not go
 // through ('held', 'refused'): a refusal is tried again while the turn runs (dispatcher.ts).
 // D15 relays (calls/talker.ts, through dispatcher.relay): a live voice's framed text – complete plain text, not
 // a raw call line, so heldBack does not apply – goes into the running turn as it is (steerRelay); 'next' only
@@ -90,9 +90,7 @@ export interface SteerInput {
 /** A line steering cannot carry in full: a recording still to be heard or a live/call line (see the header); other files are named with their place. */
 export function heldBack(message: Message): boolean {
   if (message.meta?.call !== undefined || message.attachments.some((file) => isRecording(file.mime))) return true;
-  const speech = message.meta?.speech;
-  if (speech) return speech.live === true;
-  return message.meta?.via === 'voice'; // an older spoken line without speech meta
+  return message.meta?.speech?.live === true;
 }
 
 function render(ctx: RenderContext, message: Message, byId: ReadonlyMap<string, Message>, max = MAX_BODY): string {
@@ -192,45 +190,40 @@ function earlierLines(services: RuntimeServices, ctx: RenderContext, conversatio
  */
 export type SteerResult = 'all' | 'held' | 'refused';
 
-/**
- * Steers the unseen lines of `conversationId` into a running turn. True when the turn now has
- * every line (steered, or nothing was new); false when the engine cannot take it or a line is held
- * back (the caller interrupts or the queued wake runs next). Advances `control.steeredSeq` only
- * after a successful steer, and never past a held-back line.
- */
-export async function steerTurn(
-  services: RuntimeServices,
-  run: { agentId: string; runId: string; control: TurnControl },
-  conversationId: string,
-  stillRunning: () => boolean,
-): Promise<boolean> {
-  return (await steerTurnResult(services, run, conversationId, stillRunning)) === 'all';
+type SteeredRun = { agentId: string; runId: string; control: TurnControl };
+
+/** Why a running turn cannot take steered text now: 'refused' before it is bound to its engine (tried again), 'held' on an engine that never steers (ACP: the next turn). */
+function cannotSteer(run: SteeredRun): SteerResult | undefined {
+  if (!run.control.engine) return 'refused';
+  return run.control.engine.steer ? undefined : 'held';
 }
 
-/** steerTurn with its reason (SteerResult). */
-export async function steerTurnResult(
-  services: RuntimeServices,
-  run: { agentId: string; runId: string; control: TurnControl },
-  conversationId: string,
-  stillRunning: () => boolean,
-): Promise<SteerResult> {
-  const engine = run.control.engine;
-  if (!engine) return 'refused'; // the turn is not bound to its engine yet: tried again
-  if (!engine.steer) return 'held'; // an engine that never steers (ACP): the next turn
+/** Hands `text` to the running turn's engine and journals `note` as a run note (best effort); 'refused' when the engine did not take it or the turn ended meanwhile. */
+async function push(services: RuntimeServices, run: SteeredRun, text: string, note: Record<string, unknown>, stillRunning: () => boolean): Promise<'all' | 'refused'> {
+  let ok = false;
+  try { ok = await run.control.engine!.steer!(run.runId, text); } catch (error) {
+    services.log.info('steer failed', { agentId: run.agentId, error: String(error) });
+  }
+  if (!ok || !stillRunning()) return 'refused';
+  try { services.runs.item(run.runId, { kind: 'note', data: note, effectStatus: 'none' }); } catch { /* audit is best effort */ }
+  return 'all';
+}
+
+/**
+ * Steers the unseen lines of `conversationId` into a running turn: 'all' when the turn now has every line (steered, or
+ * nothing was new). Advances `control.steeredSeq` only after a successful steer, and never past a held-back line.
+ */
+export async function steerTurn(services: RuntimeServices, run: SteeredRun, conversationId: string, stillRunning: () => boolean): Promise<SteerResult> {
+  const not = cannotSteer(run);
+  if (not) return not;
+  const from = Math.max(run.control.lastSeq, run.control.steeredSeq);
   let input: SteerInput | undefined;
-  try { input = steerInput(services, run.agentId, conversationId, Math.max(run.control.lastSeq, run.control.steeredSeq)); } catch (error) {
+  try { input = steerInput(services, run.agentId, conversationId, from); } catch (error) {
     services.log.warn('steer input failed', { agentId: run.agentId, error: String(error) });
     return 'refused';
   }
   if (!input) return 'all'; // the running turn already has every line
-  if (input.text) {
-    let ok = false;
-    try { ok = await engine.steer(run.runId, input.text); } catch (error) {
-      services.log.info('steer failed', { agentId: run.agentId, error: String(error) });
-    }
-    if (!ok || !stillRunning()) return 'refused';
-    try { services.runs.item(run.runId, { kind: 'note', data: { steered: { lines: input.lines, upToSeq: input.lastSeq, fromSeq: Math.max(run.control.lastSeq, run.control.steeredSeq) } }, effectStatus: 'none' }); } catch { /* audit is best effort */ }
-  }
+  if (input.text && await push(services, run, input.text, { steered: { lines: input.lines, upToSeq: input.lastSeq, fromSeq: from } }, stillRunning) === 'refused') return 'refused';
   run.control.steeredSeq = Math.max(run.control.steeredSeq, input.lastSeq);
   return input.held ? 'held' : 'all';
 }
@@ -247,19 +240,13 @@ export interface RunningWork {
 
 /**
  * Folds the unseen lines of `conversationId` – not the running turn's chat – into the agent's running main turn (see the
- * header). True when the turn now has every line there; false when the engine cannot steer, the agent is no member there
- * or a line is held back (the chat's wake runs it right after this turn). Never moves the agent's read cursor there – B-080:
- * the turn's done finish does, for a chat it answered (agents/turn-finish.ts).
+ * header): 'all' when the turn now has every line there; 'held' also when the agent is no member there (the chat's wake
+ * runs it right after this turn). Never moves the agent's read cursor there – B-080: the turn's done finish does, for a
+ * chat it answered (agents/turn-finish.ts).
  */
-export async function steerOther(services: RuntimeServices, run: RunningWork, conversationId: string, stillRunning: () => boolean): Promise<boolean> {
-  return (await steerOtherResult(services, run, conversationId, stillRunning)) === 'all';
-}
-
-/** steerOther with its reason (SteerResult; 'held' also when the agent is no member there). */
-export async function steerOtherResult(services: RuntimeServices, run: RunningWork, conversationId: string, stillRunning: () => boolean): Promise<SteerResult> {
-  const engine = run.control.engine;
-  if (!engine) return 'refused'; // not bound yet: tried again
-  if (!engine.steer) return 'held'; // never steers: that chat runs after this turn
+export async function steerOther(services: RuntimeServices, run: RunningWork, conversationId: string, stillRunning: () => boolean): Promise<SteerResult> {
+  const not = cannotSteer(run);
+  if (not) return not;
   const others = (run.control.others ??= new Map());
   let input: SteerInput | undefined;
   let from = 0;
@@ -274,14 +261,7 @@ export async function steerOtherResult(services: RuntimeServices, run: RunningWo
     return 'refused';
   }
   if (!input) return 'all'; // nothing new there: the turn has every line
-  if (input.text) {
-    let ok = false;
-    try { ok = await engine.steer(run.runId, input.text); } catch (error) {
-      services.log.info('steer of another chat failed', { agentId: run.agentId, error: String(error) });
-    }
-    if (!ok || !stillRunning()) return 'refused';
-    try { services.runs.item(run.runId, { kind: 'note', data: { steered: { lines: input.lines, upToSeq: input.lastSeq, fromSeq: from, conversationId } }, effectStatus: 'none' }); } catch { /* audit is best effort */ }
-  }
+  if (input.text && await push(services, run, input.text, { steered: { lines: input.lines, upToSeq: input.lastSeq, fromSeq: from, conversationId } }, stillRunning) === 'refused') return 'refused';
   const seen = others.get(conversationId);
   others.set(conversationId, { ...seen, seq: Math.max(seen?.seq ?? 0, input.lastSeq) });
   return input.held ? 'held' : 'all';
@@ -300,22 +280,8 @@ export function hasPerson(services: Pick<RuntimeServices, 'chats'>, conversation
  * read at its next step; journaled as a run note. 'refused': its engine did not take it now (its turn had not started, or
  * just ended – the dispatcher tries again while it runs); 'held': an engine that never steers.
  */
-export async function steerNote(
-  services: RuntimeServices,
-  run: { agentId: string; runId: string; control: TurnControl },
-  text: string,
-  stillRunning: () => boolean,
-): Promise<SteerResult> {
-  const engine = run.control.engine;
-  if (!engine) return 'refused'; // not bound yet: tried again
-  if (!engine.steer) return 'held';
-  let ok = false;
-  try { ok = await engine.steer(run.runId, text); } catch (error) {
-    services.log.info('note steer failed', { agentId: run.agentId, error: String(error) });
-  }
-  if (!ok || !stillRunning()) return 'refused';
-  try { services.runs.item(run.runId, { kind: 'note', data: { told: { chars: text.length } }, effectStatus: 'none' }); } catch { /* audit is best effort */ }
-  return 'all';
+export async function steerNote(services: RuntimeServices, run: SteeredRun, text: string, stillRunning: () => boolean): Promise<SteerResult> {
+  return cannotSteer(run) ?? push(services, run, text, { told: { chars: text.length } }, stillRunning);
 }
 
 /** Engines whose steered text waits for the running turn's next model request (Codex turn/steer, Claude Code's queued stdin line, the HTTP loop) – a soft 'next' relay. */
@@ -326,22 +292,10 @@ export const LANDS_AT_NEXT_REQUEST: ReadonlySet<EngineId> = new Set<EngineId>(['
  * 'next': only one of LANDS_AT_NEXT_REQUEST. True when the turn took it and still runs (journaled as a run
  * note); false = not steered (the caller interrupts, digests or wakes). Never moves a cursor.
  */
-export async function steerRelay(
-  services: RuntimeServices,
-  run: { agentId: string; runId: string; control: TurnControl },
-  text: string,
-  mode: 'now' | 'next',
-  stillRunning: () => boolean,
-): Promise<boolean> {
+export async function steerRelay(services: RuntimeServices, run: SteeredRun, text: string, mode: 'now' | 'next', stillRunning: () => boolean): Promise<boolean> {
   const engine = run.control.engine;
   if (!engine?.steer || !text.trim()) return false;
   if (mode === 'next' && !LANDS_AT_NEXT_REQUEST.has(engine.id)) return false;
-  let ok = false;
-  try { ok = await engine.steer(run.runId, text); } catch (error) {
-    services.log.info('relay steer failed', { agentId: run.agentId, error: String(error) });
-  }
-  if (!ok || !stillRunning()) return false;
   // journaled with its text: the ledger keeps it in my record, so a failover, rebuild or fold still has it (context/ledger/capture.ts)
-  try { services.runs.item(run.runId, { kind: 'note', data: { relayed: { mode, chars: text.length }, text }, effectStatus: 'none' }); } catch { /* audit is best effort */ }
-  return true;
+  return await push(services, run, text, { relayed: { mode, chars: text.length }, text }, stillRunning) === 'all';
 }

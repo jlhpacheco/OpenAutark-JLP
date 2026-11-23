@@ -4,7 +4,8 @@
 // sees this PC on) and the fingerprints of its linked PCs; learns which of them are online there and
 // the addresses the server saw them on (only PCs that pinned this one too); opens and accepts tunnels
 // (rendezvous/tunnel.ts – the last fallback) and passes sealed connect requests for PCs found by
-// Remote ID (B-084: also by my person code – my chain goes with hello and update, and a found entry counts when its
+// Remote ID (B-084: also by the IDs my chains prove – Eine-ID 22.11.2026: `chains` [company, me] go with hello and update,
+// `chain` the first of them for a server from before; a found entry counts when its
 // own ID or its chain proves the ID). Reconnects with backoff after a failure (1 s … 1 min, one-shot timers); a host resume
 // probes the connection once (nudge). The server pings every 30 s; no ping or message for 90 s ends
 // the connection (one watchdog timer, re-armed by traffic – no polling).
@@ -94,8 +95,8 @@ export class RelayClient {
   private peers = new Map<string, string>();
   private findable = false;
   private port?: number;
-  /** My chain to my person code's root (B-084), when I am not the root. */
-  private chain?: Chain;
+  /** My chains to my IDs' roots (company, me; Eine-ID 22.11.2026), each only when I am not that root. */
+  private chains: Chain[] = [];
   /** Pinned PCs online at the server: their box key and the addresses the server saw them on. */
   private present = new Map<string, { box: string; addrs: string[] }>();
   private pending = new Map<number, Pending>();
@@ -130,16 +131,16 @@ export class RelayClient {
     if (next) this.connect();
   }
 
-  /** The linked PCs this PC pins (fingerprint + device key), whether it accepts requests here, its peer port and its chain. */
-  setPeers(peers: RelayPeer[], findable: boolean, port?: number, chain?: Chain): void {
+  /** The linked PCs this PC pins (fingerprint + device key), whether it accepts requests here, its peer port and its chains (≤ 2). */
+  setPeers(peers: RelayPeer[], findable: boolean, port?: number, chains: Chain[] = []): void {
     const next = new Map(peers.map((peer) => [peer.fp, peer.pub]));
-    const same = findable === this.findable && port === this.port && JSON.stringify(chain) === JSON.stringify(this.chain)
+    const same = findable === this.findable && port === this.port && JSON.stringify(chains) === JSON.stringify(this.chains)
       && next.size === this.peers.size && [...next].every(([fp, pub]) => this.peers.get(fp) === pub);
     if (same) return; // device events fire often; the server hears only real changes
     this.peers = next;
     this.findable = findable;
     this.port = port;
-    this.chain = chain;
+    this.chains = chains.slice(0, 2);
     for (const fp of [...this.present.keys()]) if (!this.peers.has(fp)) this.gone(fp);
     for (const tunnel of [...this.tunnels.values()]) if (!this.peers.has(tunnel.peer)) tunnel.close();
     if (this.ready) this.announce();
@@ -235,7 +236,7 @@ export class RelayClient {
         if (typeof frame.n !== 'string' || frame.n.length > 64) { ws.close(); return; }
         const sign = (text: string) => b64url(this.deps.identity.sign(Buffer.from(text, 'utf8')));
         this.announced = this.pins();
-        this.sendJson({ t: 'hello', v: 1, pub: b64url(this.deps.identity.publicKey), sig: sign(helloText(frame.n)), box: this.box.pub, boxSig: sign(boxText(this.box.pub)), peers: [...this.peers.keys()], findable: this.findable, ...(this.port ? { port: this.port } : {}), ...(this.chain ? { chain: this.chain } : {}) });
+        this.sendJson({ t: 'hello', v: 1, pub: b64url(this.deps.identity.publicKey), sig: sign(helloText(frame.n)), box: this.box.pub, boxSig: sign(boxText(this.box.pub)), peers: [...this.peers.keys()], findable: this.findable, ...(this.port ? { port: this.port } : {}), ...this.chainsFrame() });
         return;
       }
       case 'ready':
@@ -336,14 +337,17 @@ export class RelayClient {
     };
   }
 
-  private pins(): string { return JSON.stringify([[...this.peers.keys()].sort(), this.findable, this.port ?? 0, this.chain ?? null]); }
+  private pins(): string { return JSON.stringify([[...this.peers.keys()].sort(), this.findable, this.port ?? 0, this.chains]); }
+
+  /** `chains` for the server, and `chain` (the first) for a server from before 22.11.2026. */
+  private chainsFrame(): Record<string, unknown> { return this.chains.length ? { chains: this.chains, chain: this.chains[0] } : {}; }
 
   /** Tells the server the current pins, findable and port when they differ from what it has. */
   private announce(): void {
     const now = this.pins();
     if (now === this.announced) return;
     this.announced = now;
-    this.sendJson({ t: 'update', peers: [...this.peers.keys()], findable: this.findable, ...(this.port ? { port: this.port } : {}), ...(this.chain ? { chain: this.chain } : {}) });
+    this.sendJson({ t: 'update', peers: [...this.peers.keys()], findable: this.findable, ...(this.port ? { port: this.port } : {}), ...this.chainsFrame() });
   }
 
   private ask(frame: Record<string, unknown>, expect: string, timeoutMs: number, signal?: AbortSignal): Promise<Record<string, unknown>> {
