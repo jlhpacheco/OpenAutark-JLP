@@ -5,6 +5,25 @@ PC, how it shows, how I check for it and how I fix it. With every new version th
 since the version its PC ran before, looks through its company and puts right what it finds. A release adds its section
 here before it ships (the release check looks for it).
 
+## 0.3.19
+
+What changed: on Windows the desktop broker's check at each start really runs now. Up to 0.3.18 it started
+Windows PowerShell without a console, which ended at once without running install.ps1, and main.log still said
+"desktop broker setup: installed and running" – so a new broker that came with an update never replaced the old one and
+no Windows prompt asked for it. Now the check runs hidden, an update of the broker asks Windows once at the first start
+of this version, and "installed" is only written once `install.ps1 -Check` confirms the current broker is running;
+otherwise the setup counts as failed with the check's exit code. A PSModulePath inherited from PowerShell 7 no longer
+reaches the script, so it no longer fails with "Get-FileHash is not recognized".
+
+**An outdated desktop broker behind "installed and running".** Shows as: after an update, main.log says the broker
+setup is installed and running, but the service still runs an older image, or the secure desktop (lock screen, Windows
+prompts) is out of reach. I check: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File
+"%LOCALAPPDATA%\Programs\Autark\resources\app.asar.unpacked\resources\broker\install.ps1" -Check` – exit 0 is
+current, exit 2 outdated or missing; main.log's line after "desktop broker reconciliation started" at this version's
+first start. I fix it: at the first start of this version a Windows prompt asks once for the broker and I answer it
+with Yes (or ask the person where I may not); where it got no Yes, a run of the same install.ps1 without -Check
+asks again.
+
 ## 0.3.18
 
 What changed: linked PCs and phones keep each other current by themselves – a message a shaky connection lost arrives
