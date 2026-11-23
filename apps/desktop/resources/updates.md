@@ -53,6 +53,20 @@ app's own to-dos show "from Autark".
 it: if the account is signed in, I close the to-do; if not, I sign it in myself (accounts.sign_in) and tell the person
 only what only they can do.
 
+Settings › Models names a Claude plan as Anthropic does today: Max with 20× usage is the "Ultra plan" (Claude Code reports it as
+subscriptionType "max" with planTier "max_20x"). Under each Claude plan's extra-usage switch there is a second way past its
+limit: "Monthly API credits of this plan" (Max, Ultra and Team include API credits every month – a Console organization
+linked at claude.ai › Settings › Billing › API credits, spent with its API keys, refilled monthly, nothing billed once used
+up), or "API key as reserve" for a plan without them. A key pasted there goes straight into the encrypted catalog as the
+Anthropic key account "<plan> · API credits" and is never shown again; with monthly credits it runs like a plan once the
+plans run out, before any paid key – the order of before, no second purse. "Let the AI set it up" gives the personal
+manager a to-do to link the organization, store a key with browser.save_secret and enter it.
+
+**A Claude plan that is out of quota although its API credits are set.** Shows as: agents wait for a plan's reset, while
+Settings › Models shows "Key stored ✓". I check: the account "<plan> · API credits" is on and its plan credits are on;
+whether its last turn said the credit balance is too low (then it waits a day). I fix it: if the organization was never
+linked at claude.ai › Settings › Billing › API credits, I link it – else the person tops it up or waits for the month.
+
 ## 0.3.18
 
 What changed: linked PCs and phones keep each other current by themselves – a message a shaky connection lost arrives

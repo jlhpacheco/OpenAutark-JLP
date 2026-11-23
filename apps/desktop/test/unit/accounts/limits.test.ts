@@ -59,7 +59,8 @@ test('normalizeClaudeUsage: 5h, weekly and model windows with their reset; a pla
     plan: 'max',
   });
   assert.deepEqual(normalizeClaudeUsage({ rate_limits_available: false, rate_limits: { five_hour: { utilization: 1 } } }, NOW), {});
-  assert.deepEqual(normalizeClaudeUsage({ rate_limits_available: true, subscription_type: 'ultra', rate_limits: {} }, NOW), { limits: undefined, plan: undefined });
+  assert.deepEqual(normalizeClaudeUsage({ rate_limits_available: true, subscription_type: 'ultra', rate_limits: {} }, NOW), { limits: undefined, plan: 'ultra' }); // 23.11.2026: Anthropic's name for Max 20×
+  assert.deepEqual(normalizeClaudeUsage({ rate_limits_available: true, subscription_type: 'galaxy', rate_limits: {} }, NOW), { limits: undefined, plan: undefined });
 });
 
 test('parseClaudeRateLimitEvent: fractions and percents, an ambiguous 100 % stays below 100, only a rejection uses the window up', () => {

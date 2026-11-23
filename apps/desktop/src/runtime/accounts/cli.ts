@@ -84,6 +84,17 @@ export function parseCodexStatus(code: number | null, output: string): { loggedI
 /** B-051 L5: Claude Code runs agents only on a paid claude.ai plan (Pro, Max, Team …); the Free plan cannot. */
 export const CLAUDE_FREE_PLAN = 'Claude Code needs a Claude Pro or Max plan.';
 
+/**
+ * The plan as Anthropic names it today (owner 23.11.2026: "Max" with 20× usage is now "Ultra", claude.com/pricing): `auth status`
+ * still says subscriptionType "max" for it and tells the two apart only by planTier ("max_20x"; "max_5x" stays Max). A CLI that
+ * already answers "ultra" passes as it is.
+ */
+export function claudePlan(subscriptionType: unknown, planTier?: unknown): string | undefined {
+  if (typeof subscriptionType !== 'string' || !subscriptionType.trim()) return undefined;
+  const type = subscriptionType.trim().slice(0, 40);
+  return type.toLowerCase() === 'max' && typeof planTier === 'string' && /20x/i.test(planTier) ? 'ultra' : type;
+}
+
 /** A claude.ai sign-in on the Free plan (case-insensitive; unknown plans pass). Codex is never blocked by plan. */
 export function claudeFreePlan(status: { method?: string; plan?: string }): boolean {
   return status.method === 'claude' && status.plan?.trim().toLowerCase() === 'free';
@@ -102,7 +113,7 @@ export function parseClaudeStatus(code: number | null, stdout: string): { logged
     if (!loggedIn) return { loggedIn: false };
     const method = value.authMethod === 'claude.ai' ? 'claude' : 'api';
     const email = typeof value.email === 'string' ? value.email.slice(0, 200) : undefined;
-    const plan = typeof value.subscriptionType === 'string' ? value.subscriptionType.slice(0, 40) : undefined;
+    const plan = claudePlan(value.subscriptionType, value.planTier);
     return { loggedIn, method, email, plan };
   } catch {
     return { loggedIn: false, unknown: true }; // no answer of the CLI (a start that crashed on a loaded PC, live 02.11.2026) says nothing about the login

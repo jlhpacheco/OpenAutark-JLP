@@ -39,7 +39,7 @@ test('extra usage view: where the provider has none the switch is impossible and
 });
 
 test('plan label: the tier as the person knows it; an unknown tier stays as the provider wrote it', () => {
-  assert.deepEqual(['max', 'Pro', 'plus', 'free', 'api', 'Ultra', '', undefined].map((plan) => planLabel(plan)), ['Max plan', 'Pro plan', 'Plus plan', 'Free plan', 'API key', 'Ultra', undefined, undefined]);
+  assert.deepEqual(['max', 'Pro', 'plus', 'free', 'api', 'Ultra', 'Copilot Business', '', undefined].map((plan) => planLabel(plan)), ['Max plan', 'Pro plan', 'Plus plan', 'Free plan', 'API key', 'Ultra plan', 'Copilot Business', undefined, undefined]);
 });
 
 test('found text: what is on offer and what stays true until "Use"; a declined one says so and stays on the PC', () => {

@@ -43,6 +43,8 @@ declare module '../api/methods.ts' {
     'accounts.useFound': { params: { key: string; thisPcOnly?: boolean }; result: Account }; // `thisPcOnly` (default true): the account stays on this PC; false: it goes to all PCs of the company
     /** "Not here" – the offered login is dismissed in this company (it stays on the PC; "Add again" brings it back). Only the person. */
     'accounts.declineFound': { params: { key: string }; result: { ok: true } };
+    /** 23.11.2026: "Let the AI set it up" – the personal manager's to-do for a Claude plan's monthly API credits (one open per plan). Only the person. */
+    'accounts.setupCredits': { params: { id: string }; result: { taskId: string; assignee: string } };
     'accounts.login': { params: { id: string }; result: { started: boolean; url?: string } & AwaySignIn };
     /** B-091: the code the Claude sign-in page showed the person on their phone, handed to the running away sign-in; ok = the account works now. */
     'accounts.loginCode': { params: { id: string; code: string }; result: { ok: boolean } };

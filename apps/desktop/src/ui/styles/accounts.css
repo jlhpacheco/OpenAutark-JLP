@@ -28,6 +28,10 @@
 .account-extra-switch { display: inline-flex; align-items: center; gap: 8px; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); cursor: pointer; }
 .account-extra[data-possible=false] .account-extra-switch { cursor: default; }
 .account-extra-hint { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); overflow-wrap: anywhere; text-wrap: wrap; }
+.account-api-credits { display: grid; gap: 4px; margin-top: 8px; max-width: 460px; }
+.account-api-credits-title { color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); }
+.account-api-credits-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.account-api-credits-form .input { flex: 1 1 180px; min-width: 0; }
 /* a plan login's "On all PCs of this company" switch (Account.thisPcOnly) and its line – the same look as the extra-usage switch */
 .account-share { display: grid; gap: 2px; margin-top: 8px; max-width: 460px; }
 .account-share-switch { display: inline-flex; align-items: center; gap: 8px; color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); line-height: max(18px, calc(18px * var(--ui-text, 1))); cursor: pointer; }

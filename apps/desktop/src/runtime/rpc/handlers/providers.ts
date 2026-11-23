@@ -43,6 +43,7 @@ import { MAIN_THREAD } from '../../../shared/model/origin.ts';
 import { personName } from '../../agents/publishing.ts';
 import { HUMAN_ID } from '../../../shared/ids.ts';
 import { tryAccount } from '../../accounts/try-turn.ts';
+import { setupCredits } from '../../accounts/credits-setup.ts';
 import { modelUses } from '../../models/uses.ts';
 import { setUse } from '../../models/set-use.ts';
 
@@ -210,6 +211,14 @@ export function register(table: HandlerTable): void {
     const thisPcOnly = optBool(o, 'thisPcOnly'); // 17.11.2026: a plan login stays on this PC, or goes to the company's PCs (the person's choice either way)
     if (thisPcOnly !== undefined) { personOnly(ctx, 'Choosing where a sign-in is used'); patch.thisPcOnly = thisPcOnly; }
     return ctx.services.accounts.update(id(o), patch);
+  }, ACCOUNTS);
+  // 23.11.2026 (task_pkzytj9m): "Let the AI set it up" – the personal manager's to-do for a Claude plan's monthly API credits
+  table.add('accounts.setupCredits', (params, ctx) => {
+    const o = input(params);
+    onlyKeys(o, ['id']);
+    personOnly(ctx, 'Handing the API credits of a plan to the manager');
+    const { task, assignee } = setupCredits(ctx.services, id(o));
+    return { taskId: task.id, assignee };
   }, ACCOUNTS);
   // 17.11.2026: a plan login on offer (accounts.detect → found) is used here only after the person's "Use"; "Not here" keeps it out
   table.add('accounts.useFound', (params, ctx) => {

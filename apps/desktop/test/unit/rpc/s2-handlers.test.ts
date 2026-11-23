@@ -120,6 +120,7 @@ test('all S2 methods are registered once with the specified scopes', () => {
   const expected = [
     'accounts.list', 'accounts.detect', 'accounts.add', 'accounts.update', 'accounts.login', 'accounts.logout', 'accounts.remove', 'accounts.install',
     'accounts.loginCode', // B-091: the Claude page's code from the phone (handler: rpc/phone-access.test.ts)
+    'accounts.setupCredits', // 23.11.2026: "Let the AI set it up" for a plan's API credits (accounts/api-credits.test.ts)
     'accounts.useFound', 'accounts.declineFound', // 17.11.2026: the person's "Use" / "Not here" for a found plan login (accounts/consent.test.ts)
     'usage.list', 'models.list', 'models.recent', 'models.getPolicy', 'models.setPolicy', 'routing.preview', 'catalog.refresh', 'efforts.forModel',
     'catalog.status',
@@ -149,7 +150,7 @@ test('all S2 methods are registered once with the specified scopes', () => {
   const ACCOUNTS = { capability: 'settings', secure: true }; // B-078: plans and keys from the owner's phone app
   const special: Record<string, unknown> = {
     ...Object.fromEntries(['accounts.list', 'accounts.detect', 'accounts.add', 'accounts.update', 'accounts.login', 'accounts.loginCode', 'accounts.logout', 'accounts.remove',
-      'accounts.install', 'accounts.useReset', 'accounts.test', 'accounts.try', 'accounts.useFound', 'accounts.declineFound', 'models.uses', 'models.setUse'].map((method) => [method, ACCOUNTS])), // B-084: models.uses for the phone's Settings › Models
+      'accounts.install', 'accounts.useReset', 'accounts.test', 'accounts.try', 'accounts.useFound', 'accounts.declineFound', 'accounts.setupCredits', 'models.uses', 'models.setUse'].map((method) => [method, ACCOUNTS])), // B-084: models.uses for the phone's Settings › Models
     'secrets.capture': { capability: 'chat', secure: true },
     'secrets.fromMessage': { capability: 'chat', secure: true },
     'pwa.pushSubscribe': 'any', 'pwa.pushConfig': 'any', 'pwa.pushUnsubscribe': 'any', 'pwa.exchange': 'any',

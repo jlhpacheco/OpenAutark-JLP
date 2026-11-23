@@ -29,6 +29,7 @@ import { serviceOfAccount } from '../../shared/model/providers-connect.ts';
 import { pushToast } from '../lib/toasts.ts';
 import { Button } from '../lib/ui.tsx';
 import { extraUsageView } from './extra-usage.ts';
+import { ApiCredits } from './ApiCredits.tsx';
 import { act, ActionButton, Row, Toggle, useBusy } from './controls.tsx';
 import { inTerminal, recheckOnFocus, removeText, repairText, signInStarted, startLogin } from './account-actions.ts';
 import { needsSignIn, planLabel, PROVIDER_NAMES, SIGN_IN, SIGN_OUT, stateLabel } from './providers.ts';
@@ -201,6 +202,7 @@ export function AccountRow(props: { account: Account; siblings: readonly Account
             <div class="account-extra-hint">{extra.hint}</div>
           </div>
         )}
+        <ApiCredits account={account} />
         {cli && (
           <div class="account-share">
             <label class="account-share-switch">

@@ -126,7 +126,8 @@ export class ClaudeStatus {
     const check: AccountCheck = { state: 'ok', email: parsed.email, plan: parsed.plan ?? (parsed.method === 'api' ? 'api' : undefined) };
     const probe = await this.probe(exe, account);
     if (probe.usage.limits) check.limits = probe.usage.limits;
-    if (probe.usage.plan) check.plan = probe.usage.plan;
+    // the probe's subscription_type says "max" for Ultra too – it never takes back the tier auth status read (cli.ts claudePlan)
+    if (probe.usage.plan && !(check.plan === 'ultra' && probe.usage.plan === 'max')) check.plan = probe.usage.plan;
     const info = probe.init?.account;
     if (!check.email && info?.email) check.email = info.email;
     if (!check.plan && info?.plan) check.plan = info.plan;

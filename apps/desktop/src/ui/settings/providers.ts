@@ -96,8 +96,8 @@ export function signInHint(provider: ProviderId | undefined, away = false): stri
 }
 
 /** The plan CLIs the PC scan looks for, in the order the model setup lists them. */
-/** 17.11.2026 (Mika): a plan's tier as the person knows it – "Max plan", "Pro plan"; a tier not listed stays as the provider wrote it. */
-const PLAN_NAMES: Record<string, string> = { max: 'Max plan', pro: 'Pro plan', plus: 'Plus plan', team: 'Team plan', business: 'Business plan', enterprise: 'Enterprise plan', free: 'Free plan', api: 'API key' };
+/** 17.11.2026 (Mika): a plan's tier as the person knows it – "Ultra plan" (23.11.2026: Anthropic's name for Max 20×), "Max plan", "Pro plan"; a tier not listed stays as the provider wrote it. */
+const PLAN_NAMES: Record<string, string> = { ultra: 'Ultra plan', max: 'Max plan', pro: 'Pro plan', plus: 'Plus plan', team: 'Team plan', business: 'Business plan', enterprise: 'Enterprise plan', free: 'Free plan', api: 'API key' };
 export function planLabel(plan: string | undefined): string | undefined {
   const value = plan?.trim();
   return value ? PLAN_NAMES[value.toLowerCase()] ?? value : undefined;

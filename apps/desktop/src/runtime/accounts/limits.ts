@@ -96,7 +96,7 @@ export function normalizeClaudeUsage(value: unknown, now: number): { limits?: Ac
     const reset = typeof limit.resets_at === 'string' ? Date.parse(limit.resets_at) : NaN;
     windows.push({ name: windowName(minutes, suffix), windowMinutes: minutes, usedPercent: used, resetsAt: Number.isFinite(reset) && reset > 0 ? reset : undefined });
   }
-  const plan = typeof value.subscription_type === 'string' && ['pro', 'max', 'team', 'enterprise'].includes(value.subscription_type) ? value.subscription_type : undefined;
+  const plan = typeof value.subscription_type === 'string' && ['pro', 'max', 'ultra', 'team', 'enterprise'].includes(value.subscription_type) ? value.subscription_type : undefined;
   return { limits: windows.length ? { windows, readAt: now } : undefined, plan };
 }
 

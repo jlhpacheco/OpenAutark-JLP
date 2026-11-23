@@ -26,7 +26,7 @@
 .first-run-rows .set-row-text { flex-basis: 160px; }
 .first-run-rows .set-row-control { flex-wrap: nowrap; }
 /* the first run only connects a plan: the extra-usage and "all PCs" switches and "Remove" (Settings › Models, 17.11.2026) stay out of this card, so its rows keep their height */
-.first-run-rows .account-extra, .first-run-rows .account-share, .first-run-rows .account-foot { display: none; }
+.first-run-rows .account-extra, .first-run-rows .account-api-credits, .first-run-rows .account-share, .first-run-rows .account-foot { display: none; }
 
 /* The "Open sign-in page" / "Get a key" link cell (onboarding/sign-in-link.tsx, settings/account-forms.tsx): the link, or an inert
    placeholder of the same text and size */
