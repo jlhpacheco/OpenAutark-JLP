@@ -8,11 +8,12 @@
 
 import { existsSync } from 'node:fs';
 import type { RuntimeServices } from '../../contracts.ts';
-import { blobIdsOf } from '../../context/ledger/originals.ts';
+import { blobIdsOf, withheldTool } from '../../context/ledger/originals.ts';
+import type { LedgerRow } from '../../context/ledger/store.ts';
 import { DevicesRepo } from '../repo.ts';
 import { needBlob } from './blobs.ts';
 import { links } from './home.ts';
-import { originalsIn, originalsOf, PAGE_BYTES, putOriginals, type WireRow } from './ledger-wire.ts';
+import { originalsIn, originalsOf, PAGE_BYTES, putOriginals, type LocalRow, type WireRow } from './ledger-wire.ts';
 
 export const LEDGER_METHOD = 'sync.ledger';
 /** Run items per fetch call. */
@@ -56,14 +57,17 @@ function blobsMissing(s: Pick<RuntimeServices, 'files'>, data: string): string[]
   return blobIdsOf(parsed).filter((id) => { try { return !existsSync(s.files.path(id)); } catch { return false; } });
 }
 
+type PeerLedgerRow = LedgerRow & Pick<LocalRow, 'pc'>;
+
 interface Away { itemId: string; runItem: string; pc: string }
 
 /** The items among `itemIds` that came from a linked PC and whose original (run item or blob) is not here. */
 function awayRows(s: RuntimeServices, agentId: string, thread: string, itemIds: readonly string[]): Away[] {
   const out: Away[] = [];
   for (const itemId of itemIds) {
-    const row = s.db.get<{ ref: string | null; pc: string | null }>('SELECT ref, pc FROM context_items WHERE agent_id = ? AND conversation_id = ? AND item_id = ?', [agentId, thread, itemId]);
+    const row = s.db.get<PeerLedgerRow>('SELECT * FROM context_items WHERE agent_id = ? AND conversation_id = ? AND item_id = ?', [agentId, thread, itemId]);
     if (!row?.pc || !row.ref?.startsWith('item:')) continue;
+    if (withheldTool({ db: s.db }, row)?.reason === 'blocked') continue;
     const runItem = row.ref.slice(5);
     const item = s.db.get<{ data: string }>('SELECT data FROM run_items WHERE id = ?', [runItem]);
     if (!item || blobsMissing(s, item.data).length) out.push({ itemId, runItem, pc: row.pc });
@@ -80,7 +84,10 @@ export async function fetchAway(s: RuntimeServices, agentId: string, thread: str
       await pullItems(s, agentId, away.filter((row) => row.pc === pc).map((row) => row.runItem), onlinePeers(s, pc));
     }
     if (!s.paths) return;
-    for (const { runItem } of away) {
+    for (const { itemId, runItem } of away) {
+      // A peer may have just supplied the name that identifies a withheld item. Do not fetch its body.
+      const row = s.db.get<LedgerRow>('SELECT * FROM context_items WHERE agent_id = ? AND conversation_id = ? AND item_id = ?', [agentId, thread, itemId]);
+      if (!row || withheldTool({ db: s.db }, row)) continue;
       const data = s.db.get<{ data: string }>('SELECT data FROM run_items WHERE id = ?', [runItem])?.data;
       for (const blob of data ? blobsMissing(s, data) : []) await needBlob(s, blob);
     }

@@ -52,6 +52,7 @@
 // never lets project-level config in the workspace (.claude/settings*.json, .mcp.json, project
 // skills/agents/commands) add permissions, hooks, plugins or MCP servers to a turn.
 
+import { canContinueManaged, rememberManaged, forgetManaged, LEGACY_SESSION } from '../managed-session.ts';
 import * as path from 'node:path';
 import type { Account, Effort, EngineId } from '../../../shared/model/providers.ts';
 import type { AccountCheck, Engine, EngineCaps, EngineEvent, EngineForkInput, EngineForkResult, EngineModel, EngineRebuildInput, EngineRebuildResult, EngineTurnInput, EngineTurnResult, KeepOpenInput, RebuildProbe } from '../types.ts';
@@ -163,6 +164,8 @@ export class ClaudeEngine implements Engine {
   setModel(runId: string, model: string, effort: Effort): Promise<boolean> { return this.turns.setModel(runId, model, effort); }
 
   async run(input: EngineTurnInput): Promise<EngineTurnResult> {
+    const kept = input.keep && !input.mcp && input.tools.length === 0;
+    if (!kept && input.session && !canContinueManaged(this, input.account.id, input.session.ref)) return { text: '', stop: 'error', error: { code: 'conflict', message: LEGACY_SESSION, details: { rebase: true } } };
     const exe = await this.deps.finder.find('claude');
     if (!exe) return { text: '', stop: 'error', error: ERR.unavailable('Claude Code is not installed.') };
     if (input.keep && !input.mcp && input.tools.length === 0) return this.keptTurn(exe, input);
@@ -212,6 +215,7 @@ export class ClaudeEngine implements Engine {
       const content = await this.content(traceRefused ? { ...input, input: [traceInput(input.trace!.calls), ...input.input] } : input);
       const env = asAgent({ ...this.status.envFor(input.account), ...LEAN_ENV, ...(agentTurn ? AGENT_ENV : {}), ...target?.env }, agentTurn ? input.agentId : undefined); // B-085: its wf writes as the agent; AGENT_ENV: a one-hour cache for an agent's session
       const fresh = !resume && agentTurn ? { ref: sessionId, generation } : undefined; // B-080: announced at the CLI's system/init
+      if (fresh) rememberManaged(this, input.account.id, fresh.ref);
       ran = await this.turns.attempt(exe.command, args, env, input, content, fresh, secure);
     } finally {
       for (const file of temp) await this.files.rm(file).catch(() => {});
@@ -226,6 +230,7 @@ export class ClaudeEngine implements Engine {
       text: parser.answer(), stop: 'done', usage: s.usage, contextTokens: s.contextTokens,
       contextWindow: parser.contextWindow(cliModel(ran.model)), session: { ref: await this.rebuilds.nextRef(resume, grownFrom, s.sessionId ?? sessionId, s.done && !s.isError && !broken), generation },
     };
+    if (ran.started && (agentTurn || resume) && result.session) rememberManaged(this, input.account.id, result.session.ref);
     if (input.outputSchema && s.structured !== undefined) result.structured = s.structured;
     if (traceRefused) result.traceAsText = traceRefused;
     if (s.compacted) result.compacted = true; // B-049 F6: the next turn sends every volatile section again
@@ -302,7 +307,11 @@ export class ClaudeEngine implements Engine {
   async unload(_account: Account, ref: string): Promise<void> { this.kept.close(ref); }
 
   /** The ledger's history as a fresh transcript for the probed tier; the next turn resumes it (rebuilder.ts). */
-  rebuild(input: EngineRebuildInput): Promise<EngineRebuildResult> { return this.rebuilds.rebuild(input); }
+  async rebuild(input: EngineRebuildInput): Promise<EngineRebuildResult> {
+    const result = await this.rebuilds.rebuild(input);
+    rememberManaged(this, input.account.id, result.ref);
+    return result;
+  }
 
   /** The CLI version the rebuild probe is kept for. */
   rebuildVersion(): Promise<string | undefined> { return this.rebuilds.cliVersion(); }
@@ -311,11 +320,17 @@ export class ClaudeEngine implements Engine {
   probeRebuild(account: Account, cwd: string): Promise<RebuildProbe> { return this.rebuilds.probe(account, cwd); }
 
   /** B-057 (fork.ts): reserves a forked session of the parent; its first turn resumes the parent with --fork-session. */
-  fork(input: EngineForkInput): Promise<EngineForkResult> { return this.forks.fork(input, this.folders.get(input.parentRef)); }
+  async fork(input: EngineForkInput): Promise<EngineForkResult> {
+    if (!canContinueManaged(this, input.account.id, input.parentRef)) throw new Error(LEGACY_SESSION);
+    const result = await this.forks.fork(input, this.folders.get(input.parentRef));
+    rememberManaged(this, input.account.id, result.ref);
+    return result;
+  }
 
   /** A superseded session the app created – our transcript (path ref) or the CLI's transcript of its id (id ref). */
   deleteSession(account: Account, ref: string): Promise<'deleted' | 'missing'> {
     this.folders.delete(ref);
+    forgetManaged(this, account.id, ref);
     this.forks.drop(ref); // B-057: a split's fork that never ran
     return this.rebuilds.delete(account, ref);
   }

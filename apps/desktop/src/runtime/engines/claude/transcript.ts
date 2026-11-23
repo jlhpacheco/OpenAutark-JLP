@@ -5,8 +5,8 @@
 // Owns: the record shape (uuid/parentUuid chain, sessionId, cwd, version, userType, isSidechain, timestamps),
 // the content mapping – user and assistant text; our hub tools as tool_use/tool_result with their
 // `mcp__workforce__*` names 1:1; engine-native calls through neutral-calls.ts (B-049: Claude Code's own core tools
-// verbatim, a Codex shell call as Bash – PowerShell on Windows for a PowerShell script – with its output as the
-// tool_result, an edit as a note with its diff); Claude thinking only unchanged with its signature (same account
+// verbatim except historical native shell rows, which are omitted; an edit as a note with its diff);
+// Claude thinking only unchanged with its signature (same account
 // and model family); everything else as text (a user-side "[record of an earlier call …]" with its output – BEFUND §3, "(thinking: …)" – B-049 F9: a Codex exec
 // script as such a note with its source and the line naming its nested calls; a nested call itself is skipped); a condensed item's
 // restore stamp in its text – and the turn boundary: every tool_use is answered in the next record, the
@@ -17,7 +17,7 @@
 
 import type { RebuildItem } from '../types.ts';
 import { toWireName } from '../shared.ts';
-import { boundOutput, oursCall, recordText, sameReasoningSource, withStamp } from '../rebuild-text.ts';
+import { boundOutput, legacyNativeShell, legacyShellOmission, oursCall, recordText, sameReasoningSource, withStamp } from '../rebuild-text.ts';
 import { mapNativeCall, type Mapped } from '../neutral-calls.ts';
 import { coreTools } from './lean.ts';
 import { HUB_SERVER } from './stream.ts';
@@ -82,9 +82,16 @@ export function transcriptMessages(items: RebuildItem[], context: Pick<Transcrip
     if (last && last.role === role && !closed) last.blocks.push(block);
     else out.push({ role, blocks: [block] });
   };
+  let omitted = 0;
+  const flushOmissions = () => {
+    if (omitted) add('user', { type: 'text', text: legacyShellOmission(omitted) });
+    omitted = 0;
+  };
   for (const item of items) {
     if (item.nested) continue; // B-049 F9: a call inside a script – the script's note names it
     const call = item.call;
+    if (call && legacyNativeShell(call, item.origin?.engine)) { omitted++; continue; }
+    flushOmissions();
     if (call) {
       const mapped: Mapped | undefined = oursCall(call) ? undefined : mapNativeCall(call, item.origin?.engine, mapTarget);
       if (mapped?.as === 'note' || mapped?.as === 'custom') { // 'custom' (Codex's own custom tools) never maps into Claude Code
@@ -112,6 +119,7 @@ export function transcriptMessages(items: RebuildItem[], context: Pick<Transcrip
     if (item.role === 'assistant') add('assistant', { type: 'text', text });
     else add('user', { type: 'text', text: item.role === 'tool' ? `[${item.itemId}]\n${boundOutput(text)}` : text });
   }
+  flushOmissions();
   // Thinking is only valid in front of the text or call it led to: thinking after a message's last other block
   // (also a message of thinking alone) goes.
   for (const message of out) {

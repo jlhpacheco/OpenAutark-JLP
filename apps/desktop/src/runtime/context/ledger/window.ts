@@ -25,6 +25,8 @@
 
 import { CHARS_PER_TOKEN, compactStamp, type LedgerItem, type LedgerKind, type LedgerState, type LedgerViewItem } from '../../../shared/model/context-ledger.ts';
 
+import { legacyNativeShell, legacyShellOmission } from '../../engines/rebuild-text.ts';
+
 /** The reason a fit's hide carries (the ledger's mark reason). */
 export const FIT_REASON = 'the oldest work, to fit the model window';
 /** B-089: what a finished run's tool output leaves in its place (the call, its arguments and the restore stamp stay). */
@@ -227,7 +229,9 @@ export function leanMarks(entries: readonly LedgerViewItem[], keep: LeanKeep): L
     const tokens = entryTokens(entry);
     const open = LEAN_KINDS.has(entry.kind) && entry.runId && !keptWhole(entry, keep) && entry.state === 'keep' && !entry.nested && !keep.pinned.has(entry.itemId);
     if (!open) return { ...entry, tokens, cost: tokens };
-    const text = leanText(entry.call?.output ?? entry.text);
+    const text = entry.call && legacyNativeShell(entry.call, entry.origin?.engine)
+      ? legacyShellOmission(1)
+      : leanText(entry.call?.output ?? entry.text);
     return { ...entry, tokens, cost: leanCost(entry, text), text };
   }), keep);
 }

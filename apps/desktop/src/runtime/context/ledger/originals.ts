@@ -11,6 +11,7 @@ import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import type { ChatService, FileStore } from '../../contracts.ts';
 import type { Db } from '../../db/database.ts';
 import type { LedgerRow } from './store.ts';
+import { legacyNativeShell, legacyShellOmission } from '../../engines/rebuild-text.ts';
 
 export interface JournalRow {
   id: string;
@@ -92,6 +93,7 @@ export interface Original {
   pruned: boolean;
   /** Bytes of the original past `text` (a cut). */
   more: number;
+  withheld?: 'blocked' | 'unverified';
 }
 
 /** A tool result's output as fully as it is kept, up to `max` characters. */
@@ -115,8 +117,22 @@ export function toolOutput(deps: OriginalDeps, item: JournalRow, max: number): O
   return { text: safe(deps, cut), pruned: full > text.length + 64, more: Math.max(0, text.length - cut.length) };
 }
 
+/** At the model-facing boundary, use the journal name, never a human-readable title or excerpt. */
+export function withheldTool(deps: Pick<OriginalDeps, 'db'>, row: LedgerRow): { text: string; name?: string; reason: 'blocked' | 'unverified' } | undefined {
+  if (row.kind !== 'tool' && row.kind !== 'skill' && row.kind !== 'file') return undefined;
+  const item = row.ref?.startsWith('item:') ? journalRow(deps.db, row.ref.slice(5)) : undefined;
+  const result = item?.kind === 'tool_result' && item.run_id === row.run_id ? item : undefined;
+  // The persisted result's name is authoritative when present (the capture uses the same order).
+  const name = result?.name || (result && typeof result.data.callId === 'string' ? callRow(deps.db, result.run_id, result.data.callId)?.name : undefined);
+  if (name && legacyNativeShell({ name }, row.origin_engine ?? undefined)) return { text: legacyShellOmission(1), name, reason: 'blocked' };
+  if (!name && row.kind === 'tool') return { text: '[Earlier tool call omitted: its origin could not be verified.]', reason: 'unverified' };
+  return undefined;
+}
+
 /** The original behind a row, up to `max` characters (undefined only for an unreadable ref). */
 export function originalOf(deps: OriginalDeps, row: LedgerRow, max: number): Original {
+  const held = withheldTool(deps, row);
+  if (held) return { text: held.text, pruned: true, more: 0, withheld: held.reason };
   const left: Original = { text: safe(deps, row.condensed ?? row.title), pruned: true, more: 0 };
   if (row.pruned_at !== null || !row.ref) return left;
   if (row.ref.startsWith('msg:')) {

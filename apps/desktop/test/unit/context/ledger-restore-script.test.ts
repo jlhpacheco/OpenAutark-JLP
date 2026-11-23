@@ -52,14 +52,37 @@ async function restoreInScript(h: Setup, extra = ''): Promise<string> {
 }
 
 const byId = (h: Setup) => new Map(h.ledger.items(h.tom.id, 'main').map((item) => [item.itemId, item]));
-const scriptItem = (h: Setup) => h.ledger.items(h.tom.id, 'main').find((item) => item.title.startsWith('exec: '))!;
+// The projection must not expose the title or condensation. Identify the synthetic row by its fixture journal link
+// and inspect storage only inside this test, where both args and body are known constants.
+function scriptRow(h: Setup, runId: string) {
+  const row = h.db.get<{ itemId: string; state: string; condensed: string | null }>(
+    `SELECT c.item_id AS itemId, c.state, c.condensed FROM context_items c JOIN run_items r
+      ON c.ref = 'item:' || r.id AND c.run_id = r.run_id
+      WHERE c.agent_id = ? AND c.conversation_id = ? AND r.run_id = ? AND r.kind = 'tool_result'
+        AND json_extract(r.data, '$.callId') = 'call_script_1'`, [h.tom.id, 'main', runId]);
+  assert.ok(row, 'fixture produced a script row');
+  return row;
+}
+
+function assertWithheld(h: Setup, itemId: string) {
+  const projected = byId(h).get(itemId);
+  assert.ok(projected);
+  assert.equal(projected.pruned, true);
+  assert.match(projected.title, /native shell or script calls omitted/);
+  assert.equal(projected.condensed, undefined);
+  const orig = h.ledger.original(h.tom.id, 'main', itemId);
+  assert.equal(orig?.withheld, 'blocked');
+  assert.equal(orig?.args, undefined);
+  assert.equal(orig?.text, projected.title);
+}
 
 test('a script that only restored is condensed like a direct restore: the rebuilt history holds the original once', async () => {
   const h = ledgerSetup();
   try {
     await fileThenThree(h);
-    await restoreInScript(h);
-    const item = scriptItem(h);
+    const runId = await restoreInScript(h);
+    const item = scriptRow(h, runId);
+    assertWithheld(h, item.itemId);
     assert.equal(item.state, 'condensed', 'its output was the whole file again');
     assert.match(item.condensed ?? '', /^Restored f1 – kept in my context for the next 3 turns\. They are back in place in my context\.$/);
     assert.equal(byId(h).get('f1')?.state, 'keep');
@@ -69,12 +92,16 @@ test('a script that only restored is condensed like a direct restore: the rebuil
   } finally { h.cleanup(); }
 });
 
-test('a script that printed much more than its restore keeps its output (the rest has no other place)', async () => {
+test('an ambiguous legacy script with extra text stays stored but its output is withheld', async () => {
   const h = ledgerSetup();
   try {
     await fileThenThree(h);
-    await restoreInScript(h, `\n${'andere Ausgabe\n'.repeat(100)}`);
-    assert.equal(scriptItem(h).state, 'keep');
+    const runId = await restoreInScript(h, `\n${'andere Ausgabe\n'.repeat(100)}`);
+    const item = scriptRow(h, runId);
+    assert.equal(item.state, 'keep');
+    assertWithheld(h, item.itemId);
+    const history = rebuildItems(h.ledger.view(h.tom.id, 'main')).items;
+    assert.doesNotMatch(JSON.stringify(history), /andere Ausgabe|tools__call/);
   } finally { h.cleanup(); }
 });
 

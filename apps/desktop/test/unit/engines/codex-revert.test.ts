@@ -82,17 +82,17 @@ test('revert on a loaded thread: thread/revert before the turn, the tail injecte
   await e.run(turnInput({ runId: 'run_1' }).input);
   await e.run(turnInput({ runId: 'run_2', session: { ref: 'thr_1', generation: 1 } }).input);
   const result = await e.rebuild(revertInput('thr_1'));
-  assert.deepEqual(result, { ref: 'thr_1', generation: 3, items: 3 }, 'a native shell call replays as exec_command + its output, plus the answer');
+  assert.deepEqual(result, { ref: 'thr_1', generation: 3, items: 2 }, 'the native shell call is replaced by an inert marker');
   assert.deepEqual(fake.sent('thread/revert').map((r) => r.params), [{ threadId: 'thr_1', beforeTurnId: 'turn_2' }]);
   assert.equal(fake.sent('thread/start').length, 1, 'only the first turn started a thread');
   assert.equal(fake.sent('thread/resume').length, 0, 'loaded: no resume');
   const inject = fake.sent('thread/inject_items');
   assert.equal(inject.length, 1);
   assert.equal(inject[0].params.threadId, 'thr_1');
-  // B-049 neutral mapping: Codex's own shell call goes back in as its exec_command function_call with the output.
-  assert.deepEqual(inject[0].params.items.map((item: any) => item.type), ['function_call', 'function_call_output', 'message']);
-  assert.equal(inject[0].params.items[0].name, 'exec_command');
-  assert.equal(JSON.parse(inject[0].params.items[0].arguments).cmd, 'npm test');
+  const injected = JSON.stringify(inject[0].params.items);
+  assert.match(injected, /Earlier native shell or script calls omitted/);
+  assert.doesNotMatch(injected, /npm test|short.*compacted|exec_command/);
+  assert.match(injected, /Tests pass/);
   const order = fake.requests.map((r) => r.method);
   assert.ok(order.indexOf('thread/revert') < order.indexOf('thread/inject_items'), 'cut first, then the tail');
 
@@ -102,19 +102,30 @@ test('revert on a loaded thread: thread/revert before the turn, the tail injecte
   await e.dispose();
 });
 
-test('revert on a thread this process has not loaded resumes it lean first', async () => {
+test('revert on an unloaded locally created thread resumes it lean first', async () => {
   const fake = appServer();
   const e = engineOf(fake.spawn);
-  await e.rebuild(revertInput('thr_old'));
+  await e.run(turnInput().input);
+  await e.unload(account(), 'thr_1');
+  await e.rebuild(revertInput('thr_1'));
   const resume = fake.sent('thread/resume');
   assert.equal(resume.length, 1);
-  assert.equal(resume[0].params.threadId, 'thr_old');
+  assert.equal(resume[0].params.threadId, 'thr_1');
   assert.equal(resume[0].params.config.web_search, 'live', 'lean like every agent thread (E1: its own live search)');
   assert.equal(resume[0].params.sandbox, 'read-only', 'the isolation stays');
   const order = fake.requests.map((r) => r.method);
   assert.ok(order.indexOf('thread/resume') < order.indexOf('thread/revert'));
-  await e.run(turnInput({ runId: 'run_3', session: { ref: 'thr_old', generation: 3 } }).input);
+  await e.run(turnInput({ runId: 'run_3', session: { ref: 'thr_1', generation: 3 } }).input);
   assert.equal(fake.sent('thread/resume').length, 1, 'the reverted thread stays loaded');
+  await e.dispose();
+});
+
+test('a revert of an old unproven ref is refused before any thread request', async () => {
+  const fake = appServer();
+  const e = engineOf(fake.spawn);
+  await assert.rejects(e.rebuild(revertInput('thr_old')), /current managed-shell runtime/);
+  assert.equal(fake.sent('thread/resume').length, 0);
+  assert.equal(fake.sent('thread/revert').length, 0);
   await e.dispose();
 });
 

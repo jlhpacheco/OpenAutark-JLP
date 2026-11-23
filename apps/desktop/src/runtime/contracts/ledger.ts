@@ -53,7 +53,7 @@ export interface ContextLedger {
    */
   lines?(agentId: string, conversationId: string): LedgerItem[];
   /** The full original (undefined: no such item). `pruned`: the original is gone – `text` is what is left (condensed text or title). */
-  original(agentId: string, conversationId: string, itemId: string): { text: string; pruned: boolean; args?: string } | undefined;
+  original(agentId: string, conversationId: string, itemId: string): { text: string; pruned: boolean; args?: string; withheld?: 'blocked' | 'unverified' } | undefined;
   /** Items in order with the marks applied – what the next native rebuild contains (hidden items left out). */
   view(agentId: string, conversationId: string): LedgerView;
   /** Addition: the newest `limit` of the subconscious's calls in view form, in order (a stateless engine's next history, context/ledger/marks.ts). */

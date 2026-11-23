@@ -1,5 +1,5 @@
-// Every Codex agent thread opens lean – thread/start and thread/resume after a restart: Codex's own tools off except the
-// shell (shell_tool, unified_exec, shell_snapshot), view_image and image_generation, isolation.ts's workspace features off
+// Every Codex agent thread opens lean: native shell features remain off at start, resume and fork.
+// view_image and image_generation remain available; isolation.ts's workspace features stay off
 // again, the permission/app/collaboration/environment blocks off, its skill list, sub-agents and question tool off, Codex's
 // live web search on, apps off; its environment, history, developer instructions and isolation (read-only open, untrusted
 // cwd, approvals to us, the turn's own sandbox) stay exactly as before. A Codex that refuses these settings fails the open
@@ -30,6 +30,7 @@ function appServer(refuse: (msg: any) => boolean = () => false) {
       switch (msg.method) {
         case 'initialize': child.send({ id: msg.id, result: { userAgent: 'fake' } }); break;
         case 'thread/start': child.send({ id: msg.id, result: { thread: { id: `thr_${++threads}` } } }); break;
+        case 'thread/fork': child.send({ id: msg.id, result: { thread: { id: 'thr_' + (++threads) } } }); break;
         case 'thread/resume': child.send({ id: msg.id, result: { thread: { id: msg.params.threadId } } }); break;
         case 'thread/inject_items': case 'thread/unsubscribe': child.send({ id: msg.id, result: {} }); break;
         case 'turn/start':
@@ -58,7 +59,7 @@ function assertLeanAgent(params: any, label: string): void {
   assert.deepEqual(params.config.agents, { enabled: false }, `${label}: no Codex sub-agents (role text, spawn tools)`);
   assert.deepEqual(params.config.tools, { experimental_request_user_input: { enabled: false } }, `${label}: no question tool nobody answers`);
   assert.equal(params.config.model_auto_compact_token_limit, RUN_CEILING, `${label}: Runde "Halb" – Codex compacts near the run ceiling`);
-  assert.equal(params.environments, undefined, `${label}: the agent keeps its environment (shell, patch)`);
+  assert.equal(params.environments, undefined, `${label}: the agent keeps its environment`);
   assert.equal(params.ephemeral, undefined, `${label}: and its history`);
   // isolation.ts exactly as before
   assert.equal(params.sandbox, 'read-only', label);
@@ -69,7 +70,7 @@ function assertLeanAgent(params: any, label: string): void {
   assert.deepEqual(params.config.projects['/work'], { trust_level: 'untrusted' }, label);
 }
 
-test('agentLeanConfig: the helper\'s features off except the shell, view_image and image_generation; the workspace features off too; blocks off, web search disabled, apps off', () => {
+test('agentLeanConfig: the helper\'s features off except view_image and image_generation; the workspace features off too; blocks off, web search disabled, apps off', () => {
   const config = agentLeanConfig();
   const features = config.features as Record<string, boolean>;
   for (const name of AGENT_FEATURES_KEPT) assert.equal(name in features, false, `${name} kept (not even set to true)`);
@@ -105,28 +106,38 @@ test('agentThread: the lean config never replaces an isolation key; every other 
 test('an agent thread opens lean on thread/start and on thread/resume; its turns keep their own sandbox', async () => {
   const fake = appServer();
   const e = engineOf(fake.spawn);
-  assert.equal((await e.run(turnInput({ runId: 'run_1' }).input)).stop, 'done');
+  const start = turnInput({ runId: 'run_1' }).input;
+  const fresh = await e.run(start);
+  assert.equal(fresh.stop, 'done');
   assertLeanAgent(fake.sent('thread/start')[0].params, 'thread/start');
   assert.equal(fake.sent('thread/start')[0].params.dynamicTools.length, 1);
   assert.deepEqual(fake.sent('turn/start')[0].params.sandboxPolicy, { type: 'dangerFullAccess' }, 'an agent turn works on the whole PC');
 
-  assert.equal((await e.run(turnInput({ runId: 'run_2', session: { ref: 'thr_old', generation: 2 } }).input)).stop, 'done');
+  await e.unload(start.account, fresh.session!.ref);
+  assert.equal((await e.run(turnInput({ runId: 'run_2', session: fresh.session }).input)).stop, 'done');
   assertLeanAgent(fake.sent('thread/resume')[0].params, 'thread/resume');
-  assert.equal(fake.sent('thread/resume')[0].params.threadId, 'thr_old');
-  assert.equal(fake.sent('thread/start').length + fake.sent('thread/resume').length, 2, 'one request each: nothing refused');
+  assert.equal(fake.sent('thread/resume')[0].params.threadId, fresh.session!.ref);
+  const fork = await e.fork({ runId: 'run_fork', agentId: start.agentId, parentRef: fresh.session!.ref, cwd: start.cwd, account: start.account, model: start.model });
+  assertLeanAgent(fake.sent('thread/fork')[0].params, 'thread/fork');
+  assert.notEqual(fork.ref, fresh.session!.ref);
+  assert.equal(fake.sent('thread/start').length + fake.sent('thread/resume').length + fake.sent('thread/fork').length, 3);
   await e.dispose();
 });
 
 test('a refused resume is the thread\'s own: rebase, one request; the next new thread opens lean', async () => {
   const fake = appServer((msg) => msg.method === 'thread/resume');
   const e = engineOf(fake.spawn);
-  const result = await e.run(turnInput({ session: { ref: 'thr_gone', generation: 2 } }).input);
+  const initial = turnInput().input;
+  const fresh = await e.run(initial);
+  assert.equal(fresh.stop, 'done');
+  await e.unload(initial.account, fresh.session!.ref);
+  const result = await e.run(turnInput({ session: fresh.session }).input);
   assert.equal(result.stop, 'error');
   assert.equal(result.error?.details?.rebase, true);
   assert.equal(fake.sent('thread/resume').length, 1, 'no plainer second try');
   await e.run(turnInput({ runId: 'run_2' }).input);
-  assert.equal(fake.sent('thread/start').length, 1);
-  assertLeanAgent(fake.sent('thread/start')[0].params, 'thread/start');
+  assert.equal(fake.sent('thread/start').length, 2);
+  assertLeanAgent(fake.sent('thread/start')[1].params, 'thread/start');
   await e.dispose();
 });
 
@@ -137,4 +148,12 @@ test('a Codex that refuses the lean agent settings fails the turn – no plainer
   assert.equal(result.stop, 'error');
   assert.equal(fake.sent('thread/start').length, 1);
   await e.dispose();
+});
+
+test('custom thread overrides cannot turn the five native shell flags back on', () => {
+  const flags = ['shell_tool', 'unified_exec', 'shell_snapshot', 'shell_zsh_fork', 'js_repl'];
+  const withOverrides = agentThread({config: {features: {...Object.fromEntries(flags.map(flag => [flag, true])), code_mode: true}}});
+  const features = withOverrides.config.features as Record<string, boolean>;
+  for (const flag of flags) assert.equal(features[flag], false);
+  assert.equal(features.code_mode, true);
 });

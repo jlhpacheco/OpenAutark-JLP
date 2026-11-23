@@ -69,40 +69,40 @@ test('codex rebuild: every ledger item kind becomes the right Responses item', (
   // Our hub tool: a paired function_call/function_call_output with the dynamic tool's wire name.
   assert.deepEqual(out[2], { type: 'function_call', name: 'tasks__create', arguments: '{"title":"Export"}', call_id: 'toolu_01' });
   assert.deepEqual(out[3], { type: 'function_call_output', call_id: 'toolu_01', output: 'created tsk_1' });
-  // B-049 neutral mapping: Claude's native Bash is Codex's own exec_command (Git Bash named on Windows) with its real output.
-  assert.deepEqual(out[4], { type: 'function_call', name: 'exec_command', arguments: '{"cmd":"npm test","shell":"bash"}', call_id: 'toolu_02' });
-  assert.deepEqual(out[5], { type: 'function_call_output', call_id: 'toolu_02', output: '12 passing' });
+  // No native shell command, output or function pair survives the projection.
+  assert.deepEqual(out[4], { type: 'message', role: 'user', content: [{ type: 'input_text', text: '[Earlier native shell or script calls omitted: 1. Their results are not available in the rebuilt context.]' }] });
+  assert.doesNotMatch(JSON.stringify(out), /npm test|12 passing|toolu_02/);
   // Codex reasoning of the same account and family → a reasoning item; Claude thinking and another account's reasoning cannot replay: they leave nothing (no text the model never said).
-  assert.deepEqual(out[6], { type: 'reasoning', summary: [{ type: 'summary_text', text: 'Same thread of thought.' }], encrypted_content: 'ENC' });
+  assert.deepEqual(out[5], { type: 'reasoning', summary: [{ type: 'summary_text', text: 'Same thread of thought.' }], encrypted_content: 'ENC' });
   assert.ok(!JSON.stringify(out).includes('(thinking:'));
   // A tool-side item without a call: user text with its id; the condensed stamp stays verbatim.
-  assert.match((out[7] as any).content[0].text, /^\[f7\]\nfile body\n\{"compacted":"f7","was":"900 tokens","restore":"context.restore"\}$/);
+  assert.match((out[6] as any).content[0].text, /^\[f7\]\nfile body\n\{"compacted":"f7","was":"900 tokens","restore":"context.restore"\}$/);
   // A repeated call id is made unique; a string argument stays as it is.
-  assert.deepEqual(out[8], { type: 'function_call', name: 'tasks__create', arguments: '{"title":"Again"}', call_id: 'toolu_01_t8' });
-  assert.equal((out[9] as any).call_id, 'toolu_01_t8');
-  assert.equal(out.length, 10);
+  assert.deepEqual(out[7], { type: 'function_call', name: 'tasks__create', arguments: '{"title":"Again"}', call_id: 'toolu_01_t8' });
+  assert.equal((out[8] as any).call_id, 'toolu_01_t8');
+  assert.equal(out.length, 9);
   // Not offered now: our own tool still replays as the real call it was (owner 01.11.2026: as if it had made it itself).
   const real = responseItems([ITEMS[2]], { offered: new Set(), accountId: 'acc_test', model: 'gpt-6.1-sol' });
   assert.deepEqual(real[0], { type: 'function_call', name: 'tasks__create', arguments: '{"title":"Export"}', call_id: 'toolu_01' });
   assert.equal(modelFamily('codex:gpt-6.1-sol-mini'), 'gpt-6.1');
 });
 
-test('codex rebuild (B-049 neutral mapping): Claude Read → files.read, a Codex PowerShell line → its script, an Edit → a note with its diff', () => {
+test('codex rebuild (B-049 neutral mapping): Claude Read → files.read, a Codex PowerShell line is withheld, an Edit → a note with its diff', () => {
   const items: RebuildItem[] = [
     { itemId: 't1', kind: 't', role: 'tool', text: '', call: { own: true, name: 'Read', args: { file_path: 'C:\\w\\a.ts', offset: 5 }, callId: 'toolu_r', output: '     5\tconst a = 1;' }, origin: { engine: 'claude' } },
     { itemId: 't2', kind: 't', role: 'tool', text: '', call: { own: true, name: 'shell', args: { command: '"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe" -Command \'Get-ChildItem\'', cwd: 'C:\\w' }, callId: 'exec-1', output: 'a.ts' }, origin: { engine: 'codex' } },
     { itemId: 't3', kind: 't', role: 'tool', text: '', call: { own: true, name: 'Edit', args: { file_path: 'a.ts', old_string: 'const a = 1;', new_string: 'const a = 2;' }, callId: 'toolu_e', output: 'The file a.ts has been updated.' }, origin: { engine: 'claude' } },
   ];
   const out = responseItems(items, { offered: new Set(['files.read']), accountId: 'acc_test', model: 'gpt-6.1-sol', platform: 'win32' });
-  assert.deepEqual(out.slice(0, 4), [
+  assert.deepEqual(out.slice(0, 3), [
     { type: 'function_call', name: 'files__read', arguments: '{"path":"C:\\\\w\\\\a.ts","fromLine":5}', call_id: 'toolu_r' },
     { type: 'function_call_output', call_id: 'toolu_r', output: '     5\tconst a = 1;' },
-    { type: 'function_call', name: 'exec_command', arguments: '{"cmd":"Get-ChildItem"}', call_id: 'exec-1' },
-    { type: 'function_call_output', call_id: 'exec-1', output: 'a.ts' },
+    { type: 'message', role: 'user', content: [{ type: 'input_text', text: '[Earlier native shell or script calls omitted: 1. Their results are not available in the rebuilt context.]' }] },
   ]);
   // BEFUND §3 (17.11.2026): one user-side record with its diff and output, never assistant text
-  assert.deepEqual(out[4], { type: 'message', role: 'user', content: [{ type: 'input_text', text: '[record of an earlier call, not replayable here – Edit: a.ts]\n-const a = 1;\n+const a = 2;\n[its output]\nThe file a.ts has been updated.' }] });
-  assert.equal(out.length, 5);
+  assert.deepEqual(out[3], { type: 'message', role: 'user', content: [{ type: 'input_text', text: '[record of an earlier call, not replayable here – Edit: a.ts]\n-const a = 1;\n+const a = 2;\n[its output]\nThe file a.ts has been updated.' }] });
+  assert.equal(out.length, 4);
+  assert.doesNotMatch(JSON.stringify(out), /Get-ChildItem|exec-1/);
 });
 
 test('codex rebuild: chunks keep the item and character bounds and the order', () => {

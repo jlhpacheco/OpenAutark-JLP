@@ -9,6 +9,7 @@
 
 import type { EngineTurnResult, RebuildItem } from './types.ts';
 import { boundOutput } from './output.ts';
+import { isScriptCall } from './code-mode.ts';
 
 export { boundOutput };
 /** The summary of a native call's arguments in its note. */
@@ -63,6 +64,17 @@ export function recordText(call: NonNullable<RebuildItem['call']>, options: { de
  */
 export function imitatedCall(text: string): boolean {
   return /^\s*\[(ran [\w.-]+[:\]]|record of an earlier call\b|output of\b|its output\b)/.test(text); // \"[ran out of …\" is prose
+}
+
+// Historical engine-owned shell rows were not protected at the model boundary. Never replay their
+// arguments or results as model context, regardless of the target tool inventory.
+export const legacyShellOmission = (count: number): string =>
+  `[Earlier native shell or script calls omitted: ${count}. Their results are not available in the rebuilt context.]`;
+const LEGACY_SHELL_NAMES = new Set(['Bash', 'PowerShell', 'shell', 'exec_command', 'shell_command', 'write_stdin']);
+
+export function legacyNativeShell(call: Pick<NonNullable<RebuildItem['call']>, 'name'>, engine?: string): boolean {
+  // Historical Code Mode aggregates can contain nested shell output without retained provenance.
+  return LEGACY_SHELL_NAMES.has(call.name) || isScriptCall(call.name, engine);
 }
 
 /** A model's family: the provider prefix and the variant suffix dropped ("codex:gpt-6.1-sol-mini" → "gpt-6.1"). */

@@ -66,7 +66,8 @@ test('an agent thread/start asks for raw items; resume and helper threads do not
   const e = engineOf(fake.spawn);
   await e.run(turnInput({ runId: 'run_1' }).input);
   assert.equal(fake.sent('thread/start')[0].params.experimentalRawEvents, true);
-  await e.run(turnInput({ runId: 'run_2', session: { ref: 'thr_old', generation: 2 } }).input);
+  await e.unload(account(), 'thr_1');
+  await e.run(turnInput({ runId: 'run_2', session: { ref: 'thr_1', generation: 1 } }).input);
   assert.equal('experimentalRawEvents' in fake.sent('thread/resume')[0].params, false, 'thread/resume has no such field');
   await e.run(turnInput({ runId: 'run_3', tools: [] }).input);
   assert.equal('experimentalRawEvents' in fake.sent('thread/start')[1].params, false, 'a helper thread needs none');

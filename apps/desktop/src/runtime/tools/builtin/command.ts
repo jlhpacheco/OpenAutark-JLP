@@ -23,7 +23,8 @@ import type { ActionDescription } from '../types.ts';
 import type { ShellSpawn } from './files.ts';
 import { initialTimeoutSeconds, reviewToolTimeout, timeoutDecisionText } from '../timeout.ts';
 
-const MAX_SHELL_OUTPUT = 64 * 1024;
+import { maskKeyShapes } from '../../secrets/redact.ts';
+import { MAX_CAPTURE, ShellOutput, WITHHELD } from './shell-output.ts';
 
 /** The `env` argument of a command tool. */
 export const ENV_SCHEMA = Object.freeze({
@@ -63,21 +64,18 @@ export async function runCommand(shell: ShellSpawn, ctx: ToolContext, input: { c
   let reviews = 0;
   const tool = 'shell.exec';
   let seconds = initialTimeoutSeconds(tool, input);
-  let out = '';
-  let recent = '';
-  let printed = 0; // B-080 wave 3: characters received so far, and at the last review
+  const streams = [new ShellOutput(), new ShellOutput()];
+  const redact = (value: string) => maskKeyShapes(ctx.services.secrets.redact(mask(value)));
+  let printed = 0;
   let looked = 0;
-  let lookedAt = started; // B-080 wave 3 review: when that was – the seconds and the characters cover the same span
-  // Keep enough overlap to mask a secret spanning chunks, including its encoded forms, before taking the visible tail.
-  const overlap = Math.max(MAX_SHELL_OUTPUT, ...Object.values(extra).map((value) => value.length * 12));
-  const take = (text: string) => {
+  let lookedAt = started;
+  const take = (index: number, text: string) => {
     printed += text.length;
-    if (out.length < MAX_SHELL_OUTPUT) out += text;
-    recent = (recent + text).slice(-(overlap + 6000));
+    if (printed <= MAX_CAPTURE) streams[index].append(text);
   };
-  // B-080 wave 3: each stream decodes UTF-8 on its own across reads – a letter split between two reads stays whole.
+  // Separate pipes: interleaved stderr must not split a match in stdout (or vice versa).
   const decoders = [new StringDecoder('utf8'), new StringDecoder('utf8')];
-  const collect = (decoder: StringDecoder) => (chunk: Buffer | string) => take(typeof chunk === 'string' ? chunk : decoder.write(chunk));
+  const collect = (index: number) => (chunk: Buffer | string) => take(index, typeof chunk === 'string' ? chunk : decoders[index].write(chunk));
   try {
     const code = await new Promise<number | null>((resolve, reject) => {
       finish = (exitCode) => {
@@ -89,16 +87,18 @@ export async function runCommand(shell: ShellSpawn, ctx: ToolContext, input: { c
       const data = ctx.services.paths?.data;
       const agent = ctx.fromPc ? undefined : ctx.agent?.id; // B-085: a linked PC's agent is no agent of this runtime
       const child = shell(input.command, { cwd: input.cwd, signal: controller.signal, env: { ...(data ? agentEnv(data, { agent }) : asAgent(process.env, agent)), ...extra } });
-      child.stdout?.on('data', collect(decoders[0]));
-      child.stderr?.on('data', collect(decoders[1]));
-      child.on('error', (error) => { if (controller.signal.aborted) finish(null); else { done = true; review?.abort(); reject(error); } });
+      child.stdout?.on('data', collect(0));
+      child.stderr?.on('data', collect(1));
+      child.stdout?.on('error', abort);
+      child.stderr?.on('error', abort);
+      child.on('error', () => { if (controller.signal.aborted) finish(null); else { done = true; review?.abort(); reject(new Error('Could not run the command.')); } });
       child.on('close', finish);
       const timeout = async () => {
         if (done || ctx.signal.aborted) return;
         review = new AbortController();
         ctx.status('Reviewing command timeout');
         const now = Date.now();
-        const observation = { tool, args: { command: input.command, cwd: input.cwd }, elapsedSeconds: Math.round((now - started) / 1000), timeoutSeconds: seconds, output: mask(recent).slice(-6000), newOutputChars: printed - looked, secondsSinceLastLook: Math.round((now - lookedAt) / 1000) };
+        const observation = { tool, args: { command: '[command arguments withheld during execution]' }, elapsedSeconds: Math.round((now - started) / 1000), timeoutSeconds: seconds, output: '', newOutputChars: printed - looked, secondsSinceLastLook: Math.round((now - lookedAt) / 1000) };
         looked = printed;
         lookedAt = now;
         const decision = await reviewToolTimeout(ctx, observation, review.signal);
@@ -114,11 +114,14 @@ export async function runCommand(shell: ShellSpawn, ctx: ToolContext, input: { c
       if (ctx.signal.aborted) abort();
       else timer = setTimeout(() => { void timeout(); }, seconds * 1000);
     });
-    for (const decoder of decoders) take(decoder.end()); // an incomplete letter left at the end
-    const seen = mask(out); // before the cap: a value cut in half would no longer be recognised
-    const body = seen.length >= MAX_SHELL_OUTPUT ? `${seen.slice(0, MAX_SHELL_OUTPUT)}\n… [output capped]` : seen;
+    decoders.forEach((decoder, index) => take(index, decoder.end()));
+    const completed = code !== null && !controller.signal.aborted && printed <= MAX_CAPTURE;
+    const parts = streams.map((stream) => stream.safe(completed, redact));
+    const body = parts.some((part) => part === null) ? WITHHELD : ShellOutput.cap(parts.filter(Boolean).join('\n'));
     const earlier = reviews > decisions.length ? [`${reviews - decisions.length} earlier timeout decisions are recorded in the run journal.`] : [];
-    return { content: [{ type: 'text', text: ctx.services.secrets.redact(mask([...earlier, ...decisions, `exit ${timedOut ? 'timeout' : code ?? 'killed'}\n${body}`].join('\n'))) }], isError: timedOut || code !== 0 };
+    return { content: [{ type: 'text', text: [...earlier, ...decisions, `exit ${timedOut ? 'timeout' : code ?? 'killed'}\n${body}`].join('\n') }], isError: timedOut || code !== 0 };
+  } catch {
+    return { content: [{ type: 'text', text: 'Could not run the command.' }], isError: true };
   } finally {
     clearTimeout(timer);
     review?.abort();

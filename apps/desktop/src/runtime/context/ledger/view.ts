@@ -15,7 +15,7 @@ import { compactStamp, type LedgerViewItem } from '../../../shared/model/context
 import { HUMAN_ID } from '../../../shared/ids.ts';
 import type { Message } from '../../../shared/model/chat.ts';
 import { isScriptCall } from '../../engines/code-mode.ts';
-import { callRow, journalRow, originalOf, toolOutput, type OriginalDeps } from './originals.ts';
+import { callRow, journalRow, originalOf, toolOutput, withheldTool, type OriginalDeps } from './originals.ts';
 import type { LedgerRow } from './store.ts';
 
 /** Tool outputs in a rebuild: the model's own cap (tools/outputs.ts MAX_TEXT_CHARS). */
@@ -102,6 +102,10 @@ export function viewItem(deps: ViewDeps, row: LedgerRow): LedgerViewItem | undef
     ...(Number(row.nested) ? { nested: true } : {}), // B-049 F9: a call inside a code-mode script (agents/rebuild-items.ts never replays it)
   };
   const tool = row.kind === 'tool' || row.kind === 'skill' || row.kind === 'file';
+  const held = tool && withheldTool(deps, row);
+  if (held) return held.name
+    ? { ...base, role: 'tool', text: held.text, call: { name: held.name, args: {}, callId: '', output: held.text } }
+    : { ...base, role: 'user', text: held.text };
   const condensed = row.state === 'condensed' && row.condensed ? safe(deps, row.condensed) : undefined;
   if (condensed) {
     const stamp = compactStamp(row.item_id, Number(row.tokens), row.pruned_at !== null); // never a way back that is gone

@@ -39,6 +39,12 @@ export function restoreItems(services: RuntimeServices, agentId: string, thread:
     const item = byId.get(id)!;
     if (room < 200 || index >= MAX_RESTORE_IDS) { later.push(id); continue; } // named below, never dropped silently
     const original = ledger.original(agentId, thread, id);
+    if (original?.withheld) {
+      // Unknown provenance can be verified later by a peer fetch, but the local preview is not evidence.
+      const where = original.withheld === 'unverified' ? awayLine(services, agentId, thread, id) : undefined;
+      blocks.push(`[${id}] ${original.text}${where ? ' ' + where : ''}`);
+      continue;
+    }
     if (!original || original.pruned) {
       const where = awayLine(services, agentId, thread, id) ?? 'The original is gone (kept at least 14 days after it was condensed, then removed for space).';
       blocks.push(`[${id}] ${item.title}\n${where} What is left: ${original?.text || item.condensed || item.title}`);

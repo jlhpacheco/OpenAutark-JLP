@@ -24,15 +24,15 @@ function assertLean(args: string[], label: string, tools: string[] = coreTools()
   assert.deepEqual(JSON.parse(flag(args, '--settings')!), { disableAllHooks: true }, `${label}: only a narrowing setting`);
 }
 
-test('claude lean: the core tool list is Bash, Read, Edit, Write, Glob, Grep, WebSearch – plus PowerShell on Windows only', () => {
-  assert.deepEqual([...CORE_TOOLS], ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'WebSearch']);
-  assert.deepEqual(coreTools('linux'), ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'WebSearch']);
-  assert.deepEqual(coreTools('darwin'), ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'WebSearch']);
-  assert.deepEqual(coreTools('win32'), ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'WebSearch', 'PowerShell']);
-  for (const gone of ['WebFetch', 'Agent', 'Task', 'TodoWrite', 'TaskCreate', 'NotebookEdit', 'Skill', 'ToolSearch', 'Monitor', 'CronCreate', 'LSP']) {
+test('claude lean: the core tools offer file operations and search, but never a native shell', () => {
+  assert.deepEqual([...CORE_TOOLS], ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'WebSearch']);
+  assert.deepEqual(coreTools('linux'), ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'WebSearch']);
+  assert.deepEqual(coreTools('darwin'), ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'WebSearch']);
+  assert.deepEqual(coreTools('win32'), ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'WebSearch']);
+  for (const gone of ['Bash', 'PowerShell', 'WebFetch', 'Agent', 'Task', 'TodoWrite', 'TaskCreate', 'NotebookEdit', 'Skill', 'ToolSearch', 'Monitor', 'CronCreate', 'LSP']) {
     assert.equal(coreTools('win32').includes(gone), false, `${gone} is not offered`);
   }
-  assert.deepEqual(promptArgs('/p.md', coreTools('linux')), ['--system-prompt-file', '/p.md', '--tools', 'Bash,Read,Edit,Write,Glob,Grep,WebSearch', '--disable-slash-commands', '--settings', LEAN_SETTINGS]);
+  assert.deepEqual(promptArgs('/p.md', coreTools('linux')), ['--system-prompt-file', '/p.md', '--tools', 'Read,Edit,Write,Glob,Grep,WebSearch', '--disable-slash-commands', '--settings', LEAN_SETTINGS]);
   assert.deepEqual(promptArgs(undefined, []), ['--tools', '', '--disable-slash-commands', '--settings', LEAN_SETTINGS], 'no prompt: Claude Code\'s own, still no built-in tool');
 });
 

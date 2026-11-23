@@ -2,8 +2,8 @@
 // fresh thread (started by engine.ts with the turn's instructions, config and dynamic tools).
 // Owns: the translation RebuildItem[] → raw Responses items – user/assistant messages; our hub tools as
 // function_call + function_call_output with a paired call_id and the dynamic tool's wire name; engine-native
-// tools through neutral-calls.ts (B-049: a shell call of Claude or Codex as Codex's own exec_command
-// function_call + output, Claude's Read/Grep/Glob as our files.read/files.search when the thread has them, an
+// tools through neutral-calls.ts (historical native shell rows are omitted; Claude's Read/Grep/Glob map
+// to our files.read/files.search when the thread has them), an
 // edit as a note with its diff or content); every other native tool as an assistant note
 // one user-side "[record of an earlier call …]" with its output (BEFUND §3, never assistant text); reasoning as a reasoning item only with
 // encrypted content of the same account and model family, else not at all (as assistant text it reads as words the model never said); a
@@ -35,7 +35,7 @@ import type { RpcClient } from './rpc.ts';
 import { RpcError } from './rpc.ts';
 import { HIDDEN_THREAD, THREAD_OPEN_MS, untilStopped } from './helper-thread.ts';
 import { isRecord, str, toWireName } from '../shared.ts';
-import { boundOutput, oursCall, recordText, sameReasoningSource, withStamp } from '../rebuild-text.ts';
+import { boundOutput, legacyNativeShell, legacyShellOmission, oursCall, recordText, sameReasoningSource, withStamp } from '../rebuild-text.ts';
 import { CODEX_NATIVE, mapNativeCall, type Mapped } from '../neutral-calls.ts';
 
 /** Items per thread/inject_items call, and characters per call (Codex sets no limit; requests stay moderate). */
@@ -64,9 +64,16 @@ export function responseItems(items: RebuildItem[], target: { offered: ReadonlyS
   const out: ResponseItem[] = [];
   const callIds = new Set<string>();
   const mapTarget = { engine: 'codex' as const, offered: target.offered, native: CODEX_NATIVE, platform: target.platform ?? process.platform, custom: target.custom === true };
+  let omitted = 0;
+  const flushOmissions = () => {
+    if (omitted) out.push(message('user', legacyShellOmission(omitted)));
+    omitted = 0;
+  };
   for (const item of items) {
     if (item.nested) continue; // B-049 F9: the model never saw it – its script's call and output stand for it
     const call = item.call;
+    if (call && legacyNativeShell(call, item.origin?.engine)) { omitted++; continue; }
+    flushOmissions();
     if (call) {
       const mapped: Mapped | undefined = oursCall(call) ? undefined : mapNativeCall(call, item.origin?.engine, mapTarget);
       if (mapped?.as === 'note') {
@@ -98,6 +105,7 @@ export function responseItems(items: RebuildItem[], target: { offered: ReadonlyS
     if (!text.trim()) continue;
     out.push(message(item.role === 'assistant' ? 'assistant' : 'user', item.role === 'tool' ? `[${item.itemId}]\n${boundOutput(text)}` : text));
   }
+  flushOmissions();
   return out;
 }
 

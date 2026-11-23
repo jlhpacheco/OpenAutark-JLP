@@ -35,6 +35,7 @@ import type { Account, Effort, EngineId, RouteDecision } from '../../shared/mode
 import type { Handoff } from '../../shared/model/knowledge.ts';
 import type { Run } from '../../shared/model/runs.ts';
 import { PAST_WINDOW, splitThread, type SplitFork, type SplitGroup, type SplitParentSession, type SplitTurn } from '../../shared/model/splits.ts';
+import { canContinueManaged, LEGACY_SESSION } from '../engines/managed-session.ts';
 import { SessionStore } from '../agents/sessions.ts';
 import { turnsOn } from '../agents/native-turns.ts';
 import { CACHE_COLD_MS, fitLimit, pastFit } from '../agents/compaction-policy.ts';
@@ -149,6 +150,7 @@ async function nativeFork(s: RuntimeServices, args: SeedArgs, cwd: string): Prom
   const parent = args.split.parentSession;
   if (!parent || parent.engine !== engine.id) return "the parent's splitting turn left no session on this engine";
   if (parent.accountId !== account.id) return 'the parent session belongs to another account';
+  if (!canContinueManaged(engine, account.id, parent.ref)) return LEGACY_SESSION;
   if (pastFit(parent.contextTokens, windowOf(s, args))) return PAST_WINDOW;
   const forked = await engine.fork({ runId: args.runId, agentId, account, parentRef: parent.ref, cwd, model: args.route.model,
     ...(parent.turn ? { lastTurn: parent.turn } : {}) });

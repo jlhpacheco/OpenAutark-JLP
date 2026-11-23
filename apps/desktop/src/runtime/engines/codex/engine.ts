@@ -14,6 +14,7 @@
 // between accounts, keeps session state a restart would lose, writes helper turns into the account's Codex history, or
 // decides approvals.
 
+import { canContinueManaged, rememberManaged, forgetManaged, LEGACY_SESSION } from '../managed-session.ts';
 import { promises as fsp } from 'node:fs';
 import type { Account, AccountLimits, Effort, EngineId } from '../../../shared/model/providers.ts';
 import type { AccountCheck, Engine, EngineCaps, EngineForkInput, EngineForkResult, EngineModel, EngineRebuildInput, EngineRebuildResult, EngineTurnInput, EngineTurnResult, KeepOpenInput, RealtimeLink, RebuildProbe } from '../types.ts';
@@ -164,6 +165,7 @@ export class CodexEngine implements Engine {
   async tell(runId: string, call: TraceCall): Promise<boolean> { const control = this.running.get(runId); return control?.turnId ? (await injectTrace(control.rpc, control.threadId, [call], `${runId}_${Date.now()}`, control.signal)) === undefined : false; }
 
   async run(input: EngineTurnInput): Promise<EngineTurnResult> {
+    if (input.session && !canContinueManaged(this, input.account.id, input.session.ref)) return { text: '', stop: 'error', error: { code: 'conflict', message: LEGACY_SESSION, details: { rebase: true } } };
     let server: CodexServer;
     let rpc;
     try {
@@ -218,6 +220,7 @@ export class CodexEngine implements Engine {
         const id = str(started?.thread?.id);
         if (!id) return { text: '', stop: 'error', error: ERR.failed('Codex did not start a session.') };
         threadId = id;
+        if (!helper || input.keep) rememberManaged(this, input.account.id, threadId);
         if (!helper || input.keep) loaded.set(threadId, input.cwd); // a kept helper thread is live in this server: the next line needs no resume
         if (!helper) { try { input.onEvent({ type: 'session', ref: threadId, generation }); } catch { /* isolate */ } } // bound at once
       }
@@ -274,6 +277,7 @@ export class CodexEngine implements Engine {
 
   /** A new thread with the coming turn's settings and dynamic tools, holding the ledger's history (rebuild.ts); deleted again when the injection fails. */
   async rebuild(input: EngineRebuildInput): Promise<EngineRebuildResult> {
+    if (input.revert && !canContinueManaged(this, input.account.id, input.revert.ref)) throw new Error(LEGACY_SESSION);
     const rpc = await (await this.server(input.account)).rpc();
     const items = responseItems(input.items, { offered: new Set(input.tools.map((tool) => tool.name)), accountId: input.account.id, model: input.model, custom: input.probe?.custom === true });
     if (!items.length) throw new Error('nothing to rebuild');
@@ -285,6 +289,7 @@ export class CodexEngine implements Engine {
     this.loaded.set(input.account.id, loaded);
     loaded.set(threadId, input.cwd);
     this.fresh.add(threadId);
+    rememberManaged(this, input.account.id, threadId);
     return { ref: threadId, generation: input.generation, items: items.length };
   }
 
@@ -325,6 +330,7 @@ export class CodexEngine implements Engine {
 
   /** B-057 (fork.ts): the parent thread copied into a new one (thread/fork, lean), loaded with the split's folder – not fresh. */
   async fork(input: EngineForkInput): Promise<EngineForkResult> {
+    if (!canContinueManaged(this, input.account.id, input.parentRef)) throw new Error(LEGACY_SESSION);
     const rpc = await (await this.server(input.account)).rpc();
     const loaded = this.loaded.get(input.account.id) ?? new Map<string, string>();
     this.loaded.set(input.account.id, loaded);
@@ -333,6 +339,7 @@ export class CodexEngine implements Engine {
     const params = forkParams(input, await this.settings({ model: input.model, cwd, agentId: input.agentId }));
     const ref = await forkThread(params, (fork) => openAgentThread<{ thread?: { id?: string } }>(rpc, 'thread/fork', fork));
     loaded.set(ref, cwd);
+    rememberManaged(this, input.account.id, ref);
     return { ref, generation: 1 };
   }
 
@@ -344,6 +351,7 @@ export class CodexEngine implements Engine {
    * the row ends 'failed' and stays named as a remaining copy instead of being reported deleted.
    */
   async deleteSession(account: Account, ref: string): Promise<'deleted' | 'missing'> {
+    forgetManaged(this, account.id, ref);
     const rpc = await (await this.server(account)).rpc();
     // C4: a deleted thread still loaded here leaves nothing running in the background (a refusal is ignored).
     if (this.loaded.get(account.id)?.has(ref)) await rpc.request('thread/backgroundTerminals/clean', { threadId: ref }, 5_000).catch(() => undefined);

@@ -203,6 +203,7 @@ async function condenseOne(scope: Scope, run: FlowRun, raw: string, given: strin
   const why = protectedBy(item, scope);
   if (why) return `${id} stays as it is: ${why}.`;
   const original = scope.ledger.original(run.agent.id, scope.thread, id);
+  if (original?.withheld) return `[${id}] ${original.text}`;
   if (!original || original.pruned) return `${id} cannot be condensed: its original is gone.`;
   if (given === undefined && item.state === 'condensed') return `${id} is condensed already.`;
   const source = original.args ? `${original.args}\n${original.text}` : original.text;
@@ -275,6 +276,7 @@ export const contextTools: FlowTool[] = [
       const item = id ? scope.items.get(id) : undefined;
       if (!id || !item) return noItem(raw, scope);
       const original = scope.ledger.original(run.agent.id, scope.thread, id);
+      if (original?.withheld) return `[${id}] ${original.text}`;
       if (!original) return `No such item: ${id}.`;
       const from = Math.max(0, Math.trunc(Number(args.from)) || 0);
       const rest = original.text.length - from - READ_CHARS;

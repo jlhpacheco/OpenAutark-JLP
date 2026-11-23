@@ -2,9 +2,8 @@
 // execution core, our hub for everything else. Every turn runs this way; a CLI too old for these flags fails the turn.
 // - `--system-prompt-file`: our stable prompt only. The live context never goes there – it is the first block of the
 //   turn's input (shared.ts contextText), so every session of an agent starts with the same cached system text.
-// - `--tools`: an agent turn keeps Bash, Read, Edit, Write, Glob, Grep, WebSearch (+ PowerShell on Windows, Claude Code's
-//   shell there); a helper turn none (`--json-schema` keeps its answer tool, measured 02.11.2026). E1: WebSearch is the
-//   plan's own search; web.fetch reads a page, so WebFetch stays out.
+// - `--tools`: an agent turn keeps Read, Edit, Write, Glob, Grep and WebSearch; helpers have none. Commands go through
+//   Autark's masked shell.exec, never the native Bash or PowerShell tool. WebFetch remains outside this list.
 // - `--disable-slash-commands`, `--settings {"disableAllHooks":true}`: no skills, commands or hooks; nothing is widened.
 // - LEAN_ENV: no CLAUDE.md of any level, no auto memory, no git workflow text. AGENT_ENV (an agent turn only): the prompt
 //   cache is asked for one hour, whatever login the account has. AGENT_ARGS (an agent turn only): `--autocompact`, once the
@@ -25,11 +24,11 @@ import { HUB_SERVER } from './stream.ts';
 import { CLAUDE_AUTOCOMPACT } from '../../agents/compaction-policy.ts';
 
 /** Claude Code's built-in tools an agent turn keeps: the execution core and its own web search. Everything else comes from our hub. */
-export const CORE_TOOLS: readonly string[] = ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'WebSearch'];
+export const CORE_TOOLS: readonly string[] = ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'WebSearch'];
 
-/** The core for this platform: Windows adds PowerShell, Claude Code's shell there (on by default for claude.ai logins). */
-export function coreTools(platform: NodeJS.Platform = process.platform): string[] {
-  return platform === 'win32' ? [...CORE_TOOLS, 'PowerShell'] : [...CORE_TOOLS];
+/** Identical tool set on all platforms. */
+export function coreTools(_platform: NodeJS.Platform = process.platform): string[] {
+  return [...CORE_TOOLS];
 }
 
 /** Every turn process: no CLAUDE.md, no auto memory, no built-in git workflow text (documented variables). */

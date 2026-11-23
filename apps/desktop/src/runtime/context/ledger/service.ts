@@ -30,7 +30,7 @@ import type { Message } from '../../../shared/model/chat.ts';
 import { renderContext } from '../delta.ts';
 import { redactText, renderMessages } from '../render.ts';
 import { LedgerCapture } from './capture.ts';
-import { callArgsOf, originalOf } from './originals.ts';
+import { callArgsOf, originalOf, withheldTool } from './originals.ts';
 import { forgetChat, prune, pruneAll, type RetentionDeps } from './retention.ts';
 import { forgetInLedger, type LedgerForget } from './forget.ts';
 import { LedgerStore, toItem, type LedgerRow } from './store.ts';
@@ -120,6 +120,8 @@ export class ContextLedgerService implements ContextLedger {
   /** A row as callers see it; title and condensed text redacted on the way out (a secret saved after the capture). */
   private item(row: LedgerRow, turns: number): LedgerItem {
     const item = toItem(row, turns);
+    const held = withheldTool({ db: this.s.db }, row);
+    if (held) return { ...item, title: held.text, pruned: true, condensed: undefined };
     item.title = this.redact(item.title);
     if (item.condensed) item.condensed = this.redact(item.condensed);
     return item;
@@ -202,13 +204,13 @@ export class ContextLedgerService implements ContextLedger {
     return stays;
   }
 
-  original(agentId: string, conversationId: string, itemId: string): { text: string; pruned: boolean; args?: string } | undefined {
+  original(agentId: string, conversationId: string, itemId: string): { text: string; pruned: boolean; args?: string; withheld?: 'blocked' | 'unverified' } | undefined {
     const row = this.store.row(agentId, conversationId, itemId.trim().toLowerCase());
     if (!row) return undefined;
     const deps = this.viewDeps();
     const found = originalOf(deps, row, ORIGINAL_CHARS);
     const args = found.pruned ? undefined : callArgsOf(deps, row);
-    return { text: found.text, pruned: found.pruned, ...(args ? { args } : {}) };
+    return { text: found.text, pruned: found.pruned, ...(found.withheld ? { withheld: found.withheld } : {}), ...(args ? { args } : {}) };
   }
 
   view(agentId: string, conversationId: string): LedgerView {

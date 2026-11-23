@@ -13,7 +13,7 @@ import * as path from 'node:path';
 import { ClaudeEngine } from '../../../src/runtime/engines/claude/engine.ts';
 import type { EngineForkInput } from '../../../src/runtime/engines/types.ts';
 import { BASE_ENV, TEMP, claudeAccount, claudeCli } from './claude-fixture.ts';
-import { fakeFinder, memoryFiles, testSupervisor, turnInput } from './fakes.ts';
+import { fakeFinder, fakeSpawn, memoryFiles, testSupervisor, turnInput } from './fakes.ts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const valueAfter = (args: string[], flag: string): string | undefined => (args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined);
@@ -35,22 +35,33 @@ function setup(script: Script = {}) {
   const memory = memoryFiles();
   const files = {
     ...memory.files,
-    size: async (file: string) => script.transcripts?.[file],
+    size: async (file: string) => script.transcripts?.[file] ?? memory.written.get(file)?.length,
+    rm: async (file: string) => { memory.written.delete(file); await memory.files.rm(file); },
     folders: async (dir: string) => script.folders?.[dir] ?? [],
     rmDir: async () => {},
   };
   let n = 0;
+  const version = fakeSpawn(({ child }) => {
+    setImmediate(() => { child.stdout.write('2.1.329 (Claude Code)\n'); child.exit(0); });
+  });
   const engine = new ClaudeEngine({
-    supervisor: testSupervisor(cli.spawn), finder: fakeFinder({ claude: '/fake-bin/claude' }), tempDir: TEMP, files, env: BASE_ENV,
+    supervisor: testSupervisor((command, args, options) => (args.includes('--version') ? version : cli).spawn(command, args, options)), finder: fakeFinder({ claude: '/fake-bin/claude' }), tempDir: TEMP, files, env: BASE_ENV,
+    accountsRoots: ['/fake-homes/claude'],
     now: () => 1_800_000_000_000, uuid: () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`,
   });
-  return { engine, cli, last: () => cli.of('turn').at(-1)! };
+  return { engine, cli, removeFile: files.rm, last: () => cli.of('turn').at(-1)! };
 }
 
 const acc = claudeAccount();
 const forkInput = (parentRef: string, patch: Partial<EngineForkInput> = {}): EngineForkInput => ({ runId: 'run_w1', agentId: 'ag_1', account: acc, parentRef, cwd: '/work', model: 'claude-sonnet-5-5', ...patch });
 const turn = (patch: Record<string, unknown>) => turnInput({ account: acc, model: 'claude-sonnet-5-5', cwd: '/work', ...patch }).input;
 const PROJECTS = path.join(acc.home, 'projects');
+const rebuild = (engine: ClaudeEngine, tier: 'project' | 'path') => engine.rebuild({
+  runId: 'run_rebuild', agentId: 'ag_1', account: acc, cwd: '/work', model: 'claude-sonnet-5-5',
+  items: [{ itemId: 'm1', kind: 'm', role: 'user', text: 'A safe prior message.' }],
+  tools: [], toolNames: [], system: { stable: '', volatile: '' },
+  generation: 2, probe: { ok: true, version: '2.1.329', at: 0, tier },
+});
 /** A CLI transcript of `id` in the account home's project folder of /work. */
 const cliTranscript = (id: string) => path.join(PROJECTS, 'C--work', `${id}.jsonl`);
 
@@ -103,19 +114,22 @@ test("another folder (a worktree): the parent resumes from the absolute path of 
   await assert.rejects(engine.fork(forkInput(parentRef, { cwd: '/work/.worktrees/wf-split-2' })), /not found/);
 });
 
-test('a parent this process never ran (a restart) is found by its transcript path even in the same folder', async () => {
+test('a transcript existing after a restart is not enough to fork or resume it', async () => {
   const parentRef = '00000000-0000-4000-8000-000000000999';
-  const file = path.join(PROJECTS, 'C--work', `${parentRef}.jsonl`);
-  const { engine, last } = setup({ transcripts: { [file]: 10 }, folders: { [PROJECTS]: ['C--work'] } });
-  const forked = await engine.fork(forkInput(parentRef));
-  await engine.run(turn({ runId: 'run_w1', session: { ref: forked.ref, generation: 1 } }));
-  assert.deepEqual(resumeArgs(last().args), ['--resume', file, '--fork-session', '--session-id', forked.ref]);
+  const file = cliTranscript(parentRef);
+  const { engine, cli } = setup({ transcripts: { [file]: 10 }, folders: { [PROJECTS]: ['C--work'] } });
+  await assert.rejects(engine.fork(forkInput(parentRef)), /rebuilt from the filtered Autark history/);
+  const resume = await engine.run(turn({ session: { ref: parentRef, generation: 1 } }));
+  assert.equal(resume.error?.details?.rebase, true);
+  assert.equal(cli.calls.length, 0);
 });
 
 test("a project: parent forks inside the app home's project folder; the fork keeps the prefix and its env", async () => {
-  const parentId = '00000000-0000-4000-8000-000000000777';
-  const { engine, last } = setup({ transcripts: { [path.join(PROJECTS, 'workforce-rebuilt', `${parentId}.jsonl`)]: 300 } });
-  const forked = await engine.fork(forkInput(`project:${parentId}`));
+  const { engine, last } = setup();
+  const parent = await rebuild(engine, 'project');
+  assert.match(parent.ref, /^project:/);
+  const parentId = parent.ref.slice('project:'.length);
+  const forked = await engine.fork(forkInput(parent.ref));
   assert.match(forked.ref, /^project:/);
   const id = forked.ref.slice('project:'.length);
   const first = await engine.run(turn({ runId: 'run_w1', session: { ref: forked.ref, generation: 1 } }));
@@ -127,15 +141,15 @@ test("a project: parent forks inside the app home's project folder; the fork kee
   assert.equal(last().options.env?.CLAUDE_CODE_PROJECT_DIR_NAME, 'workforce-rebuilt');
 });
 
-test('a transcript path parent resumes from that path while it exists', async () => {
-  const file = path.join(TEMP, 'engine-transcripts', 'claude', '00000000-0000-4000-8000-000000000555.jsonl');
-  const transcripts: Record<string, number> = { [file]: 500 };
-  const { engine, last } = setup({ transcripts });
+test('a locally rebuilt path parent forks with that path; deletion revokes its provenance', async () => {
+  const { engine, last } = setup();
+  const { ref: file } = await rebuild(engine, 'path');
+  assert.match(file, /\.jsonl$/);
   const forked = await engine.fork(forkInput(file));
   await engine.run(turn({ runId: 'run_w1', session: { ref: forked.ref, generation: 1 } }));
   assert.deepEqual(resumeArgs(last().args), ['--resume', file, '--fork-session', '--session-id', forked.ref]);
-  delete transcripts[file];
-  await assert.rejects(engine.fork(forkInput(file)), /gone/);
+  assert.equal(await engine.deleteSession(acc, file), 'deleted');
+  await assert.rejects(engine.fork(forkInput(file)), /rebuilt from the filtered Autark history/);
 });
 
 test('a turn that never reached the CLI keeps the fork pending; one the CLI answered with an error ends it', async () => {
@@ -162,23 +176,30 @@ test('a turn that never reached the CLI keeps the fork pending; one the CLI answ
 
 test("no fork of a parent whose transcript is gone (a Forget or a purge): same folder, project: and an account without a home", async () => {
   const transcripts: Record<string, number> = {};
-  const { engine } = setup({ transcripts, folders: { [PROJECTS]: ['C--work'] } });
+  const { engine, removeFile } = setup({ transcripts, folders: { [PROJECTS]: ['C--work'] } });
   const parentRef = (await engine.run(turn({ runId: 'run_p1' }))).session!.ref;
   await assert.rejects(engine.fork(forkInput(parentRef)), /transcript is gone/, 'same folder, nothing in the home');
   transcripts[cliTranscript(parentRef)] = 10;
   assert.match((await engine.fork(forkInput(parentRef))).ref, UUID);
-  await assert.rejects(engine.fork(forkInput('project:00000000-0000-4000-8000-000000000777')), /transcript is gone/);
-  const homeless = claudeAccount({ id: 'acc_nohome', home: undefined });
-  await assert.rejects(engine.fork(forkInput('project:00000000-0000-4000-8000-000000000777', { account: homeless })), /transcript is gone/, 'a project: ref needs the app home');
+  const project = await rebuild(engine, 'project');
+  const projectFile = path.join(PROJECTS, 'workforce-rebuilt', `${project.ref.slice('project:'.length)}.jsonl`);
+  const homeless = claudeAccount({ home: undefined });
+  await assert.rejects(engine.fork(forkInput(project.ref, { account: homeless })), /transcript is gone/, 'a managed project ref still needs the app home');
+  const other = claudeAccount({ id: 'acc_other', home: acc.home });
+  await assert.rejects(engine.fork(forkInput(project.ref, { account: other })), /rebuilt from the filtered Autark history/, 'same file is not sufficient for another account');
+  // Use the in-memory FS to emulate an independent removal (not an engine delete that also forgets the ref).
+  await removeFile(projectFile);
+  await assert.rejects(engine.fork(forkInput(project.ref)), /transcript is gone/);
 });
 
-test('deleting a fork that never ran drops it: a later turn on that ref resumes it alone', async () => {
+test('deleting a fork that never ran drops it: a later turn requests rebase without spawning', async () => {
   const transcripts: Record<string, number> = {};
-  const { engine, last } = setup({ transcripts, folders: { [PROJECTS]: ['C--work'] } });
+  const { engine, cli } = setup({ transcripts, folders: { [PROJECTS]: ['C--work'] } });
   const parentRef = (await engine.run(turn({ runId: 'run_p1' }))).session!.ref;
   transcripts[cliTranscript(parentRef)] = 10;
   const forked = await engine.fork(forkInput(parentRef));
   assert.equal(await engine.deleteSession(acc, forked.ref), 'missing', 'the CLI never wrote it');
-  await engine.run(turn({ runId: 'run_w1', session: { ref: forked.ref, generation: 1 } }));
-  assert.deepEqual(resumeArgs(last().args), ['--resume', forked.ref], 'no --fork-session of the parent any more');
+  const stale = await engine.run(turn({ runId: 'run_w1', session: { ref: forked.ref, generation: 1 } }));
+  assert.equal(stale.error?.details?.rebase, true);
+  assert.equal(cli.of('turn').length, 1, 'no new turn on the deleted fork');
 });

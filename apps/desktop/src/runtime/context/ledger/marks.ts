@@ -10,6 +10,7 @@
 import type { RuntimeServices } from '../../contracts.ts';
 import { NOTE_CALL, type TraceCall } from '../../../shared/model/subconscious.ts';
 import type { LedgerItem } from '../../../shared/model/context-ledger.ts';
+import { legacyNativeShell } from '../../engines/rebuild-text.ts';
 import '../../contracts/ledger.ts';
 
 const NOTICE_IDS = 40;
@@ -53,7 +54,7 @@ export function carriedCalls(services: RuntimeServices, agentId: string, thread:
     const out: TraceCall[] = [];
     let left = CARRIED_TOKENS * CARRIED_CHARS_PER_TOKEN;
     for (const entry of [...entries].reverse()) {
-      if (!entry.call || entry.runId === runId) continue;
+      if (!entry.call || entry.runId === runId || legacyNativeShell(entry.call, entry.origin?.engine)) continue;
       const args = typeof entry.call.args === 'object' && entry.call.args !== null ? entry.call.args as Record<string, unknown> : {};
       left -= entry.call.name.length + JSON.stringify(args).length + entry.call.output.length;
       if (left < 0) break;

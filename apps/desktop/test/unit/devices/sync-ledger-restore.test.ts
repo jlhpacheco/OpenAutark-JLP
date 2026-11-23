@@ -11,13 +11,14 @@ import { link, Net, settle } from './sync-net.ts';
 import { homeOf, items, journal, ledgerPc, MARA, row, THREAD } from './sync-ledger-rig.ts';
 
 /** Mara's record went from A to B with one hidden tool row; then she moved to B. */
-async function moved() {
+async function moved(tool = 'shell.exec') {
   const net = new Net();
   const a = ledgerPc(net, 'dev_a', 'dev_a');
   const b = ledgerPc(net, 'dev_b', 'dev_a');
   link(a, b);
   journal(a, 'run_1', 'ri_hidden', 30);
-  const hidden = row(a, 'tool', { ref: 'item:ri_hidden', runId: 'run_1', state: 'hidden', title: 'shell.exec ls' });
+  a.h.db.run('UPDATE run_items SET name = ? WHERE run_id = ?', [tool, 'run_1']);
+  const hidden = row(a, 'tool', { ref: 'item:ri_hidden', runId: 'run_1', state: 'hidden', title: 'unverified historical title' });
   await a.ledger.catchUp('dev_b');
   for (const pc of [a, b]) homeOf(pc, 'dev_b');
   b.h.services.ledger = new ContextLedgerService({ services: () => b.h.services });
@@ -39,10 +40,20 @@ test('restore on the new PC while the other PC is offline says where the origina
   net.up = false;
   const offline = await restoreFetched(b.h.services, MARA, THREAD, { ids: [id] });
   assert.match(offline, /^Nothing restored\./);
-  assert.match(offline, /The original is on dev_a, which is not reachable right now\. What is left: shell\.exec ls/);
+  assert.match(offline, /The original is on dev_a, which is not reachable right now\./);
+  assert.doesNotMatch(offline, /unverified historical title/, 'unsigned preview never stands in for provenance');
   net.up = true;
   const plain = restoreItems(b.h.services, MARA, THREAD, { ids: [id] });
   assert.match(plain, new RegExp(`The original is on dev_a; it is on its way here – I ask for ${id} again in a moment\.`));
   await settle();
   assert.match(restoreItems(b.h.services, MARA, THREAD, { ids: [id] }), new RegExp(`^Restored ${id}`), 'asked again, it is there');
+});
+
+test('a fetched peer-native shell result stays out of the model restore', async () => {
+  const { b, id } = await moved('shell');
+  assert.deepEqual(items(b), []);
+  const result = await restoreFetched(b.h.services, MARA, THREAD, { ids: [id] });
+  assert.match(result, /Earlier native shell or script calls omitted/);
+  assert.doesNotMatch(result, /x{30}|unverified historical title/);
+  assert.equal(b.h.services.ledger!.items(MARA, THREAD)[0].state, 'hidden');
 });

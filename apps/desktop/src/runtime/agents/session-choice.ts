@@ -12,6 +12,7 @@ import { pastFit } from './compaction-policy.ts';
 import { nativeRebuild, rebuildFellBack, type NativeRebuildInput } from './rebuild.ts';
 import type { TurnPlan, TurnRequest } from './turn-types.ts';
 import type { ToolOffer } from './session-key.ts';
+import { canContinueManaged, LEGACY_SESSION } from '../engines/managed-session.ts';
 import { seedSplit } from './split-turn.ts'; // B-057
 
 /**
@@ -57,6 +58,11 @@ export async function chooseSession(services: RuntimeServices, plan: TurnPlan, r
   // A native session lives in one account home (CODEX_HOME / CLAUDE_CONFIG_DIR): no cross-account resume.
   if (session && session.accountId && session.accountId !== accountId) session = undefined;
   const contextWindow = (session && session.model === route.modelId ? session.contextWindow : undefined) ?? store.reportedWindow(engine.id, route.modelId) ?? catalogWindow;
+  if (session && !canContinueManaged(engine, accountId, session.ref)) {
+    // Do not pass this ref to fit/revert. A new session uses the filtered ledger or its text fallback.
+    session = undefined;
+    services.runs.item(request.runId, { kind: 'note', data: { sessionRenewed: 'managed-shell', reason: LEGACY_SESSION }, effectStatus: 'none' });
+  }
   if (plan.fold) return { session, contextWindow, sinceSeq: plan.memberCursor }; // a fold's turn resumes the session as it stands (agents/context-fold.ts)
   // The native rebuild, when the session starts anew this turn (rebuild.ts: an engine switch, no session, a fold waiting, past the fit, a cold cache, a trim that pays; undefined: the path below).
   const rebuild = async (current: SessionBinding | undefined, overLimit?: boolean) => (native && engine.caps.rebuild

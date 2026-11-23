@@ -7,7 +7,7 @@
 
 import type { RuntimeServices } from '../contracts.ts';
 import type { RebuildItem } from '../engines/types.ts';
-import { recordText } from '../engines/rebuild-text.ts';
+import { legacyNativeShell, legacyShellOmission, recordText } from '../engines/rebuild-text.ts';
 import { CHARS_PER_TOKEN } from '../context/ledger/window.ts';
 import { PROJECTION } from '../context/projection.ts';
 import { rebuildItems } from './rebuild-items.ts';
@@ -20,6 +20,7 @@ const OUTPUT_CHARS = 4_000;
 function itemText(item: RebuildItem): string {
   if (item.nested || item.kind === 'r') return ''; // a script's inner call is in its script; reasoning stays with its model
   if (item.call) {
+    if (legacyNativeShell(item.call, item.origin?.engine)) return legacyShellOmission(1);
     const output = item.call.output.length > OUTPUT_CHARS ? `${item.call.output.slice(0, OUTPUT_CHARS)}\n… [cut here; the record keeps it whole – context.restore ${item.itemId}]` : item.call.output;
     return recordText(item.call, { output: output || '(no output)', ...(item.calls ? { calls: item.calls } : {}), ...(item.stamp ? { stamp: item.stamp } : {}) }); // BEFUND §3: a record, not "[ran …]"
   }

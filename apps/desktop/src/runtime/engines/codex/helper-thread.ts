@@ -5,7 +5,7 @@
 //   no shell or patch tool) and gets HELPER_NOTE: in code mode Codex still offers `exec`/`wait`, which reach nothing there.
 //   KI-Runde 17.11.2026: a turn with `keep` (a call's voice) holds its helper thread open for the call – it stays loaded in
 //   the app-server and the turn answers with it, so each spoken line is one input on the thread the call started with.
-// - An agent thread keeps the shell with its patch tool, the shell snapshot, view_image (the only way it sees a stored image),
+// - An agent thread issues commands through Autark's masked shell.exec. It keeps view_image (for stored images),
 //   image_generation (the plan's own pictures) and Codex's live web search; a new one asks for raw Responses items
 //   (code-mode.ts reads its exec calls there) and is stored as 'chatgpt_hidden', so the Codex desktop app does not list it.
 //   A plan-image thread has image_generation as its one tool. An agent thread compacts near RUN_CEILING (agentLeanConfig).
@@ -70,12 +70,12 @@ export const HELPER_FEATURES_OFF: readonly string[] = [
   'goals', 'sleep_tool', 'hooks', 'memories', 'workspace_dependencies', 'worktrees', 'shell_snapshot', 'mentions_v2', 'remote_plugin', 'realtime_conversation', 'computer_use', 'browser_use',
 ];
 
-/**
- * The Codex features an agent thread keeps – the shell with its patch tool, the shell snapshot (off with a kept shell, the
- * thread hung), view_image (no tool of ours shows a stored image to the model) and image_generation: the plan's own
- * images, the free portrait route (agent-avatar.ts madeByRun), without a connected image model.
- */
-export const AGENT_FEATURES_KEPT: readonly string[] = ['shell_tool', 'unified_exec', 'shell_snapshot', 'view_image', 'image_generation'];
+// The plan's image tools stay available; shell commands must use Autark's output boundary.
+export const AGENT_FEATURES_KEPT: readonly string[] = ['view_image', 'image_generation'];
+
+const NATIVE_SHELL_OFF = {
+  shell_tool: false, unified_exec: false, shell_snapshot: false, shell_zsh_fork: false, js_repl: false,
+};
 
 /** An agent thread searches the web with Codex's own live search (the plan's search meets no bot checks); helper and image threads have none. */
 export const AGENT_WEB_SEARCH: 'live' | 'disabled' = 'live';
@@ -84,6 +84,7 @@ export const AGENT_WEB_SEARCH: 'live' | 'disabled' = 'live';
 export const AGENT_FEATURES_OFF: readonly string[] = [
   ...HELPER_FEATURES_OFF.filter((name) => !AGENT_FEATURES_KEPT.includes(name)),
   ...WORKSPACE_FEATURES.filter((name) => !HELPER_FEATURES_OFF.includes(name)),
+  'shell_zsh_fork', 'js_repl',
 ];
 
 declare module '../types.ts' {
@@ -163,7 +164,15 @@ export function startHelperThread<T extends { config?: Record<string, unknown>; 
 
 /** thread/start, thread/resume or thread/fork settings of an agent thread made lean; every other setting (isolation included) as given. */
 export function agentThread<T extends { config?: Record<string, unknown> }>(settings: T): T & { config: Record<string, unknown> } {
-  return { ...settings, config: { ...agentLeanConfig(), ...(settings.config ?? {}) } };
+  const lean = agentLeanConfig();
+  const overrides = settings.config ?? {};
+  const features = overrides.features;
+  return { ...settings, config: {
+    ...lean, ...overrides,
+    // Keep unrelated overrides, but never let a future config.features replace the shell restriction.
+    features: { ...(lean.features as Record<string, boolean>),
+      ...(features && typeof features === 'object' && !Array.isArray(features) ? features : {}), ...NATIVE_SHELL_OFF },
+  } };
 }
 
 /**

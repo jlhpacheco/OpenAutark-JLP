@@ -71,17 +71,23 @@ test('claude: volatile context in the prompt of a new session, as a block on res
 });
 
 test('claude: a session id Claude Code no longer knows ends the session; other errors do not', async () => {
-  const cli = claudeCli((session) => ({ subtype: 'error_during_execution', is_error: true, result: `No conversation found with session ID: ${session}` }));
+  let fail = false;
+  const cli = claudeCli((session) => fail ? ({ subtype: 'error_during_execution', is_error: true, result: `No conversation found with session ID: ${session}` }) : ({ subtype: 'success', is_error: false, result: 'Done.' }));
   const e = engine(cli.spawn, new Map());
-  const gone = await e.run(turnInput({ session: { ref: 'b6f1c2d4-0000-4000-8000-000000000000', generation: 2 } }).input);
+  const trusted = await e.run(turnInput({}).input);
+  fail = true;
+  const gone = await e.run(turnInput({ session: trusted.session }).input);
   assert.equal(gone.stop, 'error');
   assert.equal(gone.error?.code, 'conflict');
   assert.equal(gone.error?.details?.rebase, true);
   assert.equal(gone.session, undefined);
 
-  const failing = claudeCli(() => ({ subtype: 'error_during_execution', is_error: true, result: 'Something else went wrong' }));
+  let failOther = false;
+  const failing = claudeCli(() => failOther ? ({ subtype: 'error_during_execution', is_error: true, result: 'Something else went wrong' }) : ({ subtype: 'success', is_error: false, result: 'Done.' }));
   const e2 = engine(failing.spawn, new Map());
-  const failed = await e2.run(turnInput({ session: { ref: 'b6f1c2d4-0000-4000-8000-000000000000', generation: 2 } }).input);
+  const trustedOther = await e2.run(turnInput({}).input);
+  failOther = true;
+  const failed = await e2.run(turnInput({ session: trustedOther.session }).input);
   assert.equal(failed.stop, 'error');
   assert.equal(failed.error?.details?.rebase, undefined);
   await e.dispose();
@@ -90,16 +96,25 @@ test('claude: a session id Claude Code no longer knows ends the session; other e
 
 test('claude: the live 2.1.303 answer to an unknown --resume (only `errors`, no init, exit 1) ends the session', async () => {
   // Recorded 23.10. from claude.exe 2.1.303: the only stdout line, then exit code 1.
-  const { spawn } = fakeSpawn(({ args, child }) => {
+  const cli = fakeSpawn(({ args, child }) => {
     const session = args[args.indexOf('--resume') + 1];
     child.onLine = (message) => {
       if (message?.type !== 'user') return;
-      child.send({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: [`No conversation found with session ID: ${session}`] });
-      setImmediate(() => child.exit(1));
+      if (args.includes('--resume')) {
+        child.send({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: [`No conversation found with session ID: ${session}`] });
+        setImmediate(() => child.exit(1));
+      } else {
+        child.send({ type: 'result', subtype: 'success', is_error: false, result: 'Done.', session_id: session });
+        setImmediate(() => child.exit(0));
+      }
     };
   });
-  const e = engine(spawn, new Map());
-  const gone = await e.run(turnInput({ session: { ref: '3f0b8f4e-1a2b-4c3d-9e8f-0123456789ab', generation: 3 } }).input);
+  const e = engine(cli.spawn, new Map());
+  const trusted = await e.run(turnInput({}).input);
+  assert.equal(trusted.stop, 'done');
+  const gone = await e.run(turnInput({ session: trusted.session }).input);
+  assert.equal(cli.calls.length, 2, 'the error fixture reached the CLI');
+  assert.ok(cli.calls[1].args.includes('--resume'));
   assert.equal(gone.stop, 'error');
   assert.deepEqual([gone.error?.code, gone.error?.details?.rebase], ['conflict', true], 'renewed by the executor instead of failing every later turn');
   assert.equal(gone.session, undefined);
@@ -123,6 +138,8 @@ test('claude: a session this process ran in another folder is renewed quietly be
   assert.deepEqual(moved.error?.details, { rebase: true, folder: true });
   assert.equal(cli.calls.length, 2, 'no CLI start for the moved session');
   const unknown = await e.run(turnInput({ cwd: '/elsewhere', session: { ref: 'b6f1c2d4-0000-4000-8000-000000000000', generation: 2 } }).input);
-  assert.equal(unknown.stop, 'done', 'a session from before this process is resumed as before');
+  assert.equal(unknown.stop, 'error');
+  assert.equal(unknown.error?.details?.rebase, true);
+  assert.equal(cli.calls.length, 2, 'legacy ref is refused before CLI start');
   await e.dispose();
 });

@@ -140,25 +140,28 @@ test('a fork in another folder (a worktree) runs there; a turn of it in another 
 test('a server that refuses the lean settings, a refusal or no id throws – no plainer fork', async () => {
   const lean = appServer({ refuseLean: true });
   const e = engineOf(lean.spawn);
+  await e.run(turnInput().input);
   await assert.rejects(e.fork(forkInput()));
   assert.equal(lean.sent('thread/fork').length, 1);
   await e.dispose();
 
   const refused = appServer({ refuseFork: true });
   const r = engineOf(refused.spawn);
+  await r.run(turnInput().input);
   await assert.rejects(r.fork(forkInput()), /thread not found/);
   await r.dispose();
 
   const empty = appServer({ noId: true });
   const n = engineOf(empty.spawn);
+  await n.run(turnInput().input);
   await assert.rejects(n.fork(forkInput()), /did not fork/);
   await n.dispose();
 });
 
-test('a fork whose folder is unknown is refused before any thread request', async () => {
+test('a fork with an old unproven ref is refused before any thread request', async () => {
   const fake = appServer();
   const e = engineOf(fake.spawn);
-  await assert.rejects(e.fork(forkInput({ cwd: undefined, parentRef: 'thr_elsewhere' })), /folder/);
+  await assert.rejects(e.fork(forkInput({ cwd: undefined, parentRef: 'thr_elsewhere' })), /current managed-shell runtime/);
   assert.equal(fake.sent('thread/fork').length, 0);
   await e.dispose();
 });

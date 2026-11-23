@@ -97,14 +97,14 @@ const ITEMS: RebuildItem[] = [
   { itemId: 'a8', kind: 'a', role: 'assistant', text: 'Tests pass.\n{"compacted":"a8","was":"400 tokens","restore":"context.restore"}' },
 ];
 
-test('claude transcript: the record chain, hub calls 1:1, a Codex shell call as Bash, signed thinking only from the same source', () => {
+test('claude transcript: the record chain, hub calls 1:1, a notice in place of Codex shell, signed thinking only from the same source', () => {
   let n = 0;
   const { lines, records } = claudeTranscript(ITEMS, {
     sessionId: 'sess-1', cwd: '/work', version: '2.1.303', model: 'claude-opus-5-5', accountId: 'acc_claude', offered, uuid: () => `u${++n}`, now: 0,
   });
   const recs = lines.map((line) => JSON.parse(line));
   assert.equal(records, recs.length);
-  assert.deepEqual(recs.map((rec) => rec.type), ['user', 'assistant', 'user', 'assistant', 'user', 'assistant', 'user', 'assistant']);
+  assert.deepEqual(recs.map((rec) => rec.type), ['user', 'assistant', 'user', 'assistant', 'user', 'assistant']);
   recs.forEach((rec, i) => {
     assert.equal(rec.uuid, `u${i + 1}`);
     assert.equal(rec.parentUuid, i ? `u${i}` : null);
@@ -122,18 +122,16 @@ test('claude transcript: the record chain, hub calls 1:1, a Codex shell call as 
     { type: 'tool_use', id: 'call_9', name: 'mcp__workforce__tasks__create', input: { title: 'Export' } },
   ]);
   assert.equal(recs[3].message.stop_reason, 'tool_use');
-  assert.deepEqual(recs[4].message.content, [{ type: 'tool_result', tool_use_id: 'call_9', content: 'created tsk_1' }]);
-  assert.equal(recs[4].sourceToolAssistantUUID, 'u4');
-  // B-049 neutral mapping: Codex's native shell is Claude Code's own Bash with its real output as the tool_result.
-  assert.deepEqual(recs[5].message.content, [{ type: 'tool_use', id: 'c1', name: 'Bash', input: { command: 'npm test' } }]);
-  assert.equal(recs[5].message.stop_reason, 'tool_use');
-  assert.deepEqual(recs[6].message.content, [{ type: 'tool_result', tool_use_id: 'c1', content: '12 passing' }]);
-  assert.equal(recs[6].sourceToolAssistantUUID, 'u6');
-  // Codex reasoning cannot replay here: it leaves nothing (no text the model never said); the condensed stamp stays verbatim.
-  assert.deepEqual(recs[7].message.content, [
+  assert.deepEqual(recs[4].message.content, [
+    { type: 'tool_result', tool_use_id: 'call_9', content: 'created tsk_1' },
+    { type: 'text', text: '[Earlier native shell or script calls omitted: 1. Their results are not available in the rebuilt context.]' },
+  ]);
+  assert.doesNotMatch(JSON.stringify(recs), /npm test|12 passing|c1/);
+  // Codex reasoning cannot replay here: it leaves nothing; the condensed stamp stays verbatim.
+  assert.deepEqual(recs[5].message.content, [
     { type: 'text', text: 'Tests pass.\n{"compacted":"a8","was":"400 tokens","restore":"context.restore"}' },
   ]);
-  assert.equal(recs[7].message.stop_reason, 'end_turn');
+  assert.equal(recs[5].message.stop_reason, 'end_turn');
 
   // Unsigned, foreign or trailing thinking never becomes a thinking block.
   const tail = claudeTranscript([
@@ -158,7 +156,7 @@ test('claude transcript: one of our tools the turn does not offer stands as the 
   assert.deepEqual(uses([]).map(([name]) => name), ['mcp__workforce__context__restore', 'mcp__workforce__tasks__create'], 'the calls shown to a session as they are (no offer known)');
 });
 
-test('claude transcript (B-049 neutral mapping): a Codex PowerShell line → PowerShell on Windows, Claude\'s own Read verbatim, a Codex patch stays a note', () => {
+test('claude transcript (B-049 neutral mapping): Codex PowerShell is withheld on Windows and Linux, Claude\'s own Read verbatim, a Codex patch stays a note', () => {
   const items: RebuildItem[] = [
     { itemId: 'm1', kind: 'm', role: 'user', text: 'go' },
     { itemId: 't2', kind: 't', role: 'tool', text: '', call: { own: true, name: 'shell', args: { command: '"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe" -Command \'Get-ChildItem\'' }, callId: 'exec-1', output: 'a.ts' }, origin: { engine: 'codex' } },
@@ -166,18 +164,22 @@ test('claude transcript (B-049 neutral mapping): a Codex PowerShell line → Pow
     { itemId: 't4', kind: 't', role: 'tool', text: '', call: { own: true, name: 'apply_patch', args: { files: ['a.ts'] }, callId: 'patch-1', output: 'update a.ts\n-1\n+2' }, origin: { engine: 'codex' } },
   ];
   const context = { sessionId: 's', cwd: '/w', version: 'v', model: 'claude-opus-5-5', accountId: 'acc_claude', offered, uuid: () => 'u', now: 0 };
-  const recs = claudeTranscript(items, { ...context, platform: 'win32' }).lines.map((line) => JSON.parse(line));
-  assert.deepEqual(recs.map((rec) => rec.type), ['user', 'assistant', 'user', 'assistant', 'user', 'assistant']);
-  assert.deepEqual(recs[1].message.content, [{ type: 'tool_use', id: 'exec-1', name: 'PowerShell', input: { command: 'Get-ChildItem' } }]);
-  assert.deepEqual(recs[2].message.content, [{ type: 'tool_result', tool_use_id: 'exec-1', content: 'a.ts' }]);
-  assert.deepEqual(recs[3].message.content, [{ type: 'tool_use', id: 'toolu_r', name: 'Read', input: { file_path: 'C:\\w\\a.ts', offset: 5 } }]);
-  // BEFUND §3 (17.11.2026): a call with no native counterpart is a user-side record, never assistant text to imitate
-  assert.deepEqual(recs[4].message.content.at(-1), { type: 'text', text: '[record of an earlier call, not replayable here – apply_patch: a.ts]\n[its output]\nupdate a.ts\n-1\n+2' });
-  assert.deepEqual(recs[5].message.content, [{ type: 'text', text: END_MARK }]);
-  const said = recs.filter((rec) => rec.type === 'assistant').flatMap((rec) => rec.message.content).filter((part: { type: string }) => part.type === 'text');
-  assert.ok(said.every((part: { text: string }) => !/^\[(ran|record)/.test(part.text)), 'no assistant text reads as a call');
-  const linux = claudeTranscript(items.slice(0, 2), { ...context, platform: 'linux' }).lines.map((line) => JSON.parse(line));
-  assert.equal(linux[1].message.content[0].name, 'Bash', 'no PowerShell tool off Windows: the whole line from Bash');
+  for (const platform of ['win32', 'linux'] as const) {
+    const recs = claudeTranscript(items, { ...context, platform }).lines.map((line) => JSON.parse(line));
+    assert.deepEqual(recs.map((rec) => rec.type), ['user', 'assistant', 'user', 'assistant']);
+    assert.deepEqual(recs[0].message.content, [
+      { type: 'text', text: 'go' },
+      { type: 'text', text: '[Earlier native shell or script calls omitted: 1. Their results are not available in the rebuilt context.]' },
+    ]);
+    assert.doesNotMatch(JSON.stringify(recs), /Get-ChildItem|exec-1/);
+    assert.deepEqual(recs[1].message.content, [{ type: 'tool_use', id: 'toolu_r', name: 'Read', input: { file_path: 'C:\\w\\a.ts', offset: 5 } }]);
+    // A call without a native counterpart stays a user-side record, never assistant text to imitate.
+    assert.deepEqual(recs[2].message.content, [
+      { type: 'tool_result', tool_use_id: 'toolu_r', content: '5\tconst a = 1;' },
+      { type: 'text', text: '[record of an earlier call, not replayable here – apply_patch: a.ts]\n[its output]\nupdate a.ts\n-1\n+2' },
+    ]);
+    assert.deepEqual(recs[3].message.content, [{ type: 'text', text: END_MARK }]);
+  }
 });
 
 test('claude rebuild: the transcript lands in the app data folder; the next turn resumes it by absolute path; the ref follows the file that grew', async () => {
