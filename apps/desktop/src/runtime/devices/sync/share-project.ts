@@ -25,7 +25,7 @@ import { WorkforceError } from '../../../shared/errors.ts';
 import { localAbsolute } from '../landing.ts';
 import { readPiece } from './file-io.ts';
 import { haveOf, take, type ListPage, type Mirror, type TakeCtx } from './share-take.ts';
-import { Guard, carried, inside, look, readIndex, rootId, walk, writeIndex, type Have } from './share-tree.ts';
+import { Guard, carried, forgetIndex, freshIndex, inside, look, readIndex, rootId, walk, writeIndex, type Have } from './share-tree.ts';
 
 const PAGE = 500;
 /** Changes the watch reports gather this long before they are looked at. */
@@ -150,9 +150,11 @@ export class ProjectShare {
     void this.run(mirror, async () => {
       // A folder that is not there is made and filled from the other PCs; what this PC remembered counts only for the
       // very folder it was remembered of.
-      if (!isDir(root)) await mkdir(root);
+      // A folder this PC makes now is new, whatever inode the file system gives it (an old list never counts for it).
+      const made = !isDir(root);
+      if (made) await mkdir(root);
       mirror.id = rootId(root) ?? '';
-      mirror.index = await readIndex(this.s.paths.data, key, home, mirror.id);
+      mirror.index = made ? freshIndex(home, mirror.id) : await readIndex(this.s.paths.data, key, home, mirror.id);
       if (this.mirrors.get(key) !== mirror) return;
       mirror.watcher = this.watch(root, (rel) => this.soon(mirror, rel));
       for (const agentId of mirror.agents.keys()) this.deps.told(agentId, undefined, undefined);
@@ -176,6 +178,8 @@ export class ProjectShare {
     const why = id === undefined ? `${mirror.home} is no longer there on ${this.pc()}` : `${mirror.home} was replaced by another folder on ${this.pc()}`;
     this.close(mirror);
     this.lost.set(mirror.key, why);
+    mirror.gone = true;
+    void forgetIndex(this.s.paths.data, mirror.key).catch(() => undefined); // gone is forgotten: a folder in its place starts fresh
     this.s.log.info('home project mirror stopped', { agents: [...mirror.agents.keys()], gone: id === undefined });
     for (const agentId of mirror.agents.keys()) this.deps.told(agentId, undefined, why);
     return false;
@@ -255,6 +259,7 @@ export class ProjectShare {
   }
 
   private async save(mirror: Mirror): Promise<void> {
+    if (mirror.gone) return; // its folder went: what it remembered is forgotten, not written again
     mirror.index.id = mirror.id;
     await writeIndex(this.s.paths.data, mirror.key, mirror.index).catch((error: unknown) => this.s.log.info('home project list not kept', { error: errorText(error) }));
   }

@@ -114,6 +114,22 @@ test('a project folder that is gone on one PC is filled again and deletes nothin
   assert.equal(await b.read('src/b.txt'), 'two');
 });
 
+test('a folder that goes while the mirror runs is forgotten: a folder in its place – even with the same inode – starts fresh', async () => {
+  // ext4 gives a new folder the inode of one just removed; the folder's identity is device and inode (CI 23.11.2026)
+  const { a, b } = await pair();
+  await a.write('a.txt', 'one');
+  await linkUp(a, b);
+  await until(async () => (await files(b)).join() === 'a.txt');
+  await calm();
+  const lists = async () => (await readdir(path.join(b.data, 'share')).catch(() => [] as string[])).filter((name) => name.startsWith('project-'));
+  assert.equal((await lists()).length, 1, 'B remembers the folder');
+  await rm(b.root, { recursive: true, force: true });
+  await b.changed('a.txt'); // B looks and finds its folder gone
+  await calm();
+  assert.deepEqual(await lists(), [], 'what B remembered of the gone folder is forgotten');
+  assert.equal(await a.read('a.txt'), 'one', 'nothing deleted on A');
+});
+
 test('a PC whose security rules close the folder mirrors nothing, and I hear why once on my PC', async () => {
   const { net, a, b } = await pair();
   (b.h.services as { security: unknown }).security = { check: () => 'ask' };

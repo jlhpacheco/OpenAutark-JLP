@@ -13,7 +13,7 @@
 
 import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
-import { lstat, mkdir, readdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { hashFile } from './file-io.ts';
 
@@ -155,7 +155,9 @@ export function copyName(rel: string, pc: string): string {
 }
 
 const indexFile = (data: string, key: string) => path.join(data, 'share', `project-${createHash('sha256').update(key).digest('hex').slice(0, 24)}.json`);
-const fresh = (home: string, id: string): Index => ({ home, id, files: {}, agreed: {} });
+/** Nothing remembered of the folder `id`. */
+export const freshIndex = (home: string, id: string): Index => ({ home, id, files: {}, agreed: {} });
+const fresh = freshIndex;
 
 /** What this PC remembers of the folder `key` (the folder `id` it is now); fresh when it has nothing for that very folder. */
 export async function readIndex(data: string, key: string, home: string, id: string): Promise<Index> {
@@ -164,6 +166,15 @@ export async function readIndex(data: string, key: string, home: string, id: str
     if (value.id === id && value.files && typeof value.files === 'object' && value.agreed && typeof value.agreed === 'object') return { ...value, home } as Index;
   } catch { /* none yet, or unreadable: fresh */ }
   return fresh(home, id);
+}
+
+/**
+ * Forgets what this PC remembered of `key` (its folder went or was replaced). A folder's identity is its device and
+ * inode, and a file system may give a new folder the inode of one just removed (ext4 does): a remembered list would
+ * then count for the new folder, and its missing files as deleted here (CI 23.11.2026). Gone means forgotten.
+ */
+export async function forgetIndex(data: string, key: string): Promise<void> {
+  await rm(indexFile(data, key), { force: true });
 }
 
 export async function writeIndex(data: string, key: string, index: Index): Promise<void> {

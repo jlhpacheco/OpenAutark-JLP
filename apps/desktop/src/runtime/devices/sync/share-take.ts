@@ -26,6 +26,8 @@ export interface Mirror {
   lists: Map<string, { named: Set<string>; pages: Set<number> }>;
   /** Asks for a PC's list again after a failed take: the step and its timer. */
   again: Map<string, { step: number; timer?: ReturnType<typeof setTimeout> }>;
+  /** Its folder went or was replaced: it is closed and its list forgotten. */
+  gone?: boolean;
 }
 
 /** A page of a PC's whole list: its number from 0, whether it is the last, and whether that PC starts over with me. */
