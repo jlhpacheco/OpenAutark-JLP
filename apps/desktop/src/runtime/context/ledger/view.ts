@@ -15,7 +15,7 @@ import { compactStamp, type LedgerViewItem } from '../../../shared/model/context
 import { HUMAN_ID } from '../../../shared/ids.ts';
 import type { Message } from '../../../shared/model/chat.ts';
 import { isScriptCall } from '../../engines/code-mode.ts';
-import { callRow, journalRow, originalOf, toolOutput, withheldTool, type OriginalDeps } from './originals.ts';
+import { callRow, journalRow, managedRows, originalOf, toolOutput, withheldTool, type OriginalDeps } from './originals.ts';
 import type { LedgerRow } from './store.ts';
 
 /** Tool outputs in a rebuild: the model's own cap (tools/outputs.ts MAX_TEXT_CHARS). */
@@ -41,17 +41,18 @@ function cutNote(itemId: string, more: number): string {
 }
 
 /** The tool call behind a tool/skill/file row (name, args, call id) and – `withOutput` – its output as the view shows it. */
-function callOf(deps: ViewDeps, row: LedgerRow, withOutput = true): { name: string; args: unknown; callId: string; output: string; own?: boolean; ok?: boolean } | undefined {
+function callOf(deps: ViewDeps, row: LedgerRow, withOutput = true): { name: string; args: unknown; callId: string; output: string; own?: boolean; ok?: boolean; managed?: true } | undefined {
   if (!row.ref?.startsWith('item:')) return undefined;
   const result = journalRow(deps.db, row.ref.slice(5));
   if (!result) return undefined;
   const callId = typeof result.data.callId === 'string' ? result.data.callId : '';
   const call = callRow(deps.db, result.run_id, callId);
-  if (row.pruned_at !== null) return { name: result.name ?? call?.name ?? 'tool', args: {}, callId, output: safe(deps, row.condensed ?? row.title) };
+  const managed = managedRows(result, call); // 0.3.19: the row mark, from both journal rows
+  if (row.pruned_at !== null) return { name: result.name ?? call?.name ?? 'tool', args: {}, callId, output: safe(deps, row.condensed ?? row.title), ...managed };
   const out = withOutput ? toolOutput(deps, result, call?.data.own === true ? VIEW_OWN_OUTPUT_CHARS : VIEW_OUTPUT_CHARS) : { text: '', more: 0 };
   return {
     name: result.name ?? call?.name ?? 'tool', args: argsOf(call?.data.args), callId, output: `${out.text}${cutNote(row.item_id, out.more)}`,
-    ...(call?.data.own === true ? { own: true } : {}), ...(result.data.ok === false ? { ok: false } : {}),
+    ...(call?.data.own === true ? { own: true } : {}), ...(result.data.ok === false ? { ok: false } : {}), ...managed,
   };
 }
 

@@ -137,8 +137,8 @@ export class ClaudeRebuilder {
     return ref;
   }
 
-  /** Where the transcript of a session ref lives: our path, the app's project folder, or the CLI's folders of the account's home. */
-  private async transcriptOf(account: Account, ref: string): Promise<string | undefined> {
+  /** Where the transcript of a session ref lives: our path, the app's project folder, or the CLI's folders of the account's home (also the managed-shell mark's file, engine.ts). */
+  async transcriptOf(account: Account, ref: string): Promise<string | undefined> {
     const target = resumeTarget(ref);
     if (target.path) return (await this.files.size(target.path)) === undefined ? undefined : target.path;
     const home = account.home ?? this.deps.env?.CLAUDE_CONFIG_DIR ?? process.env.CLAUDE_CONFIG_DIR ?? path.join(homedir(), '.claude');

@@ -95,7 +95,8 @@ test('a raw exec call becomes a native tool call; calls inside it are nested und
   const { input, events, toolCalls } = turnInput();
   assert.equal((await engineOf(fake.spawn).run(input)).stop, 'done');
   const tools = events.filter((event: EngineEvent) => event.type === 'tool_start' || event.type === 'tool_end');
-  assert.deepEqual(tools[0], { type: 'tool_start', callId: 'call_x1', name: 'exec', args: { source: SOURCE }, own: true });
+  // 0.3.19: an agent thread runs without Codex's native shell, so its script call carries the managed-shell row mark (turn-attempt.ts journals it).
+  assert.deepEqual(tools[0], { type: 'tool_start', callId: 'call_x1', name: 'exec', args: { source: SOURCE }, own: true, managed: true });
   assert.deepEqual(tools[1], { type: 'tool_start', callId: 'exec-aaa', name: 'tasks.create', args: { title: 'A' }, own: false, nested: true, parent: 'call_x1' });
   assert.equal(toolCalls[0].callId, 'exec-aaa', 'our tool still runs');
   const command = tools.find((event: any) => event.type === 'tool_start' && event.callId === 'exec-bbb');

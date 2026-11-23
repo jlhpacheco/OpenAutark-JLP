@@ -16,10 +16,15 @@ import { rebuildItems } from '../../../src/runtime/agents/rebuild-items.ts';
 const SOURCE = '// @exec: {"yield_time_ms": 10000}\nconst r = await tools.files__read({path:"notes/build.log"});\ntext(r.split("\\n").filter((l) => l.includes("ERROR")).length);\n';
 const PRINTED = 'Script completed\nWall time 0.4 seconds\nOutput:\n6';
 
-/** A script call as agents/turn-attempt.ts journals an engine-native call (tool_call own, then its tool_result). */
-function script(h: ReturnType<typeof ledgerSetup>, runId: string, callId: string, source: string, output: string) {
-  h.journal.item(runId, { kind: 'tool_call', name: 'exec', data: { callId, own: true, args: JSON.stringify({ source }), summary: 'Ran a command' }, effectStatus: 'none' });
-  h.journal.item(runId, { kind: 'tool_result', data: { callId, ok: true, summary: 'Script completed', output }, effectStatus: 'none' });
+/**
+ * A script call as agents/turn-attempt.ts journals an engine-native call (tool_call own, then its tool_result). 0.3.19: an
+ * agent thread runs without the native Codex shell, so both rows carry the row mark `managed` (CodeCalls → tool_start);
+ * `marked: false` journals a script as before 0.3.19 – a legacy row the ledger withholds (rebuild-text.ts legacyNativeShell).
+ */
+function script(h: ReturnType<typeof ledgerSetup>, runId: string, callId: string, source: string, output: string, marked = true) {
+  const mark = marked ? { managed: true } : {};
+  h.journal.item(runId, { kind: 'tool_call', name: 'exec', data: { callId, own: true, args: JSON.stringify({ source }), summary: 'Ran a command', ...mark }, effectStatus: 'none' });
+  h.journal.item(runId, { kind: 'tool_result', data: { callId, ok: true, summary: 'Script completed', output, ...mark }, effectStatus: 'none' });
 }
 
 test('a script call is a t item from its first line, estimated from source and printed output; its nested calls are kept but cost nothing live', async () => {
@@ -55,8 +60,8 @@ test('a long script whose journaled preview is cut: estimated at its full length
     const long = `const rows = await tools.files__read({path:"data.csv"});\n${'text(rows.length);\n'.repeat(400)}`;
     const full = JSON.stringify({ source: long });
     // As agents/turn-attempt.ts journals it: a 2,000-char preview ending in "…" plus the full length.
-    h.journal.item(runId, { kind: 'tool_call', name: 'exec', data: { callId: 'call_long', own: true, args: `${full.slice(0, 2_000)}…`, argsChars: full.length, summary: 'Ran a command' }, effectStatus: 'none' });
-    h.journal.item(runId, { kind: 'tool_result', data: { callId: 'call_long', ok: true, summary: 'Script completed', output: PRINTED }, effectStatus: 'none' });
+    h.journal.item(runId, { kind: 'tool_call', name: 'exec', data: { callId: 'call_long', own: true, args: `${full.slice(0, 2_000)}…`, argsChars: full.length, summary: 'Ran a command', managed: true }, effectStatus: 'none' });
+    h.journal.item(runId, { kind: 'tool_result', data: { callId: 'call_long', ok: true, summary: 'Script completed', output: PRINTED, managed: true }, effectStatus: 'none' });
     await h.journal.settled();
     const [item] = h.ledger.items(h.tom.id, 'main');
     assert.equal(item.title, 'exec: const rows = await tools.files__read({path:"data.csv"});');
@@ -117,5 +122,30 @@ test('live 01.11.: a hidden script leaves nothing behind: its calls go with it, 
     assert.ok(!items.some((item) => item.role === 'assistant' && /code-mode/.test(item.text)), 'no note about it');
     h.ledger.mark(h.tom.id, 'main', [{ itemId: 't2', state: 'keep', reason: 'back', by: 'restore' }]);
     assert.deepEqual(rebuildItems(h.ledger.view(h.tom.id, 'main')).items.map((item) => item.itemId), ['t2', 't4']);
+  } finally { h.cleanup(); }
+});
+
+test('0.3.19: a script row without the row mark – from before 0.3.19, or with only one of its rows marked – stays withheld', async () => {
+  const h = ledgerSetup();
+  try {
+    const runId = h.turn();
+    script(h, runId, 'call_old', SOURCE, 'sk_live_FAKEFAKEFAKE printed', false);
+    h.journal.item(runId, { kind: 'tool_call', name: 'exec', data: { callId: 'call_half', own: true, args: JSON.stringify({ source: SOURCE }), summary: 'Ran a command', managed: true }, effectStatus: 'none' });
+    h.journal.item(runId, { kind: 'tool_result', data: { callId: 'call_half', ok: true, summary: 'Script completed', output: 'half marked' }, effectStatus: 'none' });
+    h.journal.item(runId, { kind: 'tool_call', name: 'Bash', data: { callId: 'call_bash', own: true, args: JSON.stringify({ command: 'cat .env' }), summary: 'Ran cat .env', managed: true }, effectStatus: 'none' });
+    h.journal.item(runId, { kind: 'tool_result', data: { callId: 'call_bash', ok: true, summary: 'exit 0', output: 'native shell output', managed: true }, effectStatus: 'none' });
+    script(h, runId, 'call_new', SOURCE, PRINTED);
+    await h.journal.settled();
+    const items = h.ledger.items(h.tom.id, 'main');
+    assert.equal(items.length, 4);
+    const omitted = /^\[Earlier native shell or script calls omitted: 1\./;
+    for (const item of items.slice(0, 3)) assert.match(item.title, omitted, `${item.itemId} is withheld`);
+    assert.equal(items[3].title, 'exec: const r = await tools.files__read({path:"notes/build.log"});', 'the marked script reads as before');
+    const view = JSON.stringify(h.ledger.view(h.tom.id, 'main').slice(0, 3));
+    for (const leaked of ['sk_live_FAKE', 'half marked', 'cat .env', 'native shell output', 'files__read']) assert.ok(!view.includes(leaked), `${leaked} stays out of the view`);
+    const { items: history } = rebuildItems(h.ledger.view(h.tom.id, 'main'));
+    const rebuilt = JSON.stringify(history);
+    assert.ok(!rebuilt.includes('sk_live_FAKE') && !rebuilt.includes('native shell output') && !rebuilt.includes('half marked'));
+    assert.deepEqual(history.at(-1)?.call?.args, { source: SOURCE }, 'the marked script is replayed');
   } finally { h.cleanup(); }
 });

@@ -19,6 +19,7 @@ import { agentLeanConfig } from '../../../src/runtime/engines/codex/helper-threa
 import { createEngineRegistry } from '../../../src/runtime/engines/registry.ts';
 import { engineCwd } from '../../../src/runtime/system/paths.ts';
 import { account, fakeFinder, fakeSpawn, testSupervisor, tick, turnInput } from './fakes.ts';
+import { openedBefore } from './managed-fixture.ts';
 
 const WORKSPACE = '/fake-home/Workforce';
 const REAL = '/real/Workforce';
@@ -111,6 +112,7 @@ test('codex isolation: thread/start opens read-only with the workspace untrusted
 test('codex isolation: a resumed thread is marked the same way and every turn re-sends its sandbox', async () => {
   const fake = appServer();
   const e = engine(fake.spawn);
+  openedBefore(e, 'thr_9'); // 0.3.19: a thread resumes only with provenance – this runtime opened it before
   const first = await e.run(turnInput({ cwd: WORKSPACE, session: { ref: 'thr_9', generation: 2 } }).input);
   assert.equal(first.stop, 'done');
   assert.equal(fake.sent('thread/start').length, 0);

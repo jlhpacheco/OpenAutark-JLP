@@ -72,9 +72,12 @@ export const legacyShellOmission = (count: number): string =>
   `[Earlier native shell or script calls omitted: ${count}. Their results are not available in the rebuilt context.]`;
 const LEGACY_SHELL_NAMES = new Set(['Bash', 'PowerShell', 'shell', 'exec_command', 'shell_command', 'write_stdin']);
 
-export function legacyNativeShell(call: Pick<NonNullable<RebuildItem['call']>, 'name'>, engine?: string): boolean {
-  // Historical Code Mode aggregates can contain nested shell output without retained provenance.
-  return LEGACY_SHELL_NAMES.has(call.name) || isScriptCall(call.name, engine);
+export function legacyNativeShell(call: Pick<NonNullable<RebuildItem['call']>, 'name' | 'managed'>, engine?: string): boolean {
+  // Historical Code Mode aggregates can contain nested shell output without retained provenance. 0.3.19: an aggregate whose
+  // journal rows carry the row mark (`managed`, set where turn-attempt.ts wrote them for a thread without native shell) is
+  // no legacy row; the mark is never derived from a session's mark, and native shell names stay blocked whatever they carry.
+  if (LEGACY_SHELL_NAMES.has(call.name)) return true;
+  return isScriptCall(call.name, engine) && call.managed !== true;
 }
 
 /** A model's family: the provider prefix and the variant suffix dropped ("codex:gpt-6.1-sol-mini" → "gpt-6.1"). */

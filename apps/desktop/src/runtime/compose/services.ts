@@ -61,6 +61,8 @@ import { AccountServiceImpl } from '../accounts/service.ts';
 import type { AccountMonitor } from '../accounts/monitor.ts';
 import { ExecutableFinder } from '../accounts/executables.ts';
 import { claudeTranscriptsDir, createEngineRegistry, type EngineRegistry } from '../engines/registry.ts';
+import { ManagedPathStore } from '../engines/managed-path.ts'; // 0.3.19: managed_paths, this PC's marks of native sessions
+import { selfId } from '../devices/sync/home.ts';
 import { Priors } from '../models/priors.ts';
 import { useStoredCopy } from '../models/priors-feed.ts'; // 14.11.: the global model rating's last good copy
 import { Catalog } from '../models/catalog.ts';
@@ -243,6 +245,7 @@ export async function createCore(options: CoreOptions): Promise<Core> {
     security: () => s.security, // Sicher-Runde 19.11.2026: Secure mode routes native tools through the gate
     acp: accounts.acpLaunch, // PR8: an ACP plan runs the launch its detection confirmed (unavailable until then)
     warn: (message, data) => log.warn(message, data),
+    managed: new ManagedPathStore({ db, now: () => clock.now(), device: () => selfId(db) }),
     onLimits: (accountId, limits) => { try { accounts.updateLimits(accountId, limits); } catch (error) { log.warn('limits update failed', { error: String(error) }); } },
   });
   s.engines = engines;

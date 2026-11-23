@@ -46,13 +46,15 @@
 // KI-Runde 17.11.2026 (kept.ts): a helper turn with `keep` – a call's voice – runs in one process kept for the call: the
 // call's start (keepOpen) or its first line starts it (no transcript on disk), each later line with its ref is one more
 // user message there, a ref whose process is gone answers 'conflict', and unload() at the call's end lets it end by itself.
+// 0.3.19 (managed-session.ts): a session resumes natively only while ManagedSessions trusts it – an own turn marks it pending at
+// its start and seals its transcript at its end (so do a rebuild and a fork's first turn); else it is renewed (details.rebase).
 // Never: reads CLAUDE_CONFIG_DIR files or tokens but the transcript of a session the app created (it writes there only a rebuilt
 // transcript in the app's own home and that transcript's trace records, and deletes there only transcripts of sessions the app created); never passes API keys in the env (they would
 // silently override the user's subscription login); keeps session state a restart would lose;
 // never lets project-level config in the workspace (.claude/settings*.json, .mcp.json, project
 // skills/agents/commands) add permissions, hooks, plugins or MCP servers to a turn.
 
-import { canContinueManaged, rememberManaged, forgetManaged, LEGACY_SESSION } from '../managed-session.ts';
+import { ManagedSessions, LEGACY_SESSION, type ManagedPathStore } from '../managed-session.ts'; // 0.3.19: which sessions resume natively (managed-path.ts marks)
 import * as path from 'node:path';
 import type { Account, Effort, EngineId } from '../../../shared/model/providers.ts';
 import type { AccountCheck, Engine, EngineCaps, EngineEvent, EngineForkInput, EngineForkResult, EngineModel, EngineRebuildInput, EngineRebuildResult, EngineTurnInput, EngineTurnResult, KeepOpenInput, RebuildProbe } from '../types.ts';
@@ -101,6 +103,8 @@ export interface ClaudeEngineDeps {
   graceMs?: number;
   /** Sicher-Runde 19.11.2026: services.security – in Secure mode an agent turn's permission prompts go through its gate (permissions.ts). */
   security?: SecurityLookup;
+  /** 0.3.19: the persistent managed-shell marks (managed-path.ts); none: process memory only. */
+  managed?: ManagedPathStore;
 }
 
 export class ClaudeEngine implements Engine {
@@ -121,6 +125,7 @@ export class ClaudeEngine implements Engine {
   private readonly kept: ClaudeKept; // KI-Runde 17.11.2026: the processes kept for calls' voices (kept.ts)
   private readonly turns: ClaudeTurns; // the running turns' processes (turns.ts)
   private readonly ceiling = new CeilingFlag(); // Runde "Halb": whether this CLI takes --autocompact (lean.ts)
+  private readonly trust: ManagedSessions; // 0.3.19: which sessions resume natively
 
   constructor(deps: ClaudeEngineDeps) {
     this.deps = deps;
@@ -133,6 +138,7 @@ export class ClaudeEngine implements Engine {
       uuid: this.uuid, now: this.now, transcriptsDir: deps.transcriptsDir, accountsRoots: deps.accountsRoots,
     });
     this.kept = new ClaudeKept({ supervisor: deps.supervisor, graceMs: deps.graceMs ?? CLAUDE_EXIT_GRACE_MS, now: this.now });
+    this.trust = new ManagedSessions({ engine: this, store: deps.managed, locate: (account, ref) => this.rebuilds.transcriptOf(account, ref) });
     this.turns = new ClaudeTurns({ supervisor: deps.supervisor, graceMs: deps.graceMs, now: this.now, uuid: this.uuid, noEffort: this.noEffort, purging: this.purging });
   }
 
@@ -165,10 +171,10 @@ export class ClaudeEngine implements Engine {
 
   async run(input: EngineTurnInput): Promise<EngineTurnResult> {
     const kept = input.keep && !input.mcp && input.tools.length === 0;
-    if (!kept && input.session && !canContinueManaged(this, input.account.id, input.session.ref)) return { text: '', stop: 'error', error: { code: 'conflict', message: LEGACY_SESSION, details: { rebase: true } } };
+    if (!kept && input.session && !(await this.trust.trusted(input.account, input.session.ref))) return { text: '', stop: 'error', error: { code: 'conflict', message: LEGACY_SESSION, details: { rebase: true } } };
     const exe = await this.deps.finder.find('claude');
     if (!exe) return { text: '', stop: 'error', error: ERR.unavailable('Claude Code is not installed.') };
-    if (input.keep && !input.mcp && input.tools.length === 0) return this.keptTurn(exe, input);
+    if (kept) return this.keptTurn(exe, input);
     let resume = input.session?.ref;
     const ranIn = resume ? this.folders.get(resume) : undefined;
     if (ranIn !== undefined && !sameFolder(ranIn, input.cwd)) return { text: '', stop: 'error', error: ERR.folder('Claude Code') };
@@ -215,7 +221,7 @@ export class ClaudeEngine implements Engine {
       const content = await this.content(traceRefused ? { ...input, input: [traceInput(input.trace!.calls), ...input.input] } : input);
       const env = asAgent({ ...this.status.envFor(input.account), ...LEAN_ENV, ...(agentTurn ? AGENT_ENV : {}), ...target?.env }, agentTurn ? input.agentId : undefined); // B-085: its wf writes as the agent; AGENT_ENV: a one-hour cache for an agent's session
       const fresh = !resume && agentTurn ? { ref: sessionId, generation } : undefined; // B-080: announced at the CLI's system/init
-      if (fresh) rememberManaged(this, input.account.id, fresh.ref);
+      if (fresh || resume) this.trust.opened(input.account, fresh?.ref ?? resume!); // pending until the turn's end seals it
       ran = await this.turns.attempt(exe.command, args, env, input, content, fresh, secure);
     } finally {
       for (const file of temp) await this.files.rm(file).catch(() => {});
@@ -230,7 +236,7 @@ export class ClaudeEngine implements Engine {
       text: parser.answer(), stop: 'done', usage: s.usage, contextTokens: s.contextTokens,
       contextWindow: parser.contextWindow(cliModel(ran.model)), session: { ref: await this.rebuilds.nextRef(resume, grownFrom, s.sessionId ?? sessionId, s.done && !s.isError && !broken), generation },
     };
-    if (ran.started && (agentTurn || resume) && result.session) rememberManaged(this, input.account.id, result.session.ref);
+    if (ran.started && (agentTurn || resume) && result.session) void this.trust.sealed(input.account, result.session.ref, s.version);
     if (input.outputSchema && s.structured !== undefined) result.structured = s.structured;
     if (traceRefused) result.traceAsText = traceRefused;
     if (s.compacted) result.compacted = true; // B-049 F6: the next turn sends every volatile section again
@@ -309,7 +315,7 @@ export class ClaudeEngine implements Engine {
   /** The ledger's history as a fresh transcript for the probed tier; the next turn resumes it (rebuilder.ts). */
   async rebuild(input: EngineRebuildInput): Promise<EngineRebuildResult> {
     const result = await this.rebuilds.rebuild(input);
-    rememberManaged(this, input.account.id, result.ref);
+    void this.trust.sealed(input.account, result.ref, await this.rebuilds.cliVersion());
     return result;
   }
 
@@ -321,16 +327,19 @@ export class ClaudeEngine implements Engine {
 
   /** B-057 (fork.ts): reserves a forked session of the parent; its first turn resumes the parent with --fork-session. */
   async fork(input: EngineForkInput): Promise<EngineForkResult> {
-    if (!canContinueManaged(this, input.account.id, input.parentRef)) throw new Error(LEGACY_SESSION);
+    if (!(await this.trust.trusted(input.account, input.parentRef))) throw new Error(LEGACY_SESSION);
     const result = await this.forks.fork(input, this.folders.get(input.parentRef));
-    rememberManaged(this, input.account.id, result.ref);
+    this.trust.opened(input.account, result.ref); // no transcript before its first turn: pending (a restart renews it, as the pending fork)
     return result;
   }
+
+  /** 0.3.19 (managed-session.ts): whether `ref` may resume natively. */
+  managedResume(account: Account, ref: string): Promise<boolean> { return this.trust.trusted(account, ref); }
 
   /** A superseded session the app created – our transcript (path ref) or the CLI's transcript of its id (id ref). */
   deleteSession(account: Account, ref: string): Promise<'deleted' | 'missing'> {
     this.folders.delete(ref);
-    forgetManaged(this, account.id, ref);
+    this.trust.forget(account, ref);
     this.forks.drop(ref); // B-057: a split's fork that never ran
     return this.rebuilds.delete(account, ref);
   }
@@ -389,6 +398,6 @@ export class ClaudeEngine implements Engine {
 
   async dispose(): Promise<void> {
     this.kept.closeAll();
-    await this.turns.dispose();
+    await Promise.all([this.turns.dispose(), this.trust.settled()]);
   }
 }

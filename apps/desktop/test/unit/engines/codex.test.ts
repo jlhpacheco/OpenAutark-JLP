@@ -10,19 +10,20 @@ import { CodexEngine, threadGone } from '../../../src/runtime/engines/codex/engi
 import { RpcError } from '../../../src/runtime/engines/codex/rpc.ts';
 import type { EngineEvent } from '../../../src/runtime/engines/types.ts';
 import { fakeSpawn, fakeFinder, testSupervisor, turnInput, account, tick, type FakeChild } from './fakes.ts';
+import { VERIFIED_CODEX_AGENT, codexHome, managedStore } from './managed-fixture.ts';
 
 /** B-049 F7: a session also names the native turn id; these tests check the thread and its generation. */
 const bare = (session: { ref: string; generation: number } | undefined) => session && { ref: session.ref, generation: session.generation };
 
 /** A scripted app-server. `onTurn` drives what happens after turn/start. */
-function appServer(options: { onTurn?: (child: FakeChild, msg: any, state: any) => void; turnStatus?: string } = {}) {
+function appServer(options: { onTurn?: (child: FakeChild, msg: any, state: any) => void; turnStatus?: string; userAgent?: string } = {}) {
   const state: any = { requests: [] as any[], replies: new Map<number, any>(), threads: 0 };
   const { spawn, calls } = fakeSpawn(({ child }) => {
     child.onLine = (msg) => {
       if (msg.method) state.requests.push(msg);
       if (msg.id !== undefined && !msg.method) { state.replies.set(msg.id, msg); state.onReply?.(msg); return; }
       switch (msg.method) {
-        case 'initialize': child.send({ id: msg.id, result: { userAgent: 'fake' } }); break;
+        case 'initialize': child.send({ id: msg.id, result: { userAgent: options.userAgent ?? 'fake' } }); break;
         case 'thread/start': child.send({ id: msg.id, result: { thread: { id: `thr_${++state.threads}` } } }); break;
         case 'thread/resume':
           if (state.refuseResume) child.send({ id: msg.id, error: { code: -32600, message: 'thread not found' } });
@@ -178,8 +179,11 @@ const complete = (child: FakeChild, msg: any) => child.send({ method: 'turn/comp
 const turnStarts = (fake: { state: any }) => fake.state.requests.filter((r: any) => r.method === 'turn/start');
 
 test('codex: every turn – new, reused or resumed thread – gets the current live context in front of its input, never in the instructions', async () => {
-  const fake = appServer({ onTurn: complete });
-  const e = engine(fake.spawn);
+  // 0.3.19: the restart below resumes on the thread's persistent mark – a verified Codex, its rollout as the last turn left it.
+  const home = codexHome(['thr_1']);
+  const { store } = managedStore();
+  const fake = appServer({ onTurn: complete, userAgent: VERIFIED_CODEX_AGENT });
+  const e = engine(fake.spawn, { managed: store, env: { CODEX_HOME: home.dir } });
   const first = await e.run(turnInput({ system: { stable: 'STABLE', volatile: 'VOLATILE1' } }).input);
   assert.deepEqual(bare(first.session), { ref: 'thr_1', generation: 1 }); // B-049 F7 adds the native turn id
   assert.equal(fake.state.requests.find((r: any) => r.method === 'thread/start').params.developerInstructions, undefined);
@@ -202,14 +206,15 @@ test('codex: every turn – new, reused or resumed thread – gets the current l
   await e.dispose();
 
   // After a restart the thread is resumed (not started), and the block still travels with the turn.
-  const fake2 = appServer({ onTurn: complete });
-  const e2 = engine(fake2.spawn);
+  const fake2 = appServer({ onTurn: complete, userAgent: VERIFIED_CODEX_AGENT });
+  const e2 = engine(fake2.spawn, { managed: store, env: { CODEX_HOME: home.dir } });
   const resumed = await e2.run(turnInput({ session: { ref: 'thr_1', generation: 3 }, system: { stable: 'STABLE', volatile: 'VOLATILE3' } }).input);
   assert.deepEqual(bare(resumed.session), { ref: 'thr_1', generation: 3 }); // B-049 F7 adds the native turn id
   assert.ok(fake2.state.requests.some((r: any) => r.method === 'thread/resume' && r.params.threadId === 'thr_1'));
   assert.ok(!fake2.state.requests.some((r: any) => r.method === 'thread/start' || r.method === 'thread/inject_items'));
   assert.match(turnStarts(fake2)[0].params.input[0].text, /^<live>\nVOLATILE3\n<\/live>$/);
   await e2.dispose();
+  home.cleanup();
 });
 
 test('codex: reports the model context window; a full context or a refused resume ends the session (details.rebase)', async () => {

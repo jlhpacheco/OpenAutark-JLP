@@ -50,11 +50,12 @@ function world() {
   return { ...h, ledger, fold, items, lastFold: () => `run_fold_${runs}`, cleanup: stop };
 }
 
-/** A turn of work as the engine reports it: a shell call with its output, a finished task (journaled like the registry does), a size. */
+/** A turn of work as the engine reports it: a native read with its output, a finished task (journaled like the registry does), a size. */
 function working(h: ReturnType<typeof world>, tokens: number, finish = true): (input: EngineTurnInput) => Partial<EngineTurnResult> {
   return (input) => {
-    input.onEvent({ type: 'tool_start', callId: 'sh1', name: 'Bash', args: { command: 'npm run export' }, own: true });
-    input.onEvent({ type: 'tool_end', callId: 'sh1', ok: true, summary: 'exit 0', output: `export written to out/export.csv\n${'row\n'.repeat(500)}` });
+    // 0.3.19: the big native output is a Read of the export – a Claude agent turn has no native Bash any more (a Bash row is legacy, withheld).
+    input.onEvent({ type: 'tool_start', callId: 'sh1', name: 'Read', args: { file_path: 'out/export.csv' }, own: true });
+    input.onEvent({ type: 'tool_end', callId: 'sh1', ok: true, summary: 'read 501 lines', output: `export written to out/export.csv\n${'row\n'.repeat(500)}` });
     if (finish) {
       const task = h.s.tasks.create({ title: 'Customer export', assigneeKind: 'agent', assigneeId: h.agent.id, createdBy: 'human' });
       const args = { id: task.id, status: 'done', result: 'Export written: 500 rows' };
@@ -79,7 +80,7 @@ test('the fold from trigger to rebuilt session: a finished task at 150,000 token
     assert.equal(worked.fold, 'step', 'a task was finished in it and the engine counts 150,000 ≥ FOLD_STEP');
     assert.deepEqual(boundaryOf(h.s, h.agent.id, MAIN_THREAD), { at: false, on: { engine: 'claude', modelId: 'claude:opus', accountId: 'acc_claude' } }, 'a warm session: no boundary yet');
     const before = h.items();
-    assert.deepEqual(before.map((item) => [item.kind, item.state]), [['message', 'keep'], ['tool', 'keep'], ['tool', 'keep'], ['assistant', 'keep']], 'the line, the shell call, the tasks.update call that finished it, my closing words');
+    assert.deepEqual(before.map((item) => [item.kind, item.state]), [['message', 'keep'], ['tool', 'keep'], ['tool', 'keep'], ['assistant', 'keep']], 'the line, the read, the tasks.update call that finished it, my closing words');
     const open = h.s.tasks.create({ title: 'Read the export back', assigneeKind: 'agent', assigneeId: h.agent.id, createdBy: 'human' });
     const posted = h.chats.messages(h.chat.id, { limit: 50 }).length;
     h.db.run('INSERT INTO kv (ns, key, value, updated_at) VALUES (?, ?, ?, 0)', ['repair_notes', `${h.agent.id}:${MAIN_THREAD}`, JSON.stringify(['A block of mine was not posted.'])]);
@@ -111,7 +112,7 @@ test('the fold from trigger to rebuilt session: a finished task at 150,000 token
     assert.ok(handOver.startsWith(`${HAND_OVER}\n\n${FOLD_QUESTS}\n`), handOver);
     assert.match(handOver, new RegExp(`\n- ${open.id} · open since [^\n]+ · Read the export back$`), 'an open ask stands in the hand-over as data, whatever I wrote');
     const state = (kind: string, title: RegExp) => after.find((item) => item.kind === kind && title.test(item.title))!;
-    assert.deepEqual([state('tool', /^Bash/).state, state('tool', /^Bash/).markedBy], ['hidden', 'fold'], 'the shell call and its output: hidden by the fold');
+    assert.deepEqual([state('tool', /^Read/).state, state('tool', /^Read/).markedBy], ['hidden', 'fold'], 'the read and its output: hidden by the fold');
     assert.equal(state('assistant', /export is written/).state, 'keep', 'the words I posted in the chat stay in view, under the chat lines\' reach');
     assert.equal(state('tool', /^tasks\.update/).state, 'keep', 'the tasks.update call that finished the task stays: its arguments are the result');
     assert.equal(after.find((item) => item.kind === 'message')!.state, 'keep', 'chat lines follow their own reach rule');
@@ -120,7 +121,7 @@ test('the fold from trigger to rebuilt session: a finished task at 150,000 token
     assert.ok(h.binding('claude')!.foldedAt !== undefined, 'the session is marked folded');
     assert.deepEqual(boundaryOf(h.s, h.agent.id, MAIN_THREAD), { at: true, why: 'fold', on: { engine: 'claude', modelId: 'claude:opus', accountId: 'acc_claude' } }, 'a boundary: the session starts anew anyway');
     // every hidden item comes back like any hidden item
-    assert.match(h.ledger.original(h.agent.id, MAIN_THREAD, state('tool', /^Bash/).itemId)!.text, /export written to out\/export\.csv/);
+    assert.match(h.ledger.original(h.agent.id, MAIN_THREAD, state('tool', /^Read/).itemId)!.text, /export written to out\/export\.csv/);
 
     // 3. the next turn: the session starts anew from the folded record
     h.claude.state.reply = () => ({ contextTokens: 30_000 });

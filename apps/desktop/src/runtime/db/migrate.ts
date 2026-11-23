@@ -33,12 +33,13 @@ import { sql as sessionCostTotal } from './migrations/108-session-cost-total.ts'
 import { sql as sessionFold } from './migrations/109-session-fold.ts';
 import { run as quests } from './migrations/110-quests.ts';
 import { sql as agentsMove } from './migrations/113-agents-move.ts';
+import { sql as managedPaths } from './migrations/114-managed-paths.ts';
 
 /**
  * Versions are applied in list order: keep the list in ascending version order and never edit a
  * shipped entry. Only the highest applied version is recorded (`meta.schema`), and a listed version
  * at or below a profile's recorded one is never applied there – so a new migration always takes a
- * number above the highest one used so far (113 now; 111 and 112 stay reserved).
+ * number above the highest one used so far (114 now; 111 and 112 stay reserved).
  */
 interface Migration {
   version: number;
@@ -94,6 +95,7 @@ const MIGRATIONS: Migration[] = [
   { version: 109, name: 'session-fold', sql: sessionFold }, // KI-Runde 17.11.2026 (package S1): engine_sessions.folded_at / compacted_at, the ledger's sizes at two characters per token
   { version: 110, name: 'quests', run: quests, foreignKeysOff: true }, // Quests 20.11.2026: tasks kind quest|todo, one at/minutes, to-do blocks/briefings/estimates/routines/timers folded in
   { version: 113, name: 'agents-move', sql: agentsMove }, // Umzug 21.11.2026: agents.homes, context_items.pc/changed (the record travels between PCs)
+  { version: 114, name: 'managed-paths', sql: managedPaths }, // 0.3.19 masked engine shell: managed_paths (where Autark left a native session, this PC only), catalog_epoch
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

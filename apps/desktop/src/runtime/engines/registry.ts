@@ -26,6 +26,7 @@ import type { FetchFn } from './http/common.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import { engineCwd, homeRoots } from '../system/paths.ts';
 import { agentEnv } from './wf-shim.ts';
+import type { ManagedPathStore } from './managed-path.ts';
 
 export type EngineFactories = Partial<Record<EngineId, () => Engine>>;
 
@@ -75,17 +76,20 @@ export function createEngineRegistry(deps: {
   acp?: AcpResolver;
   /** Sicher-Runde 19.11.2026: the security service – in Secure mode native tools go through its gate. */
   security?: SecurityLookup;
+  /** 0.3.19: the managed-shell marks of native sessions (managed-path.ts) – Claude Code and Codex resume a session after a restart only on a matching mark. */
+  managed?: ManagedPathStore;
 }): EngineRegistry {
   const http = { apiKey: deps.apiKey, fetch: deps.fetch };
   const processCwd = engineCwd(deps.paths);
   let shared: NodeJS.ProcessEnv | undefined;
   const env = () => (shared ??= agentEnv(deps.paths.data));
   const factories: EngineFactories = {
-    codex: () => new CodexEngine({ supervisor: deps.supervisor, finder: deps.finder, cwd: processCwd, version: deps.version, onLimits: deps.onLimits, log: deps.warn, env: env(), security: deps.security }),
+    codex: () => new CodexEngine({ supervisor: deps.supervisor, finder: deps.finder, cwd: processCwd, version: deps.version, onLimits: deps.onLimits, log: deps.warn, env: env(), security: deps.security, managed: deps.managed }),
     // B-048 E2: rebuilt transcripts live in the app's data folder; only the app's own homes may take the 'project' tier.
     claude: () => new ClaudeEngine({
       supervisor: deps.supervisor, finder: deps.finder, tempDir: deps.paths.temp, env: env(),
       transcriptsDir: claudeTranscriptsDir(deps.paths.data), accountsRoots: homeRoots(deps.paths), security: deps.security, // the plans' homes (Paths.accounts) and <data>/accounts
+      managed: deps.managed,
     }),
     openai: () => new OpenAiEngine(http),
     anthropic: () => new AnthropicEngine(http),

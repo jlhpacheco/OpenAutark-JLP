@@ -91,13 +91,18 @@ export class CodeCalls {
   private latest: string | undefined;
   private readonly emit: (event: EngineEvent) => void;
   private readonly ours: (wire: string) => boolean;
+  private readonly managed: boolean;
   /** The helper Codex could not start in this turn, once a script said so. */
   hostMissing: string | undefined;
 
-  /** `ours`: a wire name is one of the turn's dynamic tools (then a `wait` call is ours, reported by item/tool/call). */
-  constructor(emit: (event: EngineEvent) => void, ours: (wire: string) => boolean) {
+  /**
+   * `ours`: a wire name is one of the turn's dynamic tools (then a `wait` call is ours, reported by item/tool/call). 0.3.19:
+   * `managed` – the turn runs on an agent thread without Codex's native shell (helper-thread.ts agentThread), so its script calls carry the row mark.
+   */
+  constructor(emit: (event: EngineEvent) => void, ours: (wire: string) => boolean, managed = false) {
     this.emit = emit;
     this.ours = ours;
+    this.managed = managed;
   }
 
   /** One raw Responses item of this turn (rawResponseItem/completed of the running turn only). */
@@ -137,7 +142,7 @@ export class CodeCalls {
     if (this.open.has(callId)) return;
     this.open.set(callId, { parts: [] });
     this.latest = callId;
-    this.emit({ type: 'tool_start', callId, name, args, own: true });
+    this.emit({ type: 'tool_start', callId, name, args, own: true, ...(this.managed ? { managed: true as const } : {}) });
   }
 
   private end(callId: string): void {

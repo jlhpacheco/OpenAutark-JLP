@@ -19,7 +19,8 @@
 //   3. The fold turn (planFold; turn-prepare.ts buildTurn) resumes the same session on the same account and model at an
 //      effort of at least high (the last turn's where another effort would write the cache anew), with the system text and tools the session started with, no live block, and one note as its
 //      whole input (FOLD_NOTE). The router is not asked; its run counts as a request's, so its raised effort is nobody's to
-//      return to. A session that is not there to resume (it ended, the route moved to another account) fails the turn.
+//      return to. A session that is not there to resume (it ended, the route moved to another account) fails the turn; 0.3.19: one
+//      the managed shell cannot vouch for when the fold runs (foldNow) drops the fold before its run starts.
 //   4. Its closing text is the hand-over (endFold) – Quests round 20.11.2026: with my "## My quests" lines as they stand under
 //      it (FOLD_QUESTS), so a fold never drops an ask –, in one transaction: journaled as the run's 'Hand-over' note(s) – the ledger
 //      records them as checkpoint items –, the ledger pins it and hides everything of the agent's own work before it by 'fold'
@@ -49,6 +50,7 @@ import { FOLD_MIN_CHARS, foldWhy, type FoldWhy } from './compaction-policy.ts';
 import { journalAnswer, splitAnswer } from './publishing.ts';
 import { SessionStore } from './sessions.ts';
 import { rebuildBlocked } from './rebuild.ts';
+import { resumable } from '../engines/managed-session.ts';
 import type { AttemptResult, RoutedTurn, TurnPlan, TurnRequest } from './turn-types.ts';
 import { myQuestsSection } from '../context/quest-text.ts';
 import { profileZone } from '../context/time.ts';
@@ -251,6 +253,23 @@ export function planFold(services: RuntimeServices, request: TurnRequest, resolv
     ...(last?.route?.standIn ? { standIn: true as const } : {}),
   };
   return { agent, mode: resolveMode(services, [session.mode, agent.mode]), thread: MAIN_THREAD, memberCursor: 0, needsVision: false, fold: { why: request.fold, route } };
+}
+
+/**
+ * 0.3.19 (managed shell): the fold's session is checked when the fold runs, not when it was planned. One whose native transcript
+ * Autark cannot vouch for (engines/managed-session.ts: not opened by this process, its mark missing, pending or not matching) is
+ * not folded – the plan is dropped with a log line, no run starts, and the next turn starts that session anew from the
+ * filtered ledger (session-choice.ts), so nothing is lost and no fold fails with "not there to resume".
+ */
+export async function foldNow(services: RuntimeServices, plan: TurnPlan | undefined): Promise<TurnPlan | undefined> {
+  const route = plan?.fold?.route;
+  const session = plan && route ? new SessionStore(services.db).newest(plan.agent.id, MAIN_THREAD) : undefined;
+  if (!plan || !route || !session || session.engine !== route.engine) return plan;
+  let engine: Engine;
+  try { engine = services.engines.get(route.engine); } catch { return plan; }
+  if (await resumable(engine, services.accounts.get(route.accountId), session.ref)) return plan;
+  services.log?.info('context fold dropped: its native session is not resumable under the managed shell', { agentId: plan.agent.id, engine: route.engine });
+  return undefined;
 }
 
 /** The next turn's note on a session whose fold turn was cut or failed after it read the fold note (turn-finish.ts). */

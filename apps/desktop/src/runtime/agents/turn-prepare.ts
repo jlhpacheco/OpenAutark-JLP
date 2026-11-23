@@ -70,7 +70,7 @@ import { fitLimit } from './compaction-policy.ts';
 import { engineUnit } from '../../shared/model/context-ledger.ts';
 import { historyText } from './history-text.ts';
 import { chooseSession, type SeedContext } from './session-choice.ts';
-import { foldNote, planFold } from './context-fold.ts'; // KI-Runde 17.11.2026: the fold's own turn
+import { foldNote, foldNow, planFold } from './context-fold.ts'; // KI-Runde 17.11.2026: the fold's own turn
 import { callRunning } from '../calls/call-log.ts'; // KI-Runde 17.11.2026: a call turn only while that call runs
 import { carriedCalls, marksCall, marksOf } from '../context/ledger/marks.ts';
 import type { RoutedTurn, TurnPlan, TurnRequest } from './turn-types.ts';
@@ -110,7 +110,7 @@ export function resolveMode(services: RuntimeServices, keys: Array<string | unde
 /** Loads agent, task, chat and mode; the subconscious's trace; then asks whether the turn stands at a boundary and reads the request in force – model.set's, my task's or my subconscious's for this turn (B-080: turn.ts takes what the turn used up). */
 export async function planTurn(services: RuntimeServices, request: TurnRequest): Promise<TurnPlan | undefined> {
   if (request.split) return planSplit(services, request, resolveMode); // B-057: a split's own plan (agents/split-turn.ts)
-  if (request.fold) return planFold(services, request, resolveMode); // KI-Runde 17.11.2026: a context fold's own plan (agents/context-fold.ts)
+  if (request.fold) return foldNow(services, planFold(services, request, resolveMode)); // KI-Runde 17.11.2026: a context fold's own plan (agents/context-fold.ts); 0.3.19: its session checked now
   const agent = services.org.get(request.agentId);
   if (!agent || agent.archivedAt || agent.status === 'paused') return undefined;
   let task = request.taskId ? services.tasks.get(request.taskId) : undefined;

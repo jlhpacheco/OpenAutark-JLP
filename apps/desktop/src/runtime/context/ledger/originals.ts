@@ -39,6 +39,11 @@ export function journalRow(db: Db, id: string): JournalRow | undefined {
   return { ...row, seq: Number(row.seq), data };
 }
 
+/** 0.3.19: the managed-shell row mark – only when the call and its result were both written with it (turn-attempt.ts). */
+export function managedRows(result: Pick<JournalRow, 'data'> | undefined, call: Pick<JournalRow, 'data'> | undefined): { managed?: true } {
+  return result?.data.managed === true && call?.data.managed === true ? { managed: true } : {};
+}
+
 /** The tool_call row of a result (same run and call id; the newest one). */
 export function callRow(db: Db, runId: string, callId: string): JournalRow | undefined {
   if (!callId) return undefined;
@@ -123,8 +128,9 @@ export function withheldTool(deps: Pick<OriginalDeps, 'db'>, row: LedgerRow): { 
   const item = row.ref?.startsWith('item:') ? journalRow(deps.db, row.ref.slice(5)) : undefined;
   const result = item?.kind === 'tool_result' && item.run_id === row.run_id ? item : undefined;
   // The persisted result's name is authoritative when present (the capture uses the same order).
-  const name = result?.name || (result && typeof result.data.callId === 'string' ? callRow(deps.db, result.run_id, result.data.callId)?.name : undefined);
-  if (name && legacyNativeShell({ name }, row.origin_engine ?? undefined)) return { text: legacyShellOmission(1), name, reason: 'blocked' };
+  const call = result && typeof result.data.callId === 'string' ? callRow(deps.db, result.run_id, result.data.callId) : undefined;
+  const name = result?.name || call?.name;
+  if (name && legacyNativeShell({ name, ...managedRows(result, call) }, row.origin_engine ?? undefined)) return { text: legacyShellOmission(1), name, reason: 'blocked' };
   if (!name && row.kind === 'tool') return { text: '[Earlier tool call omitted: its origin could not be verified.]', reason: 'unverified' };
   return undefined;
 }

@@ -12,7 +12,7 @@ import { pastFit } from './compaction-policy.ts';
 import { nativeRebuild, rebuildFellBack, type NativeRebuildInput } from './rebuild.ts';
 import type { TurnPlan, TurnRequest } from './turn-types.ts';
 import type { ToolOffer } from './session-key.ts';
-import { canContinueManaged, LEGACY_SESSION } from '../engines/managed-session.ts';
+import { LEGACY_SESSION, resumable } from '../engines/managed-session.ts';
 import { seedSplit } from './split-turn.ts'; // B-057
 
 /**
@@ -58,8 +58,8 @@ export async function chooseSession(services: RuntimeServices, plan: TurnPlan, r
   // A native session lives in one account home (CODEX_HOME / CLAUDE_CONFIG_DIR): no cross-account resume.
   if (session && session.accountId && session.accountId !== accountId) session = undefined;
   const contextWindow = (session && session.model === route.modelId ? session.contextWindow : undefined) ?? store.reportedWindow(engine.id, route.modelId) ?? catalogWindow;
-  if (session && !canContinueManaged(engine, accountId, session.ref)) {
-    // Do not pass this ref to fit/revert. A new session uses the filtered ledger or its text fallback.
+  if (session && !(await resumable(engine, native?.account ?? services.accounts.get(accountId), session.ref))) {
+    // 0.3.19: neither opened by this process nor matching its mark (engines/managed-session.ts) – no fit/revert on this ref; a new session takes the filtered ledger or its text fallback.
     session = undefined;
     services.runs.item(request.runId, { kind: 'note', data: { sessionRenewed: 'managed-shell', reason: LEGACY_SESSION }, effectStatus: 'none' });
   }

@@ -64,7 +64,7 @@ export function rebuildItems(view: readonly LedgerViewItem[]): { items: RebuildI
     const calls = inside.get(index);
     items.push({
       itemId: entry.itemId, kind, role: entry.role, text: entry.text,
-      ...(entry.call ? { call: { name: entry.call.name, args: entry.call.args, callId: entry.call.callId, output: entry.call.output, ...(entry.call.own ? { own: true } : {}), ...(entry.call.ok === false ? { ok: false } : {}) } } : {}),
+      ...(entry.call ? { call: { name: entry.call.name, args: entry.call.args, callId: entry.call.callId, output: entry.call.output, ...(entry.call.own ? { own: true } : {}), ...(entry.call.ok === false ? { ok: false } : {}), ...(entry.call.managed ? { managed: true as const } : {}) } } : {}),
       origin,
       ...(calls ? { calls: callsLine(calls) } : {}),
     });

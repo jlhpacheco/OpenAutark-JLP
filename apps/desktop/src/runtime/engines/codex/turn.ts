@@ -201,7 +201,7 @@ export async function runCodexTurn(args: {
   let quiet: ReturnType<typeof setTimeout> | undefined; // a helper turn's cut, until the model's first sign
   let silent = false; // the cut ended the turn
   const early: RpcNote[] = []; // notifications that arrive before turn/start answers
-  const code = new CodeCalls(emit, (wire) => names.ours(wire) !== undefined); // B-049 F9: exec/wait calls and nested marking
+  const code = new CodeCalls(emit, (wire) => names.ours(wire) !== undefined, !args.helper); // B-049 F9: exec/wait calls and nested marking; 0.3.19: an agent thread's carry the row mark
 
   let finish!: (status: string, error: unknown) => void;
   const completed = new Promise<{ status: string; error: unknown }>((resolve) => { finish = (status, error) => resolve({ status, error }); });

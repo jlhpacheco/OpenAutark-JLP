@@ -108,7 +108,8 @@ export interface LedgerViewItem {
   /** The restore stamp of a condensed item (also appended to `text`). */
   stamp?: string;
   /** Tool, skill and file items: the call with its (or the condensed) output. `args`: the journal's preview, parsed when it is JSON. */
-  call?: { name: string; args: unknown; callId: string; output: string; own?: boolean; ok?: boolean };
+  /** managed (0.3.19): its journal rows carry the managed-shell row mark (a Codex script call on a thread without native shell). */
+  call?: { name: string; args: unknown; callId: string; output: string; own?: boolean; ok?: boolean; managed?: true };
   origin: LedgerOrigin;
   /** Additions to the contract shape: the item's order and its run. */
   order: number;

@@ -1,6 +1,10 @@
 // Adaptive shell deadlines, cancellation races and process-tree termination; B-080 wave 3: what the command printed
 // since the last review (newOutputChars) and UTF-8 decoded across reads. The subconscious's choice itself:
 // test/unit/subconscious/tool-timeout.test.ts.
+// 0.3.19 (the masked engine shell, tools/builtin/shell-output.ts): output that may end mid-value never leaves the process –
+// a review sees the counts only (newOutputChars, secondsSinceLastLook), never the output or the command, and a command that
+// timed out, was aborted or overflowed returns "[command output withheld]" instead of its partial output. The three tests
+// below that asserted the masked partial output assert that now; the masking of complete output: shell-output.test.ts.
 // Owns: these assertions only. Never: runs an install or contacts a model.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -56,7 +60,7 @@ test('B-080: the call\'s own limit comes first, in each form the engines send it
   assert.equal(initialTimeoutSeconds('Bash', { command: 'npm install', timeout: 0 }), 300, 'no usable own limit: the estimate by kind');
 });
 
-test('wait twice then abort: one process, chosen deadlines, partial output and decisions reach main AI', async (t) => {
+test('wait twice then abort: one process, chosen deadlines and decisions reach main AI; the partial output is withheld (0.3.19)', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const seen: unknown[] = [];
   const replies: ToolTimeoutDecision[] = [{ action: 'wait', seconds: 2, reason: 'Still working' }, { action: 'wait', seconds: 3, reason: 'Almost done' }, { action: 'abort', reason: 'No progress' }];
@@ -74,23 +78,28 @@ test('wait twice then abort: one process, chosen deadlines, partial output and d
   assert.equal(f.spawned(), 1);
   assert.equal(f.commandSignal()?.aborted, true);
   assert.equal(result.isError, true);
-  assert.match(text, /wait another 2 seconds[\s\S]*wait another 3 seconds[\s\S]*abort the running call[\s\S]*exit timeout[\s\S]*partial secret:\/\/s1/);
+  assert.match(text, /wait another 2 seconds[\s\S]*wait another 3 seconds[\s\S]*abort the running call[\s\S]*exit timeout\n\[command output withheld\]$/);
+  assert.equal(text.includes('partial'), false, 'a stopped command may have stopped mid-value: nothing of it');
   assert.equal(JSON.stringify(seen).includes('sensitive-value'), false);
+  assert.equal(JSON.stringify(seen).includes('partial'), false);
   assert.equal(f.notes.length, 3);
 });
 
-test('reviews see recent output after the result output cap has filled', async (t) => {
+test('0.3.19: a review sees how much was printed, never the output (it may end mid-value) nor the command', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  let output = '';
-  const f = fixture(async (input) => { output = input.output; return { action: 'abort', reason: 'Done checking' }; });
+  let output = 'unset';
+  let printed: number | undefined;
+  let args: unknown;
+  const f = fixture(async (input) => { output = input.output; printed = input.newOutputChars; args = input.args; return { action: 'abort', reason: 'Done checking' }; });
   const pending = runCommand(f.shell, f.ctx, { command: 'slow', cwd: '.', timeoutSeconds: 1 });
   await flush();
   f.stdout.emit('data', 'old '.repeat(40_000));
   f.stdout.emit('data', 'new progress sensitive-value');
   t.mock.timers.tick(1000); await flush();
   await pending;
-  assert.match(output, /new progress secret:\/\/s1$/);
-  assert.equal(output.includes('sensitive-value'), false);
+  assert.equal(output, '');
+  assert.equal(printed, 'old '.length * 40_000 + 'new progress sensitive-value'.length, 'the count goes on past the result cap');
+  assert.equal(JSON.stringify(args).includes('slow'), false);
 });
 
 test('a command finishing while review waits cancels review and ignores its late abort', async (t) => {
@@ -147,7 +156,7 @@ test('B-080 wave 3: each review gets newOutputChars since the review before – 
   const result = await pending;
   assert.deepEqual(seen.map((input) => input.newOutputChars), [3, 20, 0], 'since the start, then since each look');
   assert.ok(seen.every((input) => !input.output.includes('sensitive-value')), 'the review sees the handle, not the value');
-  assert.match(seen[1].output, /path secret:\/\/s1$/);
+  assert.ok(seen.every((input) => input.output === ''), '0.3.19: the counts only, never output that may end mid-value');
   assert.equal(f.commandSignal()?.aborted, true, 'a sure abort kills the command');
   assert.equal(result.isError, true);
 });

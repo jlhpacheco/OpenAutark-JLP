@@ -44,7 +44,8 @@ export interface RebuildItem {
   role: 'user' | 'assistant' | 'tool';
   text: string;
   stamp?: string;
-  call?: { name: string; args: unknown; callId: string; output: string; own?: boolean; ok?: boolean };
+  /** managed (0.3.19): the call ran through Autark's masked shell path (a Codex script call on a thread without native shell) – set per journal row where it was written, never derived from a session's mark. */
+  call?: { name: string; args: unknown; callId: string; output: string; own?: boolean; ok?: boolean; managed?: true };
   origin?: { engine?: string; model?: string; accountId?: string };
   reasoning?: { signature?: string; encrypted?: string };
   nested?: boolean;
@@ -121,7 +122,7 @@ export type EngineEvent =
   // own = engine-native tool; `title` = the engine's own human line for the call (ACP), when it has one;
   // `nested` (B-049 F9): a call a code-mode script runs inside one engine call (Codex `exec`) – the model sees only the
   // script and what it printed, not this call's output; `parent`: that script call's id when known
-  | { type: 'tool_start'; callId: string; name: string; args: unknown; own: boolean; title?: string; nested?: boolean; parent?: string }
+  | { type: 'tool_start'; callId: string; name: string; args: unknown; own: boolean; title?: string; nested?: boolean; parent?: string; managed?: true }
   // `output`: an engine-native tool's full output text, bounded (Codex command output and file diffs, Claude
   // tool_result content) for the run journal.
   | { type: 'tool_end'; callId: string; ok: boolean; summary: string; output?: string }
@@ -272,6 +273,12 @@ export interface Engine {
    * B-048 E2: Claude Code deletes the transcript the app wrote and the CLI's own transcript of that session id.
    */
   deleteSession?(account: Account, ref: string): Promise<'deleted' | 'missing'>;
+  /**
+   * 0.3.19 (managed shell, engines/managed-session.ts): whether `ref` may resume natively – this process opened or wrote it, or
+   * its mark (managed_paths) still matches the native transcript exactly under a verified masker and CLI version. False: the
+   * caller starts the session anew from the filtered history. Absent: every ref may resume (engines without a native shell).
+   */
+  managedResume?(account: Account, ref: string): Promise<boolean>;
   /** caps.rebuild: starts a new native session holding `items` as its history; throws when it cannot (the executor falls back). */
   rebuild?(input: EngineRebuildInput): Promise<EngineRebuildResult>;
   /** The CLI version the rebuild probe is kept for (undefined: unknown – the probe runs every process). */

@@ -9,12 +9,13 @@
 // has no timer – it waits until the turn's signal; a connection that closes meanwhile is our own process (details.local).
 // The emergency stop ends every loaded thread's background commands; a thread nobody resumes leaves with its own (terminals.ts).
 // warm()/prewarm() keep a helper call from paying the server start; realtime() lends the server to a dictation.
-// Owns: the server pool per account (one setup at a time), thread open/resume/fork, steer and model change, model list,
-// account check and limits (reads.ts, limits-read.ts), the reset redemption. Never: reads token files, migrates a running turn
-// between accounts, keeps session state a restart would lose, writes helper turns into the account's Codex history, or
-// decides approvals.
+// Owns: the server pool per account (one setup at a time), thread open/resume/fork, steer and model change, model list, account
+// check and limits (reads.ts, limits-read.ts), the reset redemption, which threads resume natively (0.3.19 ManagedSessions: an own
+// turn, fork, revert or rebuild marks a thread; rollout.ts finds its file). Never: reads token files, migrates a running turn between
+// accounts, keeps session state a restart would lose, writes helper turns into the account's Codex history, or decides approvals.
 
-import { canContinueManaged, rememberManaged, forgetManaged, LEGACY_SESSION } from '../managed-session.ts';
+import { ManagedSessions, LEGACY_SESSION, type ManagedPathStore } from '../managed-session.ts'; // 0.3.19: which threads resume natively (managed-path.ts marks)
+import { codexRollout } from './rollout.ts';
 import { promises as fsp } from 'node:fs';
 import type { Account, AccountLimits, Effort, EngineId } from '../../../shared/model/providers.ts';
 import type { AccountCheck, Engine, EngineCaps, EngineForkInput, EngineForkResult, EngineModel, EngineRebuildInput, EngineRebuildResult, EngineTurnInput, EngineTurnResult, KeepOpenInput, RealtimeLink, RebuildProbe } from '../types.ts';
@@ -26,7 +27,7 @@ import { forkParams, forkThread } from './fork.ts'; // B-057
 import type { Supervisor } from '../../system/supervisor.ts';
 import type { ExecutableFinder } from '../../accounts/executables.ts';
 import { CodexServer, pickAgain } from './server.ts';
-import { RpcError, type RpcClient } from './rpc.ts';
+import { RPC_TIMEOUT, RpcError, threadGone, type RpcClient } from './rpc.ts';
 import { runCodexTurn, retryAfterFrom, setTurnModel, type TurnControl } from './turn.ts';
 import { dropThread } from './terminals.ts'; // L3 / C4: a thread nobody resumes leaves with its background commands
 import { threadIsolation, trustKeys, turnAccess } from './isolation.ts';
@@ -39,15 +40,7 @@ import { WorkforceError } from '../../../shared/errors.ts';
 import { consumeResetCredit } from './reset-credit.ts';
 import { listCodexModels, readCodexAccount } from './reads.ts';
 
-const RPC_TIMEOUT = -32000; // RpcClient's code for "codex did not answer" (a timeout, not a refusal)
-const RPC_NO_METHOD = -32601; // JSON-RPC "method not found"
-
-/** Wave 2: `thread/delete` refused because the thread itself is gone – not because this Codex lacks the method. */
-export function threadGone(error: RpcError): boolean {
-  if (error.rpcCode === RPC_TIMEOUT || error.rpcCode === RPC_NO_METHOD) return false;
-  if (/method not found|unknown (variant|method|request)|unsupported/i.test(error.message)) return false;
-  return /\bthread\b[^\n]{0,80}\b(not found|does not exist|unknown|missing)\b|\b(no such|unknown) thread\b|\bno rollout found\b/i.test(error.message); // B-080: Codex's own answer for a deleted thread
-}
+export { threadGone } from './rpc.ts'; // Wave 2 (it lives with RpcError's codes)
 
 /** Our tools as Codex dynamic tools (wire names, as at thread/start). */
 function dynamicTools(tools: EngineTurnInput['tools'], names: ToolNames): Array<Record<string, unknown>> {
@@ -72,6 +65,7 @@ export interface CodexEngineDeps {
   shellEnv?: Record<string, string>;
   /** Sicher-Runde 19.11.2026: services.security – Secure mode's sandbox and approval gate for agent turns (approvals.ts codexSecure). */
   security?: SecurityLookup;
+  managed?: ManagedPathStore; // 0.3.19: the persistent managed-shell marks (managed-path.ts); none: process memory only
 }
 
 export class CodexEngine implements Engine {
@@ -90,9 +84,11 @@ export class CodexEngine implements Engine {
   private readonly fresh = new Set<string>(); // rebuilt threads before their first turn
   private readonly modes = new Map<string, string>(); // thread id → the security mode its last turn ran under (Sicher-Runde)
   private readonly cut = new Set<string>(); // threads that lost their tail in a failed revert: they cannot continue
+  private readonly trust: ManagedSessions;
   constructor(deps: CodexEngineDeps) {
     this.deps = deps;
     this.now = deps.now ?? Date.now;
+    this.trust = new ManagedSessions({ engine: this, store: deps.managed, locate: (account, ref, known) => codexRollout(account.home ?? (deps.env ?? process.env).CODEX_HOME, ref, known) });
   }
 
   /** The account's server; B-057: concurrent first calls share one setup, so a cold account never gets two app-servers. */
@@ -165,7 +161,7 @@ export class CodexEngine implements Engine {
   async tell(runId: string, call: TraceCall): Promise<boolean> { const control = this.running.get(runId); return control?.turnId ? (await injectTrace(control.rpc, control.threadId, [call], `${runId}_${Date.now()}`, control.signal)) === undefined : false; }
 
   async run(input: EngineTurnInput): Promise<EngineTurnResult> {
-    if (input.session && !canContinueManaged(this, input.account.id, input.session.ref)) return { text: '', stop: 'error', error: { code: 'conflict', message: LEGACY_SESSION, details: { rebase: true } } };
+    if (input.session && !(input.keep && !input.mcp && !input.tools.length) && !(await this.trust.trusted(input.account, input.session.ref))) return { text: '', stop: 'error', error: { code: 'conflict', message: LEGACY_SESSION, details: { rebase: true } } };
     let server: CodexServer;
     let rpc;
     try {
@@ -220,7 +216,6 @@ export class CodexEngine implements Engine {
         const id = str(started?.thread?.id);
         if (!id) return { text: '', stop: 'error', error: ERR.failed('Codex did not start a session.') };
         threadId = id;
-        if (!helper || input.keep) rememberManaged(this, input.account.id, threadId);
         if (!helper || input.keep) loaded.set(threadId, input.cwd); // a kept helper thread is live in this server: the next line needs no resume
         if (!helper) { try { input.onEvent({ type: 'session', ref: threadId, generation }); } catch { /* isolate */ } } // bound at once
       }
@@ -230,6 +225,7 @@ export class CodexEngine implements Engine {
       return { text: '', stop: 'error', error: { ...ERR.unavailable('Codex could not open the session.'), ...(error instanceof RpcError ? {} : { details: { local: true } }) } }; // B-080: a closed connection is ours
     }
     if (loaded.has(threadId)) this.modes.set(threadId, mode); // a helper thread leaves after its turn
+    if (!helper) this.trust.opened(input.account, threadId); // 0.3.19: pending until the turn's end seals it (finally below)
     const control: TurnControl = { threadId, rpc, signal: input.signal };
     this.running.set(input.runId, control);
     const watcher = (limits: AccountLimits) => { try { input.onEvent({ type: 'limits', limits }); } catch { /* isolate */ } };
@@ -261,6 +257,7 @@ export class CodexEngine implements Engine {
     } finally {
       set.delete(watcher);
       this.running.delete(input.runId);
+      if (!helper) void this.trust.sealed(input.account, threadId, server.cliVersion);
       if (helper && !input.keep) void dropThread(rpc, threadId); // nobody resumes a helper thread – nothing of it keeps running (a call's voice says the next line on it)
     }
   }
@@ -277,7 +274,7 @@ export class CodexEngine implements Engine {
 
   /** A new thread with the coming turn's settings and dynamic tools, holding the ledger's history (rebuild.ts); deleted again when the injection fails. */
   async rebuild(input: EngineRebuildInput): Promise<EngineRebuildResult> {
-    if (input.revert && !canContinueManaged(this, input.account.id, input.revert.ref)) throw new Error(LEGACY_SESSION);
+    if (input.revert && !(await this.trust.trusted(input.account, input.revert.ref))) throw new Error(LEGACY_SESSION);
     const rpc = await (await this.server(input.account)).rpc();
     const items = responseItems(input.items, { offered: new Set(input.tools.map((tool) => tool.name)), accountId: input.account.id, model: input.model, custom: input.probe?.custom === true });
     if (!items.length) throw new Error('nothing to rebuild');
@@ -289,7 +286,7 @@ export class CodexEngine implements Engine {
     this.loaded.set(input.account.id, loaded);
     loaded.set(threadId, input.cwd);
     this.fresh.add(threadId);
-    rememberManaged(this, input.account.id, threadId);
+    void this.trust.sealed(input.account, threadId, this.servers.get(input.account.id)?.cliVersion);
     return { ref: threadId, generation: input.generation, items: items.length };
   }
 
@@ -307,10 +304,11 @@ export class CodexEngine implements Engine {
       await openAgentThread(rpc, 'thread/resume', { threadId: revert.ref, ...await this.settings(input) });
       loaded.set(revert.ref, input.cwd);
     }
+    this.trust.opened(input.account, revert.ref);
     try { await revertThread(rpc, revert.ref, revert.beforeTurn, items, input.probe?.verify); } catch (error) {
       if ((error as { cut?: boolean }).cut) this.cut.add(revert.ref);
       throw error;
-    }
+    } finally { void this.trust.sealed(input.account, revert.ref, this.servers.get(input.account.id)?.cliVersion); }
     return { ref: revert.ref, generation: input.generation, items: items.length };
   }
 
@@ -330,7 +328,7 @@ export class CodexEngine implements Engine {
 
   /** B-057 (fork.ts): the parent thread copied into a new one (thread/fork, lean), loaded with the split's folder – not fresh. */
   async fork(input: EngineForkInput): Promise<EngineForkResult> {
-    if (!canContinueManaged(this, input.account.id, input.parentRef)) throw new Error(LEGACY_SESSION);
+    if (!(await this.trust.trusted(input.account, input.parentRef))) throw new Error(LEGACY_SESSION);
     const rpc = await (await this.server(input.account)).rpc();
     const loaded = this.loaded.get(input.account.id) ?? new Map<string, string>();
     this.loaded.set(input.account.id, loaded);
@@ -339,7 +337,7 @@ export class CodexEngine implements Engine {
     const params = forkParams(input, await this.settings({ model: input.model, cwd, agentId: input.agentId }));
     const ref = await forkThread(params, (fork) => openAgentThread<{ thread?: { id?: string } }>(rpc, 'thread/fork', fork));
     loaded.set(ref, cwd);
-    rememberManaged(this, input.account.id, ref);
+    void this.trust.sealed(input.account, ref, this.servers.get(input.account.id)?.cliVersion);
     return { ref, generation: 1 };
   }
 
@@ -350,8 +348,10 @@ export class CodexEngine implements Engine {
    * method (-32601, "method not found", "unknown variant …"), a timeout or another refusal throws, so
    * the row ends 'failed' and stays named as a remaining copy instead of being reported deleted.
    */
+  managedResume(account: Account, ref: string): Promise<boolean> { return this.trust.trusted(account, ref); } // 0.3.19 (managed-session.ts)
+
   async deleteSession(account: Account, ref: string): Promise<'deleted' | 'missing'> {
-    forgetManaged(this, account.id, ref);
+    this.trust.forget(account, ref);
     const rpc = await (await this.server(account)).rpc();
     // C4: a deleted thread still loaded here leaves nothing running in the background (a refusal is ignored).
     if (this.loaded.get(account.id)?.has(ref)) await rpc.request('thread/backgroundTerminals/clean', { threadId: ref }, 5_000).catch(() => undefined);
@@ -436,7 +436,7 @@ export class CodexEngine implements Engine {
 
   async realtime(account: Account): Promise<RealtimeLink> { const server = await this.server(account); const rpc = await server.rpc(); return { request: (method, params, ms) => rpc.request(method, params, ms), hold: () => server.beginTurn() }; } // owner 07.11.2026: the account's server for a request of the plan's dictation (Engine.realtime)
   async dispose(): Promise<void> {
-    await Promise.all([...this.servers.values()].map((server) => server.dispose()));
+    await Promise.all([this.trust.settled(), ...[...this.servers.values()].map((server) => server.dispose())]);
     this.servers.clear();
     this.loaded.clear();
   }

@@ -20,6 +20,7 @@ import type { ToolContext } from '../../../src/runtime/tools/types.ts';
 import type { TurnPlan } from '../../../src/runtime/agents/turn-types.ts';
 import { FakeChild, account, fakeFinder, fakeSpawn, testSupervisor, tick, turnInput } from './fakes.ts';
 import { setup } from '../agents/fixture.ts';
+import { openedBefore } from './managed-fixture.ts';
 
 afterEach(() => mock.timers.reset());
 
@@ -160,6 +161,7 @@ test('the subconscious\'s inject answered after 11 min lands once: the app-serve
   mock.timers.enable({ apis: ['setTimeout'] });
   const fake = appServer({ hold: ['thread/inject_items'], onTurn: answered('Done.') });
   const e = engine(fake.spawn);
+  openedBefore(e, 'thr_9'); // 0.3.19: a thread resumes only with provenance – this runtime opened it before
   const trace = { calls: [{ tool: 'subconscious', args: {}, output: 'The search found the invoice.' }] };
   const running = e.run(turnInput({ session: { ref: 'thr_9', generation: 1 }, trace }).input);
   await until(() => fake.held('thread/inject_items').length > 0);

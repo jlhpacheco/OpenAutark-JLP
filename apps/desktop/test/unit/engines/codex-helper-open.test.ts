@@ -25,6 +25,7 @@ import type { EngineModel, EngineTurnResult } from '../../../src/runtime/engines
 import { account, setup } from '../models/harness.ts';
 import { tempDir } from '../store/helpers.ts';
 import { fakeSpawn, fakeFinder, testSupervisor, turnInput, tick } from './fakes.ts';
+import { openedBefore } from './managed-fixture.ts';
 
 afterEach(() => mock.timers.reset());
 const TEMP = tempDir('wf-helper-open-');
@@ -100,6 +101,8 @@ test('B-075 through the attempt: a helper thread\'s timeout becomes a local outa
 async function waiting(patch: Record<string, unknown>): Promise<EngineTurnResult> {
   mock.timers.enable({ apis: ['setTimeout'] });
   const fake = appServer();
+  const session = patch.session as { ref: string } | undefined;
+  if (session) openedBefore(fake.engine, session.ref); // 0.3.19: a thread resumes only with provenance – this runtime opened it before
   const controller = new AbortController();
   let ended = false;
   const running = fake.engine.run(turnInput({ ...patch, signal: controller.signal }).input).finally(() => { ended = true; });

@@ -48,7 +48,9 @@ test('one attempt: m, r, a, native t with its full output, ours as t/s/f, the an
       input.onEvent({ type: 'reasoning', delta: 'Checking the build first.', id: 'rs_1' });
       input.onEvent({ type: 'reasoning_end', id: 'rs_1' });
       input.onEvent({ type: 'commentary', text: 'Running the tests now.' });
-      input.onEvent({ type: 'tool_start', callId: 'c1', name: 'shell', args: { command: 'npm test' }, own: true });
+      // 0.3.19: an engine-native shell row is withheld from the ledger (rebuild-text.ts legacyNativeShell); the engine's own
+      // native output is shown here with a native tool that is no shell – its full output, redacted, kept in a blob.
+      input.onEvent({ type: 'tool_start', callId: 'c1', name: 'Read', args: { file_path: 'out/build.log' }, own: true });
       input.onEvent({ type: 'tool_end', callId: 'c1', ok: true, summary: 'exit 0', output: log });
       ours(h, 'run_1', 'knowledge.open', { id: 'deploy' }, '# Skill: deploy\n' + 'step '.repeat(1200), 'c2');
       ours(h, 'run_1', 'files.read', { path: 'docs/notes.md' }, 'notes', 'c3');
@@ -66,7 +68,7 @@ test('one attempt: m, r, a, native t with its full output, ours as t/s/f, the an
     assert.ok(items.every((item) => item.runId === 'run_1'));
     assert.deepEqual(items[3].origin, { engine: 'claude', model: 'claude:claude-opus-5-5' }, 'the attempt\'s engine and model');
     assert.match(items[0].title, /Please check the build/);
-    assert.match(items[3].title, /^shell: Ran npm test/);
+    assert.match(items[3].title, /^Read: Read out\/build\.log/);
     assert.equal(items[4].title, 'Skill deploy');
     assert.equal(items[5].title, 'File docs/notes.md');
     assert.ok(items[3].tokens > 2000, 'the native output counts');

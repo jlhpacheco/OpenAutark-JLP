@@ -64,7 +64,7 @@ test('helperThread: lean config merged on top of the isolation, environments emp
   assert.equal(helperThread({ developerInstructions: 'Now: …' }).developerInstructions, `Now: …\n\n${HELPER_NOTE}`, 'a real developer message stays');
 });
 
-test('a helper turn starts the lean thread; an agent turn keeps its environment and the shell', async () => {
+test('a helper turn starts the lean thread; an agent turn keeps its environment, with the native Codex shells off (0.3.19)', async () => {
   const fake = appServer();
   const engine = engineWith(fake);
   const helper = await engine.run(turnInput({ runId: 'run_h', agentId: 'system', tools: [], system: { stable: 'Decide.', volatile: '' }, outputSchema: { type: 'object' } }).input);
@@ -85,8 +85,9 @@ test('a helper turn starts the lean thread; an agent turn keeps its environment 
   const agentStart = fake.requests.filter((r) => r.method === 'thread/start')[1];
   assert.equal(agentStart.params.environments, undefined, 'an agent keeps its environment');
   assert.equal(agentStart.params.ephemeral, undefined, 'and its history');
-  // Lean, but the shell stays (the helper turns it off).
-  for (const name of ['shell_tool', 'unified_exec', 'shell_snapshot']) assert.equal(agentStart.params.config.features[name], undefined, name);
+  // 0.3.19 (managed shell, 18.11.2026): this asserted that the agent kept Codex's own shell – the path by which command output
+  // reached the provider unmasked. Its commands now go through Autark's masked shell.exec, so the native shells are off (helper-thread.ts NATIVE_SHELL_OFF).
+  for (const name of ['shell_tool', 'unified_exec', 'shell_snapshot', 'shell_zsh_fork', 'js_repl']) assert.equal(agentStart.params.config.features[name], false, name);
   assert.equal(agentStart.params.config.features.plugins, false);
   assert.equal(agentStart.params.config.include_permissions_instructions, false);
   assert.equal(agentStart.params.dynamicTools.length, 1);

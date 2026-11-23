@@ -168,8 +168,10 @@ test('a rebuild keeps an engine\'s own output as the model saw it; ours stays at
   try {
     const runId = t.turn(t.say('Read the long file, with some words.').seq);
     const own = `${'x'.repeat(39_000)}THE END`;
-    t.journal.item(runId, { kind: 'tool_call', name: 'exec', data: { callId: 'c_own', own: true, args: JSON.stringify({ source: 'text(1)' }), summary: 'Ran a command' }, effectStatus: 'none' });
-    t.journal.item(runId, { kind: 'tool_result', data: { callId: 'c_own', ok: true, summary: 'done', output: own }, effectStatus: 'none' });
+    // 0.3.19: a script of an agent thread without native shell carries the row mark on both rows (turn-attempt.ts); an
+    // unmarked one is a legacy row the ledger withholds (context/ledger-code-mode.test.ts).
+    t.journal.item(runId, { kind: 'tool_call', name: 'exec', data: { callId: 'c_own', own: true, args: JSON.stringify({ source: 'text(1)' }), summary: 'Ran a command', managed: true }, effectStatus: 'none' });
+    t.journal.item(runId, { kind: 'tool_result', data: { callId: 'c_own', ok: true, summary: 'done', output: own, managed: true }, effectStatus: 'none' });
     t.ourCall(runId, 'files.read', { path: 'big' }, 'y'.repeat(30_000), 'c_ours');
     t.done(runId);
     await t.journal.settled();

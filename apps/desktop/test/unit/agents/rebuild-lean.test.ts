@@ -2,6 +2,7 @@
 // (agents/rebuild.ts, context/ledger/window.ts leanMarks). At every native rebuild the tool work of finished runs keeps its call in
 // place and leaves its output, their reasoning is hidden; chat lines, the agent's own words, the newest run, the open task's runs
 // and pins stay.
+// 0.3.19: the work calls here are Autark's masked shell.exec; a native `shell` row is legacy now and replays only as an omission (rebuild-text.ts legacyNativeShell).
 // KI-Runde 17.11.2026: the lean history and the subconscious's marks ride on a rebuild that happens anyway – a warm session is
 // never rebuilt for a saving (no weighing, no "does not pay yet" note); a session that rested past the cache starts anew with them.
 
@@ -15,7 +16,7 @@ import { compactStamp, type LedgerItem, type LedgerViewItem } from '../../../src
 
 const entry = (itemId: string, kind: LedgerViewItem['kind'], chars: number, extra: Partial<LedgerViewItem> = {}): LedgerViewItem => ({
   itemId, kind, role: kind === 'message' ? 'user' : kind === 'tool' ? 'tool' : 'assistant', text: 'x'.repeat(chars), origin: {}, order: Number(itemId.slice(1)), state: 'keep',
-  ...(kind === 'tool' || kind === 'skill' || kind === 'file' ? { call: { name: 'shell', args: { command: 'npm test' }, callId: itemId, output: 'x'.repeat(chars) } } : {}), ...extra,
+  ...(kind === 'tool' || kind === 'skill' || kind === 'file' ? { call: { name: 'shell.exec', args: { command: 'npm test' }, callId: itemId, output: 'x'.repeat(chars) } } : {}), ...extra,
 });
 
 test('leanMarks: finished runs leave their outputs (call in place) and their reasoning; lines, own words, kept runs, pins, nested and small items stay', () => {
@@ -162,12 +163,12 @@ const work = (chars: number) => 'w'.repeat(chars);
 function lastingView(h: Harness, seen: number, oldChars: number): void {
   h.ledgerState.view = view([
     [`m${seen}`, 'message', 'user', '[09:00] Alex: Hello'],
-    ['t2', 'tool', 'tool', work(oldChars), { name: 'shell', args: { command: 'npm test' }, callId: 'c2', output: work(oldChars) }],
+    ['t2', 'tool', 'tool', work(oldChars), { name: 'shell.exec', args: { command: 'npm test' }, callId: 'c2', output: work(oldChars) }],
     ['r3', 'reasoning', 'assistant', 'thinking about the tests'],
     ['a4', 'assistant', 'assistant', 'The tests pass.'],
-    ['t5', 'tool', 'tool', work(30_000), { name: 'shell', args: { command: 'npm run build' }, callId: 'c5', output: work(30_000) }],
+    ['t5', 'tool', 'tool', work(30_000), { name: 'shell.exec', args: { command: 'npm run build' }, callId: 'c5', output: work(30_000) }],
     // five small steps more: the run before is older than the newest KEEP_STEPS tool steps (Runde "Halb" 21.11.2026)
-    ...[6, 7, 8, 9, 10].map((n) => [`t${n}`, 'tool', 'tool', 'ok', { name: 'shell', args: {}, callId: `c${n}`, output: 'ok' }] as Parameters<typeof view>[0][number]),
+    ...[6, 7, 8, 9, 10].map((n) => [`t${n}`, 'tool', 'tool', 'ok', { name: 'shell.exec', args: {}, callId: `c${n}`, output: 'ok' }] as Parameters<typeof view>[0][number]),
     ['a11', 'assistant', 'assistant', 'Built.'],
   ]).map((item) => ({ ...item, runId: Number(item.itemId.slice(1)) >= 5 ? 'run_newest' : 'run_old' }));
 }
@@ -203,11 +204,11 @@ test('the same engine, warm: a saving that does not pay back its cache write wit
   const seen = h.cursor();
   const old = Array.from({ length: 12 }, (_, index) => {
     const id = `t${index + 2}`;
-    return [id, 'tool', 'tool', work(24_000), { name: 'shell', args: { command: `step ${index}` }, callId: id, output: work(24_000) }] as const;
+    return [id, 'tool', 'tool', work(24_000), { name: 'shell.exec', args: { command: `step ${index}` }, callId: id, output: work(24_000) }] as const;
   });
   h.ledgerState.view = view([
     [`m${seen}`, 'message', 'user', '[09:00] Alex: Hello'], ...old.map((row) => [...row] as Parameters<typeof view>[0][number]),
-    ['t20', 'tool', 'tool', work(30_000), { name: 'shell', args: {}, callId: 'c20', output: work(30_000) }], ['a21', 'assistant', 'assistant', 'Built.'],
+    ['t20', 'tool', 'tool', work(30_000), { name: 'shell.exec', args: {}, callId: 'c20', output: work(30_000) }], ['a21', 'assistant', 'assistant', 'Built.'],
   ]).map((item) => ({ ...item, runId: item.itemId === 't20' || item.itemId === 'a21' ? 'run_newest' : 'run_old' })); // 144,000 tokens of finished output
   // Until 17.11.2026 this saving ("worth nine re-sends over the run's calls") rebuilt the warm session at once; measured, such
   // rebuilds took 11 % off and each paid a full cache write – a written token costs 40 read ones. The trim (21.11.2026) weighs
@@ -244,11 +245,11 @@ test('the same engine, warm, at TRIM_AT or more: a lean view that pays back its 
   const seen = h.cursor();
   const old = Array.from({ length: 40 }, (_, index) => {
     const id = `t${index + 2}`;
-    return [id, 'tool', 'tool', work(24_000), { name: 'shell', args: { command: `step ${index}` }, callId: id, output: work(24_000) }] as const;
+    return [id, 'tool', 'tool', work(24_000), { name: 'shell.exec', args: { command: `step ${index}` }, callId: id, output: work(24_000) }] as const;
   });
   h.ledgerState.view = view([
     [`m${seen}`, 'message', 'user', '[09:00] Alex: Hello'], ...old.map((row) => [...row] as Parameters<typeof view>[0][number]),
-    ['t50', 'tool', 'tool', work(30_000), { name: 'shell', args: {}, callId: 'c50', output: work(30_000) }], ['a51', 'assistant', 'assistant', 'Built.'],
+    ['t50', 'tool', 'tool', work(30_000), { name: 'shell.exec', args: {}, callId: 'c50', output: work(30_000) }], ['a51', 'assistant', 'assistant', 'Built.'],
   ]).map((item) => ({ ...item, runId: item.itemId === 't50' || item.itemId === 'a51' ? 'run_newest' : 'run_old' })); // 495,000 tokens, most of it output
   h.ledgerState.need = undefined;
   h.send('Next');

@@ -167,6 +167,7 @@ export async function runAttempt(services: RuntimeServices, plan: TurnPlan, turn
   });
   let toolCalls = 0;
   const ownCalls = new Set<string>(); // engine-native tool calls (ours are journaled by the registry)
+  const managedCalls = new Set<string>(); // 0.3.19: those of them with the managed-shell row mark
   // Our tools arrive via callTool (dynamic tools / function calls) or through the MCP hub
   // (Claude, ACP agents: only a tool_start with own:false). Both count, once per call id.
   const ourCalls = new Set<string>();
@@ -233,6 +234,7 @@ export async function runAttempt(services: RuntimeServices, plan: TurnPlan, turn
             boundary(event.callId, true); // ours are reported by the registry (onCall) under its own id
             if (event.callId && ownCalls.has(event.callId)) break; // an engine may repeat 'running' updates of one call
             ownCalls.add(event.callId);
+            if (event.managed) managedCalls.add(event.callId); // 0.3.19: the row mark (a script call on a thread without native shell)
             toolCalls++;
             const use: ToolUse = { name: event.name, native: true };
             used.push(use);
@@ -248,6 +250,7 @@ export async function runAttempt(services: RuntimeServices, plan: TurnPlan, turn
                 summary: preview(services.secrets, stepText(step), 300), step: { ...step, target },
                 ...(event.title ? { title: preview(services.secrets, event.title, 200) } : {}),
                 ...(event.nested ? { nested: true, ...(event.parent ? { parent: event.parent } : {}) } : {}), // B-049 F9: a call inside a code-mode script
+                ...(event.managed ? { managed: true } : {}),
               },
             });
           } else countOurs(event.callId, shown.name);
@@ -271,6 +274,7 @@ export async function runAttempt(services: RuntimeServices, plan: TurnPlan, turn
               callId: event.callId, ok: event.ok, summary: checked(event.summary ?? '', 400),
               preview: checked([event.summary, event.output].filter(Boolean).join('\n'), 600), // B-080: "exit 1" and what it printed, as our tools' preview
               ...(event.output ? { output: checked(event.output) } : {}), // B-048 E1 (LEDGER): kept whole by the journal (over 4,000 chars: a blob)
+              ...(managedCalls.delete(event.callId) ? { managed: true } : {}), // written here, masked above: never derived from a session's mark
             }, effectStatus: 'none' });
           } else {
             // Our call (MCP hub or dynamic tool); its start may have been missed: a tool still ran.

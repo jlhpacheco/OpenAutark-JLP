@@ -35,7 +35,8 @@ test('a Codex revert keeps the key its thread started with, also when the turn f
     (h.codex.engine.caps as { revert?: boolean }).revert = true;
     const work = (input: EngineTurnInput): Partial<EngineTurnResult> => {
       for (const step of [1, 2, 3, 4]) { // eight steps in two runs: the oldest lie past the lean view's newest six (Runde "Halb" KEEP_STEPS)
-        input.onEvent({ type: 'tool_start', callId: `sh_${input.runId}_${step}`, name: 'Bash', args: { command: 'npm test' }, own: true });
+        // 0.3.19: a Codex agent thread runs its commands in code-mode scripts with the managed-shell row mark (a native Bash row is legacy, withheld).
+        input.onEvent({ type: 'tool_start', callId: `sh_${input.runId}_${step}`, name: 'exec', args: { source: 'text(await tools.shell__exec({ command: "npm test" }))' }, own: true, managed: true });
         input.onEvent({ type: 'tool_end', callId: `sh_${input.runId}_${step}`, ok: true, summary: 'exit 0', output: 'ok\n'.repeat(300) });
       }
       return { text: 'Done.', contextTokens: 20_000, session: { ref: 'codex-s1', generation: 1, turn: `t_${input.runId}` } };
