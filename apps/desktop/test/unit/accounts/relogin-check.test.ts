@@ -74,3 +74,12 @@ test('the person\'s to-do says the phone works too', () => {
   const notes = humanNotes(row('acc_x', { provider: 'codex', auth: 'cli', label: 'Codex' }), 'no_account');
   assert.match(notes, /Sign in again in Settings › Models – from your phone too; it takes a minute\. This to-do closes itself once the account works again\.$/);
 });
+
+test('0.3.19: a runtime that is stopping (quit, update install) records no sign-out and reports none', async () => {
+  const h = rig();
+  h.repo.save(row('acc_claude', { provider: 'claude', auth: 'cli', state: 'ok', detected: true }));
+  await h.service.dispose();
+  assert.equal(h.service.markUnavailable('acc_claude', 'needs_login'), false);
+  assert.equal(h.repo.get('acc_claude')!.state, 'ok');
+  assert.deepEqual(h.reported, []);
+});

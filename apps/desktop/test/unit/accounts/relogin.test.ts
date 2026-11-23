@@ -26,7 +26,7 @@ function account(id: string, extra: Partial<Account> = {}): Account {
 const SIGNED_OUT = { stop: 'error', text: '', error: { code: 'unavailable', message: 'Codex is not signed in.' } } as unknown as EngineTurnResult;
 
 /** The chat harness plus an account store whose markUnavailable emits account.upserted like the real one. */
-function rig(accounts: Account[], options: { manager?: boolean } = {}) {
+function rig(accounts: Account[], options: { manager?: boolean; agents?: boolean } = {}) {
   const h = harness();
   const store = new Map(accounts.map((item) => [item.id, item]));
   const logins: string[] = [];
@@ -47,7 +47,7 @@ function rig(accounts: Account[], options: { manager?: boolean } = {}) {
   const warnings: unknown[][] = [];
   Object.assign(h.services, { accounts: service, log: { debug() {}, info() {}, error() {}, warn: (...args: unknown[]) => { warnings.push(args); } } });
   if (options.manager !== false) h.org.add(agent('ag_boss', 'Mia', { mode: 'manager' }));
-  h.org.add(agent('ag_dev', 'Dev', { managerId: options.manager !== false ? 'ag_boss' : undefined }));
+  if (options.agents !== false) h.org.add(agent('ag_dev', 'Dev', { managerId: options.manager !== false ? 'ag_boss' : undefined }));
   const relogin = new Relogin({ services: () => h.services });
   const unwatch = relogin.watch();
   const set = (id: string, patch: Partial<Account>) => { const next = { ...store.get(id)!, ...patch }; store.set(id, next); h.bus.emit('account.upserted', next); };
@@ -91,7 +91,9 @@ test('another usable account: ONE task for the origin Manager with the way throu
   assert.equal(task.assigneeKind, 'agent');
   assert.equal(task.assigneeId, 'ag_boss');
   assert.match(task.notes, /accounts\.sign_in with accountId "acc_a" starts the official Codex sign-in/);
-  assert.match(task.notes, /I type no password myself/);
+  assert.match(task.notes, /I sign it in myself/);
+  assert.match(task.notes, /secrets catalog/);
+  assert.match(task.notes, /what I already tried/);
   assert.match(task.notes, /closes itself/);
   assert.ok(!task.title.includes('alex@example.com') && !task.notes.includes('alex@example.com'), 'no e-mail');
   assert.equal(r.relogin.openWork('acc_a')?.id, task.id);
@@ -112,7 +114,7 @@ test('B-091: a linked CEO PC already made the open sign-in task (it travelled he
 
 
 test('no agent to take it, or the day\'s cap of sign-in tasks reached: the person gets the to-do', () => {
-  const lonely = rig([account('acc_a'), account('acc_b', { provider: 'claude' })], { manager: false });
+  const lonely = rig([account('acc_a'), account('acc_b', { provider: 'claude' })], { manager: false, agents: false }); // 0.3.19: any active agent takes it, so only a team without agents leaves it to the person
   assert.equal(signInAgent(lonely.services), undefined);
   lonely.fail('acc_a');
   assert.equal(lonely.tasks.list({}).find((item) => item.title.startsWith('Sign in'))!.assigneeKind, 'human');
@@ -173,7 +175,7 @@ test('accounts.sign_in: the named or only signed-out account, the official sign-
   assert.equal(out.isError, undefined, text);
   assert.deepEqual(r.logins, ['acc_a']);
   assert.match(text, /Started the official codex sign-in for Codex/);
-  assert.match(text, /I type no password/);
+  assert.match(text, /secrets catalog goes in by its handle/);
   assert.ok(!text.includes('alex@example.com') && !text.includes('.codex'));
   assert.equal(tool.describe!({}, ctx).summary, 'Start the sign-in to Codex');
   const already = await tool.run({ accountId: 'acc_b' }, ctx);
@@ -182,4 +184,52 @@ test('accounts.sign_in: the named or only signed-out account, the official sign-
   assert.equal(pickAccount(r.service.list().map((item) => ({ ...item, state: 'ok' as const }))), 'No account needs a sign-in right now.');
   assert.match(String(pickAccount([account('x', { state: 'needs_login' }), account('y', { state: 'needs_login' })])), /Several accounts need a sign-in/);
   assert.equal(HUMAN_ID, 'human');
+});
+
+// 0.3.19 (Stanislaus 23.11.2026, task_0mvd0nrj): on 23.11. at 12:37 Claude Code 2 got the person's to-do "No other model account
+// can run the team" while the other plans were only at their limits, and it stayed open for hours after the sign-in because the plan
+// was at its weekly limit. Each of these was red before the fix.
+test('a sign-out while the other plans are only at their limits: the Manager signs it in, not the person', () => {
+  const now = Date.UTC(2026, 9, 17, 9, 0, 0); // the harness clock
+  const r = rig([
+    account('acc_a', { provider: 'claude', label: 'Claude Code 2' }),
+    account('acc_b', { provider: 'claude', label: 'Claude Code', state: 'cooling', coolingUntil: now + 3 * 86400_000 }),
+    account('acc_c', { label: 'Codex', limits: { windows: [{ name: 'weekly', usedPercent: 100, resetsAt: now + 2 * 86400_000 }] } } as Partial<Account>),
+  ]);
+  assert.equal(r.clock.now(), now);
+  r.fail('acc_a');
+  const task = r.relogin.openWork('acc_a')!;
+  assert.equal(task.assigneeKind, 'agent');
+  assert.equal(task.assigneeId, 'ag_boss');
+  assert.doesNotMatch(task.notes, /No other model account/);
+});
+
+test('only signed-out or switched-off accounts besides it: the person gets the to-do (nobody could run the sign-in)', () => {
+  const r = rig([account('acc_a'), account('acc_b', { provider: 'claude', state: 'needs_login' }), account('acc_c', { provider: 'claude', enabled: false })]);
+  r.fail('acc_a');
+  const work = r.relogin.openWork('acc_a')!;
+  assert.equal(work.assigneeKind, 'human');
+  assert.match(work.notes, /No other model account can run the team/);
+});
+
+test('a plan at its limit is no sign-out: no sign-in work, also when a stale report arrives', () => {
+  const r = rig([account('acc_a', { provider: 'claude' }), account('acc_b', { provider: 'claude' })]);
+  const limit = { stop: 'limit', text: '', error: { code: 'rate_limited', message: "You've hit your limit · resets 26 Nov, 7am" } } as unknown as EngineTurnResult;
+  recordAccountFailure({ accounts: r.service, clock: r.clock, relogin: r.relogin }, r.store.get('acc_a')!, 'claude-opus-5-5', limit);
+  r.relogin.signedOut({ ...r.store.get('acc_a')!, state: 'needs_login' }); // a report whose account is not signed out (any more)
+  assert.equal(r.tasks.list({}).filter((item) => item.title.startsWith('Sign in')).length, 0);
+});
+
+test('signed in again while at its weekly limit: the open sign-in work closes itself', () => {
+  const r = rig([account('acc_a', { provider: 'claude', label: 'Claude Code 2' }), account('acc_b', { provider: 'claude' })]);
+  r.fail('acc_a');
+  const task = r.relogin.openWork('acc_a')!;
+  r.set('acc_a', { state: 'cooling', coolingUntil: r.clock.now() + 3 * 86400_000 });
+  assert.equal(r.tasks.get(task.id)!.status, 'done');
+});
+
+test('no manager and no computer-mode agent: the first active agent gets the sign-in task', () => {
+  const r = rig([account('acc_a'), account('acc_b', { provider: 'claude' })], { manager: false });
+  r.fail('acc_a');
+  assert.equal(r.relogin.openWork('acc_a')?.assigneeId, 'ag_dev');
 });

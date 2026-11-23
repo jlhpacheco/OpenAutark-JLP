@@ -70,7 +70,7 @@ const signIn = defineTool<SignInArgs>({
     return text([
       `Started the official ${pick.provider} sign-in for ${label(pick)} on this PC.`,
       started.url ? `Sign-in page: ${started.url}` : 'It opens the sign-in page in this PC\'s default browser (or a terminal window for CLIs that sign in there).',
-      'I finish it there with my screen tools or a colleague in browser or computer mode; I type no password – a password or 2FA code becomes a prepared to-do for the person.',
+      'I finish it there with my screen tools or a colleague in browser or computer mode: a stored login from the secrets catalog goes in by its handle, a 2FA code from the authenticator app on the linked phone where allowed; only a step only the person can do becomes a prepared to-do for them, with what I already tried.',
       'The account is checked automatically when the sign-in ends (within 5 minutes); its sign-in task closes itself once it works.',
     ].join('\n'));
   },

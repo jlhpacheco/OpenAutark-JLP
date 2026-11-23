@@ -340,6 +340,9 @@ export class AccountServiceImpl implements AccountServiceContract {
   markUnavailable(id: string, state: 'needs_login' | 'error'): boolean {
     const account = this.repo.get(id);
     if (!account || !account.enabled || account.state === state) return false;
+    // a stopping runtime (quit, update install) records no sign-out: its CLIs fail while the installer replaces files – on
+    // 23.11.2026 a quit that hung for minutes marked all four plans signed out and gave the person sign-in to-dos (0.3.19)
+    if (this.disposed) return false;
     if (state === 'needs_login' && this.retaking.has(id)) return false; // the newer login is in place; its check decides
     if (state === 'needs_login' && this.retake(account)) { this.retaking.add(id); void this.monitor.checkNow(id); return false; } // the default home's newer login
     this.save({ ...account, state });

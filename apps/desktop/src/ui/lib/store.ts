@@ -21,6 +21,7 @@ import { countNow } from '../../shared/model/todo-later.ts';
 import { loadPeople, personName } from './people.ts';
 import { loadDay } from './day-store.ts';
 import { selfIdentity } from './self-identity.ts';
+import { SYSTEM_ID } from '../../shared/ids.ts';
 
 export { route, isMobile };
 
@@ -125,6 +126,7 @@ export function putMessage(message: Message): void {
 
 export function agentName(id: string): string {
   if (id === 'human') return selfIdentity(settings.value?.profile).name; // the caller, as the profile button names it
+  if (id === SYSTEM_ID) return 'Autark'; // the app's own to-dos (a sign-out, B-047 D10) – not "Former member" (Stanislaus 23.11.2026)
   return knownAgentMap.value.get(id)?.name ?? personName(id) ?? 'Former member'; // F-52: people of the organisation (lib/people.ts)
 }
 

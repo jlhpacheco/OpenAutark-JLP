@@ -40,6 +40,19 @@ file is in `%LOCALAPPDATA%\AutarkDesktopBroker\wakers`; `install.ps1 -Check` exi
 installer, another user at the console); <data>\logs\sleeper.log says "waiting for a wake". I fix it: the broker
 first (see above), then start the app once – it writes both files.
 
+A signed-out model account (owner 23.11.2026: "Sign in to Claude Code 2 again · from Former member" on the phone, while
+that plan was only at its weekly limit): the sign-in is first work for the personal manager – else any manager, a
+computer-mode agent, else the first active agent –, who signs it in with the stored login and the phone's authenticator
+and gives the person a to-do only for a step only they can do. Accounts at their limit or cooling count as signed in:
+they no longer make "No other model account can run the team", a stale sign-out report for an account that is signed
+in again creates nothing, and the work closes once the account is signed in again, also while it is at its limit. The
+app's own to-dos show "from Autark".
+
+**A sign-in to-do for the person although other accounts run.** Shows as: "Sign in to … again" on the person's My day,
+"No other model account can run the team". I check: app.status for the account and the others; the to-do's notes. I fix
+it: if the account is signed in, I close the to-do; if not, I sign it in myself (accounts.sign_in) and tell the person
+only what only they can do.
+
 ## 0.3.18
 
 What changed: linked PCs and phones keep each other current by themselves – a message a shaky connection lost arrives

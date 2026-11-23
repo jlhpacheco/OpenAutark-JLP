@@ -24,8 +24,8 @@ import type { Agent } from '../../shared/model/org.ts';
 import type { TaskView } from '../../shared/model/tasks.ts';
 import type { RuntimeServices } from '../contracts.ts';
 import type { ReloginService } from '../contracts/relogin.ts';
-import { isHealthy } from './candidates.ts';
-import { attachRelogin } from './failure.ts';
+import { isUsableState } from '../../shared/model/plan-roles.ts';
+import { attachRelogin, turnAccounts } from './failure.ts';
 import { cleanLabel } from '../context/setup-facts.ts';
 import { KvRepo } from '../store/kv.ts';
 
@@ -52,7 +52,7 @@ export function agentNotes(account: Account): string {
   return [
     `${labelOf(account)} (${providerName(account)}) was signed out, so agents cannot use it until it is signed in again.`,
     `accounts.sign_in with accountId "${account.id}" starts the official ${providerName(account)} sign-in on this PC; it opens the sign-in page in this PC's default browser. I finish what I can there myself (screen tools, or a colleague in browser or computer mode).`,
-    'I type no password myself; a password, a 2FA code or another check only the person can pass becomes a short, prepared task for them (tasks.add for the person) – they can also finish it from their phone in Settings › Models.',
+    'I sign it in myself, like any work the person gives me: a stored login from the secrets catalog (by its secret:// handle, never its value), a two-factor code from the authenticator app on the linked phone where the person allowed it. Only a step that really only the person can do becomes a short, prepared to-do for them (tasks.add for the person), saying what I already tried – they can also finish it from their phone in Settings › Models.',
     'This task closes itself as soon as the account works again.',
   ].join('\n');
 }
@@ -106,9 +106,15 @@ export class Relogin implements ReloginService {
     const linked = s.db.get(`SELECT 1 FROM tasks WHERE source_label = ? AND title = ? AND status IN (${[...OPEN].map(() => '?').join(', ')})`,
       [RELOGIN_ORIGIN.label, signInTaskTitle(account), ...OPEN]);
     if (this.openWork(account.id) || linked) return;
+    // the account's newest state decides: a plan that is only at its limit (cooling) or already signed in again needs no sign-in
+    const fresh = s.accounts.get(account.id);
+    if (fresh && (fresh.state !== 'needs_login' || fresh.enabled === false)) return;
     const now = s.clock.now();
     const times = (this.entry(s, account.id)?.times ?? []).filter((at) => now - at < DAY_MS);
-    const otherUsable = s.accounts.list().some((other) => other.id !== account.id && isHealthy(other, now));
+    // 0.3.19 (Stanislaus 23.11.2026): an account at its limit, cooling or running on extra usage is still signed in – it runs the
+    // team again at its reset, so it counts; only enabled turn accounts that are signed out or failing do not (before: isHealthy,
+    // so at 12:37 a plan at its weekly limit read as "No other model account can run the team" and the person got the to-do)
+    const otherUsable = turnAccounts(s.accounts.list()).some((other) => other.id !== account.id && isUsableState(other));
     const agent = otherUsable && times.length < MAX_PER_DAY ? signInAgent(s) : undefined;
     const why = !otherUsable ? 'no_account' : times.length >= MAX_PER_DAY ? 'capped' : 'no_agent';
     const key = `relogin:${account.id}:${now}:${times.length}`; // one task per sign-out (a repeat of the same call finds it)
@@ -135,7 +141,9 @@ export class Relogin implements ReloginService {
     const s = this.services();
     try {
       if (account.enabled === false) { this.cancel(account.id, 'The account was switched off.'); return; }
-      if (!isHealthy(account, s.clock.now())) return;
+      // signed in again closes the work – also while that plan is at its limit (before: only once it had quota left, so the
+      // to-do of a plan signed in again but at its weekly limit stayed open for days)
+      if (!isUsableState(account)) return;
       const task = this.openWork(account.id);
       if (!task) return;
       s.tasks.finish(task.id, {
@@ -168,10 +176,11 @@ export class Relogin implements ReloginService {
   }
 }
 
-/** Who signs in: the origin Manager (no manager of its own), else any manager, else an agent in computer mode. */
+/** Who signs in: the origin Manager (no manager of its own), else any manager, else an agent in computer mode, else the first active agent. */
 export function signInAgent(s: Pick<RuntimeServices, 'org'>): Agent | undefined {
   const active = s.org.list().filter((agent) => !agent.archivedAt && agent.status !== 'paused');
   return active.find((agent) => agent.mode === 'manager' && !agent.managerId)
     ?? active.find((agent) => agent.mode === 'manager')
-    ?? active.find((agent) => agent.mode === 'computer');
+    ?? active.find((agent) => agent.mode === 'computer')
+    ?? active[0];
 }
