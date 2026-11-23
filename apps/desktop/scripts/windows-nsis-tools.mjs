@@ -35,13 +35,17 @@ export async function prepareNsisTools({ config, projectDir, reportDir = path.re
   const reviewedInclude = path.resolve(projectDir, 'assets/installer.nsh');
   const include = config.nsis?.include;
   if (include && path.resolve(projectDir, include) !== reviewedInclude) throw new Error('Custom NSIS include needs explicit plugin coverage review.');
-  let includeHash = null;
+  let includeHash = null, brokerSource = null;
   try {
     const stat = await lstat(path.join(resources, 'installer.nsh'));
     if (stat.isSymbolicLink() || !stat.isFile() || path.join(resources, 'installer.nsh') !== reviewedInclude) throw new Error('Installer include path needs explicit coverage review.');
     includeHash = createHash('sha256').update(await readFile(reviewedInclude)).digest('hex');
-    if (includeHash !== '4e4224ef4189e3ebcb9f73c8e4fcf6cf590d71069d055e63022f9fadd2e26125') throw new Error('Installer include bytes need explicit coverage review.');
-    // Reviewed exact bytes use nsExec; no nested includes, plugin directories or File sources.
+    if (includeHash !== '065e041ac434945a5ee2f079b9efd68e8d3b14fc0149b2f935e6dbf952563d8f') throw new Error('Installer include bytes need explicit coverage review.');
+    // Reviewed exact bytes (19.11.2026, 0.3.15) use nsExec only; no nested includes or plugin directories. Two File
+    // sources from the project: resources/broker/install.ps1 (a script) and resources/broker/AutarkDesktopBroker.exe,
+    // which the installer unpacks and starts – that PE is signed (or a valid own signature verified) here.
+    brokerSource = await inspector(path.resolve(projectDir, 'resources/broker/AutarkDesktopBroker.exe'), 'Sign', true);
+    if (brokerSource.status !== 'Valid') throw new Error('Installer File source AutarkDesktopBroker.exe is not validly signed.');
     config.nsis = { ...config.nsis, include: reviewedInclude };
   } catch (error) { if (error.code !== 'ENOENT') throw error; if (include) throw error; }
   for (const arch of ['x86-unicode', 'x86-ansi', 'installer.nsi']) {
@@ -76,7 +80,7 @@ export async function prepareNsisTools({ config, projectDir, reportDir = path.re
   const after = { tool: await treeHashes(toolRoot), plugins: await treeHashes(pluginRoot) };
   if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('Original NSIS tool cache changed.');
   if (includeHash && createHash('sha256').update(await readFile(reviewedInclude)).digest('hex') !== includeHash) throw new Error('Installer include changed during preparation.');
-  const result = { reviewedInclude: includeHash ? { path: reviewedInclude, sha256: includeHash } : null, source: { toolRoot, pluginRoot, hashes: before }, privateTool, privateResources, records,
+  const result = { reviewedInclude: includeHash ? { path: reviewedInclude, sha256: includeHash } : null, source: { toolRoot, pluginRoot, hashes: before }, privateTool, privateResources, records, brokerSource,
     signedCopies: { tool: await treeHashes(privateTool), plugins: await treeHashes(path.join(privateResources, 'plugins')) },
     originalCachesUnchanged: true, preparedBeforeCompiler: true };
   await writeFile(path.join(reportDir, 'windows-nsis-tools.json'), JSON.stringify(result, null, 2));

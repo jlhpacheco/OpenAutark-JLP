@@ -46,8 +46,17 @@ if (-not $embedded -and $signature.Status -in @('NotSigned','Valid') -and $Mode 
     $subject = $certificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName,$false)
     if ($subject -cne $env:AUTARK_SIGNING_PUBLISHER) { throw 'Certificate publisher does not match the verified release identity.' }
     if (-not $env:AUTARK_SIGNTOOL_PATH) { throw 'Pinned SignTool path is missing.' }
-    & $env:AUTARK_SIGNTOOL_PATH sign /sha1 $thumbprint /fd SHA256 /tr 'http://time.certum.pl' /td SHA256 /q $file.FullName *> $null
-    if ($LASTEXITCODE -ne 0) { throw "SignTool could not sign $($file.Name) (exit $LASTEXITCODE)." }
+    # 19.11.2026: with SimplySign Desktop not connected to its cloud card, SignTool does not fail but waits forever;
+    # a bounded wait turns that into an error that names the cause (AUTARK_SIGNING_TIMEOUT_SECONDS, default 120).
+    $limit = 120
+    if ($env:AUTARK_SIGNING_TIMEOUT_SECONDS -match '^[0-9]+$') { $limit = [int]$env:AUTARK_SIGNING_TIMEOUT_SECONDS }
+    $process = Start-Process -FilePath $env:AUTARK_SIGNTOOL_PATH -PassThru -WindowStyle Hidden -ArgumentList @(
+        'sign', '/sha1', $thumbprint, '/fd', 'SHA256', '/tr', 'http://time.certum.pl', '/td', 'SHA256', '/q', "`"$($file.FullName)`"")
+    if (-not $process.WaitForExit($limit * 1000)) {
+        try { $process.Kill($true) } catch { }
+        throw "SignTool did not finish within $limit s for $($file.Name): is SimplySign Desktop connected?"
+    }
+    if ($process.ExitCode -ne 0) { throw "SignTool could not sign $($file.Name) (exit $($process.ExitCode))." }
     $signedHere = $true
     $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
     $embedded = Has-EmbeddedSignature
