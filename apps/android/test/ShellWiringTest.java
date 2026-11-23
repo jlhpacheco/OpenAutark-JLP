@@ -26,7 +26,7 @@ public final class ShellWiringTest {
         String keep = source("KeepAlive.java");
         check(!keep.contains("static void update("), "the notice has no changing line");
         check(keep.contains("if (running) return;"), "start() does nothing while the service runs (a swiped notice stays away)");
-        check(keep.contains("VISIBILITY_SECRET") && keep.contains("\"Background connection\"") && keep.contains("CHANNEL = \"connection\""), "quiet, off the lock screen, same channel id");
+        check(keep.contains("VISIBILITY_SECRET") && keep.contains("\"Background connection\"") && keep.contains("CHANNEL = \"background\""), "quiet, off the lock screen, same channel id");
         check(keep.contains("ACTION_CHANNEL_NOTIFICATION_SETTINGS") && keep.contains("EXTRA_CHANNEL_ID, CHANNEL"), "a tap opens the channel's settings so the notice can be hidden (19.11.)");
         try (Stream<Path> files = Files.walk(Paths.get(System.getProperty("autark.android"), "app/src"))) {
             for (Path file : (Iterable<Path>) files.filter(p -> p.toString().endsWith(".java"))::iterator) {

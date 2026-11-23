@@ -11,6 +11,7 @@
 // Never: asks, waits, reads settings or file contents (runtime/security/service.ts does), or maps tool calls (tool-gate.ts).
 
 import os from 'node:os';
+import type { SecurityMode } from '../../shared/model/security-settings.ts';
 import path from 'node:path';
 import { realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -18,6 +19,11 @@ import { otherPcsOf, SECURITY_DIR, SECURITY_LABELS, type SecuritySettings, type 
 import { AGENT_CORE_DIR } from '../../shared/model/agent-core.ts';
 import { HUMAN_ID, SYSTEM_ID } from '../../shared/ids.ts';
 import { ROOT_CHATS, ROOT_ENTRIES, ROOT_SECRETS } from '../root/layout.ts';
+
+/** On Windows only explicit Trust may use the privileged route. This is not an action grant. */
+export const requiresDefaultWindowsDesktop = (mode: SecurityMode | undefined): boolean => mode !== 'trust';
+
+export const WINDOWS_DESKTOP_REFUSAL = 'Windows is waiting at the lock screen or a Windows prompt, or the active desktop could not be verified. In Secure mode, I cannot operate it; please unlock or confirm directly in Windows.';
 
 export type Verdict = 'open' | 'ask' | 'closed';
 /** Why a step is closed for good (the refusal text says it). */

@@ -40,6 +40,8 @@
 # types into a Workforce window without its clearance, or writes anything but protocol lines to
 # stdout. Stdin and stdout are pure ASCII JSON (non-ASCII is \u-escaped both ways).
 
+param([switch]$DefaultDesktopOnly)
+
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Off
 
@@ -62,6 +64,52 @@ namespace WorkforceHelper
     {
         public readonly string Code;
         public HelperException(string code, string message) : base(message) { Code = code; }
+    }
+
+    /// The ordinary helper never changes desktops. For Secure mode, its own desktop must also receive input right now.
+    public static class SecureDesktop
+    {
+        const int UOI_NAME = 2, UOI_IO = 6;
+        const int TokenUIAccess = 26;
+
+        [DllImport("user32.dll")] static extern IntPtr GetThreadDesktop(uint thread);
+        [DllImport("user32.dll", EntryPoint = "GetUserObjectInformationW", ExactSpelling = true, CharSet = CharSet.Unicode)]
+        static extern bool NameOf(IntPtr desktop, int index, StringBuilder name, int size, out int needed);
+        [DllImport("user32.dll", EntryPoint = "GetUserObjectInformationW", ExactSpelling = true)]
+        static extern bool InputFlag(IntPtr desktop, int index, out int receivesInput, int size, out int needed);
+        [DllImport("advapi32.dll")] static extern bool GetTokenInformation(IntPtr token, int info, out int value, int size, out int needed);
+
+        static bool OrdinaryToken()
+        {
+            using (var identity = System.Security.Principal.WindowsIdentity.GetCurrent())
+            {
+                if (identity.IsSystem || new System.Security.Principal.WindowsPrincipal(identity)
+                    .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator)) return false;
+                int uiAccess, needed;
+                return GetTokenInformation(identity.Token, TokenUIAccess, out uiAccess, sizeof(int), out needed) && uiAccess == 0;
+            }
+        }
+
+        public static bool Allows(string name, bool receivesInput, bool ordinaryToken)
+        {
+            return ordinaryToken && receivesInput && string.Equals(name, "Default", StringComparison.Ordinal);
+        }
+
+        public static void RequireDefault()
+        {
+            try
+            {
+                IntPtr desktop = GetThreadDesktop(Native.GetCurrentThreadId());
+                var name = new StringBuilder(256);
+                int needed, input;
+                if (OrdinaryToken() && desktop != IntPtr.Zero &&
+                    NameOf(desktop, UOI_NAME, name, name.Capacity * sizeof(char), out needed) &&
+                    InputFlag(desktop, UOI_IO, out input, sizeof(int), out needed) &&
+                    Allows(name.ToString(), input != 0, true)) return;
+            }
+            catch (Exception) { /* An unreadable desktop or token is not authorization. */ }
+            throw new HelperException("protected_desktop", "The active Windows desktop is unavailable in Secure mode.");
+        }
     }
 
     /// Input that would reach a Workforce window without its clearance: what it would hit (error.app).
@@ -2169,13 +2217,17 @@ while ($true) {
   try {
     $request = [WorkforceHelper.Json]::Parse($line)
     $id = [WorkforceHelper.Args]::Get($request, 'id')
-    if ([WorkforceHelper.Args]::Get($request, 'op') -eq 'ocr') {
+    if ($DefaultDesktopOnly) { [WorkforceHelper.SecureDesktop]::RequireDefault() }
+    $op = [WorkforceHelper.Args]::Get($request, 'op')
+    if ($op -eq 'ocr') {
       $opArgs = [WorkforceHelper.Args]::Obj($request, 'args')
       if ($null -eq $opArgs) { $opArgs = New-Object 'System.Collections.Generic.Dictionary[string,object]' }
       $out = [WorkforceHelper.Dispatcher]::Ok($id, (Invoke-Ocr $opArgs))
     } else {
       $out = [WorkforceHelper.Dispatcher]::Handle($request)
     }
+    # Do not return image/text if the ordinary desktop stopped receiving input during capture.
+    if ($DefaultDesktopOnly -and ($op -eq 'screenshot' -or $op -eq 'ocr')) { [WorkforceHelper.SecureDesktop]::RequireDefault() }
   } catch {
     $exception = $_.Exception
     while ($null -ne $exception.InnerException -and -not ($exception -is [WorkforceHelper.HelperException])) { $exception = $exception.InnerException }

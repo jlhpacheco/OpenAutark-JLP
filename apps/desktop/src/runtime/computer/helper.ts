@@ -11,6 +11,7 @@
 import type { Logger } from '../contracts.ts';
 import type { Lease, Supervisor } from '../system/supervisor.ts';
 import { WorkforceError } from '../../shared/errors.ts';
+import { WINDOWS_DESKTOP_REFUSAL } from '../security/policy.ts';
 import { encodeRequest, errorCodeOf, HELPER_PROTOCOL, HUMAN_ACTIVE, LineDecoder, type HelperMessage, type HelperOp, type HelperReady } from './protocol.ts';
 
 /** What ComputerService needs from a helper (tests inject a fake). */
@@ -29,6 +30,8 @@ export interface WindowsHelperDeps {
   args?: string[];
   /** What a start failure says (default: the Windows PowerShell texts). */
   startFailure?: { exit: string; timeout: string; repeated: string };
+  /** Checked immediately before sending on a previously selected route (which can become stale while starting). */
+  allowRequest?: () => boolean;
   idleMs?: number; // default 5 min
   startTimeoutMs?: number; // default 45 s (Add-Type compiles the C# part once per process)
   now?: () => number;
@@ -70,6 +73,7 @@ export class WindowsHelper implements HelperClient {
     if (this.lease !== lease || lease.child.exitCode !== null) {
       throw new WorkforceError('unavailable', 'The computer-use helper stopped. Re-observe before trying again.');
     }
+    if (this.deps.allowRequest?.() === false) throw new WorkforceError('forbidden', WINDOWS_DESKTOP_REFUSAL);
     const id = ++this.sequence;
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT;
     lease.touch();
@@ -187,6 +191,7 @@ export class WindowsHelper implements HelperClient {
     this.lease?.touch();
     if (!entry) return; // late answer of a timed-out or cancelled request
     if (response.ok) entry.resolve(response.result);
+    else if (response.error.code === 'protected_desktop') entry.reject(new WorkforceError('forbidden', WINDOWS_DESKTOP_REFUSAL));
     else entry.reject(new WorkforceError(errorCodeOf(response.error.code), response.error.message, response.error.code === HUMAN_ACTIVE ? { details: { humanActive: true } } : {}));
   }
 

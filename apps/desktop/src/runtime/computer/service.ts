@@ -11,7 +11,7 @@
 // (activity.ts – the person's Stop refuses and ends input ops). B-044: agents may operate the
 // Workforce app's own window like any other – in Trust AI mode. Sicher-Runde 19.11.2026: in Secure mode the helper's
 // Guard holds Autark's process ids (its windows refuse input) and, for computer 'chosen', the apps input may reach
-// (helper.ts withGuardConfig, security/policy.ts guardConfig); the window list feeds security.apps (security/apps.ts).
+// (helper-route.ts with helper.ts withGuardConfig and security/policy.ts guardConfig; in Secure mode on Windows its own helper keeps to the Default desktop); the window list feeds security.apps (security/apps.ts).
 // B-055: the raw pointer and keyboard steps, their human-priority gate and the motion of the
 // pointer live in pointer-input.ts; one agent at a time holds mouse and keyboard (lease.ts), each
 // agent has its own ref table (one counter: a ref names one agent's observation), windows remember
@@ -27,10 +27,11 @@ import type { Host } from '../host.ts';
 import type { Supervisor } from '../system/supervisor.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import { finite, toScreen, validPoint, type Point, type Rect, type ShotGeometry } from './geometry.ts';
-import { CLOSED_GUARD, withGuardConfig, type HelperClient, type HelperGuard } from './helper.ts';
-import { guardConfig } from '../security/policy.ts';
+import type { HelperClient } from './helper.ts';
+import { HelperRoute } from './helper-route.ts';
+import { requiresDefaultWindowsDesktop, WINDOWS_DESKTOP_REFUSAL } from '../security/policy.ts';
 import { registerWindowApps } from '../security/apps.ts';
-import { createHelper, driverFor } from './drivers.ts';
+import { driverFor } from './drivers.ts';
 import { forbiddenCombo, parseCombo } from './keys.ts';
 import { helperShot, hostShot, type Screenshot } from './capture.ts';
 import { parseNodes, RefTable, renderTree, TREE_DEPTH, type RefCounter } from './tree.ts'; // B-080 wave 3: the one default depth
@@ -85,7 +86,7 @@ const MAX_REF_TABLES = 16;
 
 export class ComputerService {
   private readonly deps: ComputerDeps;
-  private helperClient: HelperClient | undefined;
+  private readonly route: HelperRoute;
   private guarded: HelperClient | undefined;
   /** What agents do on this PC and the person's Stop latch (MP7). */
   readonly activity: ComputerActivity;
@@ -100,7 +101,8 @@ export class ComputerService {
 
   constructor(deps: ComputerDeps) {
     this.deps = deps;
-    this.helperClient = deps.helper;
+    this.route = new HelperRoute({ platform: this.platform, supervisor: deps.supervisor, resourcesDir: deps.resourcesDir, log: deps.log,
+      unpacked: unpackedPath, helper: deps.helper, services: deps.services, secure: () => this.usesSecureWindowsHelper() });
     this.activity = new ComputerActivity({ now: () => this.now(), services: deps.services });
     this.windowMemory = new WindowMemory({ now: () => this.now() });
     this.lease = new PointerLease({ now: () => this.now(), titleOf: (hwnd) => this.windowMemory.titleOf(hwnd) });
@@ -123,8 +125,17 @@ export class ComputerService {
   /** Screenshots through the helper (Windows); elsewhere the host captures the screen. */
   private helperShots(): boolean { return this.platform === 'win32'; }
 
+  usesSecureWindowsHelper(): boolean {
+    if (!this.helperShots() || !this.deps.services) return false; // standalone/test service has no mode
+    try {
+      const security = this.deps.services().security;
+      return security ? requiresDefaultWindowsDesktop(security.current().mode) : false; // no security service: a test or standalone service
+    }
+    catch { return true; }
+  }
+
   async dispose(): Promise<void> {
-    await this.helperClient?.dispose();
+    await this.route.dispose();
   }
 
   // ------------------------------------------------------------------ observe
@@ -137,16 +148,18 @@ export class ComputerService {
     }
     let shot: Screenshot | undefined;
     if (this.helperShots()) {
+      const secure = this.usesSecureWindowsHelper();
       try {
         shot = await helperShot(this.helper(), { ...input, maxEdge }, this.now());
       } catch (error) {
-        if (!(error instanceof WorkforceError) || error.code !== 'unavailable' || input.window !== undefined || input.region || !this.deps.host.capture) throw error;
+        if (secure || this.usesSecureWindowsHelper() || !(error instanceof WorkforceError) || error.code !== 'unavailable' || input.window !== undefined || input.region || !this.deps.host.capture) throw error;
         this.deps.log.warn('helper screenshot failed, using the host capture', { error: error.message });
       }
     } else if (input.window !== undefined || input.region || input.ocr) {
       throw new WorkforceError('unavailable', `Window, region and text-recognition screenshots are only available on Windows for now (this PC runs ${platformName(this.platform)}).`);
     }
     shot ??= await hostShot(this.deps.host, input.display, maxEdge, this.now());
+    if (shot.source === 'host' && this.usesSecureWindowsHelper()) throw new WorkforceError('forbidden', WINDOWS_DESKTOP_REFUSAL);
     if (input.agentId) this.remember(input.agentId, shot);
     return shot;
   }
@@ -325,23 +338,10 @@ export class ComputerService {
   }
 
   private helper(): HelperClient {
-    this.helperClient ??= createHelper(this.platform, {
-      supervisor: this.deps.supervisor, resourcesDir: this.deps.resourcesDir, log: this.deps.log, unpacked: unpackedPath,
-    });
-    const guardedHelper = this.platform === 'win32' ? withGuardConfig(this.helperClient, () => this.guard()) : this.helperClient; // Sicher-Runde: the helper's Guard
-    this.guarded ??= this.input.counted(this.activity.wrapHelper(guardedHelper));
+    this.guarded ??= this.input.counted(this.activity.wrapHelper(this.route.client()));
     return this.guarded;
   }
 
-  /** Sicher-Runde: the helper's guard from the security settings (undefined before the runtime is wired); settings that cannot be read close input (fail closed). */
-  private guard(): HelperGuard | undefined {
-    let services: RuntimeServices | undefined;
-    try { services = this.deps.services?.(); } catch { services = undefined; }
-    if (!services?.security) return undefined;
-    const pids = [services.host?.app?.pid, process.pid, process.ppid].filter((pid): pid is number => typeof pid === 'number');
-    try { return guardConfig(services.security.current(), pids, services.security.openApps?.() ?? []); }
-    catch { return { ...CLOSED_GUARD, appPids: pids }; }
-  }
 
   /** Time: injected (tests), else the runtime clock, else the system clock (before wiring). */
   private now(): number {
@@ -384,9 +384,12 @@ export class ComputerService {
 
   /** Preview prefers the host capture (no extra process); the helper serves headless Windows PCs. */
   private async previewShot(display: number | undefined): Promise<Screenshot> {
-    if (this.deps.host.capture) {
+    if (this.deps.host.capture && !this.usesSecureWindowsHelper()) {
       // JPEG straight from the host: native encoding, no pixel work in the runtime (the UI scales it).
-      try { return await hostShot(this.deps.host, display, 1280, this.now(), 'jpeg'); } catch (error) {
+      try {
+        const shot = await hostShot(this.deps.host, display, 1280, this.now(), 'jpeg');
+        if (!this.usesSecureWindowsHelper()) return shot;
+      } catch (error) {
         if (!this.helperShots()) throw error;
       }
     }

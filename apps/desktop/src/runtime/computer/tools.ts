@@ -101,8 +101,8 @@ export function computerTools(computer: ComputerService): ToolDef[] {
       // B-080: a window draws itself into its picture, also where a click by coordinates would hit another window; a covered
       // browser draws no page (live 09.11.: the person's Chrome behind their app read as blank).
       if (shot.covered) lines.push('This window is behind another one or off the screen: the picture is the window itself, and a click by coordinates lands on what is in front there – I bring it forward first with computer.act focus_window. A browser behind another window may not draw its page.');
-      if (lockedDesktop()) lines.push('This is the Windows secure desktop (locked screen or UAC prompt). I reach it through the desktop broker with these same tools; on the sign-in screen "Sign-in options" leads to the password, which I type as its secret:// handle.');
-      const outOfReach = secureDesktopLine(); // F03: no broker after the setup at the app's start – why, and the one Yes that changes it
+      if (!computer.usesSecureWindowsHelper() && lockedDesktop()) lines.push('This is the Windows secure desktop (locked screen or UAC prompt). I reach it through the desktop broker with these same tools; on the sign-in screen "Sign-in options" leads to the password, which I type as its secret:// handle.');
+      const outOfReach = computer.usesSecureWindowsHelper() ? undefined : secureDesktopLine(); // F03: no broker after the setup at the app's start – why, and the one Yes that changes it
       if (outOfReach) lines.push(outOfReach);
       if (shot.ocr?.length) {
         lines.push('Recognised text (screen coordinates x,y width×height):');

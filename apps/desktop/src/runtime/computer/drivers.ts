@@ -43,6 +43,8 @@ export interface HelperDeps {
   python?: string;
   /** The desktop broker (default: the installed one, computer/broker.ts). */
   broker?: BrokerAccess;
+  secureWindows?: boolean;
+  allowRequest?: () => boolean;
 }
 
 /** The helper process client of `platform` (Windows default, Linux AT-SPI). */
@@ -59,6 +61,11 @@ export function createHelper(platform: NodeJS.Platform, deps: HelperDeps): Helpe
       },
     });
   }
+  const scriptPath = deps.unpacked(path.join(deps.resourcesDir, 'computer', 'windows-helper.ps1'));
+  if (deps.secureWindows) {
+    // This process never uses the broker transport; the switch is set at launch, not in request args.
+    return new WindowsHelper({ ...base, scriptPath, args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-DefaultDesktopOnly'] });
+  }
   const broker = deps.broker ?? localBroker();
   const supervisor: HelperDeps['supervisor'] = {
     spawn: (input) => {
@@ -69,5 +76,5 @@ export function createHelper(platform: NodeJS.Platform, deps: HelperDeps): Helpe
       return deps.supervisor.spawn(input);
     },
   };
-  return new WindowsHelper({ ...base, supervisor, scriptPath: deps.unpacked(path.join(deps.resourcesDir, 'computer', 'windows-helper.ps1')) });
+  return new WindowsHelper({ ...base, supervisor, scriptPath, allowRequest: deps.allowRequest });
 }
