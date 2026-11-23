@@ -10,6 +10,8 @@
 // 18.11.2026 (owner: the server is only the meeting point): the group's line says how devices connect and links the
 // privacy notice; the meeting server row says when its fallback is held (daily limit / paused); "Your own meeting server"
 // opens the setup dialog (own-server.tsx).
+// 0.3.19 (23.11.2026, owner: the waker must be switchable): "Wake while closed" (devices.wakeHelper) – off, no helper waits
+// while the app is closed, so neither Wake nor scheduled work starts it then.
 // Owns: these rows. Never: lets a device in without the person's Accept, or shows a key.
 
 import { relayAddress, type RelayState } from '../../shared/model/relay.ts';
@@ -17,7 +19,7 @@ import { time } from '../lib/format.ts';
 import { settings, updateSettings } from '../lib/store.ts';
 import { inHostedApp } from '../pwa/native.ts';
 import { openExternal } from '../lib/platform.ts';
-import { CONNECTION_LINE, IPHONE_LINK, phoneLinkHint, PRIVACY_URL, relayLine } from './connect-text.ts';
+import { CONNECTION_LINE, IPHONE_LINK, phoneLinkHint, PRIVACY_URL, relayLine, WAKE_HELPER_HINT } from './connect-text.ts';
 import { act, Group, Row, TextField, Toggle } from './controls.tsx';
 import { OwnServerButton } from './own-server.tsx';
 
@@ -35,6 +37,9 @@ export function ConnectionGroup(props: { relay?: RelayState; findable?: boolean 
     <Group title="Connection" id="settings-connection" hint={<>{CONNECTION_LINE} <a href={PRIVACY_URL} onClick={(event) => { event.preventDefault(); openExternal(PRIVACY_URL); }}>Privacy</a></>}>
       <Row label="Accept connection requests" reserve hint="Other PCs and your phone see this PC and ask; you accept each one">
         <Toggle label="Accept connection requests" checked={props.findable ?? devices?.findable ?? true} disabled={!devices} onChange={(findable) => void act(() => updateSettings({ devices: { findable } }), 'Could not save')} />
+      </Row>
+      <Row label="Wake while closed" reserve hint={WAKE_HELPER_HINT}>
+        <Toggle label="Wake while closed" checked={devices?.wakeHelper ?? true} disabled={!devices} onChange={(wakeHelper) => void act(() => updateSettings({ devices: { wakeHelper } }), 'Could not save')} />
       </Row>
       <Row label="Meeting server" reserve hint={relayLine(props.relay, devices?.relay ?? '')}>
         <TextField label="Meeting server" type="url" placeholder="wss://…" maxLength={300} value={devices?.relay ?? ''} disabled={!devices} onCommit={saveRelay} />

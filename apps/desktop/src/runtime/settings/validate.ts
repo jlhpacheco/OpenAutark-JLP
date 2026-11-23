@@ -163,6 +163,7 @@ export function validateSettings(s: Settings): void {
   if (s.devices.findable !== undefined) boolean(s.devices.findable, 'devices.findable'); // Remote (absent = on)
   if (s.devices.relay !== undefined && (typeof s.devices.relay !== 'string' || (s.devices.relay !== '' && relayAddress(s.devices.relay) !== s.devices.relay))) bad('devices.relay', 'a relay address (wss://…) or empty');
   if (s.devices.rtc !== undefined) boolean(s.devices.rtc, 'devices.rtc'); // F25 (absent = on)
+  if (s.devices.wakeHelper !== undefined) boolean(s.devices.wakeHelper, 'devices.wakeHelper'); // 0.3.19 (absent = on)
   const stun = s.devices.stun;
   if (stun !== undefined && (!Array.isArray(stun) || stun.length > 4 || stun.some((url) => typeof url !== 'string' || !STUN_URL.test(url)))) bad('devices.stun', 'up to 4 "stun:host:port" addresses, or [] (none)');
   if (s.lifecycle !== undefined) validateLifecycle(s.lifecycle); // LIFECYCLE: retention days

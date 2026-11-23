@@ -138,6 +138,11 @@ export interface DeviceSettings {
   /** F25: the STUN servers ("stun:host:port", ≤ 4) offered for it; empty = none (then only on the same network or
    * tailnet). Absent = DEFAULT_STUN (shared/model/relay.ts). */
   stun?: string[];
+  /**
+   * 0.3.19 (23.11.2026): "Wake while closed" – while the app is closed a small helper waits, so Wake from my phone or
+   * another PC and scheduled work start it again (Windows: kept alive by the desktop broker service). Absent = on.
+   */
+  wakeHelper?: boolean;
 }
 
 /** Partial deep update accepted by settings.update. */

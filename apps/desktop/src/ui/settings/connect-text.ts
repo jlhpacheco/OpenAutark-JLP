@@ -240,3 +240,6 @@ export function relayLine(relay: RelayState | undefined, address: string): strin
   if (relay?.status === 'error') return `Not connected${relay.error ? `: ${relay.error}` : ''}`;
   return 'Connecting…';
 }
+
+/** 0.3.19: Settings › Devices › Connection › "Wake while closed" (devices.wakeHelper). */
+export const WAKE_HELPER_HINT = 'While Autark is closed, a small helper waits so Wake from your phone or another PC and scheduled work start it again';

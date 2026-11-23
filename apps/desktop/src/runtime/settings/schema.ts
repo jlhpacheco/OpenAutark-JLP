@@ -158,6 +158,7 @@ export const SECTIONS: readonly SectionDef[] = [
     text('relay', 'Meeting server where PCs in other networks find each other by Remote ID (it only passes addresses)', '"wss://host", or "" (off); null = Autark\'s own', { default: DEFAULT_RELAY }),
     flag('rtc', 'Phone apps reach this PC directly over WebRTC, set up through the meeting server (also on mobile data); false = only through the meeting server or a direct socket on the same network', true),
     { key: 'stun', about: 'STUN servers the phone and this PC ask for their public address for WebRTC', type: 'array', allowed: 'up to 4 "stun:host:port" addresses; [] = none (then direct only on the same network or tailnet)', default: DEFAULT_STUN, schema: { maxItems: 4, items: { type: 'string', pattern: PATTERNS.stun } } },
+    flag('wakeHelper', 'Wake while closed: while the app is closed a small helper waits, so Wake from your phone or another PC and scheduled work start it again', true),
   ] },
   { key: 'pwa', title: 'Browsers on this network or the tailnet (the phone app comes through the meeting server; skill phone-access)', keys: [
     flag('enabled', 'Unused since B-078: a phone or browser gets in while its accepted row in Settings › Devices exists', false),

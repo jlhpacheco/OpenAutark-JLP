@@ -28,6 +28,7 @@ import path from 'node:path';
 import type { RuntimeServices } from '../contracts.ts';
 import { companyLabel } from '../../shared/model/companies.ts';
 import { WorkforceError } from '../../shared/errors.ts';
+import { keepWakeFile } from './wake-keeper.ts';
 import { connectNotice, nudgesMeeting } from './connect-signals.ts';
 import { admitMarks } from './company-admit.ts';
 import { companyCode, seatPerson, startCompanyFacts } from './company-facts.ts';
@@ -254,6 +255,7 @@ export function createDevices(input: DevicesInput): Devices {
   const offPower = s.host.onPower((event) => { if (nudgesMeeting(event)) meet.nudge(); });
   meet.start();
   mesh.setWaker(meet.relay); // 19.11.2026: a wake to an own PC's helper goes through this meeting-server connection (devices/wake.ts)
+  const offWakeFile = keepWakeFile({ s }); // 0.3.19: wake.json stays current while the app runs, so a helper after a hard end finds it
   remote.refresh();
 
   // Hands, eyes and the phone for agents (executed here or on a linked PC).
@@ -276,6 +278,6 @@ export function createDevices(input: DevicesInput): Devices {
   return {
     pwa, push, remote, meeting: meet, peer: listener, http,
     announceCaps,
-    stop: () => { offSettings(); offFacts(); offPower(); offPeoplePush(); offReadClear(); offPhones(); appPhones.stop(); bridge.closeAll(); mesh.setWaker(undefined); meet.stop(); remote.stop(); responder.close(); },
+    stop: () => { offSettings(); offWakeFile(); offFacts(); offPower(); offPeoplePush(); offReadClear(); offPhones(); appPhones.stop(); bridge.closeAll(); mesh.setWaker(undefined); meet.stop(); remote.stop(); responder.close(); },
   };
 }

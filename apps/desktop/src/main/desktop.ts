@@ -51,6 +51,7 @@ import { sessionEnded, watchSessionEnd } from './session-end.ts';
 import { guardAllContents, installSessionGuards } from './session-guards.ts';
 import { SettingsView, changedPreferences } from './settings-view.ts';
 import { quitSteps, runShutdown } from './shutdown.ts'; import { quitWake, sleeperScript } from './sleeper.ts'; // 19.11.2026: goodbye + wake helper
+import { applyWaker } from './waker.ts'; // 0.3.19: the broker's waker registration
 import { AppTray } from './tray.ts';
 import { DesktopUpdates, inactiveUpdater, loadUpdater, settleAfterStart, siblingUpdates, updateFromElsewhere } from './updates-wiring.ts';
 import { MainWindow } from './window.ts';
@@ -304,6 +305,7 @@ export async function startDesktop(options: DesktopOptions): Promise<Desktop> {
   const launcher = launcherDeps(app, { platform, testMode, name: productName, company, dataDir: paths.data, log: line => log.line(line) });
   // B-080: where the desktop broker is still missing, a start with a window asks Windows once for it (broker-setup.ts)
   setupBroker({ platform, packaged: app.isPackaged, testMode, background: options.background, root: paths.root, exe: process.execPath, log: line => log.line(line), report: setup => link.event('broker.setup', setup) }); // F03: how it ended, for the computer tools
+  const waker = { platform, packaged: app.isPackaged, testMode, localAppData: process.env.LOCALAPPDATA, exe: process.execPath, script: sleeperScript(path.dirname(paths.runtime)), dataDir: paths.data, args: companyArgs(company), log: (line: string) => log.line(line) };
   settings.onChange((next, previous) => {
     const changed = changedPreferences(next, previous);
     const prefs = settings.preferences();
@@ -311,6 +313,8 @@ export async function startDesktop(options: DesktopOptions): Promise<Desktop> {
     if (changed.includes('theme')) appWindow?.applyTheme(prefs.theme);
     if (changed.includes('openAtLogin')) void applyLauncher(prefs.openAtLogin, launcher); // B-044: "Keep agents running"
     if (changed.includes('autoDownloadUpdates')) desktopUpdates.autoDownloadChanged();
+    const wakeHelper = next.devices?.wakeHelper !== false; // 0.3.19: "Wake while closed" – the broker's waker registration (waker.ts)
+    if (!previous || wakeHelper !== (previous.devices?.wakeHelper !== false)) void applyWaker(wakeHelper, waker);
   });
 
   // ---------------------------------------------------------------- window

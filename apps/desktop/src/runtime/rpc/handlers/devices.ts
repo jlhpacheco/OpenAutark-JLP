@@ -18,12 +18,10 @@ import { callerDeviceName } from '../device-name.ts';
 import { isPhoneRoute } from '../../../shared/api/phone-route.ts';
 import type { HandlerContext, HandlerTable } from '../table.ts';
 import type { MeshApi } from '../extras.ts';
-import { relayAddress } from '../../../shared/model/relay.ts';
 import { AWAY_REASONS } from '../../devices/away.ts';
-import { meetingAddress } from '../../devices/connect.ts';
 import type { DeviceMesh } from '../../devices/mesh.ts';
-import { DevicesRepo } from '../../devices/repo.ts';
-import { wakeFileFor, wakeKey, writeWakeFile } from '../../devices/wake.ts';
+import { writeWakeFile } from '../../devices/wake.ts';
+import { currentWakeFile } from '../../devices/wake-keeper.ts';
 import { fromMain } from './security.ts';
 
 const BINDS: readonly Settings['pwa']['bind'][] = ['localhost', 'lan', 'tailscale'];
@@ -55,8 +53,7 @@ async function bye(params: unknown, ctx: HandlerContext): Promise<{ ok: true; sl
   const reason = optOneOf(o, 'reason', AWAY_REASONS) ?? bad('reason', 'quit, update or session-end');
   await meshOf(ctx).bye?.(reason);
   const s = ctx.services;
-  const relay = relayAddress(meetingAddress(s.settings.get().devices.relay) ?? '');
-  const written = writeWakeFile(s.paths.data, wakeFileFor({ relay, key: wakeKey(s.db, s.clock.now()), devices: new DevicesRepo(s.db).list({ kinds: ['pc', 'phone'] }) })); // W: my phones wake it too
+  const written = writeWakeFile(s.paths.data, currentWakeFile(s)); // W: my phones wake it too; 0.3.19: none while "Wake while closed" is off
   return { ok: true, sleeper: reason === 'quit' && written };
 }
 

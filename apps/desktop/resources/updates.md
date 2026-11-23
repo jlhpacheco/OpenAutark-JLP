@@ -24,6 +24,22 @@ first start. I fix it: at the first start of this version a Windows prompt asks 
 with Yes (or ask the person where I may not); where it got no Yes, a run of the same install.ps1 without -Check
 asks again.
 
+Wake while closed (owner 23.11.2026: Wake did nothing after Autark was ended in Task Manager): Wake from my phone or
+another PC and scheduled work now reach an Autark that is closed, also after a hard end. The app keeps
+<data>/wake.json current while it runs (not only at a quit), and on Windows registers its wake helper with the desktop
+broker (`%LOCALAPPDATA%\AutarkDesktopBroker\wakers\<key>.json`). The broker service starts that helper – the same
+Autark.exe as Node, as the person in their session – whenever neither the app nor a helper runs. The helper starts the
+app on a signed wake, or for work that comes due after the app was closed (not within 5 minutes of it). It never
+restarts a closed app on its own. Settings › Devices › Connection › "Wake while closed" (devices.wakeHelper, default on)
+switches it off. On macOS and Linux the helper still starts only after a quit from the app.
+
+**Wake does nothing although the app is closed.** Shows as: the PC is "Not reachable" and Wake answers that it is not
+waiting at the meeting server. I check: `devices.wakeHelper` is not false; <data>\wake.json exists; a registration
+file is in `%LOCALAPPDATA%\AutarkDesktopBroker\wakers`; `install.ps1 -Check` exits 0 (an old broker has no waker);
+%ProgramData%\AutarkDesktopBroker\broker.log has "waker … started helper" or names why not (no_wake_file, updating,
+installer, another user at the console); <data>\logs\sleeper.log says "waiting for a wake". I fix it: the broker
+first (see above), then start the app once – it writes both files.
+
 ## 0.3.18
 
 What changed: linked PCs and phones keep each other current by themselves – a message a shaky connection lost arrives

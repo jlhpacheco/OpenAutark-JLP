@@ -9,7 +9,11 @@
 // Sign-in after a restart (22.11.2026, SignIn.cs): at its start and at each console session change the service asks
 // SignInPolicy whether to sign the user in (a password stored, not suspended, nobody signed in, shortly after boot, not yet
 // tried this boot) and then starts the role "signin" in the console session on winsta0\winlogon; its exit code is recorded.
-// Owns: the service lifetime, the worker process, the sign-in process and the short broker.log in %ProgramData%\AutarkDesktopBroker.
+// Waker supervisor (23.11.2026, 0.3.19, Waker.cs): while the app is closed and the person turned the waker on, the service makes
+// sure one wake helper (Autark.exe as Node on sleeper.mjs, waiting for a signed wake from the phone) runs in the person's session,
+// started as the PERSON (WTSQueryUserToken), never as SYSTEM: a 15 s timer plus a poke at each session change. It never starts the
+// app, holds no network connection and never restarts an app the person ended on purpose (run-state.json says who ended it).
+// Owns: the service lifetime, the worker process, the sign-in process, the waker supervisor and the short broker.log in %ProgramData%\AutarkDesktopBroker.
 // Never: reads the key, opens the pipe or handles input (Worker.cs), or writes anything typed into the log.
 
 using System;
@@ -41,7 +45,8 @@ namespace AutarkBroker
             }
             if (role == "worker" && args.Length >= 3) return Worker.Run(args[1], args[2]);
             if (role == "signin" && args.Length >= 2) return SignInRunner.Run(args[1]);
-            Console.Error.WriteLine("usage: AutarkDesktopBroker.exe service <userSid> | worker <userSid> <keyFile> | signin <userSid>");
+            if (role == "waker-once" && args.Length >= 2) { new WakerSupervisor(args[1]).Tick(); return 0; } // one supervisor tick, for a check as SYSTEM (the service's own role runs it every 15 s)
+            Console.Error.WriteLine("usage: AutarkDesktopBroker.exe service <userSid> | worker <userSid> <keyFile> | signin <userSid> | waker-once <userSid>");
             return 2;
         }
 
@@ -75,10 +80,12 @@ namespace AutarkBroker
         DateTime startedAt;
         Timer retry;
         Process signIn;
+        readonly WakerSupervisor waker;
 
         public BrokerService(string userSid)
         {
             this.userSid = userSid;
+            waker = new WakerSupervisor(userSid);
             ServiceName = Program.ServiceName;
             CanStop = true;
             CanShutdown = true;
@@ -90,10 +97,12 @@ namespace AutarkBroker
         {
             Program.Log("service started");
             lock (gate) { StartWorker(); MaybeSignIn(); }
+            waker.Start();
         }
 
         protected override void OnStop()
         {
+            waker.Stop();
             lock (gate) { stopping = true; KillWorker(); }
             Program.Log("service stopped");
         }
@@ -105,6 +114,7 @@ namespace AutarkBroker
             lock (gate)
             {
                 if (stopping) return;
+                waker.Poke();
                 MaybeSignIn();
                 uint console = Native.WTSGetActiveConsoleSessionId();
                 bool alive = worker != null && !worker.HasExited;

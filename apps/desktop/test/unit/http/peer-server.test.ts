@@ -332,7 +332,7 @@ test('linked PCs and the peer settings', () => {
   assert.equal(hasLinkedPc([device({ status: 'offline' })]), true);
 
   const settings = defaultSettings({ locale: 'en-US', timezone: 'UTC' });
-  assert.deepEqual(settings.devices, { peer: 'lan', peerPort: 47812, findable: true, relay: DEFAULT_RELAY, rtc: true, stun: ['stun:stun.cloudflare.com:3478'] }); // F25: WebRTC way on, Cloudflare's STUN; B-072: Autark's own meeting server
+  assert.deepEqual(settings.devices, { peer: 'lan', peerPort: 47812, findable: true, relay: DEFAULT_RELAY, rtc: true, stun: ['stun:stun.cloudflare.com:3478'], wakeHelper: true }); // 0.3.19: Wake while closed on // F25: WebRTC way on, Cloudflare's STUN; B-072: Autark's own meeting server
   assert.throws(() => validateSettings({ ...settings, devices: { peer: 'wifi' as PeerMode, peerPort: 47812 } }), /devices\.peer/);
   assert.throws(() => validateSettings({ ...settings, devices: { peer: 'lan', peerPort: 70_000 } }), /devices\.peerPort/);
 });

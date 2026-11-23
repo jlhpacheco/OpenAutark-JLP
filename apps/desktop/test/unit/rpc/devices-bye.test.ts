@@ -37,7 +37,10 @@ test("devices.bye: main's link only; goodbye, then the helper's file – written
   assert.equal(written?.relay, 'wss://meet.example/autark');
   assert.deepEqual(written?.pins.map((pin) => pin.pub), [pub]);
   assert.deepEqual(await main.call('devices.bye', { reason: 'update' }), { ok: true, sleeper: false }, 'an update starts the app again itself');
-  assert.deepEqual(byes, ['quit', 'quit', 'update']);
+  f.services.settings.update({ devices: { wakeHelper: false } } as never); // 0.3.19: "Wake while closed" off
+  assert.deepEqual(await main.call('devices.bye', { reason: 'quit' }), { ok: true, sleeper: false }, 'the waker is off: no helper after the quit');
+  assert.equal(existsSync(file), false, 'and no file a helper could start from');
+  assert.deepEqual(byes, ['quit', 'quit', 'update', 'quit']);
   const bad = await main.request('devices.bye', { reason: 'gone' });
   assert.equal(bad.error?.code, 'bad_request');
   assert.deepEqual(await new TestClient(f.server, OWNER).call('devices.wake', { id: 'dev_tower0000001' }), { ok: true });
