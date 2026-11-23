@@ -83,11 +83,13 @@ test('Tasks page: head, quests, input line with time marks, For you, calendar sl
   const view = page.locator('.main-slot .tasks-page');
   await view.waitFor({ timeout: 15_000 });
   const header = view.locator('.tasks-header');
-  assert.match((await header.locator('.tasks-date').textContent())?.trim() ?? '', /^[A-Z][a-z]+day, [A-Z][a-z]+ \d{1,2}$/, 'the day as "Friday, November 20"');
+  assert.match((await header.locator('.day-line h2').textContent())?.trim() ?? '', /^[A-Z][a-z]+day, [A-Z][a-z]+ \d{1,2}$/, 'the day named for a screen reader: "Friday, November 20"');
+  assert.match(await header.locator('.day-dot.today.on').getAttribute('aria-label') ?? '', /^[A-Z][a-z]+day, [A-Z][a-z]+ \d{1,2} \(today\)$/, 'the day line: today chosen and marked');
+  assert.equal(await header.locator('.day-line-days .day-dot').count(), 7, 'a wide head holds a week of days');
   assert.deepEqual((await header.locator('.tasks-seg [role="tab"]').allTextContents()).map((text) => text.trim()), ['Day', 'Week']);
   assert.equal((await page.locator('.sidebar .frame-header-text').first().textContent())?.trim(), 'Quests');
   const fontOf = (locator) => locator.evaluate((el) => getComputedStyle(el).fontSize);
-  assert.equal(await fontOf(page.locator('.sidebar .frame-header-text').first()), await fontOf(header.locator('.tasks-date .frame-header-text')), '"Quests" the size of the page\'s title');
+  assert.equal(await fontOf(page.locator('.sidebar .frame-header-text').first()), '15px', '"Quests" in the page\'s heading size');
   await page.locator('.sidebar [data-cell="new-quest"]').waitFor();
   await view.locator('.task-input').waitFor();
   assert.match((await view.locator('.tasks-sec').first().textContent()) ?? '', /^For you\s*0$/);
@@ -202,7 +204,7 @@ test('Tasks page: head, quests, input line with time marks, For you, calendar sl
   for (const [text, inMinutes] of [['Steuerberater anrufen wegen der Umsatzsteuervoranmeldung', 60], ['Rechnungsprüfungsunterlagen zusammenstellen', 75]]) {
     await rpc.call('tasks.quickCreate', { text, at: Date.now() + inMinutes * 60_000, minutes: 30, private: true });
   }
-  await expectStable(page, ['.main-slot .tasks-head > button:first-child', '.main-slot .tasks-seg'], () => header.getByRole('tab', { name: 'Week' }).click());
+  await expectStable(page, ['.main-slot .day-line > .day-line-arrow', '.main-slot .tasks-seg'], () => header.getByRole('tab', { name: 'Week' }).click());
   await until(async () => (await view.locator('.cal-week .cal-wd').count()) === 7, 'seven days');
   const long = view.locator('.cal-wb', { hasText: 'Umsatzsteuervoranmeldung' }).locator('.cal-wb-title');
   await long.waitFor({ timeout: 15_000 });
@@ -276,11 +278,12 @@ test('Tasks page: head, quests, input line with time marks, For you, calendar sl
   assert.equal(await view.locator('.ai-list').count(), 0);
   await until(async () => (await overflow()) <= 1, `no horizontal page scroll at 1280 px (${await overflow()}px)`, 5_000);
 
-  // 9. The phone: one column (List | Calendar), quests as chips, the detail as its own view.
+  // 9. The phone: one column (Tasks | Calendar as two symbols beside the day line), quests as chips, the detail as its own view.
   await size(390, 844);
   const phone = page.locator('.mobile-shell .tasks-page');
   await phone.waitFor({ timeout: 15_000 });
-  assert.deepEqual((await phone.locator('.tasks-seg [role="tab"]').allTextContents()).map((text) => text.trim()), ['List', 'Calendar']);
+  assert.deepEqual(await phone.locator('.tasks-seg [role="tab"]').evaluateAll((tabs) => tabs.map((tab) => tab.getAttribute('aria-label'))), ['Tasks', 'Calendar']);
+  assert.ok(await phone.locator('.day-line-days .day-dot').count() >= 5, 'five days or more beside the arrows at 390 px');
   await phone.locator('.quest-chip', { hasText: 'Tax return 2026' }).waitFor();
   await until(async () => (await overflow()) <= 1, `no horizontal page scroll at 390 px (${await overflow()}px)`, 5_000);
   assert.deepEqual((await page.locator('.mobile-shell .tab-bar .tab-label').allTextContents()).map((text) => text.trim()), ['Tasks', 'Chats', 'Team'], 'one Tasks tab');

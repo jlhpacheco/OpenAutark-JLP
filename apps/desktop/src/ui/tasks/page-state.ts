@@ -1,7 +1,8 @@
 // The Tasks page's view state (Quests round 20.11.2026): what is open – a to-do's or quest's detail (in the main zone
 // the route's #/tasks/<id>, so Back closes it and a notification or search hit opens it; in the side pane a selection
-// of its own, so the pane never moves the main zone), the day shown (the route's ?date=, else today), Day | Week,
-// List | Calendar of a one-column page, "At work" and "Done today" open or closed, "Other" only, the one the route's
+// of its own, so the pane never moves the main zone), the day shown (the route's ?date=, else the day the person chose
+// last – kept across a switch to the chats and back, and in the app's storage for the rest of that day; owner 23.11.2026),
+// where the day line's arrows left it, Day | Week, Tasks | Calendar of a one-column page (kept the same way), "At work" and "Done today" open or closed, "Other" only, the one the route's
 // ?owner= narrows "At work" to, the to-do whose detail opens on its "Can't do" reason line, the task whose title takes
 // the caret ("Rename…"), and each page's input line (its text, files, addressee and "Only me" survive a switch to another
 // view; a calendar slot click reads it).
@@ -11,6 +12,7 @@ import { signal, type Signal } from '@preact/signals';
 import type { Attachment } from '../../shared/model/chat.ts';
 import type { QuickTaskTarget } from '../../shared/model/task-center.ts';
 import { back, formatRoute, navigate, route } from '../lib/router.ts';
+import { restoreView, type KeptView } from './day-strip.ts';
 import { NO_CHOICE, type PhraseChoice } from './input-model.ts';
 
 /** Where the page is drawn: the main zone (the route) or the side pane (its own state). */
@@ -24,6 +26,8 @@ export const doneOpen = signal(false);
 export const otherOnly = signal(false);
 /** A one-column page shows the list or the calendar. */
 export const oneColumn = signal<'list' | 'calendar'>('list');
+/** Where the day line's arrows left it (its first day), else null: around the chosen day (day-strip.ts). */
+export const linePaged: Record<PageScope, Signal<string | null>> = { main: signal(null), pane: signal(null) };
 /** The to-do whose detail shows the "Can't do" reason line (the menu's "Can't do…" opens it so). */
 export const declining = signal<string | null>(null);
 /** The task whose detail puts the caret into its title (the menu's "Rename…"). */
@@ -31,6 +35,8 @@ export const renaming = signal<string | null>(null);
 /** The side pane's own selection and day. */
 const paneSelected = signal<string | null>(null);
 const paneDate = signal<string | null>(null);
+/** The main zone's chosen day when the route names none (a tab switch drops ?date=; the page keeps the day). */
+const mainDate = signal<string | null>(null);
 
 /** The route's part of the page: the open task, the day, the one "At work" is narrowed to. */
 export function routePart(): { task?: string; date?: string; owner?: string } {
@@ -72,16 +78,50 @@ export function closeDetail(scope: PageScope): void {
 
 /** The day shown (YYYY-MM-DD), else null for today. */
 export function shownDay(scope: PageScope): string | null {
-  return scope === 'pane' ? paneDate.value : routePart().date ?? null;
+  return scope === 'pane' ? paneDate.value : routePart().date ?? mainDate.value;
 }
 
 /** Shows `date` (null: today) – the route's ?date= in the main zone. */
 export function showDay(scope: PageScope, date: string | null): void {
   if (scope === 'pane') { paneDate.value = date; return; }
+  mainDate.value = date;
   const current = route.peek();
   const base = current.view === 'tasks' ? current : { view: 'tasks' as const };
   const { date: _old, ...rest } = base;
   navigate(date ? { ...rest, date } : rest, { replace: true });
+}
+
+/** A day the route brought (a link, a notification): the page keeps it like a chosen one. */
+export function followRouteDay(): void {
+  const date = routePart().date;
+  if (date && date !== mainDate.peek()) mainDate.value = date;
+}
+
+const KEPT_KEY = 'wf.tasks.view';
+/** The today the page last saw (null: not yet this run). */
+let seenToday: string | null = null;
+
+/**
+ * The page's kept state for `today`: at the first call of a run, the view and (chosen today) the day it had before the
+ * app was reloaded; when the day has turned since, the main zone's chosen day and both lines' paging are let go.
+ */
+export function settleKept(today: string): void {
+  if (seenToday === today) return;
+  const first = seenToday === null;
+  seenToday = today;
+  if (!first) { mainDate.value = null; linePaged.main.value = null; linePaged.pane.value = null; return; }
+  let raw: unknown = null;
+  try { raw = JSON.parse(localStorage.getItem(KEPT_KEY) ?? 'null'); } catch { /* storage blocked or unreadable */ }
+  const kept = restoreView(raw, today);
+  if (!kept) return;
+  oneColumn.value = kept.view;
+  if (kept.date && !routePart().date) mainDate.value = kept.date;
+}
+
+/** Writes the main zone's view and chosen day to the app's storage (restoreView reads it back). */
+export function keepView(today: string): void {
+  const kept: KeptView = { view: oneColumn.peek(), date: mainDate.peek(), on: today };
+  try { localStorage.setItem(KEPT_KEY, JSON.stringify(kept)); } catch { /* storage blocked */ }
 }
 
 /** Clears the route's ?owner= ("At work" for everyone again). */

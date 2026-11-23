@@ -1,10 +1,12 @@
-/* The Tasks page (Quests round 20.11.2026; ui/tasks/TasksPage.tsx and its parts): the head (‹ › the day, Day | Week),
+/* The Tasks page (Quests round 20.11.2026; ui/tasks/TasksPage.tsx and its parts): the head (the day line, the month,
+   Day | Week or Tasks | Calendar), "Next" and a day's own lines,
    the list column – the input line with its time marks and chips, "For you", "Done today", "At work" – beside the
    calendar (or a detail, tasks-detail.css), the quest column in the sidebar and the quests as chips on a phone. One
    title size: 14 px in the lists. Nothing moves on a click or when data arrives: rows keep their box, the chips row
    is always one line, the side column keeps its width. The page's headers – the day and the quest column's "Quests" –
    are one size (15 px). A week's block breaks between words only (a long word is cut at its edge, never letter by letter).
-   Owns: tasks-*, task-input-*, task-chip, task-dot, todo-*, ai-*, cal-*, quest-* (the column, its header and its chips).
+   Owns: tasks-*, task-input-*, task-chip, task-dot, todo-*, ai-*, cal-*, quest-* (the column, its header and its chips),
+   day-line*, day-dot*, day-item-*, day-list, month-*, next-*.
    Never: colours outside tokens.css (quest colours are --wf-c1 … --wf-c8), the detail (tasks-detail.css). */
 
 .tasks-page { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; min-height: 0; background: var(--surface); }
@@ -14,18 +16,77 @@
 .tasks-side.single { flex: 1 1 auto; width: auto; border-left: 0; }
 .task-dot { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--qc, var(--muted)); }
 
-/* ---------------------------------------------------------------- head */
-.tasks-head { display: flex; align-items: center; gap: 2px; width: 100%; min-width: 0; }
-.tasks-date { min-width: 0; margin-left: 4px; padding: 2px 6px; border-radius: var(--r-sm); color: var(--text); text-align: left; }
-.tasks-date:hover:not(:disabled) { background: var(--hover); }
-.tasks-date:disabled { opacity: 1; cursor: default; }
-.tasks-date > .frame-header-text { overflow: hidden; font-size: calc(15px * var(--ui-text, 1)); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.frame-header.quest-nav-head .frame-header-text { font-size: calc(15px * var(--ui-text, 1)); font-weight: 600; line-height: max(20px, calc(20px * var(--ui-text, 1))); } /* the day's size, not the side zone's 17 px */
+/* ---------------------------------------------------------------- head: the day line (DayLine.tsx, owner 23.11.2026) */
+/* ‹ the days › the month, the view at the end. The days' track takes what is left (as many days as fit, measured);
+   a day is a circle under its weekday – today in the accent's colour, the chosen one filled, a past one quieter – with
+   a dot under it when it holds something (the free one keeps its box: nothing moves when data arrives). */
+.day-line { display: flex; align-items: center; gap: 2px; width: 100%; min-width: 0; }
+.day-line-arrow { flex: none; color: var(--secondary); }
+.day-line-days { display: flex; flex: 1 1 0; justify-content: space-between; min-width: 0; max-width: calc(7 * 40px); overflow: hidden; }
+.day-dot { display: flex; flex-direction: column; align-items: center; flex: none; width: 36px; padding: 0; color: var(--text); }
+.day-dot-wd { color: var(--muted); font-size: calc(10.5px * var(--ui-text, 1)); line-height: 12px; }
+.day-dot-n {
+  display: grid; place-items: center; width: 26px; height: 26px; margin-top: 1px; border-radius: 50%;
+  font-size: calc(13.5px * var(--ui-text, 1)); font-variant-numeric: tabular-nums; font-weight: 500;
+}
+.day-dot:hover .day-dot-n { background: var(--hover); }
+.day-dot.past .day-dot-n { color: var(--secondary); }
+.day-dot.today .day-dot-wd, .day-dot.today .day-dot-n { color: var(--badge-bg); font-weight: 700; }
+.day-dot.on .day-dot-n { background: var(--text); color: var(--surface); }
+.day-dot.on.today .day-dot-n { background: var(--badge-bg); color: var(--badge-fg); }
+.day-dot-busy, .day-dot-free { width: 4px; height: 4px; margin-top: 2px; border-radius: 50%; }
+.day-dot-busy { background: var(--muted); }
+.day-line-month { display: inline-flex; align-items: center; gap: 2px; flex: none; height: 28px; margin-left: 2px; padding: 0 6px 0 8px; border-radius: var(--r-sm); color: var(--text); font-size: calc(13px * var(--ui-text, 1)); font-weight: 600; }
+.day-line-month:hover, .day-line-month[aria-expanded=true] { background: var(--hover); }
 .tasks-seg { display: flex; flex: none; margin-left: auto; padding: 2px; border-radius: 9px; background: var(--hover); }
 .tasks-seg button { padding: 3px 12px; border-radius: 7px; color: var(--secondary); font-size: calc(13px * var(--ui-text, 1)); }
 .tasks-seg button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow-raised); }
-.tasks-toolbar { display: flex; flex: none; align-items: center; height: 48px; padding: 0 10px 0 6px; border-bottom: 1px solid var(--line); }
+.tasks-seg.icons button { display: grid; place-items: center; width: 32px; height: 28px; padding: 0; }
+.tasks-toolbar { display: flex; flex: none; align-items: center; min-height: 48px; padding: 2px 8px 2px 4px; border-bottom: 1px solid var(--line); }
 .tasks-toolbar .frame-header-text { font-size: calc(15px * var(--ui-text, 1)); font-weight: 600; }
+
+/* the small month (its popover) */
+.month-pop { width: 260px; padding: 8px; }
+.month-head { display: flex; align-items: center; justify-content: space-between; padding: 0 0 6px; }
+.month-title { font-size: calc(13.5px * var(--ui-text, 1)); font-weight: 600; }
+.month-grid { display: flex; flex-direction: column; gap: 2px; }
+.month-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); justify-items: center; }
+.month-wd { color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); line-height: 20px; }
+.month-day { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border-radius: 50%; color: var(--text); font-size: calc(13px * var(--ui-text, 1)); font-variant-numeric: tabular-nums; }
+.month-day:hover { background: var(--hover); }
+.month-day.out { color: var(--muted); opacity: .7; }
+.month-day.today { color: var(--badge-bg); font-weight: 700; }
+.month-day.on { background: var(--text); color: var(--surface); }
+.month-day.on.today { background: var(--badge-bg); color: var(--badge-fg); }
+.month-foot { display: flex; justify-content: flex-end; padding-top: 6px; }
+.month-today { padding: 4px 10px; border-radius: var(--r-sm); color: var(--text); font-size: calc(13px * var(--ui-text, 1)); }
+.month-today:hover:not(:disabled) { background: var(--hover); }
+.month-today:disabled { color: var(--muted); opacity: 1; cursor: default; }
+
+/* "Next" on today and a day's own lines (DayPreview.tsx) */
+.next-up { flex: none; padding: 6px 4px 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--sidebar); }
+.next-up-head { margin: 0; padding: 2px 8px; color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.next-up-lines { margin: 0; padding: 0; list-style: none; }
+.next-line { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 10px; width: 100%; padding: 4px 8px; border-radius: 8px; color: var(--text); font-size: calc(13.5px * var(--ui-text, 1)); text-align: left; }
+.next-line:hover { background: var(--hover); }
+.next-when { color: var(--secondary); white-space: nowrap; }
+.next-line.now .next-when { color: var(--badge-bg); font-weight: 600; }
+.next-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.day-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.day-line-item { display: grid; grid-template-columns: 44px 3px minmax(0, 1fr); align-items: start; gap: 10px; width: 100%; padding: 8px; border-radius: 9px; color: var(--text); text-align: left; }
+.day-line-item:hover:not(:disabled) { background: var(--hover); }
+.day-line-item:disabled { opacity: 1; cursor: default; }
+.day-item-time { padding-top: 1px; color: var(--secondary); font-size: calc(12.5px * var(--ui-text, 1)); }
+.day-item-mark { align-self: stretch; border-radius: 2px; background: var(--qc); }
+.day-line-item.event .day-item-mark { background: var(--field); }
+.day-line-item.ai .day-item-mark { border-left: 2px dotted var(--muted); background: transparent; }
+.day-item-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.day-item-title { font-size: calc(14px * var(--ui-text, 1)); line-height: 1.4; overflow-wrap: anywhere; }
+.day-line-item.done .day-item-title { color: var(--muted); }
+.day-line-item.ai .day-item-title { color: var(--secondary); font-size: calc(13px * var(--ui-text, 1)); }
+.day-item-who { color: var(--muted); font-size: calc(12px * var(--ui-text, 1)); }
+.cal-grid.read-only .cal-slot { cursor: default; }
+.cal-grid.read-only .cal-slot:hover { background: none; }
 
 /* ---------------------------------------------------------------- the input line */
 .task-input { display: flex; flex-direction: column; gap: 4px; flex: none; padding: 6px 8px 6px 4px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow-composer); }
@@ -178,9 +239,12 @@ li.tasks-sec.later { margin-top: 6px; list-style: none; }
 
 /* ---------------------------------------------------------------- one column, touch, phone */
 .tasks-page.narrow .tasks-list { padding: 12px 14px 24px; }
-.tasks-page.in-pane .tasks-toolbar { height: 44px; }
+.tasks-page.in-pane .tasks-toolbar { min-height: 44px; }
 @media (pointer: coarse) {
   .todo-row { padding-block: 12px; }
+  .day-dot-n { width: 30px; height: 30px; }
+  .day-line-item { padding-block: 10px; }
+  .month-day { width: 40px; height: 40px; }
   .todo-check { width: 24px; height: 24px; }
   .quest-chip { height: 34px; }
 }

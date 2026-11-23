@@ -6,7 +6,8 @@
 // that time (never a time for open agent work). A click into a free time with text in the input line adds that line
 // there; without text it puts the caret into the line. A click on a block opens its detail – where this calendar was.
 // A week's block shows its title whole words at a time (a long word is cut at the column's edge, never split letter by
-// letter; its tooltip has it all).
+// letter; its tooltip has it all). The day's head names it ("Monday, November 23"; the page's head is the day line
+// now); a past day is only read (no slot clicks, no drags).
 // Owns: the grid's markup, the drag and the slot click. Never: what a day shows (calendar-model.ts) or the calls.
 
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
@@ -17,7 +18,7 @@ import { DAY_MINUTES, HOUR_PX, atMinute, clickSpan, dayView, dragged, spanClock,
 import { moveRow } from './page-actions.ts';
 import { lineOf, openDetail, workOpen, type PageScope } from './page-state.ts';
 import { submitLine } from './TaskInput.tsx';
-import { dayWord, weekdayOf } from './when-text.ts';
+import { dayWord, headTitle, weekdayOf } from './when-text.ts';
 import { wallOf } from '../../shared/text/when.ts';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -33,9 +34,11 @@ export interface CalendarProps {
   now: number;
   /** The quest a slot's to-do goes into (its detail is open). */
   quest?: Task;
+  /** A past day: only to read – a click into the hours adds nothing, a block does not move. */
+  readOnly?: boolean;
 }
 
-function Block(props: { entry: Laned; scope: PageScope; date: string; drag: { id: string; dy: number } | null; onDrag: (id: string | null, dy: number) => void }) {
+function Block(props: { entry: Laned; scope: PageScope; date: string; readOnly: boolean; drag: { id: string; dy: number } | null; onDrag: (id: string | null, dy: number) => void }) {
   const { item, lane, lanes } = props.entry;
   const start = useRef<{ y: number; moved: boolean } | null>(null);
   const dy = props.drag?.id === item.id ? props.drag.dy : 0;
@@ -45,7 +48,7 @@ function Block(props: { entry: Laned; scope: PageScope; date: string; drag: { id
     left: `calc(${(lane / lanes) * 100}% + 2px)`, width: `calc(${100 / lanes}% - 4px)`,
   };
   const open = () => { if (item.taskId) openDetail(props.scope, item.taskId); };
-  const movable = Boolean(item.row);
+  const movable = Boolean(item.row) && !props.readOnly;
   return (
     <div class={`cal-block ${item.kind}${dy ? ' dragging' : ''}`} style={style} role={item.taskId ? 'button' : undefined} tabIndex={item.taskId ? 0 : undefined}
       title={`${spanClock(item.span)} ${item.title}`}
@@ -99,6 +102,7 @@ function DayGrid(props: CalendarProps) {
     if (scroller.current) scroller.current.scrollTop = px(Math.max(0, (today ? nowMinute : 8 * 60) - 90));
   }, [props.date]);
   const slot = (event: MouseEvent) => {
+    if (props.readOnly) return;
     const target = (event.target as HTMLElement).closest<HTMLElement>('[data-minute]');
     if (!target) return;
     const at = atMinute(props.date, clickSpan(Number(target.dataset.minute)).start, zone);
@@ -115,7 +119,7 @@ function DayGrid(props: CalendarProps) {
         ))}
       </div>
       <div class="cal-scroll" ref={scroller}>
-        <div class={`cal-grid${workOpen.value ? ' ai' : ''}`} style={{ height: `${px(DAY_MINUTES)}px` }} onClick={slot}>
+        <div class={`cal-grid${workOpen.value ? ' ai' : ''}${props.readOnly ? ' read-only' : ''}`} style={{ height: `${px(DAY_MINUTES)}px` }} onClick={slot}>
           {Array.from({ length: 24 }, (_, hour) => (
             <div key={hour} class="cal-hour" style={{ top: `${hour * HOUR_PX}px` }}><span>{hour ? `${String(hour).padStart(2, '0')}:00` : ''}</span></div>
           ))}
@@ -123,7 +127,7 @@ function DayGrid(props: CalendarProps) {
             <div key={`s${half}`} class="cal-slot" data-minute={half * 30} style={{ top: `${half * HOUR_PX / 2}px`, height: `${HOUR_PX / 2}px` }} />
           ))}
           <div class="cal-blocks">
-            {view.blocks.map((entry) => <Block key={entry.item.id} entry={entry} scope={props.scope} date={props.date} drag={drag} onDrag={(id, dy) => setDrag(id ? { id, dy } : null)} />)}
+            {view.blocks.map((entry) => <Block key={entry.item.id} entry={entry} scope={props.scope} date={props.date} readOnly={!!props.readOnly} drag={drag} onDrag={(id, dy) => setDrag(id ? { id, dy } : null)} />)}
           </div>
           {workOpen.value && view.ai.map((item) => <AiMark key={item.id} item={item} scope={props.scope} />)}
           {today && <div class="cal-now" style={{ top: `${px(nowMinute)}px` }} aria-hidden="true" />}
@@ -171,7 +175,7 @@ export function TaskCalendar(props: CalendarProps) {
   return (
     <section class="task-cal" aria-label="Calendar">
       <div class="cal-head">
-        <span>{week ? `Week of ${dayWord(weekOf(props.date)[0], props.today)}` : workOpen.value ? 'Calendar · AI lane on' : 'Calendar'}</span>
+        <span>{week ? `Week of ${dayWord(weekOf(props.date)[0], props.today)}` : `${headTitle(props.date)}${workOpen.value ? ' · AI lane on' : ''}`}</span>
         <span>{week ? '✓ = done' : 'Logbook before now'}</span>
       </div>
       {week ? <WeekGrid {...props} /> : <DayGrid {...props} />}
