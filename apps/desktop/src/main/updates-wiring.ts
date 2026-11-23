@@ -27,7 +27,7 @@ import { appBundleOf, macSelfUpdater, settleMacUpdate, type FeedFile } from './u
 import { UpdateService } from './updates/update-service.ts';
 import type { Updater } from './updates/update-service.ts';
 import { allowInstallerRetry } from './updates/install-retry.ts';
-import { HELPER_LOG, installWithHelper, linuxHelper, spawnHelper, windowsHelper } from './updates/install-helper.ts';
+import { HELPER_LOG, QUIT_MS, installWithHelper, linuxHelper, spawnHelper, windowsHelper } from './updates/install-helper.ts';
 
 export interface DesktopUpdatesDeps {
   updater: Updater;
@@ -49,7 +49,7 @@ export interface DesktopUpdatesDeps {
     bye?(reason: 'update'): Promise<unknown>;
   };
   /** B-080 (installFile): this app's process, executable, AppImage (Linux) and logs folder, and its quit; absent: no install from a file. */
-  install?: { pid: number; exe: string; appImage?: string; logs: string; quit(): void; spawn?: typeof spawnHelper; exists?(file: string): boolean; args?: readonly string[] }; // F25: args – this company's start arguments
+  install?: { pid: number; exe: string; appImage?: string; logs: string; quit(): void; exit?(): void; spawn?: typeof spawnHelper; exists?(file: string): boolean; args?: readonly string[] }; // F25: args – this company's start arguments
   publish(state: UpdateState): void;
   /** The system browser for the manual download (desktop.ts passes electron's shell; default: loaded on first use). Only https reaches it. */
   openExternal?(url: string): Promise<void>;
@@ -338,7 +338,7 @@ export class DesktopUpdates {
       this.deps.log?.('installing a build from a file');
       (own.spawn ?? spawnHelper)(launch, own.logs, {
         // Arm before quit: a synchronous exception in quit must not leave a drained runtime without a watchdog.
-        started: () => { this.watchInstall(); own.quit(); },
+        started: () => { this.watchInstall(); this.endHard(own); own.quit(); },
         failed: () => { this.deps.log?.('install helper did not start; resuming'); this.cancelInstall(); },
         ended: () => {},
       });
@@ -348,6 +348,19 @@ export class DesktopUpdates {
       if (!held) void this.deps.runtime.prepareRestart(true).catch(() => {}); // B-080: it answers the install record it kept
       throw error;
     }
+  }
+
+  /**
+   * 23.11.2026: app.install from 0.3.16 drained the runtime, closed its log and called app.quit at 12:30:33 – and the process
+   * lived on past the helper's 45 s, so nothing installed and nothing started again until a person opened the app at 15:53.
+   * The update's own path (install-helper.ts installWithHelper) ends a quit that has not ended the app within QUIT_MS with
+   * app.exit; a build from a file does the same now, armed before the quit so a throwing quit is covered too.
+   */
+  private endHard(own: NonNullable<DesktopUpdatesDeps['install']>): void {
+    if (!own.exit) return;
+    const fire = (): void => { this.deps.log?.('the quit did not end the app; ending it for the install'); own.exit?.(); };
+    if (this.deps.setTimer) this.deps.setTimer(fire, QUIT_MS);
+    else setTimeout(fire, QUIT_MS).unref?.();
   }
 
   /**

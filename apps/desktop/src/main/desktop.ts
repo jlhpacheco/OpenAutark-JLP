@@ -287,7 +287,7 @@ export async function startDesktop(options: DesktopOptions): Promise<Desktop> {
       stop: reason => link.stop(reason), bye: (reason) => link.rpc.call('devices.bye', { reason }), // 19.11.2026: linked PCs hear "Updating…"
       start: () => link.start(),
     },
-    install: { pid: process.pid, exe: process.execPath, appImage: process.env.APPIMAGE, logs: paths.logs, quit: () => app.quit(), args: companyArgs(company) }, // B-080: installFile
+    install: { pid: process.pid, exe: process.execPath, appImage: process.env.APPIMAGE, logs: paths.logs, quit: () => app.quit(), exit: () => app.exit(0), args: companyArgs(company) }, // B-080: installFile; 23.11.2026: exit ends a quit that hangs
     publish: state => {
       renderer.send(IPC.updateState, state);
       link.event('update.state', state);

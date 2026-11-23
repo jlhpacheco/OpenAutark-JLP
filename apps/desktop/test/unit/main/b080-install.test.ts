@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { DesktopUpdates, INSTALL_FILE_WATCHDOG_MS } from '../../../src/main/updates-wiring.ts';
-import type { HelperLaunch } from '../../../src/main/updates/install-helper.ts';
+import { QUIT_MS, WAIT_SECONDS, type HelperLaunch } from '../../../src/main/updates/install-helper.ts';
 import { HostServices, type HostServicesDeps } from '../../../src/main/host-services.ts';
 import { setupBroker, type BrokerSetupDeps } from '../../../src/main/broker-setup.ts';
 import { HostBridgeClient } from '../../../src/runtime/host-electron.ts';
@@ -64,6 +64,36 @@ test('installFile: an app that does not end after the quit request takes its wor
   assert.ok(logs.includes('update install cancelled; resumed'));
   dog.fn();
   assert.equal(h.order.filter((entry) => entry === 'start').length, 1, 'a second firing changes nothing');
+  h.updates.dispose();
+});
+
+// 23.11.2026: app.install from 0.3.16 called app.quit at 12:30:33, the process lived on past the helper's 45 s and nothing
+// started again until 15:53. A quit that has not ended the app within QUIT_MS now ends it hard, as the update's own path does.
+test('installFile: a quit that does not end the app is ended hard before the helper gives up', async () => {
+  const h = installing();
+  const exits: string[] = [];
+  const logs: string[] = [];
+  const timers: Array<{ fn: () => void; ms: number }> = [];
+  h.deps.install!.exit = () => exits.push('exit');
+  h.deps.log = (line) => logs.push(line);
+  h.deps.setTimer = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+  await h.updates.installFile(INSTALLER);
+  const hard = timers.find((timer) => timer.ms === QUIT_MS);
+  assert.ok(hard, 'armed with the quit request');
+  assert.ok(QUIT_MS < WAIT_SECONDS * 1000 && QUIT_MS < INSTALL_FILE_WATCHDOG_MS, 'before the helper gives up and before the watchdog resumes');
+  assert.deepEqual(exits, []);
+  hard.fn();
+  assert.deepEqual(exits, ['exit']);
+  assert.ok(logs.some((line) => /ending it for the install/.test(line)));
+  h.updates.dispose();
+});
+
+test('installFile: without an exit (a test wiring) no hard end is armed', async () => {
+  const h = installing();
+  const timers: number[] = [];
+  h.deps.setTimer = (_fn, ms) => { timers.push(ms); return timers.length; };
+  await h.updates.installFile(INSTALLER);
+  assert.ok(!timers.includes(QUIT_MS));
   h.updates.dispose();
 });
 
