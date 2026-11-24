@@ -187,6 +187,14 @@
 }
 .rail-top { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: none; }
 .rail-item { position: relative; display: grid; }
+/* feedback 20031F6D: arranging the rail (shell/rail-order.ts) – the drop marker is a line on the side the dragged one
+   lands, drawn in the 6px gap, and the dragged one fades; nothing in the rail moves until the drop */
+.rail-item.dragging { opacity: .45; }
+.rail-item.drop-before::before, .rail-item.drop-after::after {
+  content: ''; position: absolute; left: 4px; right: 4px; height: 2px; border-radius: 1px; background: var(--focus); pointer-events: none;
+}
+.rail-item.drop-before::before { top: -4px; }
+.rail-item.drop-after::after { bottom: -4px; }
 .rail-badge {
   position: absolute; top: 1px; right: -3px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
   background: var(--badge-bg); color: var(--badge-fg); box-shadow: 0 0 0 2px var(--chrome);

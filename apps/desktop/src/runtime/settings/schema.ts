@@ -24,6 +24,9 @@ const isPlain = (value: unknown): value is Plain => typeof value === 'object' &&
 /** The JSON Schema written beside settings.json. */
 export const SETTINGS_SCHEMA_FILE = 'settings.schema.json';
 
+/** preferences.navOrder: the most destination keys kept. */
+export const NAV_ORDER_MAX = 20;
+
 /** B-078: profile.notes, the AI's note on how the person wants to be spoken to. */
 export const NOTES_MAX = 600;
 
@@ -75,6 +78,7 @@ export const PATTERNS = {
   language: '^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$',
   provider: '^[a-z][a-z0-9-]{1,39}$',
   googleClientId: '^[A-Za-z0-9._-]{1,200}$',
+  navKey: '^[a-z][a-z0-9-]{0,39}$',
   stun: '^stun:([A-Za-z0-9.-]{1,253}|\\[[0-9A-Fa-f:.]{2,45}\\])(:[0-9]{1,5})?$',
 } as const;
 
@@ -114,6 +118,11 @@ export const SECTIONS: readonly SectionDef[] = [
     flag('enterSends', 'Enter sends a message, Shift+Enter starts a new line (false: Ctrl+Enter sends)', true),
     flag('openAtLogin', 'Whether the app starts with the PC', false),
     flag('autoDownloadUpdates', 'New versions download by themselves', false),
+    // Feedback 20031F6D (owner 21.11.2026): the person's own order of the rail (ui/shell/nav-order.ts); keys a version
+    // does not know are left out there and its new destinations follow the named ones, so any list of keys is fine here.
+    { key: 'navOrder', about: 'Your order of the main destinations in the left rail and the phone tabs (drag them in the rail, or right-click › Reset order)', type: 'array',
+      allowed: `a list of destination keys such as "tasks", "chats", "team" (up to ${NAV_ORDER_MAX}), or [] (the default order)`, default: [],
+      schema: { maxItems: NAV_ORDER_MAX, items: { type: 'string', pattern: PATTERNS.navKey } } },
   ] },
   { key: 'notifications', title: 'Notifications (to-dos for you, blockers and important messages always arrive)', keys: [
     flag('enabled', 'Desktop notifications for replies and finished work (the ones that always arrive are not affected)', true),

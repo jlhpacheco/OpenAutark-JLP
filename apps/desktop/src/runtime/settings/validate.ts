@@ -17,7 +17,7 @@ import { validateRouting } from '../routing/uses-settings.ts';
 import { validateLifecycle } from '../knowledge/lifecycle-settings.ts';
 import { clockMinutes } from '../../shared/model/day-settings.ts';
 import { MAX_WORDS } from '../../shared/voice/vocabulary.ts';
-import { NOTES_MAX, PATTERNS, SECTIONS, optionsOf, rangeOf } from './schema.ts';
+import { NAV_ORDER_MAX, NOTES_MAX, PATTERNS, SECTIONS, optionsOf, rangeOf } from './schema.ts';
 
 const STUN_URL = new RegExp(PATTERNS.stun); // F25: settings.devices.stun
 import { validateSecurity } from './security-keys.ts';
@@ -105,6 +105,7 @@ function validTimezone(zone: unknown): boolean {
 const HHMM = new RegExp(PATTERNS.clock);
 const LANGUAGE = new RegExp(PATTERNS.language);
 const GOOGLE_CLIENT_ID = new RegExp(PATTERNS.googleClientId);
+const NAV_KEY = new RegExp(PATTERNS.navKey);
 
 /** Validates a complete Settings object (after merging). Throws WorkforceError('bad_request'). */
 export function validateSettings(s: Settings): void {
@@ -122,6 +123,9 @@ export function validateSettings(s: Settings): void {
   intIn(ui.sidebarWidth, 'preferences.sidebarWidth');
   intIn(ui.workspaceWidth, 'preferences.workspaceWidth');
   for (const key of ['sidebarOpen', 'workspaceOpen', 'enterSends', 'openAtLogin', 'autoDownloadUpdates'] as const) boolean(ui[key], `preferences.${key}`);
+  if (ui.navOrder !== undefined && (!Array.isArray(ui.navOrder) || ui.navOrder.length > NAV_ORDER_MAX || ui.navOrder.some((key) => typeof key !== 'string' || !NAV_KEY.test(key)))) {
+    bad('preferences.navOrder', `a list of up to ${NAV_ORDER_MAX} destination keys such as "tasks"`);
+  }
 
   const n = s.notifications;
   boolean(n.enabled, 'notifications.enabled');

@@ -31,6 +31,8 @@ export interface Preferences {
   enterSends: boolean;
   openAtLogin: boolean;
   autoDownloadUpdates: boolean;
+  /** The person's order of the rail's destinations (ui/shell/nav-order.ts); [] or absent = the default order. */
+  navOrder?: string[];
 }
 
 export interface NotificationSettings {

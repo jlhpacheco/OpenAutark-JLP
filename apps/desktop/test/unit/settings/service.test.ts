@@ -130,3 +130,16 @@ test('a first run stopped on a card that became "About you" (team, voice) reads 
     try { assert.equal(settings.get().onboarding.step, 'about', step); } finally { done(); }
   }
 });
+
+test('preferences.navOrder (feedback 20031F6D): starts [], keeps any list of destination keys, refuses what is not one, [] resets', () => {
+  const { settings } = setup();
+  assert.deepEqual(settings.get().preferences.navOrder, []);
+  assert.deepEqual(settings.update({ preferences: { navOrder: ['team', 'tasks', 'chats'] } }).preferences.navOrder, ['team', 'tasks', 'chats']);
+  // a key this version does not have (an older or newer one's) is kept: the rail leaves it out (ui/shell/nav-order.ts)
+  assert.deepEqual(settings.update({ preferences: { navOrder: ['files', 'team'] } }).preferences.navOrder, ['files', 'team']);
+  for (const navOrder of ['team', [7], ['Team!'], Array.from({ length: 21 }, (_, i) => `k${i}`)]) {
+    assert.throws(() => settings.update({ preferences: { navOrder } } as never), (error: unknown) => error instanceof WorkforceError && error.code === 'bad_request');
+  }
+  assert.deepEqual(settings.get().preferences.navOrder, ['files', 'team'], 'a refused patch changes nothing');
+  assert.deepEqual(settings.update({ preferences: { navOrder: [] } }).preferences.navOrder, []);
+});

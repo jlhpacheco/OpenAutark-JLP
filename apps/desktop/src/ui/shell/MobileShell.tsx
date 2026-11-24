@@ -1,6 +1,6 @@
 // Phone layout (PWA, narrow windows): the same frame as a stack – one top row, the status line
 // over the body's top, the body, the bottom tabs – all from shell/views.ts phoneView. Tabs in the rail's
-// order (Tasks – also the 'home' route, with the For-you badge – · Chats · Team); a chat, an agent, a person or Team ›
+// order (the person's, rail-order.ts navOrder; by default Tasks – also the 'home' route, with the For-you badge – · Chats · Team); a chat, an agent, a person or Team ›
 // Activity is pushed on top (Back, no tab bar) – and a to-do's or quest's detail on the Tasks page, which takes the
 // list's place (its Close leads back), and Settings (the list and a section,
 // Back in the frame's row) have no tab bar either: every screen with Back looks the same (C3 D-3). The top
@@ -40,7 +40,6 @@ import { navigate } from '../lib/router.ts';
 import type { Route } from '../lib/router.ts';
 import { platform } from '../lib/platform.ts';
 import { DESTINATIONS } from '../lib/vocab.ts';
-import type { NavKey } from '../lib/vocab.ts';
 import { paletteOpen } from '../lib/shell-state.ts';
 import { feedbackCell } from '../feedback/cell.tsx';
 import { workspaceAttention } from '../workspace/attention.ts';
@@ -57,15 +56,17 @@ import { ProfileButton } from './ProfileMenu.tsx';
 import { UpdateButton } from './UpdateButton.tsx';
 import { StatusLine } from './StatusLine.tsx';
 import { phoneView } from './views.ts';
+import type { RailKey } from './nav-order.ts';
+import { navOrder } from './rail-order.ts';
 import type { PhoneView } from './views.ts';
 
-interface Tab { key: NavKey; icon: IconName; route: Route; match: (r: Route) => boolean }
+interface Tab { key: RailKey; icon: IconName; route: Route; match: (r: Route) => boolean }
 
-const tabs: Tab[] = [
-  { key: 'tasks', icon: 'list-checks', route: { view: 'tasks' }, match: (r) => r.view === 'tasks' || r.view === 'home' },
-  { key: 'chats', icon: 'chat-circle', route: { view: 'chats' }, match: (r) => r.view === 'chats' || r.view === 'chat' },
-  { key: 'team', icon: 'users-three', route: { view: 'team' }, match: (r) => r.view === 'team' },
-];
+const TABS: Readonly<Record<RailKey, Tab>> = {
+  tasks: { key: 'tasks', icon: 'list-checks', route: { view: 'tasks' }, match: (r) => r.view === 'tasks' || r.view === 'home' },
+  chats: { key: 'chats', icon: 'chat-circle', route: { view: 'chats' }, match: (r) => r.view === 'chats' || r.view === 'chat' },
+  team: { key: 'team', icon: 'users-three', route: { view: 'team' }, match: (r) => r.view === 'team' },
+};
 
 const UPDATE: HeaderCell = { id: 'update', slot: <UpdateButton compact /> };
 const PROFILE: HeaderCell = { id: 'profile', slot: <ProfileButton size={30} placement="bottom-end" /> };
@@ -121,6 +122,7 @@ export function MobileShell() {
   // frame's rows with Back – the settings list (Back to Home) and a settings section (Back to all settings)
   const pushed = view.pushed || view.back !== null || (current.view === 'tasks' && !!current.task);
   const badge = forYouCount.value;
+  const tabs = navOrder.value.map((key) => TABS[key]);
   return (
     <div class={`mobile-shell${pushed ? ' pushed' : ''}${view.ownHeader ? ' own-header' : ''}`}>
       {!view.ownHeader && <TopRow key={view.key} view={view} />}
