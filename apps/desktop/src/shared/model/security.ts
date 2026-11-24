@@ -135,6 +135,8 @@ export interface SecretImportSummary {
   unchanged: number;
   differing: number;
   skipped: number;
+  /** 0.3.20 (feedback 9A50C098): every entry not imported, by name with the reason – never a value; at most 50 (the counts cover all). */
+  notImported?: Array<{ name: string; reason: string; outcome: 'skipped' | 'failed' }>;
   /** Not stored, or stored only in part (a login whose unreadable 2FA key was left out also counts in added). */
   failed: number;
   /** 04.11.2026: new entries that came with their own description (the app's export) – the review leaves them; absent when none. */

@@ -69,6 +69,9 @@ export function kindForName(name: string): 'token' | 'password' | 'api_key' {
 
 const SECRET_NAME = /key|token|secret|pass|pwd|auth(?!or(?:_|$))|credential|private|session|cookie|signature|salt|dsn|webhook|jwt|bearer|cert|otp|(?:^|_)pat(?:_|$)/i;
 const PLAIN_END = /(?:^|_)(?:url|uri|host|port|path|dir|file|endpoint|domain|timeout|ttl|enabled)$/i;
+const ID_NAME = /(?:^|_)id$/i;
+/** A long token-shaped value: letters and digits with "." "_" "~" "-" only, no space, no "/" or ":" (so no path or address); see credentialShaped. */
+const CREDENTIAL_SHAPE = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9._~-]{32,}={0,2}$/;
 const PASSWORD_URL = /:\/\/[^\s/@:]*:[^\s/@]+@/;
 
 /**
@@ -80,4 +83,31 @@ export function isSecretPair(pair: KeyValue): boolean {
   if (PASSWORD_URL.test(pair.value)) return true;
   const name = pair.name.replace(/([a-z\d])([A-Z])/g, '$1_$2').replace(/[.-]/g, '_'); // apiKeyFile → api_Key_File
   return SECRET_NAME.test(name) && (!PLAIN_END.test(name) || /webhook|dsn/i.test(name));
+}
+
+/** Credential-like, not a slug: the CREDENTIAL_SHAPE and either a fifth of it digits (hex ids) or both letter cases (base64 ids) – a hyphenated word list with a number in it is a setting. */
+function credentialShaped(value: string): boolean {
+  const text = value.trim();
+  return CREDENTIAL_SHAPE.test(text) && ((text.match(/\d/g)?.length ?? 0) / text.length >= 0.2 || (/[a-z]/.test(text) && /[A-Z]/.test(text)));
+}
+
+/**
+ * 0.3.20 (feedback 9A50C098, 17.11.2026: a 62-character OAuth client id of a .env file was dropped silently while the secret next
+ * to it was imported – its name, LWA_CLIENT_ID, says no key/token/secret, so isSecretPair called it a plain setting): a file
+ * import also keeps a pair whose name ends in "id" and whose value is as long and mixed as a credential. An id is no
+ * secret on its own, but an agent needs it beside its secret and the catalog is where both belong; a short or word-like id
+ * (CUSTOMER_ID=42, REGION_ID=eu-west) stays a setting. Used by the import only – the Settings rows and MCP env keep isSecretPair.
+ */
+export function isCredentialId(pair: KeyValue): boolean {
+  const name = pair.name.replace(/([a-z\d])([A-Z])/g, '$1_$2').replace(/[.-]/g, '_');
+  return ID_NAME.test(name) && credentialShaped(pair.value);
+}
+
+/** Why a file import leaves a pair out – its name and this reason are reported, never its value; undefined when it is kept. */
+export function pairSkipReason(pair: KeyValue, minChars: number): string | undefined {
+  const length = pair.value.trim().length;
+  if (!length) return 'the value is empty';
+  if (length < minChars) return `the value is only ${length} characters (at least ${minChars} are needed so it can be masked)`;
+  if (isSecretPair(pair) || isCredentialId(pair)) return undefined;
+  return 'looks like a plain setting, not a secret (its name has no key, token, secret, password or similar word, and the value is no long credential-like id) – rename it, or add it with secrets.save';
 }

@@ -32,6 +32,16 @@ export interface ToolTimeoutDecision {
 
 export const TIMEOUT_REVIEW_MS = 120_000;
 export const MAX_TIMEOUT_SECONDS = 1800;
+/** Hard cap on one shell.exec call's total lifetime, reviews and extensions included (feedback 0B998EAF, 17.11.2026: a
+ * command that started a dev server and left it holding the pipes lived 17,329 s – every review answered "wait another 15 s").
+ * One hour is two of the longest single waits (MAX_TIMEOUT_SECONDS): generous for any install or build a call should block
+ * on, far below the incident; longer jobs belong detached with a log the agent reads. At the cap the app ends the command's
+ * own process tree by PID – never by program name, other runs use the same executables – and returns control. */
+export const MAX_COMMAND_SECONDS = 2 * MAX_TIMEOUT_SECONDS;
+/** What the result says when the cap ended the command (the output is withheld on this path like on any stop). */
+export function commandCapNote(elapsedSeconds: number): string {
+  return `The app ended the command at its total limit of ${MAX_COMMAND_SECONDS} s (${Math.round(elapsedSeconds)} s elapsed, timeout extensions included) and stopped its process tree – nobody declined it. Its output is withheld, as for every stopped command. A job this long: start it detached, write its log to a file and read that, or run a shorter step.`;
+}
 /** What a review without a clear decision answers (B-080): the call goes on. */
 export const NO_DECISION = 'No clear timeout decision came back; I let the call run and look again after the same time.';
 

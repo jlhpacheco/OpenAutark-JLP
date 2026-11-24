@@ -122,7 +122,7 @@ test('Bitwarden JSON: logins with folder and 2FA, cards; notes and identities sk
 test('an import stores logins in the catalog with handles per field, for every agent, values only in the vault', async () => {
   const { vault: v } = vault();
   const result = await importSecrets(v, CHROME, { fileName: 'Chrome Passwords.csv', now: Date.UTC(2026, 9, 29, 12) });
-  assert.deepEqual({ ...result }, { format: 'Chrome', added: 2, cards: 0, keys: 0, unchanged: 1, differing: 0, skipped: 1, failed: 0, tag: 'imported from Chrome 2026-10-29' });
+  assert.deepEqual({ ...result }, { format: 'Chrome', added: 2, cards: 0, keys: 0, unchanged: 1, differing: 0, skipped: 1, failed: 0, tag: 'imported from Chrome 2026-10-29', notImported: [{ name: 'nopass.example', reason: 'the password is empty', outcome: 'skipped' }] });
   const github = v.groups().find((group) => group.label === 'github.com')!;
   assert.equal(github.kind, 'login');
   assert.equal(github.route, 'logins');
@@ -308,5 +308,74 @@ test('secrets.import keeps the export unless a known export went in whole: a los
     const chrome = await run('Chrome Passwords.csv', 'name,url,username,password,note\nshop.example,https://shop.example/,ada,shopPass123,\n');
     assert.deepEqual([chrome.out.format, chrome.out.added, chrome.kept], ['Chrome', 1, false]);
     assert.match(String(chrome.out.file), /^Deleted: /);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// 0.3.20 (feedback 9A50C098, 17.11.2026: a 62-character OAuth client id of a file was skipped without a word while the client
+// secret next to it was imported). Synthetic values only. Cause: the name (…_CLIENT_ID) says no key/token/secret, so the .env filter
+// called it a plain setting and counted it in `skipped` – no name, no reason.
+const CLIENT_ID = `amzn1.application-oa2-client.${'0123456789abcdef0123456789abcdef0'}`; // 62 characters
+const CLIENT_SECRET = 'amzn1.oa2-cs.v1.fixture-secret-0123456789abcdef0123456789abcdef0123456789';
+
+test('0.3.20: a 62-character client id next to its secret is imported from .env, JSON and a CSV password column – never dropped', async () => {
+  assert.equal(CLIENT_ID.length, 62);
+  const env = `LWA_CLIENT_ID=${CLIENT_ID}
+LWA_CLIENT_SECRET=${CLIENT_SECRET}
+`;
+  const { vault: v } = vault();
+  const result = await importSecrets(v, env, { fileName: '.env', now: Date.UTC(2026, 10, 24) });
+  assert.deepEqual([result.keys, result.skipped, result.notImported], [2, 0, undefined]);
+  const id = v.list().find((info) => info.label === 'LWA_CLIENT_ID')!;
+  assert.equal(await v.use(id.id, 'human'), CLIENT_ID);
+  const json = await importSecrets(vault().vault, JSON.stringify({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET }), { fileName: 'oauth.json', now: 0 });
+  assert.deepEqual([json.format, json.keys, json.skipped], ['JSON file', 2, 0], 'camelCase clientId too');
+  const csv = await importSecrets(vault().vault, `name,url,username,password
+Amazon LWA,https://developer.amazon.com,client,${CLIENT_ID}
+Amazon LWA secret,https://developer.amazon.com,secret,${CLIENT_SECRET}
+`, { now: 0 });
+  assert.deepEqual([csv.added, csv.skipped], [2, 0]);
+});
+
+test('0.3.20: a short or word-like id stays a setting, and every skipped entry is named with its reason – never its value', async () => {
+  const text = [`LWA_CLIENT_ID=${CLIENT_ID}`, 'CUSTOMER_ID=4711', 'REGION_ID=eu-central-1-frankfurt-production-01-zone-a-main', 'NODE_ENV=production', 'EMPTY_TOKEN=', 'PIN_TOKEN=1234'].join('\n');
+  const { vault: v } = vault();
+  const result = await importSecrets(v, text, { fileName: '.env', now: 0 });
+  assert.deepEqual([result.keys, result.skipped], [1, 5]);
+  const named = Object.fromEntries((result.notImported ?? []).map((entry) => [entry.name, entry]));
+  assert.deepEqual(Object.keys(named).sort(), ['CUSTOMER_ID', 'EMPTY_TOKEN', 'NODE_ENV', 'PIN_TOKEN', 'REGION_ID']);
+  assert.match(named.CUSTOMER_ID.reason, /only 4 characters/);
+  assert.match(named.NODE_ENV.reason, /plain setting/);
+  assert.match(named.REGION_ID.reason, /plain setting/, 'a hyphenated word list with a number in it is no credential');
+  assert.match(named.EMPTY_TOKEN.reason, /empty/);
+  assert.ok((result.notImported ?? []).every((entry) => entry.outcome === 'skipped'));
+  const dump = JSON.stringify(result);
+  assert.ok(!dump.includes('4711') && !dump.includes('production') && !dump.includes('1234') && !dump.includes(CLIENT_ID), 'no value in the report');
+});
+
+test('0.3.20: CSV rows without a password, Bitwarden notes and entries the vault refuses are all named in notImported', async () => {
+  const { vault: v } = vault();
+  const csv = await importSecrets(v, 'name,url,username,password\nGood,https://good.example,ada,goodPass123\nNo pass,https://nopass.example,ada,\n', { now: 0 });
+  assert.deepEqual(csv.notImported, [{ name: 'No pass', reason: 'the password is empty', outcome: 'skipped' }]);
+  const bw = await importSecrets(v, JSON.stringify({ items: [{ type: 2, name: 'A note', notes: 'text' }, { type: 1, name: 'Mail', login: { username: 'u', password: 'mailPass888' } }] }), { now: 0 });
+  assert.deepEqual(bw.notImported, [{ name: 'A note', reason: 'a secure note', outcome: 'skipped' }]);
+  const refusing = { ...v, saveGroup: async () => { throw new Error('refused'); }, save: async () => { throw new Error('refused'); }, list: () => v.list(), groups: () => v.groups(), loginPrints: () => v.loginPrints() } as unknown as typeof v;
+  const failed = await importSecrets(refusing, 'SHOP_API_KEY=shop-key-77777\n', { fileName: '.env', now: 0 });
+  assert.deepEqual([failed.failed, failed.notImported], [1, [{ name: 'SHOP_API_KEY', reason: 'the vault could not store it', outcome: 'failed' }]]);
+});
+
+test('0.3.20: secrets.import (agent tool) tells the agent which entries it did not import and why – the file stays, no value shows', async () => {
+  const { vault: v, clock } = vault();
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'wf-import-'));
+  try {
+    const file = path.join(dir, '.env');
+    writeFileSync(file, `LWA_CLIENT_ID=${CLIENT_ID}
+APP_MODE=production
+`);
+    const tool = secretTools.find((entry) => entry.name === 'secrets.import')!;
+    const ctx = { services: { secrets: v, clock } as unknown as RuntimeServices, agent: { id: 'agt_a', name: 'A' } } as unknown as ToolContext;
+    const out = (await tool.run({ path: file }, ctx)) as { structured?: Record<string, unknown> };
+    assert.equal(out.structured?.keys, 1);
+    assert.match(String(out.structured?.notImportedNote), /Not imported – APP_MODE \(skipped: looks like a plain setting/);
+    assert.ok(!JSON.stringify(out).includes(CLIENT_ID) && !JSON.stringify(out).includes('production'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

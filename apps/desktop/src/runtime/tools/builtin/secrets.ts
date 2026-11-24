@@ -234,7 +234,7 @@ const generate = defineTool<GenerateArgs>({
  * What happened to the imported file, in one line: a known browser's or password manager's export is deleted once every
  * entry is in the catalog whole; a .env or JSON file, any other CSV and an incomplete import stay.
  */
-function settleFile(file: string, result: { format: string; failed: number; skipped: number }): string {
+function settleFile(file: string, result: { format: string; failed: number; skipped: number; notImported?: Array<{ name: string; reason: string; outcome: 'skipped' | 'failed' }> }): string {
   const plain = `the export stays at ${file} – it holds every password in plain text.`;
   const entries = (count: number) => `${count} ${count === 1 ? 'entry was' : 'entries were'}`;
   if (isKeyValueFormat(result.format)) return 'Kept: a .env or JSON file is a working file of its own.';
@@ -243,6 +243,12 @@ function settleFile(file: string, result: { format: string; failed: number; skip
   if (result.skipped) return `Kept: ${entries(result.skipped)} not imported (e.g. a note or a row without a password), so ${plain}`;
   try { rmSync(file, { force: true }); } catch { return `Kept: the export could not be deleted, so ${plain}`; }
   return 'Deleted: every value is in the catalog now, and the export held them in plain text.';
+}
+
+/** 0.3.20 (feedback 9A50C098): what an import left out, by name and reason in one line – nothing is skipped silently. */
+function notImportedNote(entries: NonNullable<Parameters<typeof settleFile>[1]['notImported']>): string {
+  const shown = entries.slice(0, 15).map((entry) => `${entry.name} (${entry.outcome}: ${entry.reason})`).join('; ');
+  return `Not imported – ${shown}${entries.length > 15 ? `; … and ${entries.length - 15} more in notImported` : ''}. Each can be stored with secrets.save, or its name changed in the file and the file imported again.`;
 }
 
 const importFile = defineTool<{ path: string }>({
@@ -266,7 +272,7 @@ const importFile = defineTool<{ path: string }>({
       // The person's secrets: stored as theirs, not the agent's.
       const result = await importSecrets(ctx.services.secrets, content, { fileName: path.basename(file), now: ctx.services.clock.now() });
       const next = reviewCount(result) ? reviewBrief(result) : storedCount(result) ? 'Every new entry came with its own name and description.' : 'Nothing new was stored.';
-      return json({ ok: true, ...result, file: settleFile(file, result), next });
+      return json({ ok: true, ...result, file: settleFile(file, result), next, ...(result.notImported?.length ? { notImportedNote: notImportedNote(result.notImported) } : {}) });
     } catch (error) { return failure((error as Error).message); }
   },
 });

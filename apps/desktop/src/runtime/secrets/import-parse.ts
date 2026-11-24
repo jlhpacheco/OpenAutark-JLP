@@ -12,7 +12,7 @@
 // a clean item per row. A URL keeps only scheme, host and path (a query or fragment may hold a token).
 // Never: logs, returns or keeps anything beyond the parsed items (the caller writes them into the vault at once).
 
-import { ENV_FORMAT, JSON_FORMAT, isSecretPair, parseKeyValues, type KeyValue } from '../../shared/model/key-values.ts';
+import { ENV_FORMAT, JSON_FORMAT, pairSkipReason, parseKeyValues, type KeyValue } from '../../shared/model/key-values.ts';
 import { SECRET_ROUTE, type SecretInfo } from '../../shared/model/security.ts';
 import { SECRET_KINDS } from './groups.ts';
 import { MIN_SECRET_CHARS } from './redact.ts';
@@ -63,6 +63,19 @@ export interface ParsedExport {
   items: ImportedItem[];
   /** Rows that hold no password (or no card number) or are not logins; pairs that are plain settings or too short. */
   skipped: number;
+  /** 0.3.20 (feedback 9A50C098): each skipped row or pair by name with the reason – never a value; at most MAX_SKIP_REPORT. */
+  skippedEntries: SkippedEntry[];
+}
+
+/** One entry an import did not take: what it was called and why. */
+export interface SkippedEntry { name: string; reason: string }
+/** At most this many skipped entries are named (the count still covers all). */
+export const MAX_SKIP_REPORT = 50;
+/** The skip list of a parse: `skip` records one entry (name cut, list bounded) and counts it. */
+function skipList() {
+  const entries: SkippedEntry[] = [];
+  let count = 0;
+  return { entries, get count() { return count; }, skip(name: string, reason: string) { count++; if (entries.length < MAX_SKIP_REPORT) entries.push({ name: name.replace(/[\r\n]+/g, ' ').slice(0, 80), reason }); } };
 }
 
 /** A larger text is refused (an export of thousands of logins is far smaller). */
@@ -222,14 +235,15 @@ function fromCsv(text: string, fileName?: string): ParsedExport {
   if (body.length > MAX_IMPORT_ROWS) throw new Error(`The file has more than ${MAX_IMPORT_ROWS} entries.`);
   const get = (row: string[], column: Column) => (columns[column] === undefined ? undefined : clean(row[columns[column]!]));
   const items: ImportedItem[] = [];
-  let skipped = 0;
-  for (const row of body) {
+  const skips = skipList();
+  for (const [rowIndex, row] of body.entries()) {
     const type = get(row, 'type')?.toLowerCase();
     const kind = get(row, 'kind')?.toLowerCase();
     const password = columns.password === undefined ? undefined : row[columns.password]; // a password keeps its spaces
     const name = get(row, 'name')?.slice(0, 120);
     const notes = get(row, 'notes');
     const meta = metaOf((column) => get(row, column));
+    const label = name ?? safeUrl(get(row, 'url')) ?? get(row, 'username') ?? `row ${rowIndex + 2}`;
     const number = get(row, 'number');
     if (kind === 'card' && number) {
       const [expiry, cvc, holder] = [get(row, 'expiry'), get(row, 'cvc'), get(row, 'holder')];
@@ -237,12 +251,13 @@ function fromCsv(text: string, fileName?: string): ParsedExport {
       continue;
     }
     if (kind && (SECRET_KINDS as readonly string[]).includes(kind)) { // a single secret of the app's own export
-      if (!name || !password?.trim()) { skipped++; continue; }
+      if (!name || !password?.trim()) { skips.skip(label, !name ? 'a single secret without a name' : 'the value is empty'); continue; }
       const url = safeUrl(get(row, 'url'));
       items.push({ type: 'value', name, value: password.replace(/\u0000/g, ''), kind: kind as SecretInfo['kind'], ...(url ? { url } : {}), ...meta });
       continue;
     }
-    if ((type && type !== 'login' && type !== '1' && type !== 'password') || !password?.trim()) { skipped++; continue; }
+    if (type && type !== 'login' && type !== '1' && type !== 'password') { skips.skip(label, `its type is "${type.slice(0, 40)}", not a login`); continue; }
+    if (!password?.trim()) { skips.skip(label, 'the password is empty'); continue; }
     const url = safeUrl(get(row, 'url'));
     const item: ImportedLogin = { type: 'login', password: password.replace(/\u0000/g, ''), ...meta };
     const username = get(row, 'username');
@@ -256,7 +271,7 @@ function fromCsv(text: string, fileName?: string): ParsedExport {
     if (folder) item.folder = folder.slice(0, 80);
     items.push(item);
   }
-  return { format: formatOf(header, fileName), items, skipped };
+  return { format: formatOf(header, fileName), items, skipped: skips.count, skippedEntries: skips.entries };
 }
 
 interface BitwardenItem {
@@ -269,7 +284,7 @@ function fromBitwardenJson(data: { encrypted?: boolean; items?: BitwardenItem[];
   if (data.encrypted) throw new Error('This Bitwarden export is encrypted. Export it again as "JSON" or ".csv" (not the encrypted format).');
   const folders = new Map((data.folders ?? []).map((folder) => [folder.id, folder.name]));
   const items: ImportedItem[] = [];
-  let skipped = 0;
+  const skips = skipList();
   for (const entry of (data.items ?? []).slice(0, MAX_IMPORT_ROWS)) {
     const folder = clean(entry.folderId ? folders.get(entry.folderId) ?? undefined : undefined);
     const name = clean(entry.name ?? undefined)?.slice(0, 120);
@@ -287,19 +302,25 @@ function fromBitwardenJson(data: { encrypted?: boolean; items?: BitwardenItem[];
       const holder = clean(card.cardholderName ?? undefined);
       const cvc = clean(card.code ?? undefined);
       items.push({ type: 'card', number: clean(card.number ?? undefined)!, ...(name ? { name } : {}), ...(holder ? { holder } : {}), ...(expiry ? { expiry } : {}), ...(cvc ? { cvc } : {}), ...(notes ? { notes } : {}), ...(folder ? { folder } : {}) });
-    } else skipped++;
+    } else skips.skip(name ?? 'unnamed item', entry.type === 1 ? 'a login without a password' : entry.type === 3 ? 'a card without a number' : entry.type === 2 ? 'a secure note' : entry.type === 4 ? 'an identity' : 'an item of an unknown type');
   }
-  return { format: 'Bitwarden', items, skipped };
+  return { format: 'Bitwarden', items, skipped: skips.count, skippedEntries: skips.entries };
 }
 
 /**
- * The secrets of a .env or JSON file. Skipped: a plain setting – the vault would mask it in everything agents read – and a
+ * The secrets of a .env or JSON file (a long id such as an OAuth client id counts too: key-values.ts isCredentialId). Skipped, each by name and reason: a plain setting – the vault would mask it in everything agents read – and a
  * value shorter than MIN_SECRET_CHARS (it cannot be masked, and the vault would cut it out of the entry's tag and description).
  */
 function fromPairs(pairs: KeyValue[], format: string): ParsedExport {
   if (pairs.length > MAX_IMPORT_ROWS) throw new Error(`The file has more than ${MAX_IMPORT_ROWS} entries.`);
-  const items: ImportedValue[] = pairs.filter((pair) => pair.value.trim().length >= MIN_SECRET_CHARS && isSecretPair(pair)).map((pair) => ({ type: 'value' as const, name: pair.name.slice(0, 120), value: pair.value }));
-  return { format, items, skipped: pairs.length - items.length };
+  const items: ImportedValue[] = [];
+  const skips = skipList();
+  for (const pair of pairs) {
+    const reason = pairSkipReason(pair, MIN_SECRET_CHARS);
+    if (reason) skips.skip(pair.name, reason);
+    else items.push({ type: 'value', name: pair.name.slice(0, 120), value: pair.value });
+  }
+  return { format, items, skipped: skips.count, skippedEntries: skips.entries };
 }
 
 /** The items of an export file's text (`fileName` names the browser of a Chromium CSV). Throws a person-readable Error. */

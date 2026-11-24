@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter, once } from 'node:events';
 import { runCommand } from '../../../src/runtime/tools/builtin/command.ts';
 import { defaultShell, type ShellSpawn } from '../../../src/runtime/tools/builtin/files.ts';
-import { initialTimeoutSeconds, NO_DECISION, reviewToolTimeout, TIMEOUT_REVIEW_MS, type ToolTimeoutDecision } from '../../../src/runtime/tools/timeout.ts';
+import { initialTimeoutSeconds, MAX_COMMAND_SECONDS, NO_DECISION, reviewToolTimeout, TIMEOUT_REVIEW_MS, type ToolTimeoutDecision } from '../../../src/runtime/tools/timeout.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import type { ToolContext } from '../../../src/runtime/tools/types.ts';
 
@@ -203,6 +203,47 @@ test('B-080 wave 3: no decision keeps the command running and it is looked at ag
   const text = result.content[0].type === 'text' ? result.content[0].text : '';
   assert.equal(result.isError, false);
   assert.ok(text.includes(NO_DECISION) && text.endsWith('exit 0\ndone'), text);
+});
+
+// 0.3.20 (feedback 0B998EAF, live 17.11.2026: a command that left a dev server holding its pipes lived 17,329 s because every
+// review answered "wait another 15 s"): the call's total lifetime is capped, whatever the reviews say.
+test('0.3.20: endless "wait another 15 s" answers end at the total limit; the process tree is stopped and the output stays withheld', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  let reviews = 0;
+  const f = fixture(async () => { reviews++; return { action: 'wait', seconds: 15, reason: 'HTTP 200 seen, still running' }; });
+  let settled = false;
+  const pending = runCommand(f.shell, f.ctx, { command: 'next dev', cwd: '.', timeoutSeconds: 15 }).then((value) => { settled = true; return value; });
+  await flush();
+  f.stdout.emit('data', 'ready - sensitive-value on http://localhost:3000');
+  // Simulate the incident's span (4.8 h) second by second of review rounds; the cap must have ended it long before.
+  for (let second = 0; second < 17_400 && !settled; second += 15) { t.mock.timers.tick(15_000); await flush(); }
+  assert.equal(settled, true, 'the command ended instead of waiting for ever');
+  const result = await pending;
+  const text = result.content[0].type === 'text' ? result.content[0].text : '';
+  assert.equal(f.commandSignal()?.aborted, true, 'the abort reaches the shell spawn – defaultShell kills that child\'s tree by PID');
+  assert.equal(result.isError, true);
+  assert.ok(reviews <= MAX_COMMAND_SECONDS / 15, `bounded reviews: ${reviews}`);
+  assert.match(text, /total limit of 3600 s[\s\S]*process tree[\s\S]*exit timeout\n\[command output withheld\]$/);
+  assert.equal(text.includes('sensitive-value'), false);
+  assert.equal(text.includes('localhost'), false, 'masking guarantee: nothing of a stopped command\'s output');
+});
+
+test('0.3.20: a long wait is clamped so the total never passes the limit', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const waits: number[] = [];
+  const f = fixture(async (input) => { waits.push(input.timeoutSeconds); return { action: 'wait', seconds: 1800, reason: 'long job' }; });
+  let settled = false;
+  const pending = runCommand(f.shell, f.ctx, { command: 'build', cwd: '.', timeoutSeconds: 1500 }).then((value) => { settled = true; return value; });
+  await flush();
+  t.mock.timers.tick(1500_000); await flush(); // review 1 -> wait 1800 (3300 s total)
+  t.mock.timers.tick(1800_000); await flush(); // review 2 -> clamped wait of 300 s
+  assert.equal(settled, false);
+  t.mock.timers.tick(300_000); await flush();
+  assert.equal(settled, true);
+  assert.deepEqual(waits, [1500, 1800], 'no third review: the cap ends it');
+  assert.equal(f.commandSignal()?.aborted, true);
+  const first = (await pending).content[0];
+  assert.match(first.type === 'text' ? first.text : '', /total limit of 3600 s \(3600 s elapsed/);
 });
 
 // B-080 wave 3 (live: command.ts decoded each read on its own – a letter split across two reads became two U+FFFD).

@@ -21,7 +21,7 @@ import { agentEnv, asAgent } from '../../engines/wf-shim.ts';
 import { ENV_NAME, MAX_ENV, handlesIn, judgeHandles, resolveMasked, withHandles } from '../../secrets/handles.ts';
 import type { ActionDescription } from '../types.ts';
 import type { ShellSpawn } from './files.ts';
-import { initialTimeoutSeconds, reviewToolTimeout, timeoutDecisionText } from '../timeout.ts';
+import { commandCapNote, initialTimeoutSeconds, MAX_COMMAND_SECONDS, reviewToolTimeout, timeoutDecisionText } from '../timeout.ts';
 
 import { maskKeyShapes } from '../../secrets/redact.ts';
 import { ShellOutput, WITHHELD } from './shell-output.ts';
@@ -63,7 +63,7 @@ export async function runCommand(shell: ShellSpawn, ctx: ToolContext, input: { c
   const decisions: string[] = [];
   let reviews = 0;
   const tool = 'shell.exec';
-  let seconds = initialTimeoutSeconds(tool, input);
+  let seconds = Math.min(initialTimeoutSeconds(tool, input), MAX_COMMAND_SECONDS);
   const streams = [new ShellOutput(), new ShellOutput()];
   const redact = (value: string) => maskKeyShapes(ctx.services.secrets.redact(mask(value)));
   let printed = 0;
@@ -95,9 +95,11 @@ export async function runCommand(shell: ShellSpawn, ctx: ToolContext, input: { c
       child.on('close', finish);
       const timeout = async () => {
         if (done || ctx.signal.aborted) return;
+        const now = Date.now();
+        // Total limit first: no review can extend a call past it (feedback 0B998EAF – 'wait 15 s' answered for 17,329 s).
+        if (now - started >= MAX_COMMAND_SECONDS * 1000) { timedOut = true; decisions.push(commandCapNote((now - started) / 1000)); ctx.status('Command ended at its total limit'); abort(); return; }
         review = new AbortController();
         ctx.status('Reviewing command timeout');
-        const now = Date.now();
         const observation = { tool, args: { command: '[command arguments withheld during execution]' }, elapsedSeconds: Math.round((now - started) / 1000), timeoutSeconds: seconds, output: '', newOutputChars: printed - looked, secondsSinceLastLook: Math.round((now - lookedAt) / 1000) };
         looked = printed;
         lookedAt = now;
@@ -107,7 +109,7 @@ export async function runCommand(shell: ShellSpawn, ctx: ToolContext, input: { c
         reviews++;
         if (decisions.length > 20) decisions.shift();
         ctx.status(decisions.at(-1)!.slice(0, 140));
-        if (decision.action === 'wait') { seconds = decision.seconds!; timer = setTimeout(() => { void timeout(); }, seconds * 1000); }
+        if (decision.action === 'wait') { seconds = Math.max(1, Math.min(decision.seconds!, Math.ceil((started + MAX_COMMAND_SECONDS * 1000 - Date.now()) / 1000))); timer = setTimeout(() => { void timeout(); }, seconds * 1000); }
         else { timedOut = true; abort(); }
       };
       ctx.signal.addEventListener('abort', abort, { once: true });

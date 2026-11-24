@@ -27,7 +27,7 @@ import { managerAgent } from '../../shared/text/manager-chat.ts';
 import { SYSTEM_ID } from '../../shared/ids.ts';
 import { newEntryId } from './entry-id.ts';
 import { MAX_FIELD_VALUE } from './groups.ts';
-import { parseExport, type ImportedCard, type ImportedLogin, type ImportedMeta } from './import-parse.ts';
+import { MAX_SKIP_REPORT, parseExport, type ImportedCard, type ImportedLogin, type ImportedMeta } from './import-parse.ts';
 import { hostOf, registrableDomain } from './service.ts';
 
 /** What one import did (shared/model/security.ts SecretImportSummary): counts and names only – never a value. */
@@ -107,6 +107,8 @@ export async function importSecrets(vault: Vault, text: string, options: { fileN
   const parsed = parseExport(text, options.fileName);
   const date = new Date(options.now).toISOString().slice(0, 10);
   const result: SecretImportResult = { format: parsed.format, added: 0, cards: 0, keys: 0, unchanged: 0, differing: 0, skipped: parsed.skipped, failed: 0, tag: `imported from ${parsed.format} ${date}` };
+  const notImported: NonNullable<SecretImportResult['notImported']> = parsed.skippedEntries.map((entry) => ({ ...entry, outcome: 'skipped' as const }));
+  const fail = (name: string, reason: string) => { result.failed++; if (notImported.length < MAX_SKIP_REPORT) notImported.push({ name: name.slice(0, 80), reason, outcome: 'failed' }); };
   const prints: Prints = vault.loginPrints ? await vault.loginPrints() : { print: (value: string) => value, logins: [] };
   const values = new Set(prints.values); // what the vault holds, plus each value stored below
   const known = prints.logins.map((login) => ({ ...login, site: siteOf(login.source ? (login.source.includes('://') ? login.source : `https://${login.source}`) : undefined) || (login.source ?? '') }));
@@ -128,7 +130,7 @@ export async function importSecrets(vault: Vault, text: string, options: { fileN
         values.add(print);
         result.keys++;
         if (givenDescription(item)) result.described = (result.described ?? 0) + 1;
-      } catch { result.failed++; }
+      } catch { fail(item.name, 'the vault could not store it'); }
       continue;
     }
     let twin: string | undefined;
@@ -147,15 +149,16 @@ export async function importSecrets(vault: Vault, text: string, options: { fileN
     const id = newEntryId(taken, [], entry.label ?? 'imported');
     taken.push({ id });
     try {
-      if (await saveEntry(vault, { ...entry, id }, item, options.createdBy)) result.failed++; // stored without its 2FA key
+      if (await saveEntry(vault, { ...entry, id }, item, options.createdBy)) fail(entry.label ?? 'login', 'stored without its 2FA key – the vault could not read it'); // stored without its 2FA key
     } catch {
-      result.failed++;
+      fail(entry.label ?? 'entry', 'the vault could not store it');
       continue;
     }
     if (item.type === 'card') result.cards++;
     else { result.added++; if (twin) result.differing++; }
     if (givenDescription(item)) result.described = (result.described ?? 0) + 1;
   }
+  if (notImported.length) result.notImported = notImported;
   return result;
 }
 
