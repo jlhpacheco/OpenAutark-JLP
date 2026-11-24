@@ -129,9 +129,11 @@ export class Adoption {
    * "Use": the offered login becomes an account here – a default-home one switched on and checked (a Codex login on a copy in a
    * home of its own), another company's one on its home, switched on and checked – one login, one home, every company.
    * A declined offer works too (the person changed their mind). Idempotent: a second click returns the account.
-   * `thisPcOnly` (the person's choice, default "Only on this PC"): the account and its login stay on this PC; false: they go to all PCs of the company.
+   * `thisPcOnly` (the person's choice; since 0.3.20 – Konrad #830, 24.11.2026: they are the person's own PCs – the default is
+   * "On all my PCs", so false): true: the account and its login stay on this PC; false: they go to all PCs of the company.
+   * Only a newly taken account gets this default; the ones that exist keep the choice they have.
    */
-  async useFound(key: string, thisPcOnly = true): Promise<Account> {
+  async useFound(key: string, thisPcOnly = false): Promise<Account> {
     const offer = (await this.detect(false)).found?.find((entry) => entry.key === key);
     if (!offer) {
       const existing = this.deps.repo.list().find((a) => a.provider === key.split(':')[0] && (key.endsWith(':default') ? foundHere(a) : a.home !== undefined && path.basename(a.home) === key.slice(key.indexOf(':') + 1)));

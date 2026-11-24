@@ -3,7 +3,8 @@
 // keeps it out; accounts that exist stay as they are. The calls are the person's own click (window or phone), never an
 // agent's `wf` or a script. A plan's extra usage (Account.extraUsage, migration 104) is the person's switch: off by default,
 // refused where the provider has none, and a plan that may go on past its limit is no longer held by a used-up window.
-// 17.11.2026 (#109): "Use" asks where the login goes – only on this PC (the default) or on all PCs of the company; the person changes it later in the row.
+// 17.11.2026 (#109): "Use" asks where the login goes – only on this PC or on all PCs of the company; the person changes it later in the row.
+// 24.11.2026 (Konrad #830, 0.3.20): they are the person's own PCs – the default of a newly used login is all PCs of the company; only "Only on this PC" keeps it here.
 // Owns: these assertions only. Never: a real CLI, account or login (the account harness's scripted CLIs).
 
 import { test } from 'node:test';
@@ -40,7 +41,7 @@ test('a login found on this PC is no account: nothing uses it, nothing is checke
   const account = await h.service.useFound('codex:default');
   await h.settle();
   assert.deepEqual([account.provider, account.auth, account.enabled, account.detected], ['codex', 'cli', true, true]);
-  assert.equal(account.thisPcOnly, true, 'the default of "Use": only on this PC – the company\'s other PCs get neither the account nor the login');
+  assert.equal(account.thisPcOnly, undefined, 'the default of "Use" (0.3.20): all PCs of the company – the account and its login go to the person\'s other PCs');
   assert.deepEqual(h.checks, [account.id], 'one check, after the person\'s word');
   assert.deepEqual(h.service.lastDetection()?.found, [], 'no longer on offer');
   assert.equal((await h.service.useFound('codex:default')).id, account.id, 'a second click returns the same account');
@@ -129,11 +130,11 @@ test('use, decline, add again and allowing extra usage are the person\'s click: 
   assert.deepEqual(await call('accounts.useFound', { key: 'codex:default' }, WINDOW), { id: 'acc_x' });
   assert.deepEqual(await call('accounts.declineFound', { key: 'codex:default' }, PHONE), { ok: true });
   assert.deepEqual(await call('accounts.update', { id: 'acc_x', extraUsage: true }, WINDOW), { id: 'acc_x' });
-  assert.deepEqual(log, ['use codex:default {"thisPcOnly":true}', 'decline codex:default', 'update acc_x {"extraUsage":true}'], 'the default goes in: only on this PC');
+  assert.deepEqual(log, ['use codex:default {"thisPcOnly":false}', 'decline codex:default', 'update acc_x {"extraUsage":true}'], 'the default goes in: all my PCs (0.3.20)');
   log.length = 0;
-  assert.deepEqual(await call('accounts.useFound', { key: 'codex:default', thisPcOnly: false }, WINDOW), { id: 'acc_x' });
+  assert.deepEqual(await call('accounts.useFound', { key: 'codex:default', thisPcOnly: true }, WINDOW), { id: 'acc_x' });
   assert.deepEqual(await call('accounts.update', { id: 'acc_x', thisPcOnly: true }, PHONE), { id: 'acc_x' });
-  assert.deepEqual(log, ['use codex:default {"thisPcOnly":false}', 'update acc_x {"thisPcOnly":true}']);
+  assert.deepEqual(log, ['use codex:default {"thisPcOnly":true}', 'update acc_x {"thisPcOnly":true}'], 'only on this PC stays the person\'s explicit choice');
   log.length = 0;
 
   for (const scope of [OWNER, MAIN, AGENT_WF, MCP, PHONE_PLAIN]) {
@@ -159,11 +160,11 @@ test('use, decline, add again and allowing extra usage are the person\'s click: 
 
 // ------------------------------------------------------------------ where a used login goes (#109)
 
-test('"Use" chooses: only on this PC (default) or on all PCs of the company; the row changes it later; only a plan login has the choice', async () => {
+test('"Use" chooses: all PCs of the company (default since 0.3.20) or only this PC; the row changes it later; only a plan login has the choice', async () => {
   const h = harness();
   await h.service.detect();
-  const kept = await h.service.useFound('codex:default');
-  assert.equal(kept.thisPcOnly, true);
+  const kept = await h.service.useFound('codex:default', { thisPcOnly: true });
+  assert.equal(kept.thisPcOnly, true, 'the person chose only this PC');
   assert.equal(h.repo.get(kept.id)?.thisPcOnly, true, 'stored in its own column');
   assert.equal(h.service.update(kept.id, { thisPcOnly: false }).thisPcOnly, undefined, 'on all PCs of the company');
   assert.equal(h.service.update(kept.id, { label: 'Codex privat' }).thisPcOnly, undefined, 'another change keeps it');
@@ -172,7 +173,12 @@ test('"Use" chooses: only on this PC (default) or on all PCs of the company; the
 
   const shared = harness();
   await shared.service.detect();
-  assert.equal((await shared.service.useFound('codex:default', { thisPcOnly: false })).thisPcOnly, undefined, 'the person chose all PCs of the company');
+  const all = await shared.service.useFound('codex:default'); // no choice named: 0.3.20 – the person's own PCs
+  assert.equal(all.thisPcOnly, undefined, 'without a choice: all PCs of the company');
+  assert.equal(shared.repo.get(all.id)?.thisPcOnly, undefined, 'stored as shared');
+  const named = harness();
+  await named.service.detect();
+  assert.equal((await named.service.useFound('codex:default', { thisPcOnly: false })).thisPcOnly, undefined, 'the person chose all PCs of the company');
 
   const k = harness();
   k.repo.save(row('acc_key', { provider: 'anthropic', auth: 'api_key' }));

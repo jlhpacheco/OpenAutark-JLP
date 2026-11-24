@@ -228,6 +228,26 @@ test('signed in again while at its weekly limit: the open sign-in work closes it
   assert.equal(r.tasks.get(task.id)!.status, 'done');
 });
 
+test('0.3.20: the sign-in work names the PC that found the sign-out – the agent\'s task and the person\'s to-do; the title stays', () => {
+  const task = rig([account('acc_a'), account('acc_b', { provider: 'claude', label: 'Claude Max' })]);
+  Object.assign(task.services, { devices: { self: () => ({ id: 'dev_t', name: 'Tower' }) } });
+  task.fail('acc_a');
+  const agentWork = task.relogin.openWork('acc_a')!;
+  assert.equal(agentWork.title, 'Sign in to Codex work again', 'one title for every PC: the other PCs\' checks find this work');
+  assert.match(agentWork.notes, /was signed out on Tower, so agents cannot use it/);
+  assert.match(agentWork.notes, /sign-in on this PC \(Tower\);/);
+
+  const human = rig([account('acc_a'), account('acc_b', { provider: 'claude', state: 'needs_login' })]);
+  Object.assign(human.services, { devices: { self: () => ({ id: 'dev_n', name: 'Notebook' }) } });
+  human.fail('acc_a');
+  assert.match(human.relogin.openWork('acc_a')!.notes, /was signed out on Notebook\. No other model account.*Settings › Models on Notebook/);
+
+  const unknown = rig([account('acc_a'), account('acc_b', { provider: 'claude' })]);
+  Object.assign(unknown.services, { devices: { self: () => { throw new Error('no devices'); } } });
+  unknown.fail('acc_a');
+  assert.match(unknown.relogin.openWork('acc_a')!.notes, /was signed out, so agents/, 'where the PCs cannot be read the work reads as before');
+});
+
 test('no manager and no computer-mode agent: the first active agent gets the sign-in task', () => {
   const r = rig([account('acc_a'), account('acc_b', { provider: 'claude' })], { manager: false });
   r.fail('acc_a');

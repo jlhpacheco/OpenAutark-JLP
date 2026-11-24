@@ -184,7 +184,7 @@ export class AccountServiceImpl implements AccountServiceContract {
   }
 
   /** 17.11.2026: "Use" for a plan login on offer (DetectionReport.found) – only now it is an account here, used and shared to this company's PCs. */
-  useFound(key: string, options: { thisPcOnly?: boolean } = {}): Promise<Account> { return this.adoption.useFound(key, options.thisPcOnly ?? true); }
+  useFound(key: string, options: { thisPcOnly?: boolean } = {}): Promise<Account> { return this.adoption.useFound(key, options.thisPcOnly ?? false); } // 0.3.20 (Konrad #830): default "On all my PCs"
 
   /** "Not here": the offered plan login stays on the PC and unused in this company. */
   declineFound(key: string): Promise<void> { return this.adoption.declineFound(key); }

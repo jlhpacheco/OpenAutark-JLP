@@ -225,7 +225,7 @@ export function register(table: HandlerTable): void {
     personOnly(ctx, 'Using a found sign-in');
     const o = input(params);
     onlyKeys(o, ['key', 'thisPcOnly']);
-    return ctx.services.accounts.useFound?.(text(o, 'key', { max: 300 }), { thisPcOnly: optBool(o, 'thisPcOnly') ?? true }) ?? notFound('Found sign-ins');
+    return ctx.services.accounts.useFound?.(text(o, 'key', { max: 300 }), { thisPcOnly: optBool(o, 'thisPcOnly') ?? false }) ?? notFound('Found sign-ins');
   }, ACCOUNTS);
   table.add('accounts.declineFound', async (params, ctx) => {
     personOnly(ctx, 'Declining a found sign-in');

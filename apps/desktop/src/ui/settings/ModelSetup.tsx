@@ -68,16 +68,17 @@ function FoundRow(props: { found: FoundLogin; cli: Cli | undefined; mask: (email
   const [busy, run] = useBusy();
   const text = foundText(found, props.cli, props.mask);
   const name = PROVIDER_NAMES[found.provider] ?? found.provider;
-  // 17.11.2026 (Konrad #109): "Use" asks where the login goes; only "On all PCs of this company" syncs it
+  // 17.11.2026 (Konrad #109): "Use" asks where the login goes; only "On all PCs of this company" syncs it.
+  // 0.3.20 (Konrad #830, 24.11.2026): they are the person's own PCs \u2013 "On all PCs of this company" is the preselected answer.
   const use = async () => {
     const where = await choose({
       title: `Use ${name} in this company?`,
       body: found.where === 'this-pc' ? 'It is signed in on this PC. Where should it be used?' : 'Another company on this PC made this sign\u2011in. Where should it be used?',
       choices: [
-        { value: 'pc', label: 'Only on this PC', hint: 'The company\'s other PCs get neither the account nor the sign\u2011in' },
         { value: 'company', label: 'On all PCs of this company', hint: 'The account and its sign\u2011in go to every PC of this company' },
+        { value: 'pc', label: 'Only on this PC', hint: 'The company\'s other PCs get neither the account nor the sign\u2011in' },
       ],
-      value: 'pc', confirmLabel: 'Use',
+      value: 'company', confirmLabel: 'Use',
     });
     if (where === null) return;
     await run(async () => {

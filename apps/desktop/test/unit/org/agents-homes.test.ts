@@ -1,3 +1,4 @@
+// 0.3.20 (Konrad #830): a new agent (agents.create tool and RPC) starts at home on all of the person's own PCs.
 // Umzug part 2, 21.11.2026 – Agent.homes (migration 113): the PCs an agent is at home on. Absent by default (column
 // '[]'); an edit stores the list of PC ids, each once, and [] clears it (org/patch.ts, store/agents.ts). agents.update
 // {homes} takes names or ids of the person's own PCs, stores their ids with the PC the agent runs on, answers with the
@@ -9,6 +10,9 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { Org } from '../../../src/runtime/org/service.ts';
 import { agentTools } from '../../../src/runtime/tools/builtin/agents.ts';
+import { agentOrgTools } from '../../../src/runtime/tools/builtin/agents-org.ts';
+import { HandlerTable, type HandlerContext } from '../../../src/runtime/rpc/table.ts';
+import { register as registerOrg } from '../../../src/runtime/rpc/handlers/org.ts';
 import type { ToolContext } from '../../../src/runtime/tools/types.ts';
 import { clock, memoryDb, recordingBus, RESOURCES } from '../store/helpers.ts';
 import { link, makePc, Net, record } from '../devices/sync-net.ts';
@@ -87,6 +91,63 @@ test('agents.update {device, homes} in one call: at home on the PC I move to and
   assert.deepEqual(org.get(manager.id)?.homes, ['dev_n', 'dev_t']);
   org.update(manager.id, { deviceId: undefined });
   assert.deepEqual(org.get(manager.id)?.homes, ['dev_n', 'dev_t'], 'the set of homes stays the same');
+});
+
+// 0.3.20 (Konrad #830): a NEW agent is at home on all of the person's own PCs – hired by an agent (agents.create) or by the
+// person in the app (agents.create RPC); the employee's PC "Guest" is none of them; agents that exist keep what they have.
+test('agents.create: a hire is at home on this PC and the linked own PC, not on an employee\'s PC; the existing agent keeps its homes', async () => {
+  const { org, manager, ctx } = rig();
+  const create = agentOrgTools.find((tool) => tool.name === 'agents.create')!;
+  const out = await create.run({ name: 'Mara', role: 'Research' } as never, ctx());
+  assert.equal(out.isError, undefined, JSON.stringify(out.content));
+  const mara = org.get((out.structured as { agentId: string }).agentId)!;
+  assert.deepEqual(mara.homes, ['dev_t', 'dev_n'], 'this PC first, then the own PC – Guest is no own PC');
+  assert.equal(mara.deviceId, undefined, 'it still runs here (no deviceId)');
+  assert.equal(org.get(manager.id)?.homes, undefined, 'the agent that existed keeps what it has: no migration');
+
+  const moved = await create.run({ name: 'Nico', role: 'Research', device: 'Notebook' } as never, ctx());
+  assert.equal(moved.isError, undefined, JSON.stringify(moved.content));
+  const nico = org.get((moved.structured as { agentId: string }).agentId)!;
+  assert.equal(nico.deviceId, 'dev_n');
+  assert.deepEqual(nico.homes, ['dev_n', 'dev_t'], 'the PC it was given to first, the others behind it');
+
+  const team = await create.run({ agents: [{ name: 'Olga', role: 'Writer' }, { name: 'Paul', role: 'Editor' }] } as never, ctx());
+  assert.equal(team.isError, undefined, JSON.stringify(team.content));
+  for (const name of ['Olga', 'Paul']) assert.deepEqual(org.list().find((agent) => agent.name === name)?.homes, ['dev_t', 'dev_n'], `${name} of a team hire too`);
+});
+
+test('agents.update {device}: moving an agent to another PC does not write homes for it – only a new agent starts with them', async () => {
+  const { org, manager, update, ctx } = rig();
+  await update.run({ device: 'Notebook' } as never, ctx());
+  assert.equal(org.get(manager.id)?.deviceId, 'dev_n');
+  assert.equal(org.get(manager.id)?.homes, undefined, 'the existing agent\'s homes come with 0.3.21 (ledger)');
+});
+
+test('agents.create with no other own PC linked: homes stay empty (the agent waits for its PC as before)', async () => {
+  const net = new Net();
+  const solo = makePc(net, 'dev_s');
+  const guest = makePc(net, 'dev_g');
+  link(solo, guest, 'person_g');
+  solo.repo.upsert(record('dev_s', { self: true, name: 'Solo' }));
+  const org = new Org({ db: solo.h.db, bus: solo.h.bus, clock: solo.h.clock, templatesDir: path.join(RESOURCES, 'agents') });
+  solo.h.services.org = org;
+  const manager = org.ensureSeed()!;
+  const create = agentOrgTools.find((tool) => tool.name === 'agents.create')!;
+  const ctx = { agent: org.get(manager.id)!, services: solo.h.services, runId: 'run_s', mode: 'manager', signal: new AbortController().signal, status: () => {} } as unknown as ToolContext;
+  const out = await create.run({ name: 'Rita', role: 'Research' } as never, ctx);
+  assert.equal(out.isError, undefined, JSON.stringify(out.content));
+  assert.equal(org.get((out.structured as { agentId: string }).agentId)?.homes, undefined);
+});
+
+test('the app\'s hire (agents.create RPC) puts the person\'s new agent at home on their own PCs too', async () => {
+  const { org, manager, ctx } = rig();
+  const table = new HandlerTable();
+  registerOrg(table);
+  const entry = table.get('agents.create')!;
+  const handlerCtx = { scope: { kind: 'owner' }, services: ctx().services, extras: {}, topics: new Set(), signal: new AbortController().signal, secure: true } as unknown as HandlerContext;
+  const made = await entry.handler({ name: 'Quinn', role: 'Research' } as never, handlerCtx) as { id: string };
+  assert.deepEqual(org.get(made.id)?.homes, ['dev_t', 'dev_n']);
+  assert.equal(org.get(manager.id)?.homes, undefined);
 });
 
 test('review L3: a PC that was removed is not named any more, and goes from the list at the next move', async () => {

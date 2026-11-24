@@ -35,6 +35,7 @@ import { scopeHas } from '../table.ts';
 import { splitPlace } from '../../people/events.ts';
 import { staleBase } from '../../root/text-doc.ts';
 import { clearChatRetry } from '../../agents/redelivery.ts';
+import { homeOnOwnPcs } from '../../agents/own-homes.ts';
 import { readAgentLog } from '../../runs/log.ts';
 import { allActivity, chatLiveOf } from '../../chat/live.ts';
 import { liveSyncOf } from '../../devices/sync/live.ts';
@@ -78,7 +79,8 @@ export function register(table: HandlerTable): void {
   table.add('agents.get', (params, ctx) => ctx.services.org.require(id(input(params))), CHAT);
   table.add('agents.org', (_params, ctx) => ctx.services.org.tree(), CHAT);
   table.add('agents.templates', (_params, ctx) => ctx.services.org.templates(), CHAT);
-  table.add('agents.create', (params, ctx) => ctx.services.org.create(hireInput(params, HUMAN_ID)), MANAGE);
+  // 0.3.20 (Konrad #830): the person's new agent is at home on all of their own PCs (agents/own-homes.ts); existing ones stay as they are
+  table.add('agents.create', (params, ctx) => homeOnOwnPcs(ctx.services, ctx.services.org.create(hireInput(params, HUMAN_ID)), { by: HUMAN_ID, hire: true, reason: 'at home on the person\'s own PCs' }), MANAGE);
   table.add('agents.update', (params, ctx) => updateAgent(params, ctx, HUMAN_ID), MANAGE);
   table.add('agents.archive', (params, ctx) => archiveAgent(params, ctx, HUMAN_ID), MANAGE);
   table.add('agents.restore', (params, ctx) => ctx.services.org.restore(id(input(params)), PERSON), MANAGE);

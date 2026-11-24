@@ -11,6 +11,8 @@
 //   My day ("Sign in in Settings › Models"), which the task lifecycle notifies once.
 // The work closes itself: an account.upserted that shows the account usable again completes the open task or
 // to-do as the system (verified by the account state); the account removed or switched off cancels it.
+// 0.3.20 (Konrad #830): a new account is on all the person's PCs, so a sign-out is found on one of them – both the task and the
+// to-do name the PC (the notes; the title stays the same, so the other PCs' checks still find the one open work).
 // State: kv namespace 'relogin', per account { taskId, times } (the open work and the creation times of the day).
 // Owns: choosing who does the sign-in, creating and closing that work, the cap. Never: types a password, reads
 // tokens or CLI homes, starts a sign-in itself (accounts.sign_in does, on the agent's call), creates a second
@@ -47,21 +49,31 @@ export function signInTaskTitle(account: Account): string {
   return `Sign in to ${labelOf(account)} again`;
 }
 
-/** The agent task's notes: what happened and the way through (no procedure beyond the tool and the boundary). */
-export function agentNotes(account: Account): string {
+/** 0.3.20 (Konrad #830): the PC that found the sign-out – a login on all the person's PCs is signed out on a PC, so the work names it. */
+function pcLine(pc: string | undefined): string {
+  return pc ? ` on ${pc}` : '';
+}
+
+/** The agent task's notes: what happened and the way through (no procedure beyond the tool and the boundary). `pc`: the PC that found the sign-out. */
+export function agentNotes(account: Account, pc?: string): string {
   return [
-    `${labelOf(account)} (${providerName(account)}) was signed out, so agents cannot use it until it is signed in again.`,
-    `accounts.sign_in with accountId "${account.id}" starts the official ${providerName(account)} sign-in on this PC; it opens the sign-in page in this PC's default browser. I finish what I can there myself (screen tools, or a colleague in browser or computer mode).`,
+    `${labelOf(account)} (${providerName(account)}) was signed out${pcLine(pc)}, so agents cannot use it until it is signed in again.`,
+    `accounts.sign_in with accountId "${account.id}" starts the official ${providerName(account)} sign-in on this PC${pc ? ` (${pc})` : ''}; it opens the sign-in page in this PC's default browser. I finish what I can there myself (screen tools, or a colleague in browser or computer mode).`,
     'I sign it in myself, like any work the person gives me: a stored login from the secrets catalog (by its secret:// handle, never its value), a two-factor code from the authenticator app on the linked phone where the person allowed it. Only a step that really only the person can do becomes a short, prepared to-do for them (tasks.add for the person), saying what I already tried – they can also finish it from their phone in Settings › Models.',
     'This task closes itself as soon as the account works again.',
   ].join('\n');
 }
 
-export function humanNotes(account: Account, why: 'no_account' | 'no_agent' | 'capped'): string {
+export function humanNotes(account: Account, why: 'no_account' | 'no_agent' | 'capped', pc?: string): string {
   const reason = why === 'no_account' ? 'No other model account can run the team right now, so the agents wait for it.'
     : why === 'capped' ? `The team tried to sign it in again ${MAX_PER_DAY} times today without success.`
       : 'No agent can take over the sign-in right now.';
-  return `${labelOf(account)} (${providerName(account)}) was signed out. ${reason} Sign in again in Settings › Models – from your phone too; it takes a minute. This to-do closes itself once the account works again.`;
+  return `${labelOf(account)} (${providerName(account)}) was signed out${pcLine(pc)}. ${reason} Sign in again in Settings › Models${pc ? ` on ${pc}` : ''} – from your phone too; it takes a minute. This to-do closes itself once the account works again.`;
+}
+
+/** This PC's name for the work (undefined where the PCs cannot be read). */
+function pcName(s: RuntimeServices): string | undefined {
+  try { return s.devices.self().name || undefined; } catch { return undefined; }
 }
 
 export class Relogin implements ReloginService {
@@ -124,7 +136,7 @@ export class Relogin implements ReloginService {
 
   private agentTask(s: RuntimeServices, account: Account, agent: Agent, clientId: string): TaskView {
     return s.tasks.create({
-      origin: RELOGIN_ORIGIN, title: signInTaskTitle(account), notes: agentNotes(account),
+      origin: RELOGIN_ORIGIN, title: signInTaskTitle(account), notes: agentNotes(account, pcName(s)),
       assigneeKind: 'agent', assigneeId: agent.id, priority: 1, createdBy: SYSTEM_ID, clientId,
     });
   }
@@ -132,7 +144,7 @@ export class Relogin implements ReloginService {
   private humanTodo(s: RuntimeServices, account: Account, why: 'no_account' | 'no_agent' | 'capped', clientId: string): TaskView {
     // The task lifecycle notifies the person of a new to-do (kind 'todo', naming it) – no second notification.
     return s.tasks.create({
-      origin: RELOGIN_ORIGIN, title: signInTaskTitle(account), notes: humanNotes(account, why),
+      origin: RELOGIN_ORIGIN, title: signInTaskTitle(account), notes: humanNotes(account, why, pcName(s)),
       assigneeKind: 'human', createdBy: SYSTEM_ID, clientId,
     });
   }

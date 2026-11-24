@@ -14,6 +14,8 @@
 // its own part (from "## My role" on) with one line: how I start them and help them write the file. A hire from the `head` template stands beside me – it reports to
 // the person unless managerId names someone.
 // `device` gives a hire its home PC (devices.list; default this PC) – like agents.update's device.
+// 0.3.20 (Konrad #830, 24.11.2026): a hire is at home on all of the person's own PCs (Agent.homes, agents/own-homes.ts) – the one
+// it runs on first –, so another of them goes on with it while that one is off; agents that exist keep their homes (0.3.21).
 // 17.11.2026 (measured 15.–17.11.: no hire could name a model, every new agent landed on the strongest one and its giver's
 // "strong" on the first task then raised its effort to max): `model` and `effort` settle a hire where its context starts –
 // the model as its start model with my name on it (ModelPolicy.pin / pinBy, like agents.update), described by the work the
@@ -35,6 +37,7 @@ import '../../contracts/agent-core.ts';
 import { resolveDevice } from '../registry.ts';
 import { coreInstructions } from '../../agent-core/prompt.ts';
 import { ownHowIWork } from '../../org/system-parts.ts';
+import { homeOnOwnPcs } from '../../agents/own-homes.ts';
 import { clip, defineTool } from './util.ts';
 
 export const MAX_HIRES = 6;
@@ -60,7 +63,7 @@ const HIRE_PROPS = {
   instructions: { type: 'string', maxLength: 8000, description: 'Who the colleague is and for whom they work, a few lines under "## My role"; from there they grow it. Their first piece of work is a to-do of its own (tasks.add).' },
   mode: { type: 'string' }, managerId: { type: 'string', description: "'' = the person." },
   spaceId: { type: 'string', description: "Default the template's or its manager's space; a private one only from inside it." },
-  device: { type: 'string', minLength: 1, maxLength: 120, description: 'Its home PC, where its turns, terminal and screen work run; default this one.' },
+  device: { type: 'string', minLength: 1, maxLength: 120, description: "Its home PC, where its turns, terminal and screen work run; default this one. Whichever it is, the hire is at home on all of the person's own PCs, so another goes on with it while its PC is off." },
   model: MODEL_PROPERTY, effort: EFFORT_PROPERTY,
 } as const;
 /** The same fields inside "agents", said once at the top level. */
@@ -168,6 +171,7 @@ async function hire(args: Hire, ctx: ToolContext): Promise<HireResult> {
   try {
     let agent = org.create({ ...fields, managerId, spaceId: place.spaceId, createdBy: ctx.agent.id });
     if (pc && !pc.self) agent = org.update(agent.id, { deviceId: pc.id }, { by: ctx.agent.id, runId: ctx.runId, reason: 'home device' }); // this PC is the default (no deviceId)
+    agent = homeOnOwnPcs(ctx.services, agent, { by: ctx.agent.id, runId: ctx.runId, reason: "at home on the person's own PCs" }); // 0.3.20 (Konrad #830): all of them, whichever PC it starts on; existing agents stay
     if (pin?.pin || effort) {
       // the model is its start model with my name on it, the effort its fixed one – what agents.update sets for a colleague
       const named = pin?.pin ? { pin: pin.pin, pinBy: { name: ctx.agent.name, at: ctx.services.clock.now() } } : {};

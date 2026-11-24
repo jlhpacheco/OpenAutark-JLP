@@ -19,6 +19,7 @@ import { standing } from '../../../src/runtime/devices/sync/settled-state.ts';
 import { KvRepo } from '../../../src/runtime/store/kv.ts';
 import { placeSchedules } from '../../../src/runtime/devices/sync/tables.ts';
 import { startMoves } from '../../../src/runtime/agents/move.ts';
+import { homeOnOwnPcs } from '../../../src/runtime/agents/own-homes.ts';
 import { takeRepairNotes } from '../../../src/runtime/agents/turn-finish.ts';
 import { DevicesRepo } from '../../../src/runtime/devices/repo.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
@@ -84,6 +85,37 @@ test('takeover: after 2 minutes out of reach with a due wake, the smallest onlin
   assert.match(notes[0], /^My PC dev_h has not been reachable since \d\d:\d\d; my record was complete here, so I go on on dev_c\. Files and programs that only dev_h has are out of reach until it is back\.$/);
   assert.deepEqual(c.h.services.org.get(MARA)?.homes, ['dev_c', 'dev_h'], 'the PC she left stays one of her homes');
   for (const off of offs) off();
+});
+
+test('0.3.20: a NEW agent set at home on the person\'s own PCs (agents/own-homes.ts) is taken over by the other PC with no one naming homes', async () => {
+  const net = new Net();
+  const h = pcOf(net, 'dev_h', 'dev_h');
+  const c = pcOf(net, 'dev_c', 'dev_h');
+  link(h, c);
+  const offs = [h.start(), c.start()];
+  assert.equal(h.h.services.org.get(MARA)?.homes, undefined, 'no homes named: before 0.3.20 she would wait for her PC');
+  const made = homeOnOwnPcs(h.h.services, h.h.services.org.get(MARA)!, { by: 'system', reason: 'new agent' });
+  assert.deepEqual(made.homes, ['dev_h', 'dev_c'], 'this PC and the linked own PC');
+  c.h.services.org.update(MARA, { homes: made.homes }); // the row as it reaches dev_c
+  settled(c);
+  away(net, 'dev_h');
+  c.h.wakes.wake({ agentId: MARA, reason: 'manual', note: 'the weekly report' });
+  await settle();
+  pass(c, TAKEOVER_MS);
+  c.timers.fire();
+  await settle();
+  assert.deepEqual(taken(c).map((entry) => entry.data), [{ agentId: MARA, from: 'dev_h' }], 'dev_c goes on with her');
+  assert.equal(homeElsewhere(c.h.services, MARA), undefined);
+  assert.deepEqual(c.h.services.org.get(MARA)?.homes, ['dev_h', 'dev_c'], 'the PC she left stays one of her homes');
+  for (const off of offs) off();
+});
+
+test('0.3.20: an agent that exists keeps what it has – homeOnOwnPcs leaves one with homes alone; a PC alone writes nothing', () => {
+  const net = new Net();
+  const h = pcOf(net, 'dev_h', 'dev_h', { homes: ['dev_x'] });
+  assert.deepEqual(homeOnOwnPcs(h.h.services, h.h.services.org.get(MARA)!, { by: 'system' }).homes, ['dev_x']);
+  const alone = pcOf(new Net(), 'dev_a', 'dev_a');
+  assert.equal(homeOnOwnPcs(alone.h.services, alone.h.services.org.get(MARA)!, { by: 'system' }).homes, undefined, 'no other own PC: homes stay empty');
 });
 
 test('part 2: the contact broke while she was at work there or rows were owed – nobody takes her, one info line, no note; her PC back takes the wake', async () => {

@@ -40,7 +40,7 @@ declare module '../api/methods.ts' {
     'accounts.add': { params: { provider: ProviderId; label?: string; apiKey?: string; baseUrl?: string; envVar?: string; detected?: boolean }; result: Account & { signInUrl?: string } & AwaySignIn }; // apiKey: typed, or a handle secret://<id> of the catalog (the account then only names that entry); PR5: envVar = key variable name, detected = "Add again"; B-051: signInUrl = the page the CLI's sign-in printed (when it did within a few seconds)
     'accounts.update': { params: { id: string; label?: string; priority?: number; enabled?: boolean; credits?: boolean; extraUsage?: boolean; thisPcOnly?: boolean }; result: Account }; // B-083 credits: the key holds a plan's monthly API credits (used like a plan)
     /** 17.11.2026: "Use" – the offered plan login (DetectionReport.found) becomes an account here, switched on and checked; only the person (a window, the phone, a `wf` by hand), never an agent. */
-    'accounts.useFound': { params: { key: string; thisPcOnly?: boolean }; result: Account }; // `thisPcOnly` (default true): the account stays on this PC; false: it goes to all PCs of the company
+    'accounts.useFound': { params: { key: string; thisPcOnly?: boolean }; result: Account }; // `thisPcOnly` (default false since 0.3.20 – Konrad #830): false: the account goes to all PCs of the company; true: it stays on this PC
     /** "Not here" – the offered login is dismissed in this company (it stays on the PC; "Add again" brings it back). Only the person. */
     'accounts.declineFound': { params: { key: string }; result: { ok: true } };
     /** 23.11.2026: "Let the AI set it up" – the personal manager's to-do for a Claude plan's monthly API credits (one open per plan). Only the person. */
