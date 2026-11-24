@@ -1,4 +1,5 @@
 // The same quota windows drive runtime eligibility and the UI's read-only limit display.
+// Owns: reported quota reset times and model scopes. Never: reads the clock or changes an account.
 import { accountCharge } from './charge.ts';
 import type { Account, AccountLimits } from './providers.ts';
 
@@ -27,9 +28,9 @@ export function extraUsageAllowed(account: Account): boolean {
 /** Latest reset among exhausted windows that apply. Without a model, only account-wide limits count. */
 export function quotaResetAt(limits: AccountLimits | undefined, now: number, model?: string): number | undefined {
   let reset: number | undefined;
-  for (const window of limits?.windows ?? []) {
-    if (window.usedPercent >= 100 && window.resetsAt !== undefined && window.resetsAt > now && windowApplies(window.name, model)) {
-      reset = Math.max(reset ?? 0, window.resetsAt);
+  for (const reading of limits?.windows ?? []) {
+    if (reading.usedPercent >= 100 && reading.resetsAt !== undefined && reading.resetsAt > now && windowApplies(reading.name, model)) {
+      reset = Math.max(reset ?? 0, reading.resetsAt);
     }
   }
   return reset;
