@@ -77,9 +77,11 @@ a command printed in Claude Code's own Bash reached the model provider). An agen
 Bash or PowerShell tool; a Codex agent thread opens, resumes and forks with its own shells off (shell_tool, unified_exec,
 shell_snapshot, shell_zsh_fork, js_repl). Commands go through shell.exec, whose output is masked before the model, the
 run journal and the chat see it: a value from the secrets catalog as its secret:// handle, a key by its shape (Stripe,
-GitHub, JWT, private key …) as ‹secret:…›. A command that times out, is stopped, loses a pipe or prints more than 1 MB
-returns "[command output withheld]" instead of a part that could end in the middle of a value, and the timeout review
-sees only how much it printed, no longer the output or the command. A rebuilt session leaves out native shell calls
+GitHub, JWT, private key …) as ‹secret:…›. A command that times out, is stopped or loses a pipe returns "[command
+output withheld]" instead of a part that could end in the middle of a value, and the timeout review sees only how much
+it printed, no longer the output or the command. A pipe that prints more than 512 KB keeps its start and its end (where
+a build's error stands), each masked whole and cut by a 48 KB margin where the middle was left out, so no piece of a
+value that cut split shows; what the model sees stays within 64 KB. A rebuilt session leaves out native shell calls
 and Codex script calls from before 0.3.19 with a one-line note; Codex scripts run under the masked shell carry a mark
 in the journal and are replayed as before.
 A native session resumes after a restart only when Autark wrote it last: at the end of each turn, fork, revert and

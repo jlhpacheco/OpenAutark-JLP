@@ -65,7 +65,7 @@ test('a catalog value crossing the visible cap is masked before the cap', async 
     c.emit('close', 0);
   });
   assert.ok(!text(r).includes('synthetic-catalog'), 'no raw prefix');
-  assert.match(text(r), /\[output capped\]$/);
+  assert.match(text(r), /\[output capped\] …\nx+ secret:\/\/fixture$/);
 });
 
 test('a timeout review sees counts, never incomplete output', async () => {
@@ -76,11 +76,10 @@ test('a timeout review sees counts, never incomplete output', async () => {
   assert.match(text(r), /exit timeout\n\[command output withheld\]/);
 });
 
-test('overflow, cancellation and a failing redactor expose no partial output', async () => {
-  for (const kind of ['overflow', 'abort', 'maskFailure']) {
+test('cancellation and a failing redactor expose no partial output', async () => {
+  for (const kind of ['abort', 'maskFailure']) {
     const r = await fixture((c, control) => {
       out(c, 'stdout', 'safe text ' + stripe.slice(0, -12));
-      if (kind === 'overflow') out(c, 'stderr', 'x'.repeat(1024 * 1024 + 1));
       if (kind === 'abort') control.abort();
       c.emit('close', 0);
     }, undefined, kind === 'maskFailure');
@@ -95,13 +94,20 @@ test('a spawn error carries no raw value in its text', async () => {
   assert.equal(text(r), 'Could not run the command.');
 });
 
-test('the whole capture is bounded across both pipes', async () => {
+// 0.3.19 (Noah's review 24.11.2026): an output over budget keeps each pipe's start and end, masked – no longer all withheld.
+test('an overflow keeps start and end of each pipe, masked; the visible text stays capped', async () => {
   const r = await fixture((c) => {
-    out(c, 'stdout', 'A'.repeat(600 * 1024));
-    out(c, 'stderr', 'B'.repeat(600 * 1024));
-    c.emit('close', 0);
+    out(c, 'stdout', 'safe text ' + stripe + '\n' + 'A'.repeat(600 * 1024));
+    out(c, 'stderr', 'B'.repeat(600 * 1024) + '\nERR ' + catalog);
+    c.emit('close', 1);
   });
-  assert.equal(text(r), 'exit 0\n[command output withheld]');
+  const shown = text(r);
+  assert.equal(r.isError, true);
+  assert.match(shown, /^exit 1\nsafe text ‹secret:stripe-[^›]+›\nA+/, 'the start, masked');
+  assert.match(shown, /B+\nERR secret:\/\/fixture$/, 'the end with the error, masked');
+  assert.match(shown, /\[output capped\]/);
+  assert.ok(!shown.includes(catalog) && !shown.includes(stripe.slice(8, 24)), 'no raw value');
+  assert.ok(shown.length < 70 * 1024);
 });
 
 test('a pipe error aborts the process and suppresses both streams', async () => {

@@ -24,7 +24,7 @@ import type { ShellSpawn } from './files.ts';
 import { initialTimeoutSeconds, reviewToolTimeout, timeoutDecisionText } from '../timeout.ts';
 
 import { maskKeyShapes } from '../../secrets/redact.ts';
-import { MAX_CAPTURE, ShellOutput, WITHHELD } from './shell-output.ts';
+import { ShellOutput, WITHHELD } from './shell-output.ts';
 
 /** The `env` argument of a command tool. */
 export const ENV_SCHEMA = Object.freeze({
@@ -71,7 +71,7 @@ export async function runCommand(shell: ShellSpawn, ctx: ToolContext, input: { c
   let lookedAt = started;
   const take = (index: number, text: string) => {
     printed += text.length;
-    if (printed <= MAX_CAPTURE) streams[index].append(text);
+    streams[index].append(text); // bounded per pipe: whole up to its half of MAX_CAPTURE, beyond it start and end (shell-output.ts)
   };
   // Separate pipes: interleaved stderr must not split a match in stdout (or vice versa).
   const decoders = [new StringDecoder('utf8'), new StringDecoder('utf8')];
@@ -115,7 +115,7 @@ export async function runCommand(shell: ShellSpawn, ctx: ToolContext, input: { c
       else timer = setTimeout(() => { void timeout(); }, seconds * 1000);
     });
     decoders.forEach((decoder, index) => take(index, decoder.end()));
-    const completed = code !== null && !controller.signal.aborted && printed <= MAX_CAPTURE;
+    const completed = code !== null && !controller.signal.aborted;
     const parts = streams.map((stream) => stream.safe(completed, redact));
     const body = parts.some((part) => part === null) ? WITHHELD : ShellOutput.cap(parts.filter(Boolean).join('\n'));
     const earlier = reviews > decisions.length ? [`${reviews - decisions.length} earlier timeout decisions are recorded in the run journal.`] : [];
