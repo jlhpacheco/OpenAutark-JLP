@@ -18,6 +18,7 @@ import { DAY_MINUTES, HOUR_PX, atMinute, clickSpan, dayView, dragged, spanClock,
 import { moveRow } from './page-actions.ts';
 import { backToToday, lineOf, openDetail, workOpen, type PageScope } from './page-state.ts';
 import { submitLine } from './TaskInput.tsx';
+import { KindMark } from './DayPreview.tsx';
 import { dayWord, headTitle, weekdayOf } from './when-text.ts';
 import { wallOf } from '../../shared/text/when.ts';
 
@@ -76,7 +77,11 @@ function Block(props: { entry: Laned; scope: PageScope; date: string; readOnly: 
         void moveRow(item.row, to.startAt, to.endAt);
       }}
       onClick={(event) => { event.stopPropagation(); if (!movable) open(); }}>
-      <span class="cal-block-title">{item.kind === 'done' ? '✓ ' : ''}{item.title}</span>
+      <span class="cal-block-head">
+        <KindMark kind={item.kind} size={12} />
+        {height < 34 && <span class="cal-block-time">{spanClock(item.span)}</span>}
+        <span class="cal-block-title">{item.title}</span>
+      </span>
       {height >= 34 && <span class="cal-block-time">{spanClock(item.span)}</span>}
     </div>
   );
@@ -117,7 +122,7 @@ function DayGrid(props: CalendarProps) {
       <div class="cal-allday" aria-label="Without a time">
         {view.allDay.map((item) => (
           <button key={item.id} type="button" class={`cal-chip ${item.kind}`} style={{ '--qc': item.hue ? `var(--wf-c${item.hue})` : 'var(--muted)' }}
-            onClick={() => { if (item.taskId) openDetail(props.scope, item.taskId); }}>{item.title}</button>
+            onClick={() => { if (item.taskId) openDetail(props.scope, item.taskId); }}><KindMark kind={item.kind} size={12} />{item.title}</button>
         ))}
       </div>
       <div class="cal-scroll" ref={scroller}>

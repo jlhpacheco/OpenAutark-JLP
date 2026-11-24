@@ -39,12 +39,13 @@ export function NextUp(props: { scope: PageScope; lines: readonly NextLine[]; wi
 const KIND_WORD: Record<AgendaLine['kind'], string> = { event: 'Event', todo: 'To-do', done: 'Done', ai: 'Agent' };
 
 /** The line's mark: an event's calendar, a to-do's ring (a done one ticked, as on its row), an agent's spark. */
-function KindMark(props: { kind: AgendaLine['kind'] }) {
+export function KindMark(props: { kind: AgendaLine['kind']; size?: number }) {
   const word = KIND_WORD[props.kind];
+  const size = props.size ?? 15;
   return (
     <span class={`day-item-mark ${props.kind}`} title={word}>
-      {props.kind === 'event' ? <Icon name="calendar-blank" size={15} />
-        : props.kind === 'ai' ? <Icon name="sparkle" size={15} />
+      {props.kind === 'event' ? <Icon name="calendar-blank" size={size} />
+        : props.kind === 'ai' ? <Icon name="sparkle" size={size} />
           : <span class="day-item-ring">{props.kind === 'done' && <Icon name="check" size={10} />}</span>}
       <span class="sr-only">{word}: </span>
     </span>
@@ -59,7 +60,7 @@ export function DayList(props: { scope: PageScope; date: string; today: string; 
       <h3 class="tasks-sec day-list-head">
         <span class="day-list-title">{head.text}</span>
         {head.count !== null && <span class="tabular">{head.count}</span>}
-        {head.readOnly && <span class="day-list-ro">Read only</span>}
+        {head.readOnly && <span class="day-list-ro">· Read only</span>}
         <button type="button" class="day-list-today" onClick={() => backToToday(props.scope)}>Today</button>
       </h3>
       <ul class="day-list" aria-label={headTitle(props.date)}>

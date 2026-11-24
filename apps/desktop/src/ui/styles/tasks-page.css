@@ -21,7 +21,7 @@
    a day is a circle under its weekday – today in the accent's colour, the chosen one filled, a past one quieter – with
    a dot under it when it holds something (the free one keeps its box: nothing moves when data arrives). */
 .day-line { display: flex; align-items: center; gap: 2px; width: 100%; min-width: 0; }
-.day-line-arrow { flex: none; color: var(--secondary); }
+.day-line-arrow { flex: none; color: var(--text); } /* both the same, well over 3:1 (Mika 24.11.) */
 .day-line-days { display: flex; flex: 1 1 0; justify-content: space-between; min-width: 0; max-width: calc(7 * 40px); overflow: hidden; }
 .day-dot { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: none; min-width: 36px; padding: 0; color: var(--text); } /* larger letters widen it: fewer days fit (DayLine.tsx measures) */
 .day-dot-wd { color: var(--secondary); font-size: calc(12px * var(--ui-text, 1)); line-height: max(14px, calc(14px * var(--ui-text, 1))); white-space: nowrap; }
@@ -87,7 +87,7 @@
    calendar, a to-do's ring (ticked when done, as on its row), an agent's spark; a to-do's quest by its dot and name */
 .day-item-mark { display: grid; place-items: center; height: 20px; color: var(--secondary); }
 .day-item-ring { display: grid; place-items: center; width: 14px; height: 14px; border: 1.6px solid var(--secondary); border-radius: 50%; color: transparent; }
-.day-line-item.done .day-item-ring { border-color: var(--success); background: var(--success); color: var(--badge-fg); }
+.day-line-item.done .day-item-ring, .cal-block.done .day-item-ring, .cal-chip.done .day-item-ring { border-color: var(--success); background: var(--success); color: var(--badge-fg); }
 .day-list-head .day-list-title { min-width: 0; }
 .day-list-ro { color: var(--secondary); font-weight: 500; letter-spacing: 0; text-transform: none; white-space: nowrap; }
 /* "Today" on another day (the heading, the one-column calendar's head): small to see, a 44 px target on touch */
@@ -216,6 +216,13 @@ li.tasks-sec.later { margin-top: 6px; list-style: none; }
 .cal-block.event { border-left-color: var(--field); background: var(--hover); cursor: default; }
 .cal-block.done { opacity: .55; }
 .cal-block-title { overflow: hidden; font-weight: 600; line-height: max(14px, calc(14px * var(--ui-text, 1))); text-overflow: ellipsis; white-space: nowrap; }
+/* a block's kind by its mark, a short block's time before its title (Mika 24.11.: never by colour, time everywhere) */
+.cal-block-head { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.cal-block-head .day-item-mark, .cal-chip .day-item-mark { height: 14px; flex: none; }
+.cal-block-head .day-item-ring, .cal-chip .day-item-ring { width: 11px; height: 11px; }
+.cal-block-head .cal-block-time { flex: none; }
+.cal-block-head .cal-block-title { min-width: 0; }
+.cal-chip { display: inline-flex; align-items: center; gap: 4px; }
 .cal-block-time { color: var(--secondary); font-size: calc(11px * var(--ui-text, 1)); }
 .cal-ai { position: absolute; right: 0; display: flex; align-items: center; gap: 4px; width: 64px; height: 14px; padding: 0; overflow: hidden; color: var(--muted); font-size: calc(10.5px * var(--ui-text, 1)); white-space: nowrap; }
 .cal-ai i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--qc); }
@@ -280,6 +287,8 @@ li.tasks-sec.later { margin-top: 6px; list-style: none; }
   .month-head .icon-button.small { width: 44px; height: 44px; }
   .month-today { min-height: 44px; }
   .month-foot { padding-bottom: 8px; } /* air above the system bar (the sheet adds its safe-area inset) */
+  .cal-block { overflow: visible; } /* a short block keeps its look, its target grows to 44 px (Mika 24.11.) */
+  .cal-block::after { content: ''; position: absolute; inset: min(0px, calc((100% - 44px) / 2)) 0; }
   .day-list-today::after { content: ''; position: absolute; inset: min(0px, calc((100% - 44px) / 2)); }
 }
 .mobile-shell .task-input-mirror, .mobile-shell .task-input-field { font-size: calc(16px * var(--ui-text, 1)); line-height: max(22px, calc(22px * var(--ui-text, 1))); } /* 16 px: no iOS zoom on focus */
