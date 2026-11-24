@@ -1,7 +1,7 @@
 // Owns: the phone's channels to the PCs of its company (B-084 M1) – one per pinned PC that is online, at most CAP – with
 // the version each PC runs (PcVersion), the pause before a failed PC is tried again (PhoneConnection.backoff per PC;
-// a minute once the backoff ran out while another channel is up) and which one the page uses: the PC picked in the app while its channel is up, else the newest version (the one paired
-// first among equals); the page stays where it is until its PC drops or a newer one is linked. A PC that refused the
+// a minute once the backoff ran out while another channel is up) and which one the page uses: the PC picked in the app while its channel is up, else the newest version (among equal versions the one earlier in the paired list – only a
+// fallback order, no PC outranks another); the page stays where it is until its PC drops or a newer one is linked. A PC that refused the
 // page's token (refuse) is passed over for as long as another linked PC has not refused – each PC refuses at most once
 // per connection, so the page never circles; with every linked PC refused, the page stays where it is (it says 'Not
 // paired'). The person's pick of a PC forgives its refusal.

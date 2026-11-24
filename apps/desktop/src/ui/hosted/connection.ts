@@ -1,5 +1,5 @@
 // The iPhone web app's link to the company (B-078 follow-up, as Android's relay/PhoneConnection.java): one meeting-server
-// connection with every PC this phone knows pinned, and one encrypted channel to the first of them that is online, with
+// connection with every PC this phone knows pinned, and one encrypted channel to one of them that is online, with
 // the stream mux on it. The page holds all of it while it is visible (iOS gives a service worker no long-lived socket).
 // It reconnects with backoff (1, 2, 5, 15, 30, 60 s; one-shot timers, no polling) after the meeting server or the PC went
 // away and right away when a pinned PC comes online. nudge() on resume (visible, pageshow, online, a push's 'wf.wake'):
@@ -231,7 +231,7 @@ export class Connection {
       const link = this.link;
       const fp = link?.firstOnline();
       if (!link || !fp) {
-        this.say(this.unansweredSaid ? UNANSWERED_TEXT : 'None of your PCs is online. Autark must be running on one of them.', false);
+        this.say(this.unansweredSaid ? UNANSWERED_TEXT : 'None of your PCs is online. Autark has to be running on at least one of them.', false);
         this.noAnswer();
         return;
       }

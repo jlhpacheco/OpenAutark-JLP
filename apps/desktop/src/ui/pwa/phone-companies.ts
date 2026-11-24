@@ -17,7 +17,8 @@ import { hasNativePort, onNative, sendNative } from './native-port.ts';
 import { startShare } from './share.ts';
 
 export interface PhoneCompany { id: string; name: string; avatar?: string; current: boolean; pc?: string }
-export interface PhoneStatus { pc?: string; connected: boolean }
+/** `online` of `total` PCs of the company have a channel now (0.3.20; absent from an app before that: the PC's name is shown). */
+export interface PhoneStatus { pc?: string; connected: boolean; online?: number; total?: number }
 
 /** The companies this phone is paired with (empty outside the Android app). */
 export const phoneCompanies = signal<PhoneCompany[]>([]);
@@ -46,12 +47,21 @@ export function parseCompanies(msg: Record<string, unknown>): PhoneCompany[] {
 
 export function parseStatus(msg: Record<string, unknown>): PhoneStatus {
   const pc = text(msg.pc, 80);
-  return { connected: msg.connected === true, ...(pc ? { pc } : {}) };
+  const count = (value: unknown) => (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 999 ? value : undefined);
+  const online = count(msg.online);
+  const total = count(msg.total);
+  return { connected: msg.connected === true, ...(pc ? { pc } : {}), ...(online !== undefined && total !== undefined && total > 0 && online <= total ? { online, total } : {}) };
 }
 
-/** The profile sheet's one status line: "<company> · <PC>", or "Connecting…" while the link is down. */
+/**
+ * The profile sheet's one status line: "<company> · 2 of 3 PCs online" (no PC is named – none outranks another; a single
+ * PC: "1 PC online"), the PC's name from an app before 0.3.20, or "Connecting…" while the link is down.
+ */
 export function statusLine(company: string, status: PhoneStatus | null): string {
   if (!status?.connected) return 'Connecting…';
+  if (status.online !== undefined && status.total !== undefined) {
+    return status.total === 1 ? `${company} · 1 PC online` : `${company} · ${status.online} of ${status.total} PCs online`;
+  }
   return status.pc ? `${company} · ${status.pc}` : company;
 }
 

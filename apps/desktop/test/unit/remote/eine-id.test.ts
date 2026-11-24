@@ -167,7 +167,7 @@ test('a new member accepted on a member\'s PC is admitted by the company\'s PC; 
   const [incoming] = seat.remote.state().incoming;
   assert.equal(incoming.proposedName, 'Nora');
 
-  assert.throws(() => seat.remote.decide(incoming.id, true), code('unavailable', /^Office is not reachable – it adds the new member\.$/), 'the company\'s PC is away');
+  assert.throws(() => seat.remote.decide(incoming.id, true), code('unavailable', /^Office is not reachable right now\. The new member is added on it – try again once it is on\.$/), 'the company\'s PC is away');
   assert.equal(seat.remote.state().incoming.length, 1, 'the request stays open');
   lan.up(office, seat);
   assert.throws(() => seat.remote.decide(incoming.id, true, 'per_momo'), code('bad_request', /Name the new member here/), 'a member\'s PC names, it does not pick');

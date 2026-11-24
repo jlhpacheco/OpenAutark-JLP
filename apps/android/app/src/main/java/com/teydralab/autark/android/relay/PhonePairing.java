@@ -1,6 +1,6 @@
 // Owns: the static half of PhoneConnection (B-084 split, kept out so that file stays under 300 lines) – pairing a new
 // phone key with a PC under its Remote ID (the PC's own connect request with role "phone", relay/RemotePair), reading
-// the pinned PCs back from storage or phoneUse.attach (F29: with their direct addresses), putting one PC first, and
+// the pinned PCs back from storage or phoneUse.attach (F29: with their direct addresses), trying the PC the person picked before the others (`preferring`; only the order of the dial attempts, no PC outranks another), and
 // whether two lists pin the same PCs.
 // Never: keeps state, stores anything, or reaches a PC outside the pairing request.
 package com.teydralab.autark.android.relay;
@@ -27,7 +27,7 @@ final class PhonePairing {
             link.connect(relay);
             List<RelayLink.Found> found = link.find(id);
             if (found.isEmpty()) throw new IOException("No PC with this Remote ID is online at the meeting server. Is Autark running there and accepting connection requests?");
-            RelayLink.Found pc = found.get(0);
+            RelayLink.Found pc = found.get(0); // any PC online under this ID will do – the meeting server lists them in turns (0.3.20); the person accepts on a PC either way
             RemotePair exchange = new RemotePair((body, timeoutMs) -> link.request(pc, Json.map("op", "pair", "body", body), timeoutMs), seed, RemotePair.newDeviceId(), name);
             RemotePair.Asked asked = exchange.ask(id, pc.fingerprint);
             codes.code(asked.code, asked.pcName);
@@ -73,8 +73,8 @@ final class PhonePairing {
         return x.equals(y);
     }
 
-    /** `pcs` with `fp` first, or `pcs` itself when `fp` is not among them. */
-    static List<PhoneConnection.Pc> first(List<PhoneConnection.Pc> pcs, String fp) {
+    /** `pcs` with `fp` tried before the others (the person's pick), or `pcs` itself when `fp` is not among them. */
+    static List<PhoneConnection.Pc> preferring(List<PhoneConnection.Pc> pcs, String fp) {
         for (PhoneConnection.Pc pc : pcs) {
             if (!pc.fingerprint.equals(fp)) continue;
             List<PhoneConnection.Pc> out = new ArrayList<>(pcs);

@@ -71,7 +71,7 @@ declare module '../api/methods.ts' {
     /** The stored policy at one scope (no ids = global default for agents); null when none is set. */
     'models.getPolicy': { params: { agentId?: string; conversationId?: string } | void; result: ModelPolicy | null };
     'models.setPolicy': { params: { agentId?: string; conversationId?: string; policy: ModelPolicy }; result: { ok: true } };
-    /** RT5: like a turn, the chat's last done run is the previous choice (a chat's model choice is information for the AI, never a route); `ignorePin` = as on the agent page's "nothing chosen" option: without a chat the agent's own pin does not answer. */
+    /** RT5: like a turn, the chat's last done run is the previous choice (a chat's model choice is information for the AI, never a route); `ignorePin` = as on the agent page's "nothing chosen" option: without a chat the agent's own pin does not answer. It answers for the PC this connection is to, with that PC's accounts and limits – every PC routes with its own, so a turn that runs on another PC can pick another model. */
     'routing.preview': { params: { agentId: string; conversationId?: string; text?: string; mode?: string; ignorePin?: boolean }; result: RouteDecision };
     'catalog.refresh': { params: void; result: { ok: true; models: number; fetchedAt?: number; refreshedAt?: number } };
     'catalog.status': { params: void; result: ModelCatalogStatus };

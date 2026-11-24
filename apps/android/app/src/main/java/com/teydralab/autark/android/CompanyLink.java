@@ -106,6 +106,10 @@ final class CompanyLink {
     /** The name of the PC the link goes to now, or null. */
     String pcName() { return connection.pcName(); }
 
+    /** How many of the company's PCs have a channel now, and how many are paired. */
+    int online() { return connection.linkedCount(); }
+    int total() { return connection.pcs().size(); }
+
     /** The PC picker: one row per PC; a pick puts that PC first (the link moves when it is online). */
     void pick(Activity activity, Events events) {
         List<PhoneConnection.Pc> pcs = connection.pcs();

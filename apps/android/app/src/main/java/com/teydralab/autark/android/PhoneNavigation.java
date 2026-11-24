@@ -55,12 +55,12 @@ final class PhoneNavigation extends WebViewClient {
 
     @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
         if (!request.isForMainFrame() || !host.sameOrigin(request.getUrl().toString())) return;
-        host.offline("Autark must be running on one of your PCs, and this phone needs internet.");
+        host.offline("No PC answered. Autark has to be running on at least one of your PCs, and this phone needs internet.");
     }
 
     @Override public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
         if (!request.isForMainFrame() || !host.sameOrigin(request.getUrl().toString())) return;
-        host.offline(response.getStatusCode() == 503 ? "None of your PCs is reachable right now. Autark must be running on one of them." : "The PC answered HTTP " + response.getStatusCode() + ".");
+        host.offline(response.getStatusCode() == 503 ? "None of your PCs is reachable right now. Autark has to be running on at least one of them." : "The PC answered HTTP " + response.getStatusCode() + ".");
     }
 
     @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {

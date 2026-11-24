@@ -49,7 +49,7 @@ const IMMUTABLE = /^(chunks|icons)\/|-[A-Z0-9]{8}\.(woff2|png|svg)$/;
 const REVALIDATE = new Set(['main.js', 'main.css', 'pcm-worklet.js', 'icon.png', 'icon-maskable.png', 'manifest.webmanifest']);
 const QUICK_MS = 4_000;
 const WAIT_MS = 10_000;
-const OFFLINE = 'Your PC is not reachable right now. Autark must be running on one of your PCs.';
+const OFFLINE = 'Your PCs are not reachable right now. Autark has to be running on at least one of them.';
 
 sw.addEventListener('install', (event) => {
   event.waitUntil((async () => {

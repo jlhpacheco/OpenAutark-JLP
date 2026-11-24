@@ -2,7 +2,7 @@
 // an origin of its own, since storage and keys belong to the origin): an iPhone without an Apple developer account
 // installs it with Share → Add to Home Screen. It does what the Android app does:
 // pairs with a PC by its Remote ID (pair.ts: the same code on both screens, Accept on the PC), keeps the phone's
-// non-extractable key and token (store.ts), holds one encrypted channel to the first of my PCs online through the meeting
+// non-extractable key and token (store.ts), holds one encrypted channel to one of my PCs that is online through the meeting
 // server (connection.ts), and then shows the PC's own UI – "the screens come from your PC": it fetches the PC's '/' over
 // the tunnel, checks the `autark-hosted` marker (else "Update Autark on your PC"), and injects the PC's main.css and
 // main.js into this document; their relative paths go through the service worker (sw.ts) and bridge.ts. The UI reaches

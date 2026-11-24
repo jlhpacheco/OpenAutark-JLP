@@ -9,7 +9,8 @@
 // opens but only as a small signalling tunnel (SIGNAL_BYTES, one per minute per key and source): enough for the devices
 // to agree on a direct (WebRTC) path through it, never enough to carry their data. Devices that accept connection
 // requests are also found by their Remote ID (B-084: also by the codes their chains prove – Eine-ID 22.11.2026: up to two,
-// company ID and my ID; a found entry carries the chain that proves the code searched, the shortest chains first), and
+// company ID and my ID; a found entry carries the chain that proves the code searched, the shortest chains first and PCs of the
+// same depth in turns – only PCs online and findable are listed, none is first for having connected or paired first), and
 // sealed connect messages are passed to them
 // (rate-limited per key and per client source); each carries an opaque per-source tag (HMAC of
 // the source under a per-process secret, never the address) so the target PC counts requests per
@@ -107,6 +108,8 @@ export async function createRelay(options: RelayOptions = {}): Promise<Relay> {
   const perIp = new Map<string, number>();
   const byFp = new Map<string, Conn>();
   const byRemoteId = new Map<string, Set<Conn>>();
+  /** How often each ID was searched: PCs of the same chain depth take turns at the front of the answer (see find). */
+  const searchesOf = new Map<string, number>();
   /** `left`: a signalling tunnel's remaining bytes (absent: a full tunnel within the budgets). */
   const tunnels = new Map<number, { a: Conn; b: Conn; left?: number }>();
   const pairs = new Map<number, Pending>();
@@ -149,7 +152,7 @@ export async function createRelay(options: RelayOptions = {}): Promise<Relay> {
   }
 
   function index(conn: Conn): void {
-    for (const id of conn.ids) { const set = byRemoteId.get(id); set?.delete(conn); if (set && !set.size) byRemoteId.delete(id); }
+    for (const id of conn.ids) { const set = byRemoteId.get(id); set?.delete(conn); if (set && !set.size) { byRemoteId.delete(id); searchesOf.delete(id); } }
     conn.ids = new Set(conn.findable && conn.fp ? [remoteIdOf(conn.fp), ...conn.codes.map((proven) => proven.code)] : []);
     for (const id of conn.ids) byRemoteId.set(id, (byRemoteId.get(id) ?? new Set<Conn>()).add(conn));
   }
@@ -232,7 +235,22 @@ export async function createRelay(options: RelayOptions = {}): Promise<Relay> {
     if (typeof frame.id !== 'string' || !/^\d{9}$/.test(frame.id)) return fail(conn, 'bad_request', frame.ref);
     if (!finds.takeAll(keysOf(conn))) return fail(conn, 'rate_limited', frame.ref);
     const id = frame.id;
-    const found = [...(byRemoteId.get(id) ?? [])].filter((other) => other !== conn).sort((a, b) => depth(a, id) - depth(b, id)).slice(0, 4);
+    // Only PCs that are online and findable are in byRemoteId, so every entry answers now. Shortest chain first (the company's
+    // own PCs before members' PCs); PCs of the same depth take turns at the front, so no PC is first merely for having
+    // connected first (0.3.20, "no PC outranks another"). The order never changes which PCs are listed within a depth.
+    const online = [...(byRemoteId.get(id) ?? [])].filter((other) => other !== conn).sort((a, b) => depth(a, id) - depth(b, id));
+    const turn = searchesOf.get(id) ?? 0;
+    if (online.length) searchesOf.set(id, (turn + 1) % 1_000_000);
+    const found: Conn[] = [];
+    for (let from = 0; from < online.length;) {
+      let to = from;
+      while (to < online.length && depth(online[to], id) === depth(online[from], id)) to++;
+      const level = online.slice(from, to);
+      const shift = turn % level.length;
+      found.push(...level.slice(shift), ...level.slice(0, shift));
+      from = to;
+    }
+    found.length = Math.min(found.length, 4);
     send(conn, { t: 'found', ref: frame.ref, entries: found.map((other) => ({ pub: other.pub, box: other.box, boxSig: other.boxSig, ...proof(other, id) })) });
   }
 

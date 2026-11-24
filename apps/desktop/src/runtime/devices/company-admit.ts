@@ -54,9 +54,9 @@ export function admitMarks(db: Db): AdmitMarks {
   };
 }
 
-/** The line Accept shows while the company's PC is away. */
+/** The line Accept shows while the PC that adds the new member is away (today the company's PC, by its name). */
 export function unreachable(employer: Pick<Device, 'name'>): string {
-  return `${plainLabel(employer.name) || 'The company\'s PC'} is not reachable – it adds the new member.`;
+  return `${plainLabel(employer.name) || 'The PC of the company'} is not reachable right now. The new member is added on it – try again once it is on.`;
 }
 
 /** company.admit's params, checked: the new PC as proven and a non-empty plain name. */
@@ -87,7 +87,7 @@ export async function admitThrough(mesh: Pick<AdmitMesh, 'call'>, employer: Devi
     reply = await mesh.call(employer.id, ADMIT_METHOD, { info, person: { name } }, undefined, ADMIT_MS);
   } catch (error) {
     if (error instanceof WorkforceError && REFUSALS.has(error.code)) throw error;
-    if (error instanceof WorkforceError && error.code === 'not_found') throw new WorkforceError('unavailable', `Update Autark on ${plainLabel(employer.name) || 'the company\'s PC'} – it adds the new member.`);
+    if (error instanceof WorkforceError && error.code === 'not_found') throw new WorkforceError('unavailable', `Update Autark on ${plainLabel(employer.name) || 'the PC of the company'} – the new member is added on it.`);
     throw new WorkforceError('unavailable', unreachable(employer));
   }
   const pc = parseInfo((reply as { employer?: unknown } | null)?.employer);

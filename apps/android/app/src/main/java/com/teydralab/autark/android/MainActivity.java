@@ -21,7 +21,8 @@
 // Owner/Konrad 24.11.2026 (#821): the AI's request to use the phone is an ongoing notification until tapped (PhoneUseAsk)
 // and, while this screen is open in front (inFront), the large native card (PhoneUseCard); the Lite build's tap or button
 // goes through PhoneUseUpgrade.begin, and resumed() continues it after Android's "install unknown apps" switch.
-// Never: copies the UI, needs a VPN or a reachable PC address, reads the UI's storage, or runs agents.
+// Today the page is the PC's own phone UI, loaded through the tunnel from the PC the page is on (one PC per page; the app is linked to every PC of the company and no PC outranks another); target 0.3.21: the app brings its own UI and talks to any PC.
+// Never: needs a VPN or a reachable PC address, reads the UI's storage, or runs agents; it holds no copy of the UI until that bundled UI exists.
 package com.teydralab.autark.android;
 
 import android.annotation.SuppressLint;
@@ -285,7 +286,7 @@ public final class MainActivity extends Activity implements PhoneNavigation.Host
     /** The link's line: the "can't reach" screen's text and the page's 'status' and 'companies'. */
     private void linkStatus(String text, boolean connected) {
         if (status != null && text != null) status.setText(text);
-        port.status(connected && link != null ? link.pcName() : null, connected);
+        port.status(connected && link != null ? link.pcName() : null, connected, link == null ? 0 : link.online(), link == null ? 0 : link.total());
         sendCompanies();
     }
 

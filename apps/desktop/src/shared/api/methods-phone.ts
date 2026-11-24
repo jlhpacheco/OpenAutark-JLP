@@ -3,7 +3,7 @@
 // My ID (two IDs 24.11.2026: the QR sits beside My ID, its own ID is no longer shown as digits), then the normal connect
 // request runs (runtime/devices/rendezvous/phone-pair.ts). Phone use: the app's own
 // second socket (apps/android phoneuse/UseLink) calls phoneUse.attach – the answer lists my PCs, so the phone tunnels to
-// the first one online when this one is off – and then hears `phoneUse.request` (only its own: the event names its
+// another one that is online when this one is off – and then hears `phoneUse.request` (only its own: the event names its
 // deviceId and reaches only that device, runtime/rpc/scopes.ts) and answers each with phoneUse.reply. The app reads
 // nothing until a request asks (AccessibilityService); its bubble names the agent of the step (`by`) and shows the AI's
 // line or question (op 'say', feedback 16.11.2026 F16). phoneUse.reply and phoneUse.attached are bus-only. The iPhone web
@@ -73,7 +73,7 @@ export interface PhoneUseReply {
   error?: { code: string; message: string };
 }
 
-/** One of my PCs as the phone keeps it (it tunnels to the first one online). */
+/** One of my PCs as the phone keeps it (it tunnels to one that is online). */
 export interface PhonePc {
   deviceId: string;
   name: string;

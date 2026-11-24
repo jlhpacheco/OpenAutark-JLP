@@ -234,7 +234,7 @@ export const METHOD_DOCS: Record<string, { params: string; note?: string }> = {
   "repair.restore": {"params":"{ id: string }","note":"Owner, repair mode only: put the copy `id` back as the live data (the replaced data is kept in `kept`), then restart."},
   "repair.retry": {"params":"void","note":"Owner, repair mode only: start normally again (the runtime restarts)."},
   "repair.state": {"params":"void","note":"Owner: whether this start runs in repair mode, why, and the copies from before updates."},
-  "routing.preview": {"params":"{ agentId: string; conversationId?: string; text?: string; mode?: string; ignorePin?: boolean }","note":"like a turn, the chat's last done run is the previous choice (a chat's model choice is information for the AI, never a route); `ignorePin` = as on the agent page's \"nothing chosen\" option: without a chat the agent's own pin does not answer."},
+  "routing.preview": {"params":"{ agentId: string; conversationId?: string; text?: string; mode?: string; ignorePin?: boolean }","note":"like a turn, the chat's last done run is the previous choice (a chat's model choice is information for the AI, never a route); `ignorePin` = as on the agent page's \"nothing chosen\" option: without a chat the agent's own pin does not answer…"},
   "rpc.methods": {"params":"{ match?: string } | void","note":"Every method with its params. `match`: only names or notes holding this text, with the types they use spelled out."},
   "runs.cancel": {"params":"{ runId: string; agentId?: string; chatId?: string }"},
   "runs.items": {"params":"{ runId: string }"},

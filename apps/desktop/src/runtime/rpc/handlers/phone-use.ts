@@ -1,14 +1,14 @@
 // RPC handlers (B-078, D5/D6): the owner's Android phone. phoneUse.attach – the app's own use socket makes phone use
 // reachable while it is open (phone/app-driver.ts hears it on the bus) and gets my PCs back (this PC and my other PCs,
-// never an employer's or an employee's), so the phone tunnels to the first one online; phoneUse.reply answers one
+// never an employer's or an employee's), so the phone tunnels to one that is online; phoneUse.reply answers one
 // phoneUse.request. Both only for the paired phone app itself (secure transport, a phone row with its key); so is
 // phone.pcs – the same list for the iPhone web app, which claims no phone use; phone.forget – the phone app removes its
 // own row (its Forget). phone.pairLink (the owner and – B-084 (D6) – my phone on a secure transport, 'settings' + secure,
 // so another phone scans it off this one): this PC's Remote ID and the QR of its pair link, shown beside My ID in
 // Settings › Devices › Add a device (shared/api/methods-phone.ts PHONE_PAIR_LINK). F17 (16.11.2026): this PC's own ID,
-// from its key – not my person code, which the meeting server answers with my first PC – so the request lands on the PC
+// from its key – not my person code, which the meeting server answers with one of my PCs that is online (no PC is first) – so the request lands on the PC
 // whose screen shows the QR. Two IDs 24.11.2026 (owner: "nicht drei IDs … ein QR-Code einfach neben My ID"): that ID is
-// only inside the QR, never shown as digits; a phone that types My ID instead asks my first PC and is accepted on any of
+// only inside the QR, never shown as digits; a phone that types My ID instead asks one of my PCs that is online and is accepted on any of
 // my PCs (remote/mirror.ts) – test/unit/rendezvous/phone-pair.test.ts holds both ways.
 // F29 stage 1: each PC comes with its peer listener addresses, so the Android app reaches it directly when one answers.
 // Owns: param checks. Never: drives the phone or decides what it does.

@@ -52,12 +52,12 @@ test('admitThrough: the company PC\'s answer as linked; away or older → one pl
   const mesh = (answer: () => unknown): Pick<AdmitMesh, 'call'> => ({ call: async () => answer() });
   const self = { ...info('dev_office000001', officeKey), name: 'Office' };
   assert.deepEqual(await admitThrough(mesh(() => ({ employer: self })), office, nora, 'Nora'), self);
-  await assert.rejects(admitThrough(mesh(() => { throw new WorkforceError('unavailable', 'The linked device is offline.'); }), office, nora, 'Nora'), code('unavailable', /^Office is not reachable – it adds the new member\.$/));
+  await assert.rejects(admitThrough(mesh(() => { throw new WorkforceError('unavailable', 'The linked device is offline.'); }), office, nora, 'Nora'), code('unavailable', /^Office is not reachable right now\. The new member is added on it – try again once it is on\.$/));
   await assert.rejects(admitThrough(mesh(() => { throw new WorkforceError('timeout', 'late'); }), office, nora, 'Nora'), code('unavailable', /not reachable/));
   await assert.rejects(admitThrough(mesh(() => { throw new WorkforceError('not_found', 'Unknown device method company.admit.'); }), office, nora, 'Nora'), code('unavailable', /^Update Autark on Office/));
   await assert.rejects(admitThrough(mesh(() => { throw new WorkforceError('conflict', 'Nora PC is linked here already.'); }), office, nora, 'Nora'), code('conflict', /linked here already/));
   await assert.rejects(admitThrough(mesh(() => ({ employer: info('dev_office000001') })), office, nora, 'Nora'), code('forbidden'), 'another key than the linked company PC\'s');
-  assert.equal(unreachable({ name: '' }), 'The company\'s PC is not reachable – it adds the new member.');
+  assert.equal(unreachable({ name: '' }), 'The PC of the company is not reachable right now. The new member is added on it – try again once it is on.');
 });
 
 test('employerOf: the company PC this PC joined as a member\'s, never a revoked one or one of my own', () => {

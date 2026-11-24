@@ -2,7 +2,7 @@
 // no VPN and no address of its own. B-078 (D5): it pairs with the normal connect request (role 'phone', its own key,
 // the same code on both screens, Accept on the PC – rendezvous/phone-pair.ts) and gets its device token in the accepted
 // answer. From then on every PC of mine pins that key at the server (the roster carries the phone to my other PCs), the
-// phone opens a tunnel to the first one online, the usual pinned-key handshake (devices/channel.ts) runs over it, and the
+// phone opens a tunnel to one that is online, the usual pinned-key handshake (devices/channel.ts) runs over it, and the
 // channel carries plain byte streams to this PC's own HTTP listener – the phone shows the unchanged phone UI over them,
 // authenticated by its token like any phone. Removing the phone unpins it (the server cuts the tunnel) and revokes the token.
 // Streams: {t:'o',s} opens one, {t:'d',s,b} carries base64 bytes, {t:'a',s,n} acknowledges n bytes taken, {t:'e',s}

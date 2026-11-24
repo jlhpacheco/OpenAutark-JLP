@@ -149,9 +149,16 @@ final class NativePort {
         send(companies);
     }
 
-    /** The connection line: the PC tunnelled to (or null) and whether the link is up – kept and sent again to every new page. */
-    void status(String pc, boolean connected) {
-        try { status = new JSONObject().put("t", "status").put("connected", connected).put("wake", true).put("hear", true); if (pc != null) status.put("pc", pc); } catch (JSONException error) { return; }
+    /**
+     * The connection line: the PC tunnelled to (or null), whether the link is up and – 0.3.20, no PC outranks another – how many
+     * of the company's PCs have a channel now (`online` of `total`, both 0 when unknown; the page words it) – kept and sent again to every new page.
+     */
+    void status(String pc, boolean connected, int online, int total) {
+        try {
+            status = new JSONObject().put("t", "status").put("connected", connected).put("wake", true).put("hear", true);
+            if (pc != null) status.put("pc", pc);
+            if (total > 0) status.put("online", online).put("total", total);
+        } catch (JSONException error) { return; }
         send(status);
     }
 

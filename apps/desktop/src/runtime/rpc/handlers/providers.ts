@@ -330,7 +330,8 @@ export function register(table: HandlerTable): void {
     // the agent's context starts anew anyway (agents/boundary.ts): in a live session the next turn stays on that model (a
     // pending model.set request is not consumed by a preview); a chat's model choice never routes (13.11.2026), so a
     // chat's preview is what Auto runs. `ignorePin` = what the agent page's "nothing chosen" option would run: without a
-    // chat the agent's own pin does not answer.
+    // chat the agent's own pin does not answer. 0.3.20 (no PC outranks another): the answer is for the PC this connection is to –
+    // its accounts, its limits, its cooling-down plans; a turn that runs on another PC routes with that PC's own.
     const ignorePin = optBool(o, 'ignorePin');
     const { pin: _pin, ...unpinned } = agent.modelPolicy ?? {};
     const boundary = conversationId ? boundaryOf(ctx.services, agent.id, MAIN_THREAD) : undefined;

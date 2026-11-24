@@ -164,3 +164,46 @@ test('Eine-ID: found entries come shortest chain first (the company\'s own PCs b
   assert.ok(!entries.some((entry) => entry.pub === deep.pub), 'the deepest one is left out');
   for (const client of clients) client.ws.close();
 });
+
+test('0.3.20: PCs of the same chain depth take turns at the front of the answer; a shorter chain still comes first and at most 4 are listed', async (t) => {
+  const relay = await createRelay({ port: 0, host: '127.0.0.1', limits: { findsPerMinute: 100 } });
+  t.after(() => relay.close());
+  const root = device();
+  const peers = [device(), device(), device()];
+  const code = remoteIdOf(root.fp);
+  const clients = [];
+  for (const peer of peers) {
+    const cp = await connect(relay.port, { me: peer, findable: true });
+    await cp.next('ready');
+    cp.send({ t: 'update', peers: [], findable: true, chains: [{ root: root.pub, links: [link(root, peer)] }] });
+    clients.push(cp);
+  }
+  const asker = await connect(relay.port);
+  await asker.next('ready');
+  clients.push(asker);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const fronts: string[] = [];
+  for (let ref = 1; ref <= 6; ref++) {
+    asker.send({ t: 'find', ref, id: code });
+    const entries = (await asker.next('found')).entries as Array<{ pub: string }>;
+    assert.deepEqual(entries.map((entry) => entry.pub).sort(), peers.map((peer) => peer.pub).sort(), 'every online PC of the depth is listed');
+    fronts.push(entries[0].pub);
+  }
+  assert.equal(new Set(fronts).size, 3, 'each of the three takes the front in turn: ' + fronts.length + ' answers, no PC always first');
+  // The root comes online: it is on a shorter chain, so it leads every answer, the others still take turns behind it.
+  const cr = await connect(relay.port, { me: root, findable: true });
+  await cr.next('ready');
+  clients.push(cr);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const seconds: string[] = [];
+  for (let ref = 11; ref <= 16; ref++) {
+    asker.send({ t: 'find', ref, id: code });
+    const entries = (await asker.next('found')).entries as Array<{ pub: string }>;
+    assert.equal(entries.length, 4);
+    assert.equal(entries[0].pub, root.pub, 'a shorter chain still comes first');
+    seconds.push(entries[1].pub);
+  }
+  assert.ok(new Set(seconds).size > 1, 'behind it the others take turns');
+  // An offline PC is never listed: the answer is what is online now.
+  for (const client of clients) client.ws.close();
+});

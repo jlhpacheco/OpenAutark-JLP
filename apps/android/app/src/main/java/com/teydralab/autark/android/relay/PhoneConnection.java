@@ -187,7 +187,7 @@ public final class PhoneConnection implements StreamProxy.Channels {
     /** The company's PCs changed (phoneUse.attach): a new or removed pin re-registers at the server (its tunnels end and come back); a new order only is kept. */
     public void updatePcs(List<Pc> pcs) {
         if (pcs.isEmpty()) return;
-        List<Pc> next = PhonePairing.first(pcs, preferred);
+        List<Pc> next = PhonePairing.preferring(pcs, preferred);
         Paired before = paired;
         if (before.pcsJson().equals(before.withPcs(next).pcsJson())) return;
         paired = before.withPcs(next);
@@ -200,7 +200,7 @@ public final class PhoneConnection implements StreamProxy.Channels {
     public void prefer(String fingerprintHex) {
         boolean again = links.forgive(fingerprintHex); // the person's pick tries a PC that refused once more
         Paired before = paired;
-        List<Pc> next = PhonePairing.first(before.pcs, fingerprintHex);
+        List<Pc> next = PhonePairing.preferring(before.pcs, fingerprintHex);
         if (next == before.pcs) { if (again) nudge(); return; }
         preferred = fingerprintHex;
         paired = before.withPcs(next);
@@ -310,7 +310,7 @@ public final class PhoneConnection implements StreamProxy.Channels {
         }
         boolean any = false;
         for (String fp : order) any |= current.online(fp);
-        if (!any) say("None of your PCs is online. Autark must be running on one of them.", false);
+        if (!any) say("None of your PCs is online. Autark has to be running on at least one of them.", false);
         else if (failure != null) say(failure, false); // else: an online PC waits its retry, the last line stays
     }
 
