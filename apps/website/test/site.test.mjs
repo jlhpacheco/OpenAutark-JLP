@@ -207,3 +207,16 @@ test('no page links to an installer file; the buttons lead to a page here or to 
     assert.doesNotMatch(target, /\.(?:exe|apk|dmg|AppImage|zip|msi)$/i, d.id);
   }
 });
+
+test('Android page: big button is Lite, small link to the full version with the Play Protect way out; Windows is described as signed', async () => {
+  const pages = platformPages(rel);
+  const android = pages.find((p) => p.slug === 'download/android').html;
+  assert.ok(android.includes(`href="${site.url}/get/android"`) && android.includes(`href="${site.url}/get/android-full"`));
+  assert.ok(android.includes('Full version with phone control') && android.includes('Scan apps with Play Protect'));
+  const win = pages.find((p) => p.slug === 'download/windows').html;
+  assert.ok(/code-signed \(publisher: Open Source Developer Meral Anna Hees\)/.test(win));
+  const all = pages.map((p) => p.html).join('') + home(rel) + download(rel);
+  assert.ok(!/not code-signed|no Windows certificate|build is not signed|builds are not signed/i.test(all));
+  const worker = readFileSync(join(root, 'worker/worker.mjs'), 'utf8');
+  assert.ok(worker.includes("'android-lite': 'autark-android-lite.apk'") && worker.includes("android: 'autark-android-lite.apk'") && worker.includes("'android-full': 'autark-android.apk'"));
+});

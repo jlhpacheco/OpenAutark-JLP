@@ -36,7 +36,7 @@ export const faq = [
   { q: 'Which platforms are supported?',
     a: `Windows, macOS and Linux get the same version. Windows is where it is developed and tested most. On macOS agents get screenshots but cannot control the computer${release.renamed ? '' : ', and updates are a manual download for now'}. On Linux computer control needs X11 for input, and the AppImage needs FUSE 2 and a system keyring.` },
   { q: 'Why does Windows warn me about the installer?',
-    a: 'The installer is not code-signed, so Windows SmartScreen shows “Windows protected your PC”. Choose "More info" and then "Run anyway". With Smart App Control turned on, Windows can block it outright. You can check the file against SHA256SUMS.txt from the same release.' },
+    a: 'The Windows installer is code-signed (publisher: Open Source Developer Meral Anna Hees). Because the certificate is new, SmartScreen may still show “Windows protected your PC” once: choose "More info" and then "Run anyway". Smart App Control usually lets signed files through, but that is no promise. You can check the file against SHA256SUMS.txt from the same release.' },
   { q: 'Why does my Mac refuse to open it?',
     a: `The Mac app is signed ad hoc and not notarized, because there is no Apple Developer ID yet. On macOS 15 and newer, try to open it, choose Done, then go to System Settings, Privacy & Security, and choose Open Anyway. On older versions, Control-click the app and choose Open. If macOS says the app is damaged, remove the quarantine mark in Terminal: xattr -dr com.apple.quarantine "/Applications/${app.macBundle}".` },
   { q: 'How do updates work?',

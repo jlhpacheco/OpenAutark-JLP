@@ -1,7 +1,7 @@
 // Owns: the steps a person actually sees when installing, per platform. One source for /access/,
 // /download/ and the /download/<platform>/ pages.
 // Never: links to other pages or layout; names come from config.mjs, so they follow a rename.
-// Written from what macOS, Windows and Android show for unsigned downloads; there is no Mac and no
+// Written from what macOS, Windows (signed, new certificate) and Android show for downloads; there is no Mac and no
 // Android phone here to re-check the wording on (README.md, "Beim Release").
 import { appUrl, release, site } from '../config.mjs';
 
@@ -11,11 +11,11 @@ const quarantine = `xattr -dr com.apple.quarantine "/Applications/${app.macBundl
 export const installSteps = {
   windows: () => `
     <ol>
-      <li><strong>Download</strong> <code>${files.windows}</code>. Your browser may warn that the file is not commonly downloaded. Read the security notice and verify the file before deciding whether to continue.</li>
-      <li><strong>Start it.</strong> Windows shows a blue box, “Windows protected your PC”, with only a Don’t run button. Choose <em>More info</em>, then <em>Run anyway</em>.</li>
+      <li><strong>Download</strong> <code>${files.windows}</code>. The installer is code-signed (publisher: Open Source Developer Meral Anna Hees). Because the certificate is new, your browser may still warn that the file is not commonly downloaded. Verify the file before deciding whether to continue.</li>
+      <li><strong>Start it.</strong> SmartScreen may show a blue box, “Windows protected your PC”, once, while the new certificate builds a reputation. Check that the publisher is Open Source Developer Meral Anna Hees, then choose <em>More info</em> and <em>Run anyway</em>.</li>
       <li><strong>Install.</strong> Keep “only for me”: no admin rights are needed. Pick a folder or keep the suggested one. A desktop shortcut is created.</li>
     </ol>
-    <p><strong>If Windows blocks installation:</strong> stop and contact us. Do not turn off Smart App Control or other Windows protection to install this unsigned build. Organisation-managed PCs may require your IT administrator.</p>`,
+    <p><strong>If Windows blocks installation:</strong> stop and contact us. Smart App Control usually lets signed files through, but that is no promise. Do not turn off Smart App Control or other Windows protection to install this build. Organisation-managed PCs may require your IT administrator.</p>`,
   mac: () => `
     <ol>
       <li><strong>Download</strong> the DMG and open it. Drag the app into <em>Applications</em>${release.renamed ? '' : `. It appears as <em>${app.name}</em>, the working name, until the rename release`}.</li>
@@ -38,7 +38,8 @@ export const installSteps = {
       <li><strong>Done.</strong> The phone now belongs to your company, not to one PC: the same chats, tasks and notifications as on every PC you linked. Read on one device, read everywhere.</li>
     </ol>
     <p><strong>Updates come inside the app:</strong> a line at the top says when a new version exists. <em>Update</em> downloads it with its progress, checks it against the published SHA-256 and hands it to Android; the first time Android asks you to allow installs from ${site.name}, then you confirm the update.</p>
-    <p><strong>No phone use by agents in this version:</strong> Play Protect blocks apps from outside the Play Store that ask for Accessibility, so the APK on this page leaves it out. Chats, tasks, notifications, the microphone and the camera work as before.</p>`,
+    <p><strong>No phone use by agents in this version:</strong> Play Protect blocks apps from outside the Play Store that ask for Accessibility, so the APK behind the big button leaves it out. Chats, tasks, notifications, the microphone and the camera work as before.</p>
+    <p><strong>Full version with phone control:</strong> <code>autark-android.apk</code> lets the AI operate the phone. If Play Protect blocks the install, open the Play Store, tap your profile › Play Protect › Settings (gear), turn off “Scan apps with Play Protect”, install ${site.name}, then turn it back on. After that, turn on ${site.name} under Settings › Accessibility if you want the AI to operate the phone.</p>`,
   iphone: () => `
     <ol>
       <li><strong>Open <a href="${appUrl}/">${appUrl.replace(/^https?:\/\//, '')}/</a> in Safari</strong> on the iPhone. There is no App Store app and no Apple account is needed.</li>

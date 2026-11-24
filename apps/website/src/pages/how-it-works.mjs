@@ -37,7 +37,7 @@ function setupSteps(rel) {
   const short = featureById['short-start'].status === 'available';
   return [
     { name: 'Download the installer', text: `Get the free download from the download page: Windows (about ${rel.windows.sizeMb} MB), macOS or Linux. No account needed.` },
-    { name: 'Install it', text: 'It is not signed, so your system warns you. On Windows choose More info, then Run anyway. On macOS follow the Open Anyway steps on the download page.' },
+    { name: 'Install it', text: 'The Windows installer is signed, but SmartScreen may warn once: choose More info, then Run anyway. The Mac app is not notarized: follow the Open Anyway steps on the download page.' },
     { name: 'Connect one AI', text: 'Sign in through the provider’s official tool: Codex for a ChatGPT plan, Claude Code for a paid Claude plan. The app can install either for you and tests it with a real answer. An API key or a local model works too.' },
     { name: 'Type your name and company', text: short ? 'Press Start. The manager gets to know you and your work and first asks how far it may go.' : 'From the next release that is all: press Start, and the manager gets to know you and first asks how far it may go. In the current release you also write a first request here.' },
     { name: 'Answer, then hand over work', text: 'Answer the question, tell the AI what you want off your plate, and type or dictate tasks into Work or simply into the chat.' },

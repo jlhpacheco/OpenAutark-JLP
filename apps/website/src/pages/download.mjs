@@ -13,7 +13,7 @@ export default function downloadPage(rel) {
   const { files, app } = release;
   const stable = downloads.map((d) => ({ ...d, url: `${site.url}/${d.path}` }));
   const short = {
-    windows: 'SmartScreen asks once: <em>More info</em> → <em>Run anyway</em>. No admin rights needed.',
+    windows: 'Code-signed. SmartScreen may still ask once: <em>More info</em> → <em>Run anyway</em>. No admin rights needed.',
     mac: 'macOS refuses once: <em>System Settings → Privacy &amp; Security → Open Anyway</em>.',
     linux: '<code>chmod +x</code> and run. Needs FUSE 2 and a system keyring.',
     android: 'Allow installs from your browser once, then type your PC’s Remote ID.',
@@ -55,7 +55,7 @@ ${pageHero({
       </ul>
 
       <h2 id="steps">Install</h2>
-      <p>The builds are not code-signed yet, so each system asks once. Each platform page shows exactly what you will see.</p>
+      <p>The Windows installer is code-signed; the Mac app is not notarized. Each system may still ask once. Each platform page shows exactly what you will see.</p>
       <table>
         <tbody>${platforms.map((p) => `<tr><td><a href="${root}download/${p.id}/">${p.os}</a></td><td>${short[p.id]}</td></tr>`).join('')}</tbody>
       </table>

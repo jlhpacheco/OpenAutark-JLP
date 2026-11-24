@@ -22,7 +22,7 @@ const sections = [
   ['stop', 'Stopping work', 'Stopping work'],
   ['journal', 'What is written down', 'What is written down'],
   ['others', 'Who else can reach it', 'Who else can reach it'],
-  ['unsigned', 'Unsigned builds', 'Unsigned builds, and what you will see'],
+  ['unsigned', 'Signing', 'How the builds are signed, and what you will see'],
   ['updates', 'Updates', 'Updates'],
   ['limits', 'Not proven yet', 'What is not proven yet'],
   ['report', 'Report a problem', 'Reporting a problem'],
@@ -36,7 +36,7 @@ const short = [
   ['chat', 'How far they go is a conversation', 'The first thing the AI asks is how far it may go. That is a question, not a technical barrier. Your answer and the text around it steer the model.'],
   ['key', 'Secret values stay out of prompts', 'Agents refer to a secret by its ID and the app fills the value in at the last moment. That protects against leaks, not against an agent set on getting a value.'],
   ['pc', 'Your data lives on your PC', `No ${site.name} server holds your data, and there is no account with us. Prompts go to the AI providers you connect.`],
-  ['hash', 'The builds are not signed yet', 'Windows and macOS warn you, and you have to confirm by hand. The steps are below.'],
+  ['hash', 'Windows is signed, macOS is not notarized', 'The Windows installer is code-signed, though SmartScreen may warn once. macOS warns you, and you confirm by hand. The steps are below.'],
 ];
 
 export default function (rel) {
@@ -47,12 +47,12 @@ export default function (rel) {
     slug: 'access',
     rel,
     title: 'Access and data',
-    description: `What ${site.name} really does on your PC: agents have full access, the first question is how far they may go, secrets are used by ID, data and backups stay on your disk, and the builds are unsigned, with the Windows and Mac steps you will see.`,
+    description: `What ${site.name} really does on your PC: agents have full access, the first question is how far they may go, secrets are used by ID, data and backups stay on your disk, and how the builds are signed, with the Windows and Mac steps you will see.`,
     ld: [{
       '@type': 'TechArticle',
       '@id': `${url}#article`,
       headline: `Access and data in ${site.name}`,
-      description: 'Full access to the PC, the first question, secrets by ID, where data lives, what leaves the PC, backups, unsigned builds with their install steps, and what is not proven yet.',
+      description: 'Full access to the PC, the first question, secrets by ID, where data lives, what leaves the PC, backups, signing and install steps, and what is not proven yet.',
       inLanguage: site.lang,
       about: { '@id': `${site.url}/#software` },
       author: { '@id': 'https://teydralab.com/#organization' },
@@ -178,7 +178,7 @@ ${pageHero({
         </ul>
 
         ${h2('unsigned')}
-        <p>${site.name} is not code-signed: no Windows certificate, no Apple Developer ID. Your system cannot confirm who made the file, so it warns you. What follows is what you will see. All steps are also on the <a href="${root}download/">download page</a>.</p>
+        <p>The Windows installer is code-signed (publisher: Open Source Developer Meral Anna Hees). Because the certificate is new, SmartScreen can still warn once; Smart App Control usually lets signed files through but promises nothing. The Mac app has no Apple Developer ID: it is signed ad hoc and not notarized, so macOS warns you. What follows is what you will see. All steps are also on the <a href="${root}download/">download page</a>.</p>
         <h3>Windows</h3>
         ${installSteps.windows()}
         <h3>macOS</h3>
@@ -186,7 +186,7 @@ ${pageHero({
         <h3>Linux</h3>
         ${installSteps.linux()}
         <h3>Checking a file</h3>
-        <p>Every release lists SHA-256 hashes in <a href="${release.asset('SHA256SUMS.txt')}" rel="nofollow">SHA256SUMS.txt</a>. On Windows: <code>Get-FileHash .\\${files.windows}</code> in PowerShell. On macOS or Linux: <code>shasum -a 256 &lt;file&gt;</code>. A match shows the file arrived as published. It does not replace a signature, because the list comes from the same release as the file.</p>
+        <p>Every release lists SHA-256 hashes in <a href="${release.asset('SHA256SUMS.txt')}" rel="nofollow">SHA256SUMS.txt</a>. On Windows: <code>Get-FileHash .\\${files.windows}</code> in PowerShell. On macOS or Linux: <code>shasum -a 256 &lt;file&gt;</code>. A match shows the file arrived as published. It does not replace a signature, because the list comes from the same release as the file; the Windows installer also carries its own signature.</p>
 
         ${h2('updates')}
         <p>While the window is open the app asks GitHub Releases every minute, and every 15 minutes from the tray${st('updates')}. A small icon appears only when an update exists. On Windows and Linux one click downloads it, checks it against the SHA-512 in the release manifest, installs it and restarts.</p>
@@ -201,7 +201,7 @@ ${pageHero({
           <li><strong>Browser per chat</strong>${st('browser-spaces')}: tested in real windows with a scripted test engine, not with a real model, and not on macOS.</li>
           <li><strong>Providers through a file</strong>${st('providers-file')}: tested with fakes, not against a real provider. API keys and local models have no recorded live run; Gemini CLI, Copilot CLI and Kimi Code have never been seen live.</li>
           <li><strong>Devices and accounts.</strong> Google Calendar has not been tested against a real Google account, email not against a real mailbox, voice not with a real microphone or phone, phone access and linked PCs not on physical devices.</li>
-          <li><strong>macOS.</strong> Agents cannot control the computer there; they get screenshots. The install steps above are written from what macOS shows for unsigned apps, and have not been re-checked on every version.</li>
+          <li><strong>macOS.</strong> Agents cannot control the computer there; they get screenshots. The install steps above are written from what macOS shows for apps that are not notarized, and have not been re-checked on every version.</li>
           ${release.renamed ? '' : `<li><strong>The rename</strong> ${statusPill('next')}: moving the data folder and replacing the old app is tested in code, and has not yet run through a real update.</li>`}
           <li><strong>Source code.</strong> It is public under Apache-2.0 on <a href="${release.repoUrl}" rel="noopener">GitHub</a>, so you can audit it yourself; nobody outside Teydra Lab has audited it yet.</li>
         </ul>

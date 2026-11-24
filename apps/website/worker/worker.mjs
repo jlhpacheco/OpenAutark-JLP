@@ -9,6 +9,7 @@ const FILES = {
   'mac-zip': 'autark-mac-universal.zip',
   linux: 'autark-linux-x64.AppImage',
   android: 'autark-android-lite.apk',
+  'android-lite': 'autark-android-lite.apk',
   'android-full': 'autark-android.apk',
   checksums: 'SHA256SUMS.txt',
 };

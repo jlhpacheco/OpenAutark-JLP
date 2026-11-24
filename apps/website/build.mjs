@@ -186,7 +186,7 @@ const llms = `# ${site.name}
 > ${site.name} is a free desktop app that gives one person their own AI company: a manager, specialist agents and a private secretary that work proactively — they wake up on schedules, messages, tasks and events instead of waiting for a prompt. It runs on the user's own computer and uses the AI plans the user already pays for (ChatGPT plans through OpenAI Codex, paid Claude plans through Claude Code). Agents have full access to the PC: there is no permission gate, guardian model or money limit, and text steers them. Settings, skills and memory are open files the AI can change itself. An Android app and an iPhone web app join the same company. Made by ${maker.company} (${maker.location}). Formerly called "Proactive Agent Workforce".
 
 Key facts:
-- Current version: ${W.version} for Windows, macOS and Linux (released ${W.date}). Windows x64 installer, about ${W.sizeMb} MB, not code-signed. macOS universal DMG or ZIP, about ${rel.mac.sizeMb} MB, signed ad hoc and not notarized, so it needs manual steps to open. Linux x64 AppImage, about ${rel.linux.sizeMb} MB.
+- Current version: ${W.version} for Windows, macOS and Linux (released ${W.date}). Windows x64 installer, about ${W.sizeMb} MB, code-signed (publisher Open Source Developer Meral Anna Hees); SmartScreen may still warn once while the new certificate builds reputation. macOS universal DMG or ZIP, about ${rel.mac.sizeMb} MB, signed ad hoc and not notarized, so it needs manual steps to open. Linux x64 AppImage, about ${rel.linux.sizeMb} MB.
 - Phone: Android app ${rel.android.version} (APK, about ${rel.android.sizeMb} MB, Android 8+, installed from outside the Play Store); it connects to the user's company by the PC's Remote ID in any network. iPhone: no App Store app; the web app at ${appUrl}/ (Safari, Add to Home Screen, iOS 17+) pairs by the PC's Remote ID the same way, reaches the user's PC through the meeting server end-to-end encrypted, and shows the PC's own interface. Agents cannot use other iPhone apps: iOS allows that to no app.
 - Price: free download, no account, no subscription from ${maker.company}. AI usage is billed by the user's own AI providers.
 - Data: local-first. Chats, tasks, memory, agents and the secrets catalog live on the user's PC. No ${site.name} server holds user data; one meeting server run by ${maker.company} helps the user's devices find each other and passes only end-to-end encrypted traffic. Prompts go to the AI providers the user connects.
@@ -201,7 +201,7 @@ Key facts:
 - [Overview](${site.url}/): what ${site.name} is, downloads for every device, the problem, how it works, the open system, access.
 - [All capabilities](${site.url}/product/): every feature with its honest status.
 - [How it works](${site.url}/how-it-works/): the short start, the organisation, wake-ups, engines, open files, browser, memory, data.
-- [Access and data](${site.url}/access/): full access to the PC, the first question, secrets by ID, data and backups, unsigned builds with the Windows and Mac steps, what is not proven yet.
+- [Access and data](${site.url}/access/): full access to the PC, the first question, secrets by ID, data and backups, install steps for Windows (signed), macOS (not notarized) and Linux, what is not proven yet.
 - [Compare](${site.url}/compare/): ${site.name} vs. chat apps, automation tools, agent frameworks and similar agent products.
 - [FAQ](${site.url}/faq/): ${faq.length} answered questions.
 - [Download](${site.url}/download/): every platform, PC first, then phone; requirements, checksums, permanent links.
@@ -244,7 +244,7 @@ await out('facts.json', JSON.stringify({
   maker: { company: maker.company, url: maker.companyUrl, founder: maker.founder, founderUrl: maker.founderUrl, location: maker.location },
   price: { app: 'free', account: 'none', aiUsage: 'billed by your own AI providers' },
   platforms: {
-    windows: { ...rel.windows, page: `${site.url}/download/windows/`, status: 'current', signed: false, arch: 'x64' },
+    windows: { ...rel.windows, page: `${site.url}/download/windows/`, status: 'current', signed: 'Authenticode, Open Source Developer Meral Anna Hees', arch: 'x64' },
     macos: { ...rel.mac, page: `${site.url}/download/mac/`, status: 'current', signed: 'ad hoc, not notarized', arch: 'universal', computerControl: false, selfUpdate: 'built, never run on a real Mac' },
     linux: { ...rel.linux, page: `${site.url}/download/linux/`, status: 'current', arch: 'x64' },
     android: { ...rel.android, page: `${site.url}/download/android/`, status: 'preview', minAndroid: 8, store: false, connects: 'by the PC Remote ID through the meeting server, end-to-end encrypted' },

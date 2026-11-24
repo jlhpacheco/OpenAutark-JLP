@@ -43,7 +43,7 @@ const facts = {
     needs: ['Android 8 or newer.', `${site.name} running on at least one of your PCs. The phone finds it by its Remote ID, in any network.`],
     check: `sha256sum ${files.android}`,
     update: 'When a new version exists, a line at the top of the app says so. Update downloads it in the app with its progress, checks it against the published SHA-256, and Android installs it over the old one after you confirm. Most changes need no new APK at all, because the interface comes from your PC.',
-    note: 'This is a preview, signed with our own key and installed from outside the Play Store, without phone use by agents (Play Protect blocks that outside the Play Store). Tell us what breaks on your phone.',
+    note: 'This is a preview, signed with our own key and installed from outside the Play Store. The big button is the Lite version without phone control by agents; the full version with phone control is the small link under it, and Play Protect may block it (see the way out there). Tell us what breaks on your phone.',
   },
   iphone: {
     title: `${site.name} on iPhone`,
@@ -55,11 +55,14 @@ const facts = {
   },
 };
 
+// Android: the big button is the Lite APK; the full version (phone control) is a small link with the Play Protect way out.
+const androidFull = () => `<p class="small muted plat-hero__alt" style="flex-basis:100%;max-width:38em;margin:6px 0 0"><a href="${site.url}/get/android-full" data-dl="android-full">Full version with phone control</a> · If Play Protect blocks the install, open the Play Store, tap your profile › Play Protect › Settings (gear), turn off “Scan apps with Play Protect”, install ${site.name}, then turn it back on.</p>`;
+
 function bigButton(p, rel) {
   if (!p.file) return `<a class="btn btn--ink btn--lg" href="${appUrl}/" data-app-link>${icon('phone')}<span>Open the iPhone app</span></a><a class="btn btn--ghost btn--lg" href="#steps">${icon('arrowDown')}<span>How to add it</span></a>`;
   const v = rel[p.id];
   const meta = v ? `<span class="btn__meta"${p.id === 'windows' ? ' data-rel="windows-meta"' : ''}>v${esc(v.version)} · ${v.sizeMb} MB</span>` : '';
-  return `<a class="btn btn--ink btn--lg plat-hero__btn" href="${site.url}/get/${p.id}" data-dl="${p.id}">${icon(p.icon)}<span>Download for ${p.short || p.os}</span>${meta}</a>${p.alt ? `<a class="btn btn--ghost btn--lg" href="${site.url}/get/${p.id}-zip">${p.alt.label}</a>` : ''}`;
+  return `<a class="btn btn--ink btn--lg plat-hero__btn" href="${site.url}/get/${p.id}" data-dl="${p.id}">${icon(p.icon)}<span>Download for ${p.short || p.os}</span>${meta}</a>${p.alt ? `<a class="btn btn--ghost btn--lg" href="${site.url}/get/${p.id}-zip">${p.alt.label}</a>` : ''}${p.id === 'android' ? androidFull() : ''}`;
 }
 
 function fileFacts(p, rel) {
@@ -93,7 +96,7 @@ function platformPage(p, rel) {
     slug, rel, title: f.title, description, ld, trail: [['Download', 'download']],
     body: (root) => `
 ${pageHero({ root, crumb: p.os, trail: [['Download', 'download']], title: f.h1, lead: f.lead, actions: bigButton(p, rel) })}
-${p.id === 'windows' ? `<aside class="wrap" aria-label="Windows security notice"><p><strong>Windows security notice:</strong> This installer is not code-signed yet. Edge may warn that it is not commonly downloaded. Open Downloads (Ctrl+J) to inspect the warning; repeated downloads will not resolve it. Before deciding whether to continue, verify the source and <a href="#verify">compare the SHA-256 with the release checksums</a>. A matching hash confirms the published file, not its safety. Do not disable Windows protection. If installation is blocked, stop and <a href="https://teydralab.com/kontakt">contact us</a>.</p></aside>` : ''}
+${p.id === 'windows' ? `<aside class="wrap" aria-label="Windows security notice"><p><strong>Windows security notice:</strong> This installer is code-signed (publisher: Open Source Developer Meral Anna Hees). Because the certificate is new, SmartScreen or Edge may still warn once that the file is not commonly downloaded. Before you continue, verify the source and <a href="#verify">compare the SHA-256 with the release checksums</a>. A matching hash confirms the published file, not its safety. Do not disable Windows protection. If installation is blocked, stop and <a href="https://teydralab.com/kontakt">contact us</a>.</p></aside>` : ''}
 <section class="section section--tight">
   <div class="wrap">
     ${fileFacts(p, rel)}

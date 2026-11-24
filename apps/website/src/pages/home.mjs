@@ -371,7 +371,7 @@ export default function home(rel) {
           <a href="${root}download/android/">${icon('android')}Android</a>
           <a href="${root}download/iphone/">${icon('phone')}iPhone</a>
         </div>
-        <p class="small" style="color:rgba(11,11,12,.72);max-width:34em">You need at least one AI: a ChatGPT plan, a paid Claude plan, an API key or a local model. The builds are not signed: Windows SmartScreen asks you to confirm (“More info” → “Run anyway”), and macOS needs a few extra steps. Each platform page shows what you will see.</p>
+        <p class="small" style="color:rgba(11,11,12,.72);max-width:34em">You need at least one AI: a ChatGPT plan, a paid Claude plan, an API key or a local model. The Windows installer is signed, though SmartScreen may ask you to confirm once (“More info” → “Run anyway”); the Mac app is not notarized and needs a few extra steps. Each platform page shows what you will see.</p>
       </div>
     </div>
   </div>
