@@ -12,7 +12,9 @@
 // that is no text – there from the tab's start, so nothing moves (file-tabs.ts saveHere, saveHereWords).
 // 22.11.2026 (owner: a .md report in the pane looked "richtig schlecht"): a Markdown file opens as a read page – the
 // text set as a document (Markdown, markdown.css; `file-read`, file-tab.css) – and Edit / Read in one fixed cell of
-// the line switches it to the field and back; the choice stays with the tab while the app runs.
+// the line switches it to the field and back; the choice stays with the tab while the app runs. 24.11.2026 (owner,
+// B249F927: "diese Tabellenvorschau"): a CSV or TSV file opens the same way as a table to read (csv-table.ts: header,
+// at most 2,000 rows and 60 columns, a line above it says what was left out; number columns right-aligned).
 // Owns: the field, the read page and the line. Never: saves or decides anything itself (file-doc.ts, file-tabs.ts).
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
@@ -27,6 +29,7 @@ import { docFor, openFolderTab, openWithSystem, pathMenu, releaseDoc, saveHere, 
 import { writeArea } from './NotesView.tsx';
 import { textKind } from './media-facts.ts';
 import { PathMissing } from './PathMissing.tsx';
+import { TABLE_MAX_COLUMNS, isTable, parseTable } from './csv-table.ts';
 import { useSpace } from './space.ts';
 import { useScrollPosition } from './view-sync.ts';
 
@@ -42,8 +45,27 @@ function SaveHere(props: { path: string; device?: string; class: string; disable
   return <button type="button" class={props.class} title={words.hint} disabled={saving || props.disabled} onClick={save}>{words.label}</button>;
 }
 
-/** Per tab: a Markdown file shows its read page (true, the start) or its field (false). */
+/** Per tab: a Markdown or CSV file shows its read page (true, the start) or its field (false). */
 const reading = new Map<string, boolean>();
+
+/** A CSV file's read page: the table with its header held at the top while the rows scroll. */
+function TableRead(props: { text: string; path: string }) {
+  const table = useMemo(() => parseTable(props.text, props.path), [props.text, props.path]);
+  const cut = [
+    table.rows.length < table.total ? `the first ${table.rows.length.toLocaleString()} of ${table.total.toLocaleString()} rows` : '',
+    table.columns > TABLE_MAX_COLUMNS ? `the first ${TABLE_MAX_COLUMNS} of ${table.columns} columns` : '',
+  ].filter(Boolean);
+  if (!table.header.length) return <p class="pane-note">This file holds no rows.</p>;
+  return (
+    <>
+      {cut.length > 0 && <p class="file-table-note">Showing {cut.join(' and ')} – Edit shows the whole file.</p>}
+      <table class="file-table">
+        <thead><tr>{table.header.map((cell, i) => <th key={i} scope="col" class={table.numeric[i] ? 'num' : undefined}>{cell}</th>)}</tr></thead>
+        <tbody>{table.rows.map((row, r) => <tr key={r}>{row.map((cell, i) => <td key={i} class={table.numeric[i] ? 'num' : undefined}>{cell}</td>)}</tr>)}</tbody>
+      </table>
+    </>
+  );
+}
 
 function NoEditor(props: { id: string; space: string; path: string; text: string; device?: string }) {
   const { id, space, path, device } = props;
@@ -66,7 +88,9 @@ export function FileView(props: { id: string; path: string; device?: string }) {
   const area = useRef<HTMLTextAreaElement>(null);
   const page = useRef<HTMLDivElement>(null);
   const markdown = textKind('', path) === 'markdown';
-  const [read, setRead] = useState(() => markdown && reading.get(id) !== false);
+  const table = isTable(path);
+  const readable_ = markdown || table;
+  const [read, setRead] = useState(() => readable_ && reading.get(id) !== false);
   const toggle = () => { reading.set(id, !read); setRead(!read); };
   const menu = useContextMenu(() => pathMenu(path, device));
   useEffect(() => {
@@ -93,7 +117,7 @@ export function FileView(props: { id: string; path: string; device?: string }) {
   return (
     <div class="pane-view pane-file" onKeyDown={onKeyDown}>
       {state.phase === 'text' && read
-        ? <div ref={page} class="file-read" tabIndex={0} aria-label="File text"><Markdown text={readable(doc.text)} class="file-doc" /></div>
+        ? <div ref={page} class={`file-read${table ? ' is-table' : ''}`} tabIndex={0} aria-label={table ? 'Table' : 'File text'}>{table ? <TableRead text={doc.text} path={path} /> : <Markdown text={readable(doc.text)} class="file-doc" />}</div>
         : state.phase === 'text'
         ? <textarea ref={area} class="pane-notes-field file-field" aria-label="File text" wrap="soft" spellcheck={false} autocomplete="off" onInput={(event) => doc.edit(event.currentTarget.value)} />
         : <div class="pane-stage">{state.phase === 'failed' ? <p class="pane-note">{state.error}</p> : <Spinner label="Loading file" />}</div>}
@@ -101,7 +125,7 @@ export function FileView(props: { id: string; path: string; device?: string }) {
         <span class={`file-dot${state.dirty ? ' is-dirty' : ''}`} role="img" aria-label={state.dirty ? 'Not saved' : 'Saved'} />
         <span class="pane-foot-text" role="status" aria-live="polite">{state.phase === 'text' ? fileStatus(state, size, modKey) : ''}</span>
         <span class="pane-foot-action">{state.changed && <button type="button" class="button secondary" onClick={() => void doc.load()}>Reload</button>}</span>
-        {markdown && <span class="file-mode"><button type="button" class="button secondary" disabled={state.phase !== 'text'} onClick={toggle}>{read ? 'Edit' : 'Read'}</button></span>}
+        {readable_ && <span class="file-mode"><button type="button" class="button secondary" disabled={state.phase !== 'text'} onClick={toggle}>{read ? 'Edit' : 'Read'}</button></span>}
         <SaveHere path={path} device={device} class="button secondary pane-foot-button" disabled={state.phase !== 'text' || state.fresh} />
       </div>
     </div>

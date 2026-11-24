@@ -177,6 +177,13 @@ test('openPathLink: an offline or unlinked home PC is one toast, no tab; without
   assert.equal(tabsOf('global').length, before, 'no tab');
   assert.deepEqual(toasts.value.map((toast) => [toast.title, toast.body, toast.tone]), [['Could not open a.md', 'notebook is offline.', 'error']]);
 
+  // B249F927 (24.11.2026): the runtime's own refusal (details.reachable false) and no copy here – where the file is and that it waits
+  toasts.value = [];
+  calls = stubRpc({ 'dev_note|C:/w/TABELLE.csv': new RpcError({ code: 'unavailable', message: 'TB Kassiopeia is offline.', details: { deviceId: 'dev_note', reachable: false } }), '|C:/w/TABELLE.csv': { state: 'missing', near: [] } });
+  await openPathLink('C:/w/TABELLE.csv', 'ag_far');
+  assert.equal(tabsOf('global').length, before, 'no not-found tab for a file that is only away');
+  assert.deepEqual(toasts.value.map((toast) => [toast.title, toast.body]), [['Could not open TABELLE.csv', 'TABELLE.csv is on TB Kassiopeia, which is offline right now. It opens once that PC is online again.']]);
+
   toasts.value = [];
   calls = stubRpc({ 'dev_note|C:/w/b.md': new Error('That PC is not linked here.'), '|C:/w/b.md': { state: 'text' } });
   await openPathLink('C:/w/b.md', 'ag_far');

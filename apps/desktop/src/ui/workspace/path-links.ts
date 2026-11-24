@@ -155,6 +155,18 @@ async function readPath(path: string, pc: string | undefined, ask: AskHost): Pro
   }
 }
 
+/** The PC a refusal says is offline (devices/sync/paths.ts: "<name> is offline.", details.reachable false). */
+export function offlinePc(error: unknown): string | undefined {
+  if (!(error instanceof RpcError) || error.data.details?.reachable !== false) return undefined;
+  return /^(.+) is offline\.?$/.exec(error.message)?.[1] ?? 'another PC';
+}
+
+/** B249F927 (24.11.2026, a CSV of an agent whose home PC was off: "Could not open … · TB Kassio… is offline"): the words
+ *  when the file lives on the agent's PC, that PC is offline and this PC has no copy – where it is and that it waits. */
+export function offlineWords(path: string, pc: string): string {
+  return `${pathName(path)} is on ${pc}, which is offline right now. It opens once that PC is online again.`;
+}
+
 /** Opens `path` from a message by `authorId`: on that agent's home PC, else on this PC, else its not-found tab. */
 export async function openPathLink(path: string, authorId?: string, desktop = platform === 'desktop', ask: AskHost = askHost): Promise<void> {
   if (!pathIn(path, false)) return; // a public network path or no path at all: nothing is asked
@@ -172,6 +184,10 @@ export async function openPathLink(path: string, authorId?: string, desktop = pl
     first ??= { read };
   }
   const missing = first?.read;
-  if (!missing) { toastError(first?.error, failed); return; }
+  if (!missing) {
+    const pc = offlinePc(first?.error);
+    toastError(pc ? offlineWords(path, pc) : first?.error, failed);
+    return;
+  }
   (/[\\/]$/.test(path) ? openFolderTab : openFileTab)(missing.path, undefined, undefined, pcs[0]); // written with a closing separator: a folder
 }
