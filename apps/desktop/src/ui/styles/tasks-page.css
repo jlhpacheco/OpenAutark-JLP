@@ -130,7 +130,8 @@
 .task-chip.when.late { color: var(--warn); }
 .task-chip.open { border-color: color-mix(in srgb, var(--badge-bg) 55%, transparent); border-style: dashed; background: transparent; color: var(--badge-bg); }
 .task-chip.open:hover { background: color-mix(in srgb, var(--badge-bg) 10%, transparent); }
-.task-chip.quest { max-width: 220px; background: color-mix(in srgb, var(--qc) 14%, var(--surface)); }
+/* the quest's name is cut at the chip's end ("…"), never painted over the hint behind it */
+.task-chip.quest { max-width: 220px; overflow: hidden; background: color-mix(in srgb, var(--qc) 14%, var(--surface)); }
 .task-chip.file { max-width: 180px; }
 .task-chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .task-chip.important { color: var(--warn); }
