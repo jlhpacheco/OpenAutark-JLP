@@ -13,6 +13,11 @@
 // account run one process at a time, also across checks (the next waits until the previous one is gone).
 // B-051 L5: a claude.ai sign-in whose subscriptionType is 'free' is not 'ok' but 'error' with CLAUDE_FREE_PLAN
 // (accounts/cli.ts; no probe runs for it) – the account service stores that even from a background check.
+// 0.3.19 (task_0c6aet8h): a background check (the monitor reads every plan each minute while any agent works) starts only
+// the probe while the account's last `auth status` said signed in less than STATUS_REUSE_MS ago: limits read through the
+// account's own sign-in prove it is still signed in. Only a probe without limits, or one reading another e-mail, asks
+// `auth status` again – each is a cold start of the ~290 MB CLI, and two per account and minute were the runtime's
+// most frequent process starts on teydra-server (a kernel token left behind by most of them, Insider build 26300).
 // Never: reads ~/.claude/.credentials.json or any token; never sends a model message; never logs
 // what the probe returns (it holds the account's e-mail address).
 
@@ -54,6 +59,9 @@ const PROBE_REQUESTS = control('init', { subtype: 'initialize' }) + control('usa
 const PROBE_IDS = ['init', 'usage'];
 /** `auth status` and the probe: a cold Claude Code start (~290 MB binary) took 5–30 s on a loaded 8 GB PC (audit 23.10.); at 30 s three probes in a row got no answer, nothing was listed and the person read "No model is connected" (q2m3, live 02.11.2026). On a quiet PC about 1 s. */
 export const CHECK_TIMEOUT_MS = 90_000;
+/** A background check reuses a signed-in `auth status` this long, as long as its probe reads the limits (the monitor's quiet cadence). */
+export const STATUS_REUSE_MS = 10 * 60_000;
+type ClaudeAuthStatus = ReturnType<typeof parseClaudeStatus>;
 
 export interface ClaudeProbe {
   usage: ReturnType<typeof normalizeClaudeUsage>;
@@ -88,6 +96,8 @@ export class ClaudeStatus {
   private readonly cache = new Map<string, { at: number; ttl: number; value: ClaudeProbe }>();
   private readonly lastInit = new Map<string, ClaudeInit>();
   private readonly inflight = new Map<string, Promise<ClaudeProbe>>();
+  /** The last `auth status` per account that said signed in (not Free), and when. */
+  private readonly signedIn = new Map<string, { at: number; status: ClaudeAuthStatus }>();
   private readonly env: NodeJS.ProcessEnv;
   private readonly timeoutMs: number;
   private readonly graceMs: number;
@@ -107,7 +117,15 @@ export class ClaudeStatus {
     return childEnv(this.env, { ...NO_CLI_CRON, CLAUDE_CONFIG_DIR: account.home });
   }
 
-  async check(exe: Executable, account: Account): Promise<AccountCheck> {
+  /** `background` (the monitor's own reads): see STATUS_REUSE_MS – a sign-in, a new connection or a used reset always asks `auth status`. */
+  async check(exe: Executable, account: Account, options: { background?: boolean } = {}): Promise<AccountCheck> {
+    const known = options.background ? this.signedIn.get(account.id) : undefined;
+    if (known && this.now() - known.at < STATUS_REUSE_MS) {
+      const probe = await this.probe(exe, account);
+      const email = probe.init?.account?.email;
+      // read through this sign-in, and the same one: no second process; else `auth status` decides (the probe stays cached)
+      if (!probe.failed && probe.usage.limits && (!email || !known.status.email || email === known.status.email)) return this.reading(known.status, probe);
+    }
     // `auth status` takes no --setting-sources: it runs in temp so no project settings (apiKeyHelper, env) apply.
     const status = await runCli(this.supervisor, exe, ['auth', 'status', '--json'], {
       env: this.envFor(account), cwd: this.tempDir, timeoutMs: this.timeoutMs, owner: `claude-status:${account.id}`, graceMs: this.graceMs, group: claudeLogin(account.id),
@@ -116,6 +134,7 @@ export class ClaudeStatus {
     if (status.timedOut) return { state: 'error', message: 'Claude Code did not answer the account check.' };
     const parsed = parseClaudeStatus(status.code, status.stdout);
     if (parsed.unknown) return { state: 'error', message: 'Claude Code did not answer the account check.' };
+    this.signedIn.delete(account.id);
     if (!parsed.loggedIn) {
       this.cache.delete(account.id); // the next check after signing in probes again
       this.lastInit.delete(account.id); // another login may have another plan
@@ -123,8 +142,13 @@ export class ClaudeStatus {
     }
     // B-051 L5: signed in, but the Free plan cannot run Claude Code agents – never shown as "Signed in".
     if (claudeFreePlan(parsed)) return { state: 'error', message: CLAUDE_FREE_PLAN, plan: parsed.plan, ...(parsed.email ? { email: parsed.email } : {}) };
+    this.signedIn.set(account.id, { at: this.now(), status: parsed });
+    return this.reading(parsed, await this.probe(exe, account));
+  }
+
+  /** A signed-in account's check from its `auth status` and its probe. */
+  private reading(parsed: ClaudeAuthStatus, probe: ClaudeProbe): AccountCheck {
     const check: AccountCheck = { state: 'ok', email: parsed.email, plan: parsed.plan ?? (parsed.method === 'api' ? 'api' : undefined) };
-    const probe = await this.probe(exe, account);
     if (probe.usage.limits) check.limits = probe.usage.limits;
     // the probe's subscription_type says "max" for Ultra too – it never takes back the tier auth status read (cli.ts claudePlan)
     if (probe.usage.plan && !(check.plan === 'ultra' && probe.usage.plan === 'max')) check.plan = probe.usage.plan;

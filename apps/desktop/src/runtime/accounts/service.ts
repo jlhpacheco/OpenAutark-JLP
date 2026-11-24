@@ -378,7 +378,7 @@ export class AccountServiceImpl implements AccountServiceContract {
     }
     // no engine: a set environment key, or a decision connection (accounts.try asks it one question), reads as connected
     if (!engine) return env || (account.provider === DECISION_PROVIDER && account.enabled) ? this.save({ ...account, state: 'ok', checkedAt: this.now() }) : account;
-    const result = await this.deps.engines().get(engine).checkAccount(account, { details });
+    const result = await this.deps.engines().get(engine).checkAccount(account, { details, background });
     if (this.disposed) return account; // shutdown: a check whose process was stopped stores nothing
     this.retaking.delete(id);
     const fresh = this.require(id);

@@ -243,8 +243,9 @@ export interface Engine {
    * Login state, plan and limits – via official status calls, never by reading tokens. `details` (B-044,
    * Codex): also the banked resets' credit details (the person opened the limits, or a reset was used);
    * without it a background read asks for the count only (accounts/limits.ts mergeLimits keeps stored details).
+   * `background`: the monitor's own read – Claude Code then reuses a recent signed-in `auth status` (claude/status.ts).
    */
-  checkAccount(account: Account, options?: { details?: boolean }): Promise<AccountCheck>;
+  checkAccount(account: Account, options?: { details?: boolean; background?: boolean }): Promise<AccountCheck>;
   run(input: EngineTurnInput): Promise<EngineTurnResult>;
   /** Steer a running turn with extra input (important messages). */
   steer?(runId: string, text: string): Promise<boolean>;

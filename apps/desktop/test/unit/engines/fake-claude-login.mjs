@@ -7,9 +7,11 @@
 //   'hang' answers, then ignores the end of its input and never exits by itself;
 //   'slow' answers the probe only after FAKE_ANSWER_MS;
 //   a turn: an interrupt is answered only after FAKE_INTERRUPT_MS (a refresh in flight blocks it).
+// $FAKE_DIR/sign-in.json, read at each start (claude-status-reuse.test.ts): {loggedIn, email, limits} – auth status says
+//   signed in (default) or not, with that e-mail; the probe's initialize names the e-mail, get_usage reads limits only with limits: true.
 // Owns: nothing in production. Never imported by src/.
 
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const args = process.argv.slice(2);
@@ -21,10 +23,14 @@ const log = (event) => appendFileSync(path.join(process.env.FAKE_DIR, 'log.jsonl
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 const keepAlive = () => setInterval(() => {}, 1000);
 const finish = () => setTimeout(() => { log('saved'); log('exit'); process.exit(0); }, saveMs);
+const signInFile = path.join(process.env.FAKE_DIR, 'sign-in.json');
+const signIn = existsSync(signInFile) ? JSON.parse(readFileSync(signInFile, 'utf8')) : {};
+const usage = () => (signIn.limits && signIn.loggedIn !== false ? { rate_limits_available: true, subscription_type: 'max', rate_limits: { five_hour: { utilization: 12, resets_at: '2026-11-24T05:00:00Z' } } } : {});
+const init = () => ({ models: [], ...(signIn.email ? { account: { email: signIn.email } } : {}) });
 
 log('start');
 if (kind === 'status') {
-  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max' }));
+  process.stdout.write(JSON.stringify({ loggedIn: signIn.loggedIn !== false, authMethod: 'claude.ai', subscriptionType: 'max', ...(signIn.email ? { email: signIn.email } : {}) }));
   if (mode === 'hang') keepAlive(); else finish();
 } else {
   let buffer = '';
@@ -46,7 +52,7 @@ if (kind === 'status') {
   function onMessage(message) {
     if (message.type === 'control_request' && kind === 'probe') {
       const answer = () => {
-        send({ type: 'control_response', response: { subtype: 'success', request_id: message.request_id, response: message.request.subtype === 'initialize' ? { models: [] } : {} } });
+        send({ type: 'control_response', response: { subtype: 'success', request_id: message.request_id, response: message.request.subtype === 'initialize' ? init() : usage() } });
         log('answered');
       };
       if (mode === 'slow') setTimeout(answer, Number(process.env.FAKE_ANSWER_MS ?? 1500)); else answer();

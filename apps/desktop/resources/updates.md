@@ -102,6 +102,13 @@ that transcript. I fix it: a cold first turn after
 an update of Claude Code or Codex is expected until Autark lists the new version; a lasting 'pending' row comes from
 turns that end with the runtime – the next turn that ends normally seals the session again.
 
+Fewer Claude Code starts in the background: while agents work, Autark reads each Claude plan's limits every minute,
+and each reading started two Claude Code processes (`auth status` and a short probe) – on a PC with three plans the
+most frequent program starts of the app. A reading now starts only the probe while the plan's last `auth status`
+said signed in less than 10 minutes ago and the probe reads the limits through that sign-in; a probe without limits,
+or one that reads another e-mail, asks `auth status` as before. A sign-in, a new connection or the quota details opened
+by the person always ask it. Nothing to put right.
+
 ## 0.3.18
 
 What changed: linked PCs and phones keep each other current by themselves – a message a shaky connection lost arrives

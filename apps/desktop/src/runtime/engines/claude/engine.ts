@@ -156,10 +156,10 @@ export class ClaudeEngine implements Engine {
     return models;
   }
 
-  async checkAccount(account: Account): Promise<AccountCheck> {
+  async checkAccount(account: Account, options: { background?: boolean } = {}): Promise<AccountCheck> {
     const exe = await this.deps.finder.find('claude');
     if (!exe) return { state: 'error', message: 'Claude Code is not installed.' };
-    try { return await this.status.check(exe, account); }
+    try { return await this.status.check(exe, account, { background: options.background === true }); }
     catch { return { state: 'error', message: 'Claude Code did not answer the account check.' }; }
   }
 
