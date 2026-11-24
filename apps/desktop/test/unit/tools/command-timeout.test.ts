@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter, once } from 'node:events';
 import { runCommand } from '../../../src/runtime/tools/builtin/command.ts';
 import { defaultShell, type ShellSpawn } from '../../../src/runtime/tools/builtin/files.ts';
-import { initialTimeoutSeconds, MAX_COMMAND_SECONDS, NO_DECISION, reviewToolTimeout, TIMEOUT_REVIEW_MS, type ToolTimeoutDecision } from '../../../src/runtime/tools/timeout.ts';
+import { initialTimeoutSeconds, NO_DECISION, reviewToolTimeout, TIMEOUT_REVIEW_MS, type ToolTimeoutDecision } from '../../../src/runtime/tools/timeout.ts';
 import type { RuntimeServices } from '../../../src/runtime/contracts.ts';
 import type { ToolContext } from '../../../src/runtime/tools/types.ts';
 
@@ -222,7 +222,7 @@ test('0.3.20: endless "wait another 15 s" answers end at the total limit; the pr
   const text = result.content[0].type === 'text' ? result.content[0].text : '';
   assert.equal(f.commandSignal()?.aborted, true, 'the abort reaches the shell spawn – defaultShell kills that child\'s tree by PID');
   assert.equal(result.isError, true);
-  assert.ok(reviews <= MAX_COMMAND_SECONDS / 15, `bounded reviews: ${reviews}`);
+  assert.ok(reviews <= 3600 / 15, `bounded reviews: ${reviews}`);
   assert.match(text, /total limit of 3600 s[\s\S]*process tree[\s\S]*exit timeout\n\[command output withheld\]$/);
   assert.equal(text.includes('sensitive-value'), false);
   assert.equal(text.includes('localhost'), false, 'masking guarantee: nothing of a stopped command\'s output');
