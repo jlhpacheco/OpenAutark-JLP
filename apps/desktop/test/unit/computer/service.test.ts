@@ -117,13 +117,11 @@ test('screenshots report geometry; screenshot-pixel clicks are mapped to the scr
   await assert.rejects(computer.click({ x: 1, y: 1, coords: 'screenshot', agentId: 'ag_other' }), /No screenshot yet/);
 });
 
-test('macOS/Linux: honest "unavailable" for control, screenshots through the host (downscaled PNG)', async () => {
+test('macOS: screenshots through the host (downscaled PNG), window shots only on Windows; a platform without a driver: honest "unavailable" for control', async () => {
   const wide = { width: 3200, height: 1000, channels: 3 as const, pixels: new Uint8Array(3200 * 1000 * 3).fill(128) };
   const captured: unknown[] = [];
   const h = host({ capture: { screenshot: async (target, format) => { captured.push({ target, format }); return { data: encodePng(wide), width: 3200, height: 1000, mime: 'image/png' }; }, displays: async () => [] } });
   const { computer, helper } = service({ platform: 'darwin', host: h });
-  await assert.rejects(computer.click({ x: 1, y: 1 }), (error: unknown) => error instanceof WorkforceError && error.code === 'unavailable' && /only available on Windows/.test(error.message));
-  await assert.rejects(computer.windows(), /only available on Windows/);
   await assert.rejects(computer.screenshot({ window: 5 }), /only available on Windows/);
   const shot = await computer.screenshot({});
   assert.deepEqual(captured, [{ target: { display: 0 }, format: 'png' }]);
@@ -132,6 +130,10 @@ test('macOS/Linux: honest "unavailable" for control, screenshots through the hos
   assert.equal(shot.source, 'host');
   assert.equal(decodePng(shot.data)!.pixels[0], 128);
   assert.deepEqual(helper.ops(), []);
+  const watchOnly = service({ platform: 'freebsd', host: host() });
+  await assert.rejects(watchOnly.computer.click({ x: 1, y: 1 }), (error: unknown) => error instanceof WorkforceError && error.code === 'unavailable' && /only available on Windows, Linux and macOS/.test(error.message));
+  await assert.rejects(watchOnly.computer.windows(), /only available on Windows, Linux and macOS/);
+  assert.deepEqual(watchOnly.helper.ops(), []);
   const headless = service({ platform: 'linux', host: host() });
   await assert.rejects(headless.computer.screenshot({}), /no screen to capture/);
 });

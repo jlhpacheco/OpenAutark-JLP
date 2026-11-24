@@ -1,4 +1,4 @@
-// Owns: the normal packaging CLI plus static NSIS extraction for local Windows builds.
+// Owns: the normal packaging CLI plus static NSIS extraction for local Windows builds and, on a Mac, the AX helper build first.
 // Never: disables security checks, bypasses a failed CRC, or changes the installed app/profile.
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -14,5 +14,19 @@ if (process.env.AUTARK_WINDOWS_SIGNING) {
   const config = require('./windows-signing-config.cjs');
   const { prepareNsisTools } = await import('./windows-nsis-tools.mjs');
   await prepareNsisTools({ config, projectDir: fileURLToPath(new URL('../', import.meta.url)) });
+}
+if (process.env.AUTARK_MAC_SIGNING) {
+  // 'developer-id': certificate + notarization; 'adhoc': hardened-runtime test build (mac-signing-config.cjs).
+  if (process.platform !== 'darwin') throw new Error('Expected a macOS runner: AUTARK_MAC_SIGNING needs macOS.');
+  if (process.env.AUTARK_WINDOWS_SIGNING) throw new Error('Sign one platform at a time.');
+  if (process.argv.some(arg => arg === '-c' || arg.startsWith('--config') || arg.startsWith('-c.'))) throw new Error('Signed builds use the reviewed macOS signing configuration.');
+  process.argv.push('--config', fileURLToPath(new URL('./mac-signing-config.cjs', import.meta.url)));
+}
+// 24.11.2026 (Felix, Juri): a package built on a Mac carries the AX control helper (apps/mac-steuerung). It is built here,
+// before electron-builder, so every Mac package has it – a missing helper fails the package instead of shipping a Mac that
+// cannot be operated. resources/computer/darwin/ stays out of git.
+if (process.platform === 'darwin') {
+  const { execFileSync } = await import('node:child_process');
+  execFileSync(process.execPath, [fileURLToPath(new URL('./build-mac-helper.mjs', import.meta.url))], { stdio: 'inherit' });
 }
 await import('electron-builder/cli.js');

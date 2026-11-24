@@ -55,10 +55,11 @@ function rig(session: string, env: NodeJS.ProcessEnv = {}) {
 
 const code = (wanted: string, message?: RegExp) => (error: unknown) => error instanceof WorkforceError && error.code === wanted && (!message || message.test(error.message));
 
-test('drivers: Windows and Linux control, macOS watch only', () => {
+test('drivers: Windows, Linux and macOS control, other platforms watch only', () => {
   assert.equal(driverFor('win32')?.input, 'full');
   assert.deepEqual([driverFor('linux')?.semantic, driverFor('linux')?.input], [true, 'x11']);
-  assert.equal(driverFor('darwin'), undefined);
+  assert.deepEqual([driverFor('darwin')?.semantic, driverFor('darwin')?.input], [true, 'full']);
+  assert.equal(driverFor('freebsd'), undefined);
 });
 
 test('Linux AT-SPI helper: windows, tree, element actions with their checks, X11 input', { skip: python ? false : 'no Python interpreter' }, async () => {

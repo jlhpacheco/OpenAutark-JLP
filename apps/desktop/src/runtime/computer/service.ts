@@ -1,8 +1,9 @@
 // Computer use on this PC: screenshots, windows, the UI Automation tree, element actions and
 // raw input – semantic first, pixels last, every action checked.
 // Windows: everything goes through the persistent PowerShell helper (helper.ts); Linux (23.10.2026):
-// the AT-SPI helper (computer/drivers.ts – element actions, input on X11 only); macOS: screenshots
-// through the host only, control reports "unavailable" honestly.
+// the AT-SPI helper (computer/drivers.ts – element actions, input on X11 only); macOS (24.11.2026): the AX helper
+// (apps/mac-steuerung, same protocol; control needs the person's Accessibility permission, without it it reports "unavailable"
+// with the way to grant it); screenshots come from the host's capture there.
 // Owns: coordinate validation (Number.isFinite, screenshot→screen mapping), element refs (one table
 // per agent), observation, and the live screen preview (also for linked PCs via DeviceService); the
 // human-priority gate before every input action is pointer-input.ts (the judgement: presence.ts), an
@@ -351,7 +352,7 @@ export class ComputerService {
 
   private requireWindows(feature: string): void {
     if (this.canControl()) return;
-    throw new WorkforceError('unavailable', `${feature} is only available on Windows and Linux for now (this PC runs ${platformName(this.platform)}). Screenshots work.`);
+    throw new WorkforceError('unavailable', `${feature} is only available on Windows, Linux and macOS for now (this PC runs ${platformName(this.platform)}). Screenshots work.`);
   }
 
   private point(x: unknown, y: unknown, coords: Coords | undefined, agentId: string | undefined, names: [string, string] = ['x', 'y']): Point {

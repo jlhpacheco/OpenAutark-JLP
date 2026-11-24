@@ -1,0 +1,90 @@
+# macOS-Selbsttest des Bildschirm-Helfers (apps/mac-steuerung): bauen, Swift-Tests, dann ein echter Klick, eine Taste und Text per
+# Helfer in einer kleinen Test-App – belegt durch Logzeilen der App. macOS-Minuten zählen zehnfach (Budget 20 $/Monat):
+# deshalb läuft das nur auf Branches ci/mac-steuerung-* mit [mac-steuerung] in der Commit-Nachricht oder von Hand.
+name: mac-steuerung
+on:
+  push:
+    branches: ['ci/mac-steuerung-*']
+  workflow_dispatch:
+jobs:
+  mac:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[mac-steuerung]')
+    runs-on: macos-15
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: apps/mac-steuerung
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Toolchain
+        shell: bash
+        run: |
+          if [ -d /Applications/Xcode_16.4.app ]; then sudo xcode-select -s /Applications/Xcode_16.4.app; fi
+          xcodebuild -version
+          swift --version
+          sw_vers
+      - name: Build (release, native)
+        shell: bash
+        run: |
+          set -o pipefail
+          swift build -c release 2>&1 | tee build.log | tail -40
+      - name: Swift tests
+        id: tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee test.log | grep -E "Executed|error:|failed|Fatal|passed|skipped" | tail -60
+      - name: Accessibility permission (diagnose, then try to grant)
+        shell: bash
+        run: |
+          BIN=$(swift build -c release --show-bin-path)
+          bash selftest/tcc.sh "$BIN/autark-mac-helper" 2>&1 | tee tcc.log
+      - name: Selftest (click, text and key through the helper into the test app)
+        id: selftest
+        shell: bash
+        run: |
+          BIN=$(swift build -c release --show-bin-path)
+          mkdir -p out
+          python3 selftest/drive.py "$BIN/autark-mac-helper" "$BIN/ax-testapp" --log-dir out 2>&1 | tee out/drive.log
+      - name: Without the permission (take the runner's Accessibility rows away, then the helper must refuse in protocol format)
+        shell: bash
+        run: |
+          BIN=$(swift build -c release --show-bin-path)
+          for db in "$HOME/Library/Application Support/com.apple.TCC/TCC.db" "/Library/Application Support/com.apple.TCC/TCC.db"; do
+            sudo sqlite3 "$db" "delete from access where service='kTCCServiceAccessibility';" 2>&1 | sed 's/^/TCC: /'
+          done
+          sudo killall tccd 2>/dev/null; sleep 3
+          set +e
+          python3 selftest/drive.py "$BIN/autark-mac-helper" "$BIN/ax-testapp" --untrusted --log-dir out 2>&1 | tee out/untrusted.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" = 3 ]; then echo "::warning::The runner still reported the permission after the rows were deleted; the refusal path stayed untested"; exit 0; fi
+          exit $rc
+      - name: Screen (diagnosis only)
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p out
+          screencapture -x out/screen.png 2>&1 || true
+          ls -la out
+      - name: Universal binary (arm64 + x86_64)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          swift build -c release --arch arm64 --arch x86_64 --product autark-mac-helper 2>&1 | tail -15
+          lipo -info "$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/autark-mac-helper"
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-steuerung-out
+          path: |
+            apps/mac-steuerung/out
+            apps/mac-steuerung/*.log
+          retention-days: 1
+      - name: Verdict
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ steps.tests.outcome }}" = "failure" ]; then echo "::error::Swift tests failed (see the Swift tests step)"; exit 1; fi

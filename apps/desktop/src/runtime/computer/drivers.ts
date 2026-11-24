@@ -9,8 +9,11 @@
 //            pointer/keyboard input only on X11 (Wayland answers 'unavailable'); screenshots come from
 //            the desktop app's capture. Run with -E -s -B: no PYTHONPATH, no user site packages, no
 //            bytecode written next to the scripts.
-//   macOS:   no driver yet – an AX helper needs the signed app with the person's Accessibility
-//            permission (TCC), which unsigned builds lose on every update; screenshots only.
+//   macOS:   the Accessibility API (AXUIElement) and CGEvent input through resources/computer/darwin/autark-mac-helper
+//            (Swift, apps/mac-steuerung, universal binary, signed with the app). It runs as a child of the app, so the
+//            person's Accessibility permission (TCC) for Autark covers it – and only a stable signature keeps that
+//            permission across updates. Without the permission every control op answers 'unavailable' with the way
+//            to grant it; screenshots stay with the desktop app's capture (the helper has none).
 // Owns: which platform has which driver and how its helper is started. Never: decides permissions
 // or human priority (ComputerService), or guesses a platform's abilities it cannot check.
 
@@ -26,6 +29,7 @@ export interface DriverInfo { name: string; semantic: boolean; input: 'full' | '
 export const DRIVERS: Partial<Record<NodeJS.Platform, DriverInfo>> = {
   win32: { name: 'Windows UI Automation', semantic: true, input: 'full' },
   linux: { name: 'Linux AT-SPI', semantic: true, input: 'x11', needs: 'python3, python3-gi and gir1.2-atspi-2.0' },
+  darwin: { name: 'macOS Accessibility (AX)', semantic: true, input: 'full', needs: 'the Accessibility permission for Autark (System Settings › Privacy & Security › Accessibility)' },
 };
 
 /** The platform's driver, or undefined when this PC can only be watched (screenshots). */
@@ -45,11 +49,24 @@ export interface HelperDeps {
   broker?: BrokerAccess;
   secureWindows?: boolean;
   allowRequest?: () => boolean;
+  /** macOS: the helper binary (default resources/computer/darwin/autark-mac-helper, unpacked from the asar). */
+  macHelper?: string;
 }
 
-/** The helper process client of `platform` (Windows default, Linux AT-SPI). */
+/** The helper process client of `platform` (Windows default, Linux AT-SPI, macOS AX). */
 export function createHelper(platform: NodeJS.Platform, deps: HelperDeps): HelperClient {
   const base = { supervisor: deps.supervisor, log: deps.log };
+  if (platform === 'darwin') {
+    const scriptPath = deps.macHelper ?? deps.unpacked(path.join(deps.resourcesDir, 'computer', 'darwin', 'autark-mac-helper'));
+    return new WindowsHelper({
+      ...base, scriptPath, command: scriptPath, args: [], startTimeoutMs: 15_000,
+      startFailure: {
+        exit: 'The macOS computer-use helper could not start: it is part of the app and may be missing or not allowed to run (reinstall the app).',
+        timeout: 'The macOS computer-use helper did not start in time.',
+        repeated: 'The macOS computer-use helper failed to start several times. Try again in a minute.',
+      },
+    });
+  }
   if (platform === 'linux') {
     const scriptPath = deps.unpacked(path.join(deps.resourcesDir, 'computer', 'linux-helper.py'));
     return new WindowsHelper({

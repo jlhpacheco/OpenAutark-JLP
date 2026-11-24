@@ -1,5 +1,5 @@
 // Which helper process a computer step runs through (Secure-Gate 20.11.2026, Konrad): in Trust AI mode the normal helper,
-// on Windows with the broker route and the helper's Guard; in Secure mode on Windows a helper of its own, started with
+// on Windows with the broker route and the helper's Guard (on macOS the AX helper with its Guard, 24.11.2026); in Secure mode on Windows a helper of its own, started with
 // -DefaultDesktopOnly, that checks before every request that its desktop is 'Default' and receives input (no lock
 // screen, UAC or Ctrl-Alt-Del) and has no broker route. The mode is read per call; a call that started in Trust and
 // finds Secure on when it returns is refused.
@@ -61,7 +61,8 @@ export class HelperRoute {
       return this.secureGuarded ??= withGuardConfig(this.secureClient, () => this.guard() ?? CLOSED_GUARD);
     }
     this.trust ??= createHelper(platform, { ...base, allowRequest: () => !this.deps.secure() });
-    return platform === 'win32' ? this.trustGuarded ??= withGuardConfig(this.trust, () => this.guard()) : this.trust;
+    // The Windows and the macOS helper both keep the Guard (Autark's own windows, the allowed apps); Linux has none yet.
+    return platform === 'win32' || platform === 'darwin' ? this.trustGuarded ??= withGuardConfig(this.trust, () => this.guard()) : this.trust;
   }
 
   /** Sicher-Runde: the helper's guard from the security settings (undefined before the runtime is wired); settings that cannot be read close input (fail closed). */

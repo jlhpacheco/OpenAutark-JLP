@@ -16,6 +16,7 @@
     "wf": "node app/wf.mjs",
     "electron:latest": "node scripts/electron-latest.mjs",
     "typecheck": "tsc -p tsconfig.shared.json && tsc -p tsconfig.runtime.json && tsc -p tsconfig.main.json && tsc -p tsconfig.ui.json",
+    "build:mac-helper": "node scripts/build-mac-helper.mjs",
     "boundaries": "node scripts/check-boundaries.mjs",
     "test": "node --test --test-concurrency=2 \"test/unit/**/*.test.ts\"",
     "test:ui": "node scripts/build.mjs && node --test --test-concurrency=1 \"test/ui/**/*.test.mjs\"",
@@ -85,6 +86,7 @@
       "resources/**/*.ps1",
       "resources/**/*.py",
       "resources/broker/*.exe",
+      "resources/computer/darwin/*",
       "app/wf.mjs",
       "app/meet.mjs",
       "app/sleeper.mjs",
@@ -122,7 +124,18 @@
       "artifactName": "autark-mac-${arch}.${ext}",
       "category": "public.app-category.productivity",
       "icon": "assets/icon.png",
-      "identity": null
+      "identity": null,
+      "x64ArchFiles": "{**/sherpa-onnx-darwin-*/**,**/computer/darwin/autark-mac-helper}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "assets/entitlements.mac.plist",
+      "entitlementsInherit": "assets/entitlements.mac.plist",
+      "extendInfo": {
+        "NSAccessibilityUsageDescription": "Autark uses the Accessibility permission to operate other apps for you – click, type and read their controls – when you ask its agents to work on this Mac.",
+        "NSMicrophoneUsageDescription": "Autark uses the microphone for calls with your agents, dictation and the floating to-do button.",
+        "NSCameraUsageDescription": "Apps in the Autark workspace can ask for the camera, for example to record a video.",
+        "NSAppleEventsUsageDescription": "Autark asks other apps to open documents and windows when you ask its agents to, and asks Terminal to run the sign-in of an AI engine such as Claude Code or Codex."
+      }
     },
     "linux": {
       "target": [
