@@ -6,6 +6,10 @@
 
 import { foundHere, isAcpPlan, type Account, type DetectionReport, type ProviderId } from '../../shared/model/providers.ts';
 
+import { isUsableState } from '../../shared/model/plan-roles.ts';
+import { extraUsageAllowed } from '../../shared/model/plan-quota.ts';
+import { quotaLabel } from '../lib/limits.ts';
+
 export const PROVIDER_NAMES: Record<ProviderId, string> = {
   codex: 'Codex', claude: 'Claude Code', openai: 'OpenAI API', anthropic: 'Anthropic API',
   openrouter: 'OpenRouter', google: 'Gemini API', xai: 'xAI API', deepseek: 'DeepSeek API', ollama: 'Ollama',
@@ -40,9 +44,11 @@ export function claudeFreePlan(account: Account | undefined): boolean {
   return account?.provider === 'claude' && account.state === 'error' && account.plan?.trim().toLowerCase() === 'free';
 }
 
-/** State chip text: 'Limit reached' only when a limit window is used up (its reset still ahead). */
+/** A signed-in account can be out of included quota without changing its auth state. */
 export function stateLabel(account: Account, now = Date.now()): string {
   if (claudeFreePlan(account)) return FREE_PLAN_LABEL;
+  const quota = isUsableState(account) ? quotaLabel(account.limits, now, extraUsageAllowed(account)) : undefined;
+  if (quota) return quota;
   if (account.state !== 'cooling') return STATE_LABELS[account.state];
   const usedUp = account.limits?.windows.some((window) => window.usedPercent >= 100 && (window.resetsAt === undefined || window.resetsAt > now));
   return usedUp ? STATE_LABELS.cooling : SHORT_PAUSE_LABEL;

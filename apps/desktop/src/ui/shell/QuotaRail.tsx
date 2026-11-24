@@ -29,7 +29,7 @@ import { usage } from '../lib/store.ts';
 import { PROVIDER_NAMES } from '../settings/providers.ts';
 import { rpc } from '../lib/rpc.ts';
 import { can } from '../lib/session.ts';
-import { countdown, fiveHourOf, leftOf, nextCredit, resetCount, resetsAvailableText, shortWait, windowLabel } from '../lib/limits.ts';
+import { countdown, fiveHourOf, leftOf, nextCredit, quotaLabel, resetCount, resetsAvailableText, shortWait, windowLabel } from '../lib/limits.ts';
 import { USAGE_REFRESH_MS, refreshUsage } from '../lib/usage-refresh.ts';
 import { hiddenEdges, ringText } from './quota-stack.ts';
 
@@ -80,9 +80,11 @@ function Details(props: { entry: UsageSummary; next?: UsageSummary }) {
   const limits = entry.limits;
   const now = Date.now();
   const resets = resetCount(limits?.resets);
+  const quota = quotaLabel(limits, now);
   return (
     <div class={`usage-card provider-${providerClass(entry.provider)}`}>
       <h4>{planName(entry)}</h4>
+      {quota && <p class="usage-reset">{quota}</p>}
       {limits?.windows.map((window) => {
         const left = leftOf(window, now);
         return (
@@ -126,6 +128,7 @@ function Badge(props: { entry: UsageSummary; next?: UsageSummary }) {
     `${name}: ${weekly === undefined ? 'weekly share unknown' : `${weekly}% weekly left`}`,
     five ? (five.left === undefined ? '5-hour limit reset' : `${five.left}% of the 5-hour limit left${five.resetsAt ? `, resets ${countdown(five.resetsAt, now)}` : ''}`)
       : weekly !== undefined && entry.weeklyResetsAt ? `no 5-hour limit, weekly resets ${countdown(entry.weeklyResetsAt, now)}` : '',
+    quotaLabel(entry.limits, now),
     entry.limits?.stale ? 'stale reading' : '',
   ].filter(Boolean).join(', ');
   const show = () => { clearTimeout(closeTimer.current); if (!open) refreshUsage(); setOpen(true); };

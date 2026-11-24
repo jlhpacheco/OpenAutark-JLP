@@ -6,6 +6,7 @@
 // Owns: these display rules. Never: fetches, estimates or changes a limit – every number comes from
 // the runtime's readings (an unknown or passed reading is '–', never 0 % or 100 %).
 
+import { quotaResetAt } from '../../shared/model/plan-quota.ts';
 import { accountCharge } from '../../shared/model/charge.ts';
 import type { Account, AccountLimits, LimitResets, LimitWindow, ResetCredit } from '../../shared/model/providers.ts';
 import type { ResetOutcome } from '../../shared/api/methods-providers.ts';
@@ -74,6 +75,11 @@ export function resetClock(resetsAt: number, now: number): string {
   const ms = resetsAt - now;
   if (ms < DAY) return time(resetsAt);
   return ms < 7 * DAY ? dayTimeFmt.format(resetsAt) : resetTime(resetsAt);
+}
+
+export function quotaLabel(limits: AccountLimits | undefined, now: number, includedOnly = false): string | undefined {
+  const reset = quotaResetAt(limits, now);
+  return reset === undefined ? undefined : (includedOnly ? 'Included quota used up until ' : 'Used up until ') + resetClock(reset, now);
 }
 
 /** "64% left · resets in 2 h 14 min (14:27)"; '–' while unknown or once the reset has passed. */

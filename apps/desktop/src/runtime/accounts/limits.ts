@@ -8,6 +8,9 @@
 
 import type { AccountLimits, LimitResets, LimitWindow, ResetCredit } from '../../shared/model/providers.ts';
 import { isRecord } from '../engines/shared.ts';
+import { windowScope } from '../../shared/model/plan-quota.ts';
+
+export { windowApplies, windowScope } from '../../shared/model/plan-quota.ts';
 
 const ID = /^[a-zA-Z0-9_-]{1,80}$/;
 
@@ -159,24 +162,6 @@ export function mergeLimits(previous: AccountLimits | undefined, next: AccountLi
   for (const w of next.windows) byName.set(w.name, w);
   const resets = mergeResets(previous.resets, next);
   return { windows: [...byName.values()], readAt: next.readAt, ...(resets ? { resets } : {}) };
-}
-
-/** The model a suffixed window binds ("weekly-opus" → "opus"); undefined for account-wide windows ("5h", "weekly"). */
-export function windowScope(name: string): string | undefined {
-  return /^(?:weekly|\d+[dhm])-(.+)$/.exec(name)?.[1];
-}
-
-/**
- * True when a window limits turns on `model`: account-wide windows always; a model window only
- * when the model id contains its scope as whole words ("claude-opus-5-5" ↔ "opus",
- * "gpt-5.3-codex-spark" ↔ "gpt-5-3-codex-spark"). Without a model only account-wide windows bind;
- * scopes that name no model ("oauth-apps") never exclude anything.
- */
-export function windowApplies(name: string, model?: string): boolean {
-  const scope = windowScope(name);
-  if (!scope) return true;
-  if (!model) return false;
-  return `-${model.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-`.includes(`-${scope}-`);
 }
 
 /** The unnamed weekly window (never a 5h/session window). */

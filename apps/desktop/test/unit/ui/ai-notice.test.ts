@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Account, ModelInfo } from '../../../src/shared/model/providers.ts';
 import { AI_NOTICE_ID, AI_NOTICE_TEXT, aiNotice, type AiNoticeInput } from '../../../src/ui/onboarding/ai-notice.ts';
+import { resetClock } from '../../../src/ui/lib/limits.ts';
 import { NOTICE_PRIORITY } from '../../../src/ui/shell/notices.ts';
 
 const account = (extra: Partial<Account> = {}): Account => ({ id: 'acc', provider: 'codex', auth: 'cli', enabled: true, state: 'ok', priority: 0, ...extra }) as Account;
@@ -50,4 +51,40 @@ test('registered once by the status line; Connect leads to Settings › Models',
   const sources = readFileSync(path.join(ui, 'shell', 'StatusLine.tsx'), 'utf8');
   assert.equal(sources.match(/registerAiNotice\(\)/g)?.length, 1);
   assert.match(readFileSync(path.join(ui, 'onboarding', 'ai-notice.ts'), 'utf8'), /navigate\(\{ view: 'settings', section: 'models' \}\)/);
+});
+const at = Date.UTC(2026, 10, 24, 20);
+const full = (reset: number, extra: Partial<Account> = {}): Account => account({
+  ...extra, limits: { windows: [{ name: '5h', usedPercent: 100, windowMinutes: 300, resetsAt: reset }], readAt: at },
+});
+
+test('an exhausted account was Connected: show the quota notice in Home and chats, with the earliest reset and an account picker', () => {
+  const first = at + 60_000;
+  const second = at + 120_000;
+  const open: string[] = [];
+  const accounts = [
+    full(second), full(first, { id: 'claude', provider: 'claude' }),
+    account({ id: 'off', enabled: false }), account({ id: 'media', provider: 'elevenlabs' }),
+    account({ id: 'decision', provider: 'decision-api' }), account({ id: 'signed-out', state: 'needs_login' }),
+  ];
+  for (const home of [true, false]) {
+    const notice = aiNotice(input({ home, chat: !home, accounts, models: [model()] }), () => open.push('models'), at);
+    assert.equal(notice?.id, AI_NOTICE_ID);
+    assert.equal(notice?.text, `Model accounts used up until ${resetClock(first, at)}`);
+    assert.deepEqual(notice?.actions?.map((action) => action.label), ['Use another account']);
+    notice?.actions?.[0].run();
+  }
+  assert.deepEqual(open, ['models', 'models']);
+  assert.equal(aiNotice(input({ accounts, home: false }), () => {}, at), null, 'the notice is not shown alongside the settings picker');
+  assert.equal(aiNotice(input({ accounts, readable: false }), () => {}, at), null, 'do not expose account health to an unauthorized window');
+  assert.equal(aiNotice(input({ accounts, models: [model()] }), () => {}, first), null, 'an expired reset does not keep the banner');
+});
+
+test('a free accepted account, an unknown reading or explicitly permitted extra usage are not a quota outage', () => {
+  const used = full(at + 60_000);
+  const scoped = { ...used, limits: { ...used.limits!, windows: [{ ...used.limits!.windows[0], name: 'weekly-opus' }] } };
+  const noBanner = (accounts: Account[]) => aiNotice(input({ models: [model()], accounts }), () => {}, at);
+  assert.equal(noBanner([used, account({ id: 'other', provider: 'claude' })]), null);
+  assert.equal(noBanner([used, account({ id: 'other', provider: 'claude', state: 'unknown' })]), null);
+  assert.equal(noBanner([{ ...used, extraUsage: true }]), null);
+  assert.equal(noBanner([scoped]), null, 'a model-specific window does not exhaust the account');
 });

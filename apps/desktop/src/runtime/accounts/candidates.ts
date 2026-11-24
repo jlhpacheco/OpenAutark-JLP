@@ -17,6 +17,7 @@
 // Never: touches the DB or the clock (callers pass `now`).
 
 import { MEDIA_ONLY_PROVIDERS, type Account, type EngineId, type LimitWindow, type ProviderId } from '../../shared/model/providers.ts';
+import { extraUsageAllowed, quotaResetAt } from '../../shared/model/plan-quota.ts';
 import { isUsableState } from '../../shared/model/plan-roles.ts';
 import { accountCharge } from '../../shared/model/charge.ts';
 import { weeklyWindow, windowApplies, windowScope } from './limits.ts';
@@ -53,26 +54,16 @@ export function applicableWindows(account: Account, now: number, model?: string)
   return (account.limits?.windows ?? []).filter((window) => (window.resetsAt === undefined || window.resetsAt > now) && windowApplies(window.name, model));
 }
 
-/**
- * 17.11.2026 (Konrad task_bgykyzcx): the person allowed this plan's extra usage (Claude "usage credits", ChatGPT "credits", billed
- * by the provider): a used-up window does not hold it, the provider goes on serving the turn. A turn the provider refuses
- * anyway (extra usage not switched on there, its cap reached) comes back as a limit and cools the account as always.
- */
-const goesOnPastLimit = (account: Account) => account.extraUsage === true && accountCharge(account) === 'plan';
-
 /** The account's turn on `model` runs on extra usage now: a plan allowed to, with a used-up window that applies. */
 export function inOverage(account: Account, now: number, model?: string): boolean {
-  return goesOnPastLimit(account) && applicableWindows(account, now, model).some((window) => usedUp(window, now));
+  return extraUsageAllowed(account) && quotaResetAt(account.limits, now, model) !== undefined;
 }
 
 /** When the account can run `model` again (cooling or a used-up window); undefined = now. */
 export function blockedUntil(account: Account, now: number, model?: string): number | undefined {
-  let until = isCooling(account, now) ? account.coolingUntil : undefined;
-  if (goesOnPastLimit(account)) return until;
-  for (const window of applicableWindows(account, now, model)) {
-    if (usedUp(window, now)) until = Math.max(until ?? 0, window.resetsAt!);
-  }
-  return until;
+  const cooling = isCooling(account, now) ? account.coolingUntil : undefined;
+  const reset = extraUsageAllowed(account) ? undefined : quotaResetAt(account.limits, now, model);
+  return cooling === undefined ? reset : Math.max(cooling, reset ?? cooling);
 }
 
 export function isHealthy(account: Account, now: number, model?: string): boolean {

@@ -189,3 +189,12 @@ test('askedMiss: "paused until" for a short cooling; no time when none is known'
   const unknown = await login.route({ previous: { ...ASKED_OPUS, from: SOL } });
   assert.match(unknown.reason, /^asked for Claude Opus 5\.5 – no account of it can run now · continues on my model/);
 });
+
+test('an auto turn on an exhausted plan moves to an already accepted plan with quota without changing either account', async () => {
+  const h = await asked({ codex: ['gpt-6.1-sol'], claude: ['claude-opus-5-5'] });
+  h.limitClaude();
+  const before = structuredClone(h.accounts.accounts);
+  const moved = await h.route({ previous: { modelId: OPUS, from: OPUS, explicit: false }, boundary: false });
+  assert.deepEqual([moved.modelId, moved.accountId, moved.standIn], [SOL, 'acc_codex', true], moved.reason);
+  assert.deepEqual(h.accounts.accounts, before, 'no adoption, account setting change or reset');
+});

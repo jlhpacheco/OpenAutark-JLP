@@ -18,11 +18,12 @@
 import '../../shared/api/methods-provider-history.ts'; // privacy.purgeProviderHistory (module augmentation)
 import { useState } from 'preact/hooks';
 import type { Account, ModelInfo } from '../../shared/model/providers.ts';
-import { isPlanProvider } from '../../shared/model/plan-roles.ts';
+import { quotaResetAt } from '../../shared/model/plan-quota.ts';
+import { isPlanProvider, isUsableState } from '../../shared/model/plan-roles.ts';
 import { creditsPossible } from '../../shared/model/charge.ts';
 import { isDashScopeBaseUrl } from '../../shared/model/dashscope-host.ts';
 import { askText, confirm } from '../lib/dialog.tsx';
-import { limitSlots, nextCredit, otherWindows, PLAN_SLOTS, resetButtonLabel, resetClock, resetConfirmText, resetCount, resetExpiryText, resetOutcomeText } from '../lib/limits.ts';
+import { limitSlots, nextCredit, otherWindows, resetButtonLabel, resetClock, resetConfirmText, resetCount, resetExpiryText, resetOutcomeText } from '../lib/limits.ts';
 import type { MenuItem, MenuSection } from '../lib/popover.tsx';
 import { rpc } from '../lib/rpc.ts';
 import { models } from '../lib/store.ts';
@@ -97,16 +98,14 @@ export function modelsOf(account: Pick<Account, 'id'>, list: readonly ModelInfo[
 /** The hint line: what the account is and why it waits, with its provider's name where the label does not say it. */
 function hintOf(account: Account, repair: string | undefined, count: number, mask: (email: string) => string): string {
   const cli = account.auth === 'cli';
-  const plan = cli && isPlanProvider(account.provider);
   const providerName = serviceOfAccount(account)?.name ?? PROVIDER_NAMES[account.provider] ?? account.provider;
   const now = Date.now();
-  // a plan whose bars already show the used-up window with its reset time does not say it again
-  const barsSayWhen = plan && account.limits?.windows.some((window) => PLAN_SLOTS.includes(window.name) && window.usedPercent >= 100 && (window.resetsAt ?? 0) > now);
+  const reset = quotaResetAt(account.limits, now);
   return [
     account.label.toLocaleLowerCase().includes(providerName.toLocaleLowerCase()) ? undefined : providerName,
     repair, planLabel(account.plan), account.email ? mask(account.email) : undefined, account.baseUrl && !cli ? account.baseUrl : undefined,
     account.auth === 'env' && !repair ? `Key from ${account.envVar}` : undefined, account.detected ? 'found on this PC' : undefined,
-    account.state === 'cooling' && account.coolingUntil && !barsSayWhen ? `Available again ${resetClock(account.coolingUntil, now)}` : undefined,
+    account.state === 'cooling' && account.coolingUntil && account.coolingUntil > (reset ?? now) ? `Available again ${resetClock(account.coolingUntil, now)}` : undefined,
     count ? `${count} model${count === 1 ? '' : 's'}` : undefined,
   ].filter(Boolean).join(' · ');
 }
@@ -188,10 +187,12 @@ export function AccountRow(props: { account: Account; siblings: readonly Account
     danger.push({ label: 'Remove', danger: true, onSelect: () => void remove() });
     return [{ items: order }, { items: actions }, { items: danger }];
   };
+  const now = Date.now();
+  const stateClass = isUsableState(account) && quotaResetAt(account.limits, now) !== undefined ? 'cooling' : account.state;
   return (
     <Row
       class={`account-row provider-${account.provider}${plan ? ' plan' : ''}`} menu={menu}
-      label={<><span>{account.label}</span> <span class={`state-chip ${account.state}`}>{stateLabel(account)}</span></>}
+      label={<><span>{account.label}</span> <span class={`state-chip ${stateClass}`}>{stateLabel(account, now)}</span></>}
       hint={<>
         <div class="account-hint" title={fullHint}>{hint}</div>
         {credits && <div class="account-credits-hint">{CREDITS_HINT}</div>}
