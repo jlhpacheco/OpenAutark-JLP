@@ -12,6 +12,10 @@
 // effort, and the call runs beside it only to pick hits – those reach the thread's next turn (hints.ts keepHints). A slow lane is measured again by itself: on every PROBE_TURNS-th turn the call beside it runs even with
 // nothing to open, its time is the lane's, and one answer under FAST_MS – a recovered lane, or another model answering –
 // ends the slow stretch; no turn waits for a slow lane. The model stays the router's.
+// 24.11.2026 (Konrad #390 "Der Fallback darf nicht still auf ein langsames Modell springen": from 13:10 "auto" ran on Haiku, 22 s instead of
+// 6 s, because the Codex weekly window stood at 91 %): while the router has put the helper calls past the helper default (the log
+// says why, routing/helper-default.ts), the lane is the model it chose, a lane nobody measured is not known fast and runs beside
+// the turns (pace()), and each median measured here goes to the router, whose fallback prefers a model measured fast.
 // FIXES-3 D2 (real calls 18.11.2026: a line the call voice handed over waited 2.2–5.9 s for the call): a turn of a running
 // call (BeforeTurn.callId, agents/turn-prepare.ts – a task's turn too) starts at once the same way, whatever the lane's pace.
 // Runde „Halb“ 21.11.2026: the second call beside each turn that condensed its context items went – code sets old output aside
@@ -49,6 +53,7 @@ import { hasContent } from './wake.ts';
 import { chooseToolTimeout } from './tool-timeout.ts';
 import type { ToolTimeoutInput } from '../tools/timeout.ts';
 import { KvRepo } from '../store/kv.ts';
+import { HELPER_FAST_MS, helperAway, noteHelperTime } from '../routing/helper-default.ts';
 
 /** The time limit of one helper call (a cold CLI start on a loaded 8 GB PC took up to 200 s to its first request, q2m live 02.11.2026). */
 const CALL_MS = 180_000;
@@ -62,7 +67,7 @@ export const ROUTE_WAIT_MS = 12_000;
  * running Codex app-server p50 3.9 s and no call cut; on Haiku through a Claude Code process per call p50 10.8 s, 37 % cut at the
  * 12 s wait – 1.5 hours of turns waiting for nothing).
  */
-export const FAST_MS = 5_000;
+export const FAST_MS = HELPER_FAST_MS;
 /** The lane's calls the median is taken over, per model that answers. */
 export const RECENT_CALLS = 20;
 /**
@@ -149,9 +154,18 @@ export class SubconsciousImpl implements Subconscious {
    * FAST_MS (none measured yet, or a model nobody measured yet: it waits), else 'beside' – on every PROBE_TURNS-th such turn
    * 'probe', a call beside the turn that runs even with nothing to open, so the lane is measured.
    */
-  private pace(): 'wait' | 'beside' | 'probe' {
-    const times = this.recent.get(this.lane);
-    if (!times?.length) return 'wait';
+  private pace(services: RuntimeServices): 'wait' | 'beside' | 'probe' {
+    // 24.11.2026 (Konrad #390): while "auto" runs past the helper default (the router's log line says why) the lane is the model it
+    // was put on – a lane nobody measured is not known fast, so the call runs beside the turn until one of its own times shows it is.
+    const away = helperAway(services);
+    const times = this.recent.get(away ?? this.lane);
+    if (!times?.length) {
+      if (away === undefined) return 'wait';
+      this.waited += 1;
+      if (this.waited < PROBE_TURNS) return 'beside';
+      this.waited = 0;
+      return 'probe';
+    }
     const sorted = [...times].sort((a, b) => a - b);
     if (sorted[Math.floor(sorted.length / 2)] < FAST_MS) return 'wait';
     this.waited += 1;
@@ -168,7 +182,10 @@ export class SubconsciousImpl implements Subconscious {
     const sorted = [...times].sort((a, b) => a - b);
     const slow = times.length > 0 && sorted[Math.floor(sorted.length / 2)] >= FAST_MS;
     const next = ms < FAST_MS && slow ? [ms] : [...times, ms];
-    this.recent.set(this.lane, next.slice(-RECENT_CALLS));
+    const kept = next.slice(-RECENT_CALLS);
+    this.recent.set(this.lane, kept);
+    // the router's fallback prefers a model measured fast (routing/helper-default.ts fastest) – it learns the medians here
+    try { noteHelperTime(this.deps.services(), this.lane, [...kept].sort((a, b) => a - b)[Math.floor(kept.length / 2)]); } catch { /* the lane's own times stay */ }
   }
 
   /**
@@ -191,7 +208,7 @@ export class SubconsciousImpl implements Subconscious {
       if (!runner) return [];
       const started = Date.now();
       const asked = { agent: input.agent, conversationId: input.conversationId, thread: input.thread, ...wake, ...(input.mode ? { mode: input.mode } : {}), ...(held ? { held: true } : {}) };
-      const pace = input.callId ? 'beside' : this.pace(); // FIXES-3 D2: a turn a running call hands over starts at once, as on a slow lane
+      const pace = input.callId ? 'beside' : this.pace(services); // FIXES-3 D2: a turn a running call hands over starts at once, as on a slow lane
       if (pace !== 'wait') {
         const beside = routeTurn(services, runner, { ...asked, beside: true, ...(pace === 'probe' ? { probe: true } : {}), ...(input.signal ? { signal: input.signal } : {}), deadlineMs: LOOK_MS });
         this.track(beside);
@@ -361,6 +378,7 @@ export class SubconsciousImpl implements Subconscious {
       get paths() { return services().paths; },
       get clock() { return services().clock; },
       get notifications() { return services().notifications; },
+      get log() { return services().log; }, // 24.11.2026: "helper call answered by another way" reaches the log for these calls too
       timeoutMs: CALL_MS, // the widget fill brings its own shorter signal (widget.ts WIDGET_FILL_MS)
       onUsage: (entry: Parameters<NonNullable<EngineRunnerDeps['onUsage']>>[0]) => this.bookUse(entry, agentId),
     };

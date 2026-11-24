@@ -23,6 +23,8 @@ import { turnHints } from '../../../src/runtime/subconscious/hints.ts';
 import { pendingRoute, setNextRoute, setTaskRoute } from '../../../src/runtime/agents/next-route.ts';
 import type { StructuredRunner } from '../../../src/runtime/decision/types.ts';
 import { redact } from '../../../src/runtime/system/log.ts';
+import { helperAway, noteHelperRoute } from '../../../src/runtime/routing/helper-default.ts';
+import { SYSTEM_ID } from '../../../src/shared/ids.ts';
 import type { Agent } from '../../../src/shared/model/org.ts';
 import type { ModelInfo } from '../../../src/shared/model/providers.ts';
 import type { Run } from '../../../src/shared/model/runs.ts';
@@ -521,4 +523,30 @@ test('service: each call leaves one info event – the effort it set, cut, faile
   assert.equal(events[1].model, undefined, 'no answer: no model to name');
   assert.ok(!JSON.stringify(events).includes('contract'), 'review 14.11.: the why (about the chat) stays out of the log');
   assert.ok(events.every((event) => typeof event.ms === 'number' && event.ms >= 0));
+});
+
+test('24.11.2026 (Konrad #390): while "auto" runs past the helper default a lane nobody measured is not known fast – the call runs beside the turn, never making it wait – and one measured fast waits again', async () => {
+  const w = world();
+  const HAIKU = 'claude:claude-haiku-5-5';
+  // the router has put the helper calls on Haiku (its transition line is written by noteHelperRoute)
+  noteHelperRoute(w.h.services, { agent: { id: SYSTEM_ID }, text: 'x' } as never, { modelId: HAIKU, by: 'rules', reason: 'cheap chat · strongest fit' } as never);
+  assert.equal(helperAway(w.h.services), HAIKU);
+  const calls: Array<Parameters<StructuredRunner>[0]> = [];
+  const runner: StructuredRunner = async (call) => {
+    calls.push(call);
+    const structured = { ...pick('high'), hints: [] };
+    return { text: JSON.stringify(structured), structured, by: HAIKU, usage: USAGE };
+  };
+  const impl = new SubconsciousImpl({ services: () => w.h.services, runner });
+  const ask = () => impl.beforeTurn({ agent: w.ada, thread: 'main', said: SAID });
+  // On the code before: a lane nobody measured always waited – the first Haiku call held the turn (and was 22 s).
+  for (let i = 0; i < PROBE_TURNS - 1; i++) { await ask(); await impl.settle(); }
+  assert.equal(w.stored(), undefined, 'no turn waited: nothing set its effort');
+  assert.equal(calls.length, 0, 'beside the turn the call runs only when there is something to open');
+  await ask(); // every PROBE_TURNS-th turn measures the lane beside the turn
+  await impl.settle();
+  assert.equal(calls.length, 1, 'the probe measured the lane');
+  assert.equal(w.stored(), undefined, 'the probe ran beside its turn: still no effort');
+  await ask(); // the lane answered under FAST_MS: the turn waits for it again
+  assert.equal(w.stored()?.effort, 'high', 'a lane measured fast is waited for');
 });

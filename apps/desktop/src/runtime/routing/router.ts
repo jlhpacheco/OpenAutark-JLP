@@ -22,7 +22,8 @@
 //       default; a model I only stand on because mine cannot run (`standIn`) is no model of mine, so my kind decides
 //       again. A kind's default other than the one it is when every account runs (pool.ts whole) stands in too. The reason says which and why. A part starts on its origin's model; a fresh one that names none runs
 //       on the executing default when its origin is above it.
-//     → a runtime helper call without any of these: the deterministic score (score.ts)
+//     → a runtime helper call without any of these: the deterministic score (score.ts), a model the subconscious measured
+//       fast first (helper-default.ts fastest; 24.11.2026, Konrad #390: the fallback must not jump silently to a slow model)
 //   → effort (previous.ts startEffortBy), clamped to the model's efforts – with nothing set and no weighing of my
 //     subconscious, an agent's turn runs at medium on every model, a person's line included, and the reason says it was not
 //     weighed (Runde „Halb“ 21.11.2026); account: the healthy accounts of that model – plans keep rotating as before.
@@ -33,7 +34,8 @@
 // and for an effort someone asked for whose it is – mine, my task's with who gave it, my subconscious's with its why
 // (previous.ts effortSource).
 // A split's turn (RouteRequest.split) has no agent pin and keeps an effort it names (split-route.ts).
-// Owns: that order and the user-facing reason. Never: changes state, asks a model, or exceeds the policy band
+// Owns: that order and the user-facing reason; a SYSTEM route that leaves or regains the helper default is noted once in the log
+// (helper-default.ts noteHelperRoute, 24.11.2026). Never: changes state, asks a model, or exceeds the policy band
 // silently (it fails with a clear message instead).
 
 import type { RouteRequest, Router, RuntimeServices } from '../contracts.ts';
@@ -47,7 +49,7 @@ import { PIN_TEXT, pinProblem, resolvePin, settingsPin } from './pins.ts';
 import { BY_REQUEST, MODEL_REQUESTED, UNWEIGHED_TEXT, effortSource, modelAsked, startEffortBy } from './previous.ts';
 import { NO_MODEL_MESSAGE, askedMiss, cannotRun, nothingFits } from './unfit.ts';
 import { buildPool, type PoolEntry } from './pool.ts';
-import { helperDefault } from './helper-default.ts';
+import { fastest, helperDefault, noteHelperRoute } from './helper-default.ts';
 import { workPlanOf } from './preference.ts';
 import { listPrice, marginalCost, scoreModel, strengthOf, tierRank, type CostMode, type Tier } from './score.ts';
 import { NEED_TEXT, NO_FIT_TEXT, needChoice, raisedText, stepUpEffort } from './need.ts';
@@ -74,6 +76,12 @@ export class RouterImpl implements Router {
   }
 
   async route(request: RouteRequest): Promise<RouteDecision> {
+    const decision = await this.pick(request);
+    noteHelperRoute(this.deps.services(), request, decision); // 24.11.2026 (Konrad #390): a SYSTEM call leaving the helper default shows in the log
+    return decision;
+  }
+
+  private async pick(request: RouteRequest): Promise<RouteDecision> {
     const s = this.deps.services();
     let models = s.catalog.list();
     if (!models.some((model) => model.available)) {
@@ -234,8 +242,10 @@ export class RouterImpl implements Router {
 
     // A runtime helper call that nothing above answered: the best score.
     if (runtime) {
-      const chosen = ranked[0];
-      return decide(chosen, fallbackReason ? 'fallback' : 'rules', [fallbackReason, `${categoryLabel(category)} · ${ruleReason(chosen, category, costMode)}`].filter(Boolean).join(' · '), false);
+      const quick = fastest(s, ranked)!; // ranked is not empty here; a model measured fast stands before a better score that is not known fast
+      const chosen = quick.entry;
+      const why = chosen === ranked[0] ? ruleReason(chosen, category, costMode) : `measured fast (median ${((quick.median ?? 0) / 1000).toFixed(1)} s)`;
+      return decide(chosen, fallbackReason ? 'fallback' : 'rules', [fallbackReason, `${categoryLabel(category)} · ${why}`].filter(Boolean).join(' · '), false);
     }
 
     // 5. Auto: the model I am on while it fits my kind – its tier, nothing else – and is not one I only stand on,
