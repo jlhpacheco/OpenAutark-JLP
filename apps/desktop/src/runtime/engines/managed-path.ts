@@ -31,7 +31,8 @@ const CLAUDE_FROM = [2, 1, 303] as const;
 const CODEX_VERIFIED: readonly string[] = [
   '0.167.0-alpha.3.2', // runs 44901554743 (0.3.16 + draft) and 45290886874 (this mark, 57eee74)
   '0.171.0-alpha.13', // run 45290886874 (57eee74)
-  '0.171.0', // run 45290886874 (57eee74); npm's latest on 24.11.2026, what the CLI update installs
+  '0.171.0', // run 45290886874 (57eee74); npm's latest until 24.11.2026
+  '0.172.0', // run 45303741097 (7bf2422), the version watch's first control; npm's latest since 24.11.2026, what the CLI update installs
 ];
 const TAIL_BYTES = 64 * 1024;
 const KEEP_MS = 90 * 24 * 60 * 60 * 1000;

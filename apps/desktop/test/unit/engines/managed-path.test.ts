@@ -46,7 +46,8 @@ test('the verified CLI versions: Claude Code from 2.1.303 (an allowlist of tools
   for (const cli of ['2.1.302', '2.0.999', '1.9.0', 'unknown', '', undefined, null]) assert.equal(verifiedCli('claude', cli), false, String(cli));
   assert.equal(verifiedCli('codex', VERIFIED_CODEX), true);
   for (const cli of ['0.171.0-alpha.13', '0.171.0']) assert.equal(verifiedCli('codex', cli), true, cli); // live control 45290886874
-  for (const cli of ['0.167.0', '0.168.0', '0.167.0-alpha.3.3', '0.171.1', '0.171.0-alpha.14', '0.171.0-alpha.13.2', '0.172.0', '0.173.0-alpha.4', undefined]) assert.equal(verifiedCli('codex', cli), false, String(cli));
+  assert.equal(verifiedCli('codex', '0.172.0'), true); // the version watch's live control 45303741097
+  for (const cli of ['0.167.0', '0.168.0', '0.167.0-alpha.3.3', '0.171.1', '0.171.0-alpha.14', '0.171.0-alpha.13.2', '0.172.1', '0.172.0-alpha.2.1', '0.173.0-alpha.4', undefined]) assert.equal(verifiedCli('codex', cli), false, String(cli));
   assert.equal(verifiedCli('acp', '1.0.0'), false, 'another engine has no mark');
 });
 
