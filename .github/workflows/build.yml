@@ -18,7 +18,9 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # 30 was enough until the runners' Ubuntu mirror slowed down (24.11.2026: playwright's --with-deps took 22 min for its
+    # fonts; three runs in a row were cancelled at 30 min just before or in Real RTC).
+    timeout-minutes: 50
     defaults:
       run:
         working-directory: apps/desktop
