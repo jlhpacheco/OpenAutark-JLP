@@ -110,6 +110,17 @@ export function syncStandard(s: Deps, agent: Agent): 'same' | 'quiet' | 'swapped
   return 'noted';
 }
 
+/** 24.11.2026 (ORENDA, 672 identical lines): one failure per agent is reported once in this process; the same agent with
+ *  the same failure stays quiet, another failure or another agent is reported. */
+const keepFailuresSeen = new Set<string>();
+export function warnKeepFailure(log: Deps['log'], agentId: string, error: unknown): void {
+  const message = String((error as Error)?.message ?? error);
+  const key = `${agentId}\n${message}`;
+  if (keepFailuresSeen.has(key)) return;
+  keepFailuresSeen.add(key);
+  log.warn('standard comment not kept', { agentId, error: message });
+}
+
 /** At runtime start every agent's comment, then each agent the org announces (a hire, an edit, a new manager) and everyone
  *  whose kind that changed. */
 export function startStandards(s: Deps & Pick<RuntimeServices, 'bus'>): () => void {
@@ -118,7 +129,7 @@ export function startStandards(s: Deps & Pick<RuntimeServices, 'bus'>): () => vo
     if (!agent || busy.has(agent.id)) return;
     busy.add(agent.id);
     try { syncStandard(s, agent); } catch (error) {
-      s.log.warn('standard comment not kept', { agentId: agent.id, error: String((error as Error)?.message ?? error) });
+      warnKeepFailure(s.log, agent.id, error);
     } finally { busy.delete(agent.id); }
   };
   for (const agent of s.org.list()) sync(agent);

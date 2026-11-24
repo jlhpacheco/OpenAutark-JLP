@@ -12,6 +12,7 @@ import type { Agent } from '../../shared/model/org.ts';
 import { compact, nul, opt, optNumber } from './rows.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import { isPersonId } from '../../shared/model/people.ts';
+import { HUMAN_ID } from '../../shared/ids.ts';
 
 function toAgent(row: Row): Agent {
   return compact({
@@ -96,7 +97,9 @@ export class AgentRepo {
 
   /** Inserts or fully replaces the row. */
   save(agent: Agent): void {
-    const toPerson = isPersonId(agent.managerId);
+    // 24.11.2026: 'human' is the owner as a person too (an employee's PC names its personal manager so); as an agent id it
+    // would reference agents(id) and fail the foreign key.
+    const toPerson = isPersonId(agent.managerId) || agent.managerId === HUMAN_ID;
     if (toPerson || this.hasPersonColumn()) {
       if (!this.hasPersonColumn()) throw new WorkforceError('unavailable', 'Restart the app to let agents report to people.');
       this.saveRow({ ...agent, managerId: toPerson ? undefined : agent.managerId });
