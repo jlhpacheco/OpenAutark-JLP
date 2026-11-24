@@ -22,7 +22,7 @@ import path from 'node:path';
 import type { RuntimeServices } from '../contracts.ts';
 import type { FeedbackApi } from '../rpc/extras.ts';
 import { type FeedbackKind, type FeedbackReport, type FeedbackVisibility } from '../../shared/model/system.ts';
-import { FEEDBACK_CLIENT_DIAGNOSTICS_MAX, FEEDBACK_CLIENT_MAX, FEEDBACK_IMAGES_MAX, type FeedbackSetupResult, type FeedbackStatus } from '../../shared/model/feedback-delivery.ts';
+import { FEEDBACK_CLIENT_DIAGNOSTICS_MAX, FEEDBACK_CLIENT_MAX, FEEDBACK_IMAGES_MAX, type FeedbackContext, type FeedbackSetupResult, type FeedbackStatus } from '../../shared/model/feedback-delivery.ts';
 import { HUMAN_ID, newId } from '../../shared/ids.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import { KvRepo } from '../store/kv.ts';
@@ -260,6 +260,14 @@ export class FeedbackService implements FeedbackApi {
   /** Whether Send can deliver in this build (a receiver is shipped) and whether this PC holds the team's key; never a network call. */
   status(): FeedbackStatus {
     return { sending: Boolean(this.receiver(this.deps.services())), receiving: this.inbox.receiving() };
+  }
+
+  /** Owner 24.11.2026: what only this runtime adds to a report the window seals itself; nothing is saved or sent. */
+  context(text: string): FeedbackContext {
+    const s = this.deps.services();
+    const company = companySlot(s);
+    const diagnostics = this.diagnostics(s);
+    return { text: this.redact(s, text), ...(diagnostics ? { diagnostics } : {}), ...(company ? { company } : {}) };
   }
 
   /**

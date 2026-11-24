@@ -1,5 +1,5 @@
-// Feedback straight to the team (owner 18.11.2026: "das soll doch einfach direkt zu uns gehen"): a phone or a browser
-// seals its report itself and creates the letter in the team's write-only mailbox – no PC on the way, so a team
+// Feedback straight to the team (owner 18.11.2026: "das soll doch einfach direkt zu uns gehen"): a phone, a browser and
+// (24.11.2026) the desktop window seal their report themselves and creates the letter in the team's write-only mailbox – no PC on the way, so a team
 // member's phone and a phone whose PC is off send too. The same letter as the PC's (runtime/feedback/delivery.ts
 // FeedbackPayload, opened by the team's inbox, letter.ts): the same envelope as runtime/feedback/seal.ts ("WFB1" |
 // ephemeral X25519 key | nonce | AES-256-GCM ciphertext + tag; HKDF-SHA256, salt = ephemeral ‖ recipient key, info
@@ -9,10 +9,16 @@
 // Text, view, place and the device's own diagnostics are redacted here (shared/secrets/redact-text.ts) – the PC's vault
 // never sees these words. Owner 20.11.2026: a report is its words – a dictated one goes as its transcript (`dictated`).
 // Owner 21.11.2026: its images go as `images`, in order.
+// Owner 24.11.2026 ("kein PC hat Vorrang, jeder PC ist gleich"): the desktop window sends the same way – itself, straight
+// to the mailbox, never through the runtime of the company it shows. What only that runtime knows (its log's last warnings,
+// the company's folder, the vault's values blacked out of the words: feedback.context) goes along when it answers within
+// a moment (outbox.ts runtimeContext); without it the letter goes at once, the page's own redaction only.
 // Owns: the payload, the seal and the create request of a page. Never: sends without a Send, sends anything but the
-// sealed bytes, or reaches a host other than the mailbox; null (the PC sends instead) where this page cannot seal.
+// sealed bytes, reaches a host other than the mailbox, or waits for a runtime; null (the runtime route is the fallback)
+// where this page cannot seal.
 
 import { FEEDBACK_CLIENT_DIAGNOSTICS_MAX, FEEDBACK_CLIENT_MAX, FEEDBACK_SEALED_LIMIT } from '../../shared/model/feedback-delivery.ts';
+import type { FeedbackContext } from '../../shared/model/feedback-delivery.ts';
 import { redactText } from '../../shared/secrets/redact-text.ts';
 import { entryImages } from './outbox.ts';
 import type { OutboxEntry, ReportLine } from './outbox.ts';
@@ -62,15 +68,20 @@ export async function sealWeb(publicKey: string, bytes: Uint8Array<ArrayBuffer>,
   return join(MAGIC, ephemeral, nonce, body);
 }
 
-/** The letter's JSON bytes: the report as the team reads it. */
-export async function letterOf(entry: OutboxEntry, version: string): Promise<Uint8Array<ArrayBuffer>> {
+/**
+ * The letter's JSON bytes: the report as the team reads it. context: what the runtime added in time (its words with the
+ * vault blacked out, its log's diagnostics, its company); every text is redacted here again.
+ */
+export async function letterOf(entry: OutboxEntry, version: string, context?: Partial<FeedbackContext>): Promise<Uint8Array<ArrayBuffer>> {
   const clean = (value: string, max: number) => redactText(value).slice(0, max);
   const payload: Record<string, unknown> = {
-    v: 1, id: entry.clientId, createdAt: entry.at, text: redactText(entry.text), appVersion: version.slice(0, 120),
+    v: 1, id: entry.clientId, createdAt: entry.at, text: redactText(typeof context?.text === 'string' ? context.text : entry.text), appVersion: version.slice(0, 120),
     os: clean(entry.client.split(' · ').slice(0, 2).join(' · '), 120), client: clean(entry.client, FEEDBACK_CLIENT_MAX),
     ...(entry.where.view ? { view: clean(entry.where.view, 120) } : {}),
     ...(entry.clientDiagnostics ? { clientDiagnostics: clean(entry.clientDiagnostics, FEEDBACK_CLIENT_DIAGNOSTICS_MAX) } : {}),
     ...(entry.dictated ? { dictated: true } : {}),
+    ...(context?.diagnostics ? { diagnostics: clean(context.diagnostics, 12_000) } : {}),
+    ...(context?.company ? { company: clean(context.company, 120) } : {}),
   };
   const images = entryImages(entry).map((src) => /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(src)).filter((image) => image !== null);
   if (images.length) payload.images = images.map((image) => ({ mime: image[1], base64: image[2] }));
@@ -109,13 +120,13 @@ export async function dropWeb(receiver: Receiver, id: string, sealed: Uint8Array
  * Sends one outbox entry straight to the team: its report line (receipt = its clientId) when it went; null when this
  * page cannot (no receiver built in, no Web Crypto X25519 here – the PC sends it then); DirectFailed when it did not go.
  */
-export async function sendDirect(entry: OutboxEntry, receiver: Receiver | null = builtInReceiver(), run: typeof fetch = fetch): Promise<ReportLine | null> {
+export async function sendDirect(entry: OutboxEntry, receiver: Receiver | null = builtInReceiver(), run: typeof fetch = fetch, context?: Partial<FeedbackContext>): Promise<ReportLine | null> {
   const subtle = globalThis.crypto?.subtle;
   if (!receiver || !subtle) return null;
   const version = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'dev';
   let sealed: Uint8Array;
   try {
-    sealed = await sealWeb(receiver.publicKey, await letterOf(entry, version), subtle);
+    sealed = await sealWeb(receiver.publicKey, await letterOf(entry, version, context), subtle);
   } catch (error) {
     if (error instanceof Error && /too large/.test(error.message)) throw new DirectFailed(error.message, true);
     return null; // X25519 is not in this browser: the PC seals it

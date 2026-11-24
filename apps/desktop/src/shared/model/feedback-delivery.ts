@@ -61,6 +61,17 @@ export interface FeedbackStatus {
   receiving: boolean;
 }
 
+/**
+ * eedback.context (owner 24.11.2026: the window sends by itself, no PC comes first): what only this runtime knows about
+ * a report the window seals itself – its words with the vault's values blacked out, the runtime log's last warnings and
+ * errors (redacted), this company's data folder. The window asks with a short timeout and sends without it when it is late.
+ */
+export interface FeedbackContext {
+  text: string;
+  diagnostics?: string;
+  company?: string;
+}
+
 /** One report from the team inbox (<data>/feedback-inbox/<id>.json), opened on this PC. Untrusted text. */
 export interface FeedbackInboxItem {
   id: string;
@@ -123,6 +134,8 @@ declare module '../api/methods.ts' {
   interface Methods {
     /** 'chat' devices too (they may create and send reports): whether sending is set up in this build. */
     'feedback.status': { params: void; result: FeedbackStatus };
+    /** What only the runtime adds to a report the window seals itself (see FeedbackContext); never saves or sends anything. */
+    'feedback.context': { params: { text: string }; result: FeedbackContext };
     // B-055, owner only: the team inbox on the PC holding the team's private key.
     'feedback.inboxList': { params: void; result: FeedbackInboxItem[] };
     /** Fetches the mailbox now (opened and stored on this PC; the letter stays for the team's other PCs and companies). */

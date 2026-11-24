@@ -2,11 +2,14 @@
 // release's receiver), else "Save" (also while that is still unknown: a click never sends more than its label said)
 // – and one result line. A report is always saved on the PC first; sending is one feedback.send on top. A confirmed
 // send names its short report number; when it was not confirmed (the report is only saved), the line says "Not
-// sent" and the result's one action cell says "Send again" instead of Close and sends the same saved report.
+// sent" and the result's action cell says "Send again" – only while a new try can go (the device is online and an
+// earlier "Send again" did not fail): a failed one takes the button away and the line says the report goes by itself.
+// Owner 24.11.2026 ("kein PC hat Vorrang"): the window sends itself, straight to the mailbox (direct.ts, outbox.ts), so
+// "Send" does not wait for feedback.status of the company's runtime; the form's close arrow stands in every state.
 // Feedback 16.11.2026 (F11): a confirmed send closes the form at once and says so in one status-line toast,
 // "Feedback sent · No. ABCD1234", for SENT_TOAST_MS. A report the PC could not be reached for waits in this page
 // (outbox.ts) and the line says where it is (heldText). The last answer of feedback.status is remembered in this
-// page (localStorage), so the "only My day" screen without the PC still says Send where this build sends.
+// page (localStorage), so a build without its own receiver still says Send where its runtime sends.
 // Owns: the can-we-send answer, the button's label, the result line and the sent toast. Never: publishes without a
 // click or opens a browser.
 
@@ -35,8 +38,8 @@ function remembered(): boolean | undefined {
 }
 
 /** Can this build send feedback? The last known answer until the runtime answers; a failed read shows false (Save). */
-/** 18.11.2026: a phone or browser with the team's receiver built in sends itself (direct.ts) – no question to the PC. */
-const sendsItself = !bridge && builtInReceiver() !== null;
+/** 18.11.2026 (the desktop window too since 24.11.2026): a page with the team's receiver built in sends itself (direct.ts) – no question to a PC. */
+const sendsItself = builtInReceiver() !== null;
 export const feedbackSending = signal<boolean | undefined>(sendsItself ? true : remembered());
 let asking: Promise<void> | undefined;
 
@@ -68,9 +71,18 @@ export function sendLabel(sending: boolean | undefined, busy: boolean): string {
   return busy ? 'Saving…' : 'Save';
 }
 
-/** After an unconfirmed send (only saved on the PC) where this build can send: the result's action is "Send again". */
-export function canSendAgain(status: FeedbackReport['status'], sending: boolean | undefined): boolean {
-  return sending === true && (status === 'local' || status === 'draft' || status === 'queued');
+/**
+ * After an unconfirmed send (only saved on the PC) where this build can send: the result's action is "Send again" – while
+ * the device is online and no earlier "Send again" of this result failed (then the report goes by itself, owner 24.11.2026).
+ */
+export function canSendAgain(status: FeedbackReport['status'], sending: boolean | undefined, failedBefore = false, online = true): boolean {
+  return sending === true && online && !failedBefore && (status === 'local' || status === 'draft' || status === 'queued');
+}
+
+/** The line after a "Send again" that did not go: no connection says the report goes by itself, anything else its reason. */
+export function sendAgainFailedLine(error: unknown): string {
+  const line = notSentLine(error);
+  return line.startsWith('Not sent yet') ? 'Still not sent – it goes by itself when the connection is back.' : line;
 }
 
 /** Feedback 16.11.2026 (F11): how long the status line says "Feedback sent · No. …". */
@@ -101,7 +113,7 @@ export function notSentLine(error: unknown): string {
 
 /** Where a report waits that could not go yet: this page (outbox.ts) sends it once there is a connection again. */
 export function heldText(where: 'window' | 'phone' | 'browser'): string {
-  if (where === 'window') return 'Saved in this window – it goes out as soon as the app is back.';
+  if (where === 'window') return 'Saved in this window – it goes by itself as soon as there is a connection.';
   return `Saved ${where === 'phone' ? 'on this phone' : 'in this browser'} – it goes by itself as soon as there is a connection.`;
 }
 

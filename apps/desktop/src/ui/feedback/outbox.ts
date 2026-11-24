@@ -8,23 +8,31 @@
 //   deletes the entry. A report the PC could not be reached for stays ('held'); every (re)connect flushes the entries,
 //   oldest first, one round at a time. A report the runtime refuses as invalid is deleted and put back into an empty
 //   draft, so its words are still there. Entries older than OUTBOX_MAX_AGE_MS go.
-// 18.11.2026 (owner: "das soll doch einfach direkt zu uns gehen"): on a phone and in a browser a Send goes straight to
-// the team's mailbox (direct.ts) – the PC is only the way where this page cannot seal it, or when the mailbox refused it.
-// Such a report is not kept on the PC; it waits in this page until the mailbox has it (flushed at start, on every
-// (re)connect and when the device is online again).
+// 18.11.2026 (owner: "das soll doch einfach direkt zu uns gehen"): a Send goes straight to the team's mailbox (direct.ts) –
+// the runtime is only the way where this page cannot seal it, or when the mailbox refused it. Such a report is not kept on
+// the PC; it waits in this page until the mailbox has it (flushed at start, on every (re)connect, when the device is online
+// again and every FLUSH_EVERY_MS).
+// Owner 24.11.2026 (after a lost connection to the runtime the dock said "Not sent" and nothing helped; "kein PC hat Vorrang,
+// jeder PC ist gleich"): the desktop window sends the same way – it always sends itself, straight to the mailbox, whatever
+// state the link to the company's runtime is in; that runtime route stays only the fallback and never blocks. What only the
+// runtime knows (its log's diagnostics, the company, the vault's values blacked out of the words) goes along when it answers
+// within CONTEXT_WAIT_MS (runtimeContext); late or missing, the report goes without it at once. The mailbox's document id is the
+// clientId and the runtime's letter of the same report uses it too (runtime/feedback/delivery.ts), so a report that went by
+// both routes is one letter (409 = it is there).
 // Owns: the outbox entries, the kept draft and their delivery. Never: sends a report without the person's Send/Save, or
 // keeps an entry after the PC holds its report.
 
 import { effect } from '@preact/signals';
 import type { ParamsOf } from '../../shared/api/methods.ts';
 import type { FeedbackReport } from '../../shared/model/system.ts';
+import type { FeedbackContext } from '../../shared/model/feedback-delivery.ts';
 import { errorText, RpcError, rpc } from '../lib/rpc.ts';
 import { uploadRef } from '../lib/files.ts';
 import { pushToast } from '../lib/toasts.ts';
 import type { KeyValue } from '../lib/take-store.ts';
 import { idbDelete, idbGet, idbSet, idbSweep } from '../pwa/idb.ts';
 import { dataUrlToBlob } from './bridge.ts';
-import { sendDirect } from './direct.ts';
+import { builtInReceiver, sendDirect } from './direct.ts';
 import { bridge } from '../lib/platform.ts';
 import { announceSent, notSentLine } from './delivery.ts';
 import { CRASH_ONLY_TEXT, EMPTY_DRAFT, feedbackDraft, isEmptyDraft } from './draft.ts';
@@ -38,6 +46,10 @@ const DRAFT_KEY = 'feedback-draft';
 export const OUTBOX_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 /** The draft is kept this long after the last change (typing does not write every key). */
 export const DRAFT_SAVE_MS = 400;
+/** A report that waits in this page is tried again this often, besides every (re)connect (owner 24.11.2026). */
+export const FLUSH_EVERY_MS = 60_000;
+/** How long a direct send waits for the runtime's part (feedback.context) before it goes without it. */
+export const CONTEXT_WAIT_MS = 1500;
 
 /** One report on its way to the PC. */
 export interface OutboxEntry {
@@ -313,6 +325,19 @@ export class FeedbackOutbox {
   }
 }
 
+/** What the runtime adds to a window's own send – undefined when it is not there or not quick (the report never waits for it). */
+export async function runtimeContext(text: string, call: (text: string) => Promise<FeedbackContext>, waitMs: number = CONTEXT_WAIT_MS): Promise<FeedbackContext | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      call(text).catch(() => undefined),
+      new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), waitMs); }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 /** This page's IndexedDB as the store underneath. */
 const pageStorage: KeyValue = {
   get: (key) => idbGet(key),
@@ -332,7 +357,11 @@ export const feedbackOutbox = new FeedbackOutbox({
   kv: typeof indexedDB === 'undefined' ? null : pageStorage,
   create: (params) => rpc.call('feedback.create', params),
   send: (id) => rpc.call('feedback.send', { id }),
-  ...(bridge ? {} : { direct: (entry: OutboxEntry) => sendDirect(entry) }), // the PC window: its own runtime sends (with its diagnostics)
+  // Every page sends itself (owner 24.11.2026); the window asks its runtime for its part, quickly and only while the link is open.
+  direct: async (entry: OutboxEntry) => {
+    const context = bridge && online() ? await runtimeContext(entry.text, (text) => rpc.call('feedback.context', { text })) : undefined;
+    return sendDirect(entry, builtInReceiver(), fetch, context);
+  },
   upload: async (blob, name) => (await uploadRef(blob, name)).id,
   online,
   now: () => Date.now(),
@@ -377,7 +406,8 @@ export function startFeedbackOutbox(): Promise<void> {
     });
   })();
   rpc.onOpen(() => { void flushFeedback(); });
-  if (typeof window !== 'undefined' && !bridge) window.addEventListener('online', () => { void flushFeedback(); });
-  if (online() || !bridge) void flushFeedback();
+  if (typeof window !== 'undefined') window.addEventListener('online', () => { void flushFeedback(); });
+  if (typeof setInterval === 'function') setInterval(() => { void flushFeedback(); }, FLUSH_EVERY_MS);
+  void flushFeedback();
   return restored;
 }

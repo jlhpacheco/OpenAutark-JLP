@@ -125,6 +125,7 @@ export const METHOD_DOCS: Record<string, { params: string; note?: string }> = {
   "efforts.forModel": {"params":"{ modelId: string }"},
   "events.subscribe": {"params":"{ topics: Topic[] }"},
   "events.unsubscribe": {"params":"{ topics: Topic[] }"},
+  "feedback.context": {"params":"{ text: string }","note":"What only the runtime adds to a report the window seals itself (see FeedbackContext); never saves or sends anything."},
   "feedback.create": {"params":"{ kind?: FeedbackKind; text: string; imageFileIds?: string[]; dictated?: boolean; view?: string; conversationId?: string; clientId?: string; client?: string; clientDiagnostics?: string; }","note":"A person's report, saved on this PC (feedback.send delivers it). 16.11.2026: `kind` optional; `clientId` (≤ 64, [A-Za-z0-9_-]) – the same id again returns the stored report; `client` – where it was written; `clientDiagnostics` – the device…"},
   "feedback.dismiss": {"params":"{ id: string }"},
   "feedback.inboxFetch": {"params":"void","note":"Fetches the mailbox now (opened and stored on this PC; the letter stays for the team's other PCs and companies)."},

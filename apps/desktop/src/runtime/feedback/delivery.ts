@@ -5,6 +5,8 @@
 // sends the identical letter under the same id. After delivery only the receipt stays (the envelope is dropped). A
 // letter the mailbox refused carries `refused` until a later try goes otherwise (the automatic resend leaves it).
 // Owner 20.11.2026: a report is its words – a dictated report goes as its transcript (`dictated`), never with a recording.
+// Owner 24.11.2026: the letter's id is the report's clientId where it has one – the window sends the same report straight to the
+// mailbox under that id (ui/feedback/direct.ts), so a report that went both ways is one letter (409 = it is there).
 // Owns: the complete payload, its size budget, the outbox and the report's delivered state.
 // Never: drops an attached image, sends plaintext, resends an older (GitHub or receiver) submission,
 // or claims delivery before the mailbox answered.
@@ -13,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 import type { RuntimeServices } from '../contracts.ts';
 import type { FeedbackKind, FeedbackReport } from '../../shared/model/system.ts';
 import {
-  FEEDBACK_CLIENT_DIAGNOSTICS_MAX, FEEDBACK_CLIENT_MAX, FEEDBACK_IMAGE_TYPES, FEEDBACK_SEALED_LIMIT, SCREENSHOT_DROPPED, type FeedbackImageType,
+  FEEDBACK_CLIENT_DIAGNOSTICS_MAX, FEEDBACK_CLIENT_ID, FEEDBACK_CLIENT_MAX, FEEDBACK_IMAGE_TYPES, FEEDBACK_SEALED_LIMIT, SCREENSHOT_DROPPED, type FeedbackImageType,
 } from '../../shared/model/feedback-delivery.ts';
 import { WorkforceError } from '../../shared/errors.ts';
 import { KvRepo } from '../store/kv.ts';
@@ -135,7 +137,8 @@ export async function deliver(s: RuntimeServices, report: FeedbackReport, diagno
     // A new receiver (another project or a rotated key) gets a new letter under the same id; an identical retry resends the same bytes.
     // An older build's letter (no `words`) may carry a recording: it is sealed again from the report, under the same id.
     if (!entry?.sealed || !entry.words || entry.project !== config.project || entry.recipient !== config.publicKey) {
-      const requestId = entry?.requestId ?? randomUUID();
+      const clientId = report.context.clientId;
+      const requestId = entry?.requestId ?? (clientId && FEEDBACK_CLIENT_ID.test(clientId) ? clientId : randomUUID());
       const sealed = await sealFor(s, report, requestId, diagnostics, config);
       entry = { v: 1, requestId, project: config.project, recipient: config.publicKey, sealed: sealed.toString('base64'), words: true };
       kv.set(OUTBOX, report.id, entry, s.clock.now()); // before external I/O

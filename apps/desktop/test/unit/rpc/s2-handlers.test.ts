@@ -138,7 +138,7 @@ test('all S2 methods are registered once with the specified scopes', () => {
     'devices.list', 'devices.rename', 'devices.revoke', 'devices.bye', 'devices.wake', // 19.11.2026: the goodbye (main) and Wake
     'pwa.state', 'pwa.enable', 'pwa.link', 'pwa.revoke', 'pwa.pushSubscribe', 'pwa.pushConfig', 'pwa.pushUnsubscribe', 'pwa.exchange', 'computer.preview',
     'computer.activity', 'computer.stop', 'computer.resume',
-    'feedback.create', 'feedback.list', 'feedback.send', 'feedback.dismiss', 'feedback.status',
+    'feedback.create', 'feedback.list', 'feedback.send', 'feedback.dismiss', 'feedback.status', 'feedback.context',
     'theme.get', 'voice.transcribe', 'voice.retranscribe', // B-082: Transcribe again on a sent recording
     'onboarding.reset', 'onboarding.start', // B-044 first run
     'voice.localModels', 'voice.pullLocal', 'voice.speak', // B-047 D14 local speech
@@ -164,7 +164,7 @@ test('all S2 methods are registered once with the specified scopes', () => {
     'secrets.import': PERMISSIONS, // 29.10.2026: creates only, like a phone's saveGroup
     'secrets.export': PERMISSIONS, // 16.11.2026: from the owner's phone too (the file stays on the PC)
     'computer.activity': { capability: 'todo' }, 'computer.stop': { capability: 'todo' }, 'computer.resume': { capability: 'todo' },
-    'feedback.create': CHAT, 'feedback.list': CHAT, 'feedback.send': CHAT, 'feedback.dismiss': CHAT, 'feedback.status': CHAT,
+    'feedback.create': CHAT, 'feedback.list': CHAT, 'feedback.send': CHAT, 'feedback.dismiss': CHAT, 'feedback.status': CHAT, 'feedback.context': CHAT,
     'voice.transcribe': CHAT, 'voice.retranscribe': CHAT,
     'voice.localModels': CHAT, 'voice.speak': CHAT, // B-047 D14
     // B-084 (D6): Settings › Devices and the voice download from the owner's phone app (secure transport, 'settings')

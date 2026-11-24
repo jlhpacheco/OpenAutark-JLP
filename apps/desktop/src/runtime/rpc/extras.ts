@@ -15,7 +15,7 @@ import type { SpanMark } from '../../shared/voice/marks.ts';
 import type { CatalogStatus } from '../models/catalog.ts';
 import type { MediaFilter, MediaInfo, MediaPatch } from '../../shared/model/media.ts';
 import type { Bridge, ConnectTelegramInput } from '../../shared/model/bridges.ts';
-import type { FeedbackHandled, FeedbackImageType, FeedbackInboxFetch, FeedbackInboxItem, FeedbackSetupResult, FeedbackStatus } from '../../shared/model/feedback-delivery.ts';
+import type { FeedbackContext, FeedbackHandled, FeedbackImageType, FeedbackInboxFetch, FeedbackInboxItem, FeedbackSetupResult, FeedbackStatus } from '../../shared/model/feedback-delivery.ts';
 
 export interface PwaApi {
   state(): Promise<PwaState>;
@@ -56,6 +56,8 @@ export interface FeedbackApi {
   dismiss(id: string): FeedbackReport;
   /** Whether this build can send at all (a receiver is shipped) and whether this PC holds the team key; optional for simple fakes. */
   status?(): FeedbackStatus;
+  /** Owner 24.11.2026: the runtime's part of a report the window seals itself (feedback.context); optional for simple fakes. */
+  context?(text: string): FeedbackContext;
   /** B-055: the team inbox on the PC holding the team key (owner only; runtime/feedback/inbox.ts); optional for simple fakes. */
   inbox?: {
     list(): FeedbackInboxItem[];

@@ -2,7 +2,7 @@
 // onboarding and voice transcription.
 // Owns: param checks and scope rules. Requests from a client are always authored by the human; `theme.get` is
 // open to every authenticated device and to employees' devices (they all look the same). Writing and listing feedback and dictation need
-// 'chat'; so do `feedback.send`, `feedback.dismiss` and `feedback.status` (whether this build can send at all):
+// 'chat'; so do `feedback.send`, `feedback.dismiss` and `feedback.status` (whether this build can send at all) and `feedback.context` (the window's own send asks what only the runtime knows):
 // Send seals the report for the team (B-055); the team inbox and setup are owner-only (handlers/feedback-inbox.ts).
 // Onboarding stays owner-only. Local speech: voice.localModels and voice.speak need 'chat',
 // voice.pullLocal (a download) is the owner's and – B-084 (D6) – the owner's phone's on a secure transport ('settings' + secure).
@@ -78,6 +78,12 @@ export function register(table: HandlerTable): void {
   table.add('feedback.status', (_params, ctx) => {
     const status = ctx.extras.feedback.status?.();
     return { sending: status?.sending === true, receiving: ctx.scope.kind === 'owner' && status?.receiving === true };
+  }, CHAT);
+  table.add('feedback.context', (params, ctx) => {
+    const o = input(params);
+    onlyKeys(o, ['text']);
+    const body = text(o, 'text', { max: 20_000, multiline: true });
+    return ctx.extras.feedback.context?.(body) ?? { text: body };
   }, CHAT);
   table.add('feedback.send', (params, ctx) => {
     const o = input(params);

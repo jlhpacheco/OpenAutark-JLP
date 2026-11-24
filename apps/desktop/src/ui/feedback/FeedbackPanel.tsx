@@ -7,19 +7,24 @@
 // shot – never in its place); the report carries every image of the draft, each flattened with its marks into one JPEG
 // at Send within its share of the image budget (draft.ts draftImages, paint-image.ts flatten – never a raw painted image). The draft lives in
 // draft.ts, so closing keeps it; a sent report clears it. After a Save or an unconfirmed Send the dock says what
-// happened in one line; when the send was not confirmed, the action cell of that line reads "Send again" (not Close)
+// happened in one line; when the send was not confirmed, the action cell of that line reads "Send again" (not Close; the close arrow stays)
 // and sends the same saved report.
 // Feedback 16.11.2026: Send first puts the report into this page's outbox (outbox.ts: written before any upload,
 // with a clientId, so a lost answer never makes a second report), then delivers it. A confirmed send closes the
-// form at once and the status line says "Feedback sent · No. …" for 4 s (F11); a report the PC could not be reached
-// for waits in this page and goes on the next connect (the line says so); only a failure keeps the form open with
+// form at once and the status line says "Feedback sent · No. …" for 4 s (F11); a report that could not go yet
+// waits in this page and goes by itself later (the line says so); only a failure keeps the form open with
 // "Send again". The report carries no kind (the person's report has no category), the device it was written on
 // (client.ts) and an attached Android crash report (FeedbackRows.tsx); a crash report alone is enough to send.
 // Owner 20.11.2026: a report is its words – a dictation goes as its transcript (`dictated`), never as a recording. While
 // a take records or is transcribed (the field's mic or the cell's talk) the + turns 45° into × in one motion and cancels
 // it: its words never reach the field. The mic cell only shows the state.
-// Owns: the dock's form and submitting it. Never: starts an app change, requests a login, opens a browser or discards
-// a failed submission.
+// Owner 24.11.2026 ("kein PC hat Vorrang, jeder PC ist gleich"; after a lost connection the dock said "Not sent" and could
+// not be closed): the close arrow stands in every state – draft, sending, sent, held, not sent – and closing loses nothing
+// (the report is in this page's outbox or on the PC). The window sends itself, straight to the mailbox (outbox.ts); "Send
+// again" shows only while a new try can go – the device is online and no "Send again" of this result failed; a failed one
+// takes it away and the line says the report goes by itself (the outbox and the runtime send it again quietly).
+// Owns: the dock's form and submitting it. Never: starts an app change, requests a login, opens a browser, discards
+// a failed submission or holds the app: nothing here blocks a close.
 
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
@@ -32,7 +37,7 @@ import { pickedImage, useDictation } from './bridge.ts';
 import { currentClient } from './client.ts';
 import { addPhotos, appendDraftText, canSubmit, clearDraft, draftImages, feedbackDraft, photoRoom, reportText, sentDraft, shownDraft, updateDraft } from './draft.ts';
 import type { FeedbackDraft } from './draft.ts';
-import { announceSent, canSendAgain, closesAtOnce, doneText, heldText, notSentLine, PHOTO_ADD, PHOTO_HINT, sendAgainLabel, sendLabel, sendReport, useFeedbackSending } from './delivery.ts';
+import { announceSent, canSendAgain, closesAtOnce, doneText, heldText, notSentLine, PHOTO_ADD, PHOTO_HINT, sendAgainFailedLine, sendAgainLabel, sendLabel, sendReport, useFeedbackSending } from './delivery.ts';
 import { cancelTalk, talkError, talkState } from './FeedbackButton.tsx';
 import { FeedbackInboxEntry } from './FeedbackInbox.tsx';
 import { FeedbackPrivacyNote } from './FeedbackPrivacy.tsx';
@@ -77,6 +82,19 @@ function focusBack(): void {
   });
 }
 
+/** Whether the device has a network (the browser's own word); false takes "Send again" away until it is back. */
+function useOnline(): boolean {
+  const [online, setOnline] = useState(typeof navigator === 'undefined' || navigator.onLine !== false);
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
+  return online;
+}
+
 /** The field grows with its text (one line to start; feedback.css caps it, then it scrolls). */
 function fitField(area: HTMLTextAreaElement | null): void {
   if (!area) return;
@@ -95,6 +113,8 @@ export function FeedbackForm(props: { onClose: () => void; onInbox: () => void; 
   const [done, setDone] = useState<ReportLine | null>(null);
   const [held, setHeld] = useState(false); // the PC was not reached: the report waits in this page (outbox.ts)
   const [tried, setTried] = useState(false); // a feedback.send went out for the done report (else it was only saved)
+  const [againFailed, setAgainFailed] = useState(false); // a "Send again" of this result did not go: the report goes by itself
+  const online = useOnline();
   const submitting = useRef(false);
   const mounted = useRef(true);
   const field = useRef<HTMLTextAreaElement>(null);
@@ -165,8 +185,10 @@ export function FeedbackForm(props: { onClose: () => void; onInbox: () => void; 
       const report = await sendReport(id);
       if (closesAtOnce(report, null)) { props.onClose(); announceSent(report); focusBack(); return; }
       setDone(report);
+      setAgainFailed(true); // not confirmed again: no third try by hand
     } catch (err) {
-      setError(notSentLine(err));
+      setAgainFailed(true);
+      setError(sendAgainFailedLine(err));
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -179,9 +201,12 @@ export function FeedbackForm(props: { onClose: () => void; onInbox: () => void; 
     return (
       <div class="feedback-dock done" role="group" aria-label="Feedback">
         <div class="feedback-dock-main">
+          <button type="button" class="icon-button feedback-close" aria-label="Close – your report is kept" title="Close (Esc) – your report is kept" onClick={props.onClose}>
+            <Icon name="arrow-down" size={18} />
+          </button>
           <p class="feedback-done">{report ? doneText(report, tried || (sending === false ? false : undefined)) : heldText(waitsIn())}</p>
           <p class="feedback-message" role="alert" title={error ?? undefined}>{error}</p>
-          {report && canSendAgain(report.status, sending)
+          {report && canSendAgain(report.status, sending, againFailed, online)
             ? <button type="button" class="button primary feedback-send feedback-again" disabled={busy} onClick={() => void again(report.id)}>{sendAgainLabel(busy)}</button>
             : <button type="button" class="button primary feedback-send" onClick={props.onClose}>Close</button>}
         </div>

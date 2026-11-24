@@ -31,7 +31,7 @@ test('the sent toast: one short line with the report number, gone after 4 s', (t
 test('a held report says where it waits; a send the PC will repeat by itself says so', () => {
   assert.equal(heldText('phone'), 'Saved on this phone – it goes by itself as soon as there is a connection.');
   assert.equal(heldText('browser'), 'Saved in this browser – it goes by itself as soon as there is a connection.');
-  assert.equal(heldText('window'), 'Saved in this window – it goes out as soon as the app is back.');
+  assert.equal(heldText('window'), 'Saved in this window – it goes by itself as soon as there is a connection.');
   for (const reason of ['offline', 'timeout', 'server']) {
     assert.equal(notSentLine(new RpcError({ code: 'unavailable', message: 'x', details: { reason } })), 'Not sent yet – it goes by itself when the connection is back.');
   }

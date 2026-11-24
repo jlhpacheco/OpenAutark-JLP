@@ -354,3 +354,44 @@ test('older browser drafts labelled sent are not treated as confirmed deliveries
   repo.save({ ...base, receiptId: crypto.randomUUID(), visibility: 'private' });
   assert.equal(repo.get('fb_1')?.status, 'sent');
 });
+
+// Owner 24.11.2026: the window sends itself, straight to the mailbox, under the report's clientId; the runtime's letter of the
+// same report carries that id too, so a report that went both ways is one letter.
+test('the runtime\'s letter of a report with a clientId has that id as its document id – a letter the window already dropped (409) is the same report', async () => {
+  const { box, service } = setup();
+  const feedback = service();
+  const fresh = feedback.create({ text: 'By the runtime', clientId: 'fc-lq3k9-aaaaaaaaaaaaaaaaaaaaaaaa', author: 'human' });
+  const sent = await feedback.send(fresh.id);
+  assert.equal(sent.receiptId, 'fc-lq3k9-aaaaaaaaaaaaaaaaaaaaaaaa');
+  assert.deepEqual([...box.docs.keys()], ['fc-lq3k9-aaaaaaaaaaaaaaaaaaaaaaaa']);
+
+  const dropped = Buffer.from('the window\'s sealed letter');
+  box.docs.set('fc-lq3k9-bbbbbbbbbbbbbbbbbbbbbbbb', dropped); // the window got there first
+  const again = feedback.create({ text: 'By both ways', clientId: 'fc-lq3k9-bbbbbbbbbbbbbbbbbbbbbbbb', author: 'human' });
+  const twice = await feedback.send(again.id);
+  assert.equal(twice.status, 'sent', '409 = it arrived');
+  assert.equal(box.docs.size, 2, 'no second letter');
+  assert.deepEqual([...box.docs.get('fc-lq3k9-bbbbbbbbbbbbbbbbbbbbbbbb')!], [...dropped], 'the window\'s letter stays as it is');
+
+  const plain = feedback.create({ text: 'No client id', author: 'human' });
+  assert.match((await feedback.send(plain.id)).receiptId!, /^[0-9a-f-]{36}$/, 'a report without a clientId keeps a random id');
+});
+
+test('feedback.context: the vault\'s and pattern redaction, the runtime log\'s diagnostics – for a chat device; a service without it answers the words as they are', async () => {
+  const { env, service } = setup();
+  env.setDiagnostics(true);
+  const feedback = service();
+  const context = feedback.context('The list jumps. password = hunter2');
+  assert.match(context.text, /The list jumps/);
+  assert.doesNotMatch(context.text, /hunter2/);
+  assert.match(context.diagnostics ?? '', /engine failed/);
+  const table = new HandlerTable(); registerApp(table);
+  const entry = table.get('feedback.context')!;
+  assert.equal(allowedScope(entry.scope, PHONE), true);
+  assert.equal(allowedScope(entry.scope, { ...PHONE, capabilities: ['todo'] }), false);
+  const ctx = (extra: unknown) => ({ scope: PHONE, services: env.s, extras: { feedback: extra }, topics: new Set(), signal: new AbortController().signal }) as unknown as HandlerContext;
+  const answer = await entry.handler({ text: 'token: abc' } as never, ctx(feedback)) as { text: string };
+  assert.ok(answer.text.length > 0);
+  assert.deepEqual(await entry.handler({ text: 'plain words' } as never, ctx({ list: () => [] })), { text: 'plain words' });
+  await assert.rejects(Promise.resolve().then(() => entry.handler({ text: 'x', other: 1 } as never, ctx(feedback))), /other/);
+});
