@@ -29,7 +29,7 @@ function harness() {
   const file = path.join(dir, 'log.jsonl');
   const started = (kind: string) => (existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as { kind: string; event: string }) : [])
     .filter((entry) => entry.kind === kind && entry.event === 'start').length;
-  const signIn = (state: { loggedIn?: boolean; email?: string; limits?: boolean }) => writeFileSync(path.join(dir, 'sign-in.json'), JSON.stringify(state));
+  const signIn = (state: { loggedIn?: boolean; email?: string; limits?: boolean; plan?: string }) => writeFileSync(path.join(dir, 'sign-in.json'), JSON.stringify(state));
   const later = (ms: number) => { now += ms; };
   const check = (background: boolean) => status.check(EXE, acc, { background });
   const done = async () => { await supervisor.killAll(); try { rmSync(dir, { recursive: true, force: true, maxRetries: 5 }); } catch { /* closing */ } };
@@ -83,6 +83,27 @@ test('a probe without limits asks auth status, which tells the sign-out – the 
     h.later(61_000);
     await h.check(true); // nothing signed in is known any more: auth status first
     assert.equal(h.started('status'), 3);
+  } finally { await h.done(); }
+});
+
+test('a probe that reads another plan, or none (Free), asks auth status – the switch shows at the next reading (Noah 24.11.)', async () => {
+  const h = harness();
+  try {
+    h.signIn({ email: 'a@example.test', limits: true });
+    await h.check(true);
+    h.signIn({ email: 'a@example.test', limits: true, plan: 'pro' });
+    h.later(61_000);
+    const pro = await h.check(true);
+    assert.equal(pro.plan, 'pro');
+    assert.deepEqual([h.started('status'), h.started('probe')], [2, 2], 'another plan: auth status');
+    h.later(61_000);
+    await h.check(true); // the known sign-in is now Pro: only the probe
+    assert.deepEqual([h.started('status'), h.started('probe')], [2, 3]);
+    h.signIn({ email: 'a@example.test', limits: true, plan: 'free' });
+    h.later(61_000);
+    const free = await h.check(true);
+    assert.equal(free.state, 'error', 'Free cannot run agents (B-051 L5), also found by a background reading');
+    assert.deepEqual([h.started('status'), h.started('probe')], [3, 4]);
   } finally { await h.done(); }
 });
 

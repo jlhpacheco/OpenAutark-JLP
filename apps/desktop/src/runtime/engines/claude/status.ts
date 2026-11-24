@@ -15,7 +15,7 @@
 // (accounts/cli.ts; no probe runs for it) – the account service stores that even from a background check.
 // 0.3.19 (task_0c6aet8h): a background check (the monitor reads every plan each minute while any agent works) starts only
 // the probe while the account's last `auth status` said signed in less than STATUS_REUSE_MS ago: limits read through the
-// account's own sign-in prove it is still signed in. Only a probe without limits, or one reading another e-mail, asks
+// account's own sign-in prove it is still signed in. Only a probe without limits, or one reading another e-mail or plan, asks
 // `auth status` again – each is a cold start of the ~290 MB CLI, and two per account and minute were the runtime's
 // most frequent process starts on teydra-server (a kernel token left behind by most of them, Insider build 26300).
 // Never: reads ~/.claude/.credentials.json or any token; never sends a model message; never logs
@@ -62,6 +62,17 @@ export const CHECK_TIMEOUT_MS = 90_000;
 /** A background check reuses a signed-in `auth status` this long, as long as its probe reads the limits (the monitor's quiet cadence). */
 export const STATUS_REUSE_MS = 10 * 60_000;
 type ClaudeAuthStatus = ReturnType<typeof parseClaudeStatus>;
+
+/**
+ * The probe reads the plan `auth status` read (its subscription_type says "max" for Ultra too). A plan the probe does not
+ * name – Free, or a CLI that leaves it out – counts as another one, so `auth status` decides. Only Max ↔ Ultra stays
+ * invisible to the probe: a background reading shows that switch with the next `auth status` (STATUS_REUSE_MS at most).
+ */
+function samePlan(known: string | undefined, probed: string | undefined): boolean {
+  if (!known) return true; // an API-key sign-in names no plan
+  const plan = known.trim().toLowerCase();
+  return probed === plan || (plan === 'ultra' && probed === 'max');
+}
 
 export interface ClaudeProbe {
   usage: ReturnType<typeof normalizeClaudeUsage>;
@@ -123,8 +134,11 @@ export class ClaudeStatus {
     if (known && this.now() - known.at < STATUS_REUSE_MS) {
       const probe = await this.probe(exe, account);
       const email = probe.init?.account?.email;
-      // read through this sign-in, and the same one: no second process; else `auth status` decides (the probe stays cached)
-      if (!probe.failed && probe.usage.limits && (!email || !known.status.email || email === known.status.email)) return this.reading(known.status, probe);
+      // read through this sign-in, the same one on the same plan: no second process; else `auth status` decides (the probe
+      // stays cached) – a switch to Free (no plan the probe names) or another plan shows at the next reading, not 10 min later
+      if (!probe.failed && probe.usage.limits && (!email || !known.status.email || email === known.status.email) && samePlan(known.status.plan, probe.usage.plan)) {
+        return this.reading(known.status, probe);
+      }
     }
     // `auth status` takes no --setting-sources: it runs in temp so no project settings (apiKeyHelper, env) apply.
     const status = await runCli(this.supervisor, exe, ['auth', 'status', '--json'], {

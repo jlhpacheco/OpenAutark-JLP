@@ -211,6 +211,23 @@ test('working: the next Claude plan is read each minute, plans in reserve every 
   h.monitor.stop();
 });
 
+test('working: when the next plan runs out, the one after it is read at once – not with its reserve reading (Noah 24.11.)', async () => {
+  const h = harness([plan('a', 'claude'), plan('b', 'claude', { priority: 1 }), plan('c', 'claude', { priority: 2 })]);
+  h.monitor.start(); await h.monitor.idle();
+  h.turn(true); await h.monitor.idle();
+  await h.advance(REFRESH_MS.claude);
+  await h.advance(REFRESH_MS.claude); // b and c: last read two minutes ago, their reserve reading three minutes away
+  h.remaining.set('a', 0);
+  const from = h.reads.length;
+  await h.advance(REFRESH_MS.claude); // a's reading finds its week used up
+  await h.advance(1);
+  assert.deepEqual(h.reads.slice(from), ['a', 'b'], 'b, now in front, is read right after a ran out');
+  await h.advance(REFRESH_MS.claude);
+  assert.ok(h.reads.slice(from + 2).includes('b'), 'and keeps the minute from then on');
+  assert.ok(!h.reads.slice(from).includes('c'), 'c stays in reserve');
+  h.monitor.stop();
+});
+
 test('working: a plan a turn runs on keeps the minute; the quota details read every plan at the working cadence', async () => {
   const h = harness([plan('a', 'claude'), plan('b', 'claude', { priority: 1 }), plan('c', 'claude', { priority: 2 })]);
   h.monitor.start(); await h.monitor.idle();

@@ -8,7 +8,9 @@
 // have no timer. 0.3.19 (task_0c6aet8h): while working, a plan in reserve – neither the one its engine takes next nor
 // running a turn – is read every RESERVE_MS: its limits move only through use elsewhere, and a Claude reading is a cold
 // CLI start (on teydra-server three plans read each minute were most of the app's program starts). Its reading counts as
-// stale only past RESERVE_MS + STALE_MS. The quota details the person opens (refreshAll) read every plan as before.
+// stale only past RESERVE_MS + STALE_MS. The quota details the person opens (refreshAll) read every plan as before. A plan
+// that comes to the front (the next one ran out or cools) is read at once: every account.upserted re-arms the timer,
+// and the new front plan is due by the working cadence (monitor-timer.test.ts, Noah's review 24.11.2026).
 // B-044: these background reads ask Codex for its banked resets' count only (excludeResetCreditDetails);
 // the credit details come with the reads the person asks for – checkNow (a sign-in, a used reset) and
 // refreshAll (the quota details or Settings › Models opened), which also reads a Codex plan

@@ -106,9 +106,11 @@ Fewer Claude Code starts in the background: while agents work, Autark reads each
 and each reading started two Claude Code processes (`auth status` and a short probe) – on a PC with three plans the
 most frequent program starts of the app. A reading now starts only the probe while the plan's last `auth status`
 said signed in less than 10 minutes ago and the probe reads the limits through that sign-in; a probe without limits,
-or one that reads another e-mail, asks `auth status` as before. A sign-in, a new connection or the quota details opened
-by the person always ask it. And while agents work, only the plan each engine takes next and a plan a turn runs on are
-read every minute (Codex: every 15 s); plans in reserve are read every 5 minutes and show as stale only after 7. The
+or one that reads another e-mail or plan (a switch to Free shows at the next reading), asks `auth status` as before; only
+a switch between Max and Ultra, which the probe cannot tell apart, shows up to 10 minutes later. A sign-in, a new
+connection or the quota details opened by the person always ask it. And while agents work, only the plan each engine
+takes next and a plan a turn runs on are read every minute (Codex: every 15 s); plans in reserve are read every 5 minutes
+and show as stale only after 7 – a plan that comes to the front because the one before it ran out is read at once. The
 quota details the person opens still read every plan. Nothing to put right.
 
 ## 0.3.18
