@@ -13,7 +13,7 @@
 // a nearby row's Connect asks with (its company's ID). Fest round 22.11.2026 (G): a device row's round trip (linkHint).
 // Owns: these pure formatters (test/unit/devices/connect-text.test.ts, test/unit/ui/push-hint.test.ts). Never: RPC or rendering.
 
-import { LINK_STALE_MS, type Device } from '../../shared/model/devices.ts';
+import { compareAppVersions, LINK_STALE_MS, type Device } from '../../shared/model/devices.ts';
 import type { NearbyPc, RemoteIncoming, RemoteOutgoing } from '../../shared/model/remote.ts';
 import type { PhoneLink, RelayState } from '../../shared/model/relay.ts';
 import { fileSize } from '../lib/format.ts';
@@ -186,6 +186,25 @@ export function deviceHint(device: Device, personName: (id: string) => string | 
   if (away) return ['PC', employee, away].filter(Boolean).join(' · ');
   const status = STATUS_TEXT[device.status] ?? device.status;
   return ['PC', employee, status, device.status !== 'online' && device.lastSeenAt ? `Last seen ${time(device.lastSeenAt)}` : ''].filter(Boolean).join(' · ');
+}
+
+/**
+ * 24.11.2026 (ORENDA find: a PC that refused this PC's sign-ins was asked every few seconds and nobody was told): the line on
+ * a PC's row when it takes none of this PC's plan sign-ins (runtime/devices/logins-refused.ts) – why, in plain words, and what
+ * the person can do. '' when it refuses nothing. `list` names the newest Autark among the PCs, to see an older one.
+ */
+export function loginsHint(device: Pick<Device, 'kind' | 'caps' | 'personId' | 'joinedAs' | 'loginsRefused'>, list: ReadonlyArray<Pick<Device, 'kind' | 'caps' | 'status'>> = []): string {
+  if (device.kind !== 'pc' || !device.loginsRefused) return '';
+  const lead = 'Your sign-ins aren’t shared with this PC';
+  if (device.joinedAs === 'employee') return `${lead} – you’re connected there as an employee. Sign in on that PC itself (Settings › Models).`;
+  if (device.personId) return `${lead} – it belongs to an employee, who signs in there themselves.`;
+  const own = device.caps.version;
+  const newest = list.reduce<string | undefined>((best, other) => {
+    const version = other.kind === 'pc' && other.status !== 'revoked' ? other.caps.version : undefined;
+    return version && (!best || compareAppVersions(version, best) > 0) ? version : best;
+  }, undefined);
+  if (own && newest && compareAppVersions(own, newest) < 0) return `${lead} – its Autark is older (${own}). Update it there, or sign in on that PC itself (Settings › Models).`;
+  return `${lead} – it doesn’t accept them from here. Sign in on that PC itself (Settings › Models).`;
 }
 
 /**

@@ -47,7 +47,7 @@ import { disablePush, enablePush, installAvailable, isStandalone, promptInstall,
 import { act, ActionButton, Group, Row, Toggle, useAsync, useBusy } from './controls.tsx';
 import { forgetThisPhone, inHostedApp, isAndroidApp, isPhoneApp } from '../pwa/native.ts';
 import { IOS_PHONE_USE } from '../pwa/hosted.ts';
-import { deviceHint, FORGET_HINT, linkHint, phoneDot, PHONE_QR_HINT, pushHint } from './connect-text.ts';
+import { deviceHint, FORGET_HINT, linkHint, loginsHint, phoneDot, PHONE_QR_HINT, pushHint } from './connect-text.ts';
 import { ConnectRow, IdRows, IncomingRow, NearbyRows, useConnectState, usePeople } from './connect-rows.tsx';
 import { ConnectionGroup } from './devices-connection.tsx';
 import { rowAction, splitDevices, UPDATE_ALL_FROM, updateAllText, updateOffered, updateQueue, versionHint, type AnswerText } from './device-version.ts';
@@ -133,7 +133,7 @@ function DeviceRow(props: { device: Device; people: Person[]; devices: Device[];
     : <><span class={`dot ${dot}`} aria-hidden="true" /> {device.name}</>;
   // B-084: on touch Remove is a visible button – always there on a removable row, so nothing shifts; Rename stays in the long-press menu
   return (
-    <Row class="device-row" label={label} hint={[deviceHint(device, personName, listTime), versionHint(device, props.devices), linkHint(device)].filter(Boolean).join(' · ')} reserve
+    <Row class="device-row" label={label} hint={[deviceHint(device, personName, listTime), versionHint(device, props.devices), linkHint(device), loginsHint(device, props.devices)].filter(Boolean).join(' · ')} reserve={device.loginsRefused ? 2 : true}
       menu={() => [{ items: [
         ...(can('devices.rename') ? [{ label: 'Rename', onSelect: () => setRenaming(true) }] : []),
         ...(removable ? [{ label: 'Remove', danger: true, onSelect: () => void remove() }] : []),

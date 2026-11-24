@@ -21,6 +21,7 @@ import type { Account } from '../../../src/shared/model/providers.ts';
 import { WorkforceError } from '../../../src/shared/errors.ts';
 import { DevicesRepo, type DeviceRecord } from '../../../src/runtime/devices/repo.ts';
 import { LoginSync } from '../../../src/runtime/devices/sync/logins.ts';
+import { clearLoginsRefused, loginsRefused, withLoginsRefused } from '../../../src/runtime/devices/logins-refused.ts';
 import { signedOut } from '../../../src/runtime/accounts/cli-homes.ts';
 import { markOrigin } from '../../../src/runtime/devices/sync/employee.ts';
 import { memoryDb, recordingBus, silentLog } from './fakes.ts';
@@ -426,6 +427,65 @@ test('21.11.2026: a login that comes before its account\'s row waits for the row
   await until(async () => await read(there) !== undefined);
   assert.equal(await read(there), codexLogin('r1', '2026-11-04T10:00:00Z'), 'the newest login that waited is taken');
   assert.deepEqual(b.checked, ['acc_cx'], 'and the account is checked');
+});
+
+test('24.11.2026 (ORENDA): a PC that answers "forbidden" gets no more logins – not in rhythm, not on a change of a login – until a new connection, its role or version there, or a plan it was not tried with; the log says it once, its row says it', async (t) => {
+  clearLoginsRefused('dev_b');
+  const pcs = new Map<string, Pc>();
+  const a = await makePc(pcs, 'dev_a');
+  const b = await makePc(pcs, 'dev_b');
+  t.after(async () => { clearLoginsRefused('dev_b'); for (const pc of [a, b]) await rm(pc.root, { recursive: true, force: true }); });
+  const logged: string[] = [];
+  (a.s as { log: unknown }).log = { debug() {}, warn() {}, error() {}, info: (message: string) => { logged.push(message); } };
+  const rows: Array<{ loginsRefused?: unknown }> = [];
+  (a.s.devices as unknown as { list: () => unknown[] }).list = () => [withLoginsRefused({ id: 'dev_b', name: 'dev_b' })];
+  a.s.bus.on('device.upserted', (device) => { rows.push(device); });
+  a.repo.upsert(record('dev_b')); // B does not know A as a link: it answers 'forbidden' (the old version's way with an employee's PC)
+  a.accounts.push(plan('acc_cx', 'codex', { home: a.own('acc_cx'), email: 'lena@example.com' }));
+  await put(path.join(a.own('acc_cx'), 'auth.json'), codexLogin('r1', '2026-11-04T10:00:00Z'));
+  const sent = () => a.calls.filter((call) => call === 'dev_a->dev_b').length;
+  const told = () => logged.filter((message) => message.startsWith('logins not sent')).length;
+
+  assert.equal(await a.logins.catchUp('dev_b'), true);
+  assert.equal(sent(), 1, 'one try');
+  assert.ok(loginsRefused('dev_b'), 'the row of that PC says it refuses');
+  assert.equal(rows.length, 1, 'and the windows hear of it once');
+  assert.equal(told(), 1);
+  for (let round = 0; round < 3; round++) assert.equal(await a.logins.catchUp('dev_b', true), true); // the rhythm
+  assert.equal(sent(), 1, 'no more tries in rhythm');
+
+  const off = a.logins.attach();
+  t.after(off);
+  await put(path.join(a.own('acc_cx'), 'auth.json'), codexLogin('r2', '2026-11-04T11:00:00Z')); // the CLI refreshed the login
+  a.watchers.get(a.own('acc_cx'))!('rename', 'auth.json');
+  await settle();
+  assert.equal(sent(), 1, 'a refreshed login of the same plan is no reason either');
+
+  assert.equal(await a.logins.catchUp('dev_b'), true); // a new connection
+  assert.equal(sent(), 2, 'a new connection tries once');
+  assert.equal(await a.logins.catchUp('dev_b', true), true);
+  assert.equal(sent(), 2);
+  assert.equal(told(), 1, 'the log says it once for this PC and this reason');
+
+  a.repo.patch('dev_b', { caps: { version: '0.3.20' } }); // that PC updated
+  await a.logins.catchUp('dev_b', true);
+  assert.equal(sent(), 3, 'another version there: one new try');
+  await a.logins.catchUp('dev_b', true);
+  assert.equal(sent(), 3);
+  assert.equal(told(), 2, 'a changed state is news again');
+
+  a.accounts.push(plan('acc_cy', 'codex', { home: a.own('acc_cy'), email: 'team@example.com' }));
+  await put(path.join(a.own('acc_cy'), 'auth.json'), codexLogin('t1', '2026-11-04T10:00:00Z', 'org-2'));
+  await a.logins.catchUp('dev_b', true);
+  assert.equal(sent(), 4, 'a plan it was not tried with is tried');
+  await a.logins.catchUp('dev_b', true);
+  assert.equal(sent(), 4);
+
+  b.repo.upsert(record('dev_a', { joinedAs: 'ceo' })); // B takes A as its CEO PC now
+  b.accounts.push(plan('acc_cx', 'codex', { home: b.own('acc_cx'), email: 'lena@example.com', state: 'needs_login' }));
+  assert.equal(await a.logins.catchUp('dev_b'), true);
+  assert.equal(await read(path.join(b.own('acc_cx'), 'auth.json')), codexLogin('r2', '2026-11-04T11:00:00Z'), 'taken at the next connection');
+  assert.equal(loginsRefused('dev_b'), undefined, 'and the row says nothing any more');
 });
 
 test('22.11.2026: a plan whose login is rejected here asks the PCs that share it at once, and gets the newer login', async (t) => {

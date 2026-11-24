@@ -31,6 +31,7 @@ import { MAX_ADDRESSES, mergeAddresses, openChannel, firstOpen, seenText, type M
 import type { Timers } from '../schedules/scheduler.ts';
 import type { DeviceLoad } from './load.ts';
 import { withLink } from './link-quality.ts';
+import { withLoginsRefused } from './logins-refused.ts';
 import { RpcPeer, type PeerHandler } from './rpc-peer.ts';
 import { FRESH_MS, MeshRetries, TRIGGER_MS, TRIGGER_STEP, pairedWithin, realTimers } from './mesh-retry.ts';
 import { BYE_METHOD, awayOf, isLeft, sayBye, type ByeReason } from './away.ts';
@@ -434,7 +435,7 @@ export class DeviceMesh implements DeviceService {
 
   private emit(deviceId: string): void { const record = this.repo.get(deviceId); if (record) this.deps.bus.emit('device.upserted', this.view(record)); }
 
-  private view(record: DeviceRecord): Device { return withLink(publicDevice({ ...record, status: this.statusOf(record) })); } // G: the connection now (link-quality.ts)
+  private view(record: DeviceRecord): Device { return withLoginsRefused(withLink(publicDevice({ ...record, status: this.statusOf(record) }))); } // G: the connection now (link-quality.ts)
 
   private statusOf(record: DeviceRecord): Device['status'] {
     if (record.revokedAt) return 'revoked';

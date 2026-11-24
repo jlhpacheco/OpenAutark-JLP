@@ -97,6 +97,8 @@ export interface Device {
   away?: DeviceAway;
   /** G (22.11.2026): this PC's connection to it now, while measured (never stored). */
   link?: LinkQuality;
+  /** 24.11.2026: this linked PC refuses the plan logins this PC sends it ('forbidden'; runtime/devices/logins-refused.ts, memory only) – Settings › Devices says so. */
+  loginsRefused?: { at: number };
 }
 
 export interface PwaState {
