@@ -445,7 +445,7 @@ export const TYPE_DOCS: Record<string, string> = {
   "TaskChange": "interface TaskChange { id: string; at: number; by: string; kind: 'update' | 'finish' | 'give'; before: Record<string, unknown>; after: Record<string, unknown>; undone?: number; undoneBy?: string; }",
   "TaskFilter": "interface TaskFilter { readableByPerson?: string; } & interface TaskFilter { conversationId?: string; kind?: TaskKind; status?: TaskStatus[]; assigneeKind?: AssigneeKind; assigneeId?: string; spaceId?: string; search?: string; includeSteps?: boolean; limit?: number; completedSince?: number; givenBy?: string; }",
   "TaskKind": "type TaskKind = 'quest' | 'todo'",
-  "TaskLedger": "interface TaskLedger { plan?: string[]; facts?: string[]; movedAt?: number; doneCount?: number; givenIn?: string; changes?: TaskChange[]; }",
+  "TaskLedger": "interface TaskLedger { plan?: string[]; facts?: string[]; movedAt?: number; doneCount?: number; ringedAt?: number; givenIn?: string; changes?: TaskChange[]; }",
   "TaskResult": "interface TaskResult { summary: string; alsoHandled?: string[]; evidence: Evidence[]; followUps?: Array<{ scheduleId?: string; taskId?: string; label: string }>; verification: Verification; answer?: unknown; verificationNote?: string; quiet?: true; }",
   "TaskStatus": "type TaskStatus = 'open' | 'waiting' | 'done' | 'dropped'",
   "TaskWait": "interface TaskWait { on: 'who' | 'task' | 'outside'; who?: string; ids?: string[]; why: string; since: number; }",

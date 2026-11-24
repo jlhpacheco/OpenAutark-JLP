@@ -8,7 +8,8 @@
 //  - at start (recover): the tasks and chats whose turn was cut off woken, the install receipt;
 //  - the person's ring: a person's to-do whose `at` is reached pushes them once (kv mark: rings sent up to when, from the first start on; a day
 //    without a time at the start of that working day) – on the
-//    CEO PC with the smallest id, never on a PC that joined as an employee;
+//    CEO PC with the smallest id that is not gone (no main PC: the next one rings while it is out; `ledger.ringedAt` on the
+//    synced row says what rang, so the PC that comes back does not ring it again), never on a PC that joined as an employee;
 //  - the morning pass (tasks/morning.ts): once a day an agent hears of its quests without a next note.
 // Where: an agent's tasks on the PC it runs on (devices/sync/home.ts).
 // Owns: those passes and their timers. Never: calls a model (except the owner pick), writes "working", plans a look, or
@@ -41,7 +42,7 @@ export const RINGS_KV = { ns: 'tasks', key: 'ringsTo' } as const;
 export type TurnInput = Parameters<OwnershipService['afterTurn']>[0];
 
 export type WatchDeps = Pick<RuntimeServices, 'tasks' | 'wakes' | 'chats' | 'clock' | 'db' | 'bus' | 'org' | 'settings'>
-  & Partial<Pick<RuntimeServices, 'log' | 'accounts' | 'catalog' | 'host' | 'runs' | 'paths' | 'notifications' | 'people'>>;
+  & Partial<Pick<RuntimeServices, 'log' | 'accounts' | 'catalog' | 'host' | 'runs' | 'paths' | 'notifications' | 'people' | 'devices'>>;
 
 export class TaskWatcher implements OwnershipService {
   private readonly s: WatchDeps;
@@ -184,9 +185,11 @@ export class TaskWatcher implements OwnershipService {
         for (const task of this.t.repo.ringsBetween(from - DAY_MS, now)) { // a day-only to-do's midnight lies up to a day before its ring
           const at = ringAt(task, zone, workStart);
           if (at === undefined || at <= from || at > now || isPaused(task)) continue;
+          if ((task.ledger.ringedAt ?? 0) >= at) continue; // another PC rang it already (24.11.2026: the stamp travels with the row)
           const timer = task.widget?.type === 'timer'; // a timer rings with its own words
           tell(this.s, task.assigneeId ?? HUMAN_ID, { kind: 'todo', title: timer ? excerpt(task.title, 80) : `Due: ${excerpt(task.title, 80)}`, body: excerpt(task.notes, 160), taskId: task.id, conversationId: task.conversationId });
           pushed++;
+          try { this.t.emit(this.t.mutate(task.id, (draft) => { draft.ledger = { ...draft.ledger, ringedAt: at }; })); } catch { /* the ring went; a changed row keeps no stamp */ }
         }
       }
     } catch (error) {
@@ -234,7 +237,7 @@ export class TaskWatcher implements OwnershipService {
     return this.peopleHere();
   }
 
-  /** The people's rings and ownerless rows are this PC's: the CEO PC with the smallest id, never an employee's PC. */
+  /** The people's rings and ownerless rows are this PC's: the CEO PC with the smallest id among those not gone (home.ts firesHere), never an employee's PC. */
   private peopleHere(): boolean {
     try {
       if (links(this.s.db).some(({ link }) => link.kind === 'employer')) return false;

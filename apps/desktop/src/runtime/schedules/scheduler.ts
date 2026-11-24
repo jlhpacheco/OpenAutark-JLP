@@ -270,10 +270,25 @@ export class SchedulerImpl implements Scheduler {
     });
     if (!taken) return; // another process (or a re-entrant tick) fired this occurrence
     for (const at of occurrences) {
+      if (this.posted(schedule, at)) continue; // another PC fired it while this one was away (24.11.2026)
       if (!this.execute(schedule, at)) break;
     }
     const updated = this.repo.get(schedule.id);
     if (updated) this.s.bus.emit('schedule.upserted', updated);
+  }
+
+  /**
+   * 24.11.2026 (no main PC): whether the post of this occurrence – or of a later one – is already in the chat: the PC that
+   * fired while this one was off sent it, and the row came here with sync (meta.scheduleId + plannedAt, no extra field).
+   * A PC that comes back and finds its old due time then only moves on. Reminders wake an agent on one PC (standIn).
+   */
+  private posted(schedule: Schedule, occurrence: number): boolean {
+    if (schedule.kind !== 'message' || !schedule.conversationId) return false;
+    try {
+      return this.s.db.get(
+        `SELECT 1 AS hit FROM messages WHERE conversation_id = ? AND json_extract(meta, '$.scheduleId') = ? AND json_extract(meta, '$.plannedAt') >= ? LIMIT 1`,
+        [schedule.conversationId, schedule.id, occurrence]) !== undefined;
+    } catch { return false; }
   }
 
   /** Runs the schedule's effect; returns false when the schedule was deactivated. */

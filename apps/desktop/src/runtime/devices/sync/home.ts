@@ -174,13 +174,26 @@ export function standIn(services: Pick<RuntimeServices, 'db' | 'org' | 'clock' |
 }
 
 /**
+ * 24.11.2026 (0.3.20, no main PC): whether `record` – one of my PCs linked here – is out of the person's schedules and
+ * rings: out of reach for TAKEOVER_MS (from the later of its last-seen time and the start of the watch, as for an agent's
+ * PC). Without that watch (takeover.ts attach: no links yet) or without the online view, every PC counts, as before.
+ */
+function gone(services: Partial<Pick<RuntimeServices, 'db' | 'clock' | 'devices'>>, record: DeviceRecord): boolean {
+  const since = services.db ? watching.get(services.db) : undefined;
+  if (since === undefined || !services.clock || !services.devices || services.devices.online(record.id)) return false;
+  return services.clock.now() - Math.max(record.lastSeenAt ?? 0, since) >= TAKEOVER_MS;
+}
+
+/**
  * Whether this PC fires a schedule: an agent's where the agent runs – or, Umzug 21.11.2026, where it would go on while its
- * PC is gone (standIn), so a schedule alone makes it go on there –, the person's on the CEO PC with the smallest id.
+ * PC is gone (standIn), so a schedule alone makes it go on there –, the person's on the CEO PC with the smallest id among
+ * those that are not gone (24.11.2026: a fallback while the smaller PC is out, no fixed main PC; the one that fired is
+ * stamped in the synced record – the post's meta.plannedAt, the to-do's ledger.ringedAt – so a PC coming back does not fire it twice).
  */
 export function firesHere(services: Pick<RuntimeServices, 'db' | 'org'> & Partial<Pick<RuntimeServices, 'clock' | 'devices'>>, ownerId: string): boolean {
   let agent = false;
   try { agent = Boolean(services.org.get(ownerId)); } catch { agent = false; }
   if (agent) return !homeElsewhere(services, ownerId) || (services.clock !== undefined && services.devices !== undefined && standIn(services as Parameters<typeof standIn>[0], ownerId) === selfId(services.db));
   const self = selfId(services.db);
-  return links(services.db).every(({ record, link }) => link.kind !== 'ceo' || record.id > self);
+  return links(services.db).every(({ record, link }) => link.kind !== 'ceo' || record.id > self || gone(services, record));
 }
