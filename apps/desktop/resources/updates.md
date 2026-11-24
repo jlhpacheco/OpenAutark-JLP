@@ -113,6 +113,13 @@ takes next and a plan a turn runs on are read every minute (Codex: every 15 s); 
 and show as stale only after 7 – a plan that comes to the front because the one before it ran out is read at once. The
 quota details the person opens still read every plan. Nothing to put right.
 
+Known limitation on Linux (not new): where no Secret Service runs (no gnome-keyring or KWallet), secrets are kept
+with Chromium's built-in default key instead of a key of the person's keyring, and Autark shows no repair page for it.
+
+**Secrets on Linux without a keyring.** Shows as: nothing in the app; on Linux, `secret-tool` or a keyring app finds no
+Secret Service. I check: whether gnome-keyring or KWallet runs in the person's session. I fix it: the person installs
+gnome-keyring or KWallet and signs in again; secrets saved after that are kept with the keyring's key.
+
 ## 0.3.18
 
 What changed: linked PCs and phones keep each other current by themselves – a message a shaky connection lost arrives
