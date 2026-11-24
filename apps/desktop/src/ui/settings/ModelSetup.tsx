@@ -7,6 +7,8 @@
 // the one connection form inline under it, account-forms.tsx) – with the sign-in link cell and one status line for the
 // plan flow, and the sheet of a sign-in started from the phone (SignInSheet.tsx). Settings shows the use rows under it
 // (ModelUses.tsx).
+// 24.11.2026: e-mail addresses show masked ("s…@gmail.com", ui/lib/email-mask.ts – one mask for every address on the screen,
+// so two stay apart), the whole address in the row's title.
 // Owns: this layout and its PC scan (accounts.detect, again after a plan flow). Never: a flow's steps (plan-setup.ts).
 
 import type { ComponentChildren } from 'preact';
@@ -27,6 +29,7 @@ import { ActionButton, Row, useBusy } from './controls.tsx';
 import { SignInSheet } from './SignInSheet.tsx';
 import { cliRowView, groupAccounts, needsSignIn, PC_CLIS, PROVIDER_NAMES, stateLabel } from './providers.ts';
 import { foundText } from './extra-usage.ts';
+import { emailMasker } from '../lib/email-mask.ts';
 
 type Cli = DetectionReport['clis'][number];
 
@@ -60,10 +63,10 @@ function CliRow(props: { cli: Cli; scanned: boolean; onChanged: () => void }) {
  * A plan login on offer (accounts.detect → found): no account yet – nothing uses it and no PC of the company gets it –
  * until Use; Not here keeps it out of this company (it stays on the PC). A declined one of another company can still be used.
  */
-function FoundRow(props: { found: FoundLogin; cli: Cli | undefined; onChanged: () => void }) {
+function FoundRow(props: { found: FoundLogin; cli: Cli | undefined; mask: (email: string) => string; onChanged: () => void }) {
   const { found } = props;
   const [busy, run] = useBusy();
-  const text = foundText(found, props.cli);
+  const text = foundText(found, props.cli, props.mask);
   const name = PROVIDER_NAMES[found.provider] ?? found.provider;
   // 17.11.2026 (Konrad #109): "Use" asks where the login goes; only "On all PCs of this company" syncs it
   const use = async () => {
@@ -90,7 +93,7 @@ function FoundRow(props: { found: FoundLogin; cli: Cli | undefined; onChanged: (
     pushToast({ title: `${name} not used here`, body: 'Still signed in on this PC.' });
   });
   return (
-    <Row class={`found-row${found.declined ? ' declined' : ''}`} label={text.label} hint={text.hint}>
+    <Row class={`found-row${found.declined ? ' declined' : ''}`} label={<span title={found.email}>{text.label}</span>} hint={text.hint}>
       <span class="found-actions">
         <ActionButton variant={found.declined ? 'secondary' : 'primary'} label="Use" busy={busy} onClick={() => void use()} />
         {!found.declined && <ActionButton label="Not here" disabled={busy} onClick={decline} />}
@@ -133,14 +136,15 @@ export function ModelSetup(props: { children?: ComponentChildren }) {
   const toggle = (next: 'api' | 'local') => setForm(form === next ? null : next);
   const view = planFlow.value.view;
   const server = report?.localServers.find((found) => !accounts.value.some((account) => account.baseUrl === found.baseUrl));
+  const mask = emailMasker([...accounts.value.map((account) => account.email), ...(report?.found ?? []).map((found) => found.email)]);
   return (
     <>
       {PC_CLIS.flatMap((provider) => {
         const list = groupAccounts(accounts.value.filter((account) => account.provider === provider && account.auth === 'cli'))[0]?.accounts ?? [];
         const cli = report?.clis.find((entry) => entry.provider === provider);
         const offers = (report?.found ?? []).filter((found) => found.provider === provider)
-          .map((found) => <FoundRow key={found.key} found={found} cli={cli} onChanged={() => void scan()} />);
-        if (list.length) return [...list.map((account) => <AccountRow key={account.id} account={account} siblings={list} />), ...offers];
+          .map((found) => <FoundRow key={found.key} found={found} cli={cli} mask={mask} onChanged={() => void scan()} />);
+        if (list.length) return [...list.map((account) => <AccountRow key={account.id} account={account} siblings={list} mask={mask} />), ...offers];
         if (offers.length) return offers; // the offer says what the plan row would: signed in on this PC, not used here yet
         return WITH_BUTTON.has(provider) || cli?.path ? [<CliRow key={provider} cli={cli ?? { provider }} scanned={scanned} onChanged={() => void scan(true)} />] : [];
       })}

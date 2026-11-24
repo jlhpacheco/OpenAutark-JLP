@@ -1,11 +1,12 @@
 // Texts of the account row's two 17.11.2026 additions (Konrad task_bgykyzcx), pure so a unit test holds them: a plan's
 // "When the plan is empty: use extra usage" switch (Account.extraUsage – the provider's Claude "usage credits" / ChatGPT "credits",
 // billed by the provider; shared/model/charge.ts extraUsageOf says where there is none) and the offer for a plan login this PC
-// found ("Found: Codex (…) – use in this company?", DetectionReport.found).
+// found ("Found: Codex (…) – use in this company?", DetectionReport.found) – its e-mail address masked (24.11.2026, ui/lib/email-mask.ts).
 // Owns: these words and which row shows what. Never: I/O, a price or a balance (no provider offers one to read).
 
 import { extraUsageOf } from '../../shared/model/charge.ts';
 import type { Account, DetectionReport, FoundLogin } from '../../shared/model/providers.ts';
+import { maskEmail } from '../lib/email-mask.ts';
 import { PROVIDER_NAMES } from './providers.ts';
 
 export interface ExtraUsageView {
@@ -41,10 +42,10 @@ export function extraUsageView(account: Pick<Account, 'auth' | 'provider' | 'pla
 
 type Cli = DetectionReport['clis'][number];
 
-/** One offered plan login: the row's name and its one quiet line. */
-export function foundText(found: FoundLogin, cli?: Pick<Cli, 'method'>): { label: string; hint: string } {
+/** One offered plan login: the row's name and its one quiet line; `mask`: how the screen shows its e-mail address. */
+export function foundText(found: FoundLogin, cli?: Pick<Cli, 'method'>, mask: (email: string) => string = maskEmail): { label: string; hint: string } {
   const name = PROVIDER_NAMES[found.provider] ?? found.provider;
-  const who = found.email ?? (found.where === 'this-pc' ? (cli?.method ? `${cli.method} login` : 'signed in on this PC') : 'signed in in another company on this PC');
+  const who = (found.email ? mask(found.email) : undefined) ?? (found.where === 'this-pc' ? (cli?.method ? `${cli.method} login` : 'signed in on this PC') : 'signed in in another company on this PC');
   if (found.declined) {
     return { label: `Not used here: ${name} (${who})`, hint: 'You chose not to use this sign-in in this company. It stays on this PC.' };
   }

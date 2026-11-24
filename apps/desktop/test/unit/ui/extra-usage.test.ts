@@ -50,10 +50,11 @@ test('found text: what is on offer and what stays true until "Use"; a declined o
   });
   assert.equal(foundText(here).label, 'Found: Codex (signed in on this PC) – use in this company?', 'no method known');
   const other: FoundLogin = { key: 'claude:acc_lena', provider: 'claude', where: 'other-company', email: 'lena@example.com' };
-  assert.equal(foundText(other).label, 'Found: Claude Code (lena@example.com) – use in this company?');
+  assert.equal(foundText(other).label, 'Found: Claude Code (l…@example.com) – use in this company?', '24.11.2026: the address masked (ui/lib/email-mask.ts)');
+  assert.equal(foundText(other, undefined, (email) => email.toUpperCase()).label, 'Found: Claude Code (LENA@EXAMPLE.COM) – use in this company?', 'the mask the screen passes');
   assert.equal(foundText({ ...other, email: undefined } as FoundLogin).label, 'Found: Claude Code (signed in in another company on this PC) – use in this company?');
   assert.deepEqual(foundText({ ...other, declined: true }), {
-    label: 'Not used here: Claude Code (lena@example.com)',
+    label: 'Not used here: Claude Code (l…@example.com)',
     hint: 'You chose not to use this sign-in in this company. It stays on this PC.',
   });
 });

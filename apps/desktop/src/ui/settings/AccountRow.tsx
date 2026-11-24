@@ -12,6 +12,7 @@
 // switch "On all PCs of this company" (Account.thisPcOnly: off = the account and its sign-in stay on this PC).
 // B-072: no plan roles or rotation switch here – every signed-in plan takes turns, the one whose week resets first runs
 // first (09.11.2026, accounts/candidates.ts); the order decides the rest.
+// 24.11.2026: the hint line shows the e-mail address masked ("s…@gmail.com", ui/lib/email-mask.ts), its title the whole line.
 // Owns: the row. Never: shows tokens or invents limits (unknown = '–').
 
 import '../../shared/api/methods-provider-history.ts'; // privacy.purgeProviderHistory (module augmentation)
@@ -27,6 +28,7 @@ import { models } from '../lib/store.ts';
 import { shortModelName } from '../chat/live-text.ts';
 import { serviceOfAccount } from '../../shared/model/providers-connect.ts';
 import { pushToast } from '../lib/toasts.ts';
+import { emailMasker } from '../lib/email-mask.ts';
 import { Button } from '../lib/ui.tsx';
 import { extraUsageView } from './extra-usage.ts';
 import { ApiCredits } from './ApiCredits.tsx';
@@ -90,7 +92,7 @@ export function modelsOf(account: Pick<Account, 'id'>, list: readonly ModelInfo[
 }
 
 /** The hint line: what the account is and why it waits, with its provider's name where the label does not say it. */
-function hintOf(account: Account, repair: string | undefined, count: number): string {
+function hintOf(account: Account, repair: string | undefined, count: number, mask: (email: string) => string): string {
   const cli = account.auth === 'cli';
   const plan = cli && isPlanProvider(account.provider);
   const providerName = serviceOfAccount(account)?.name ?? PROVIDER_NAMES[account.provider] ?? account.provider;
@@ -99,15 +101,15 @@ function hintOf(account: Account, repair: string | undefined, count: number): st
   const barsSayWhen = plan && account.limits?.windows.some((window) => PLAN_SLOTS.includes(window.name) && window.usedPercent >= 100 && (window.resetsAt ?? 0) > now);
   return [
     account.label.toLocaleLowerCase().includes(providerName.toLocaleLowerCase()) ? undefined : providerName,
-    repair, planLabel(account.plan), account.email, account.baseUrl && !cli ? account.baseUrl : undefined,
+    repair, planLabel(account.plan), account.email ? mask(account.email) : undefined, account.baseUrl && !cli ? account.baseUrl : undefined,
     account.auth === 'env' && !repair ? `Key from ${account.envVar}` : undefined, account.detected ? 'found on this PC' : undefined,
     account.state === 'cooling' && account.coolingUntil && !barsSayWhen ? `Available again ${resetClock(account.coolingUntil, now)}` : undefined,
     count ? `${count} model${count === 1 ? '' : 's'}` : undefined,
   ].filter(Boolean).join(' · ');
 }
 
-/** `siblings`: the same provider's accounts in priority order (Move up / down). */
-export function AccountRow(props: { account: Account; siblings: readonly Account[] }) {
+/** `siblings`: the same provider's accounts in priority order (Move up / down); `mask`: the screen's e-mail mask (default: the siblings'). */
+export function AccountRow(props: { account: Account; siblings: readonly Account[]; mask?: (email: string) => string }) {
   const { account, siblings } = props;
   const [busy, run] = useBusy();
   const [showModels, setShowModels] = useState(false);
@@ -163,7 +165,8 @@ export function AccountRow(props: { account: Account; siblings: readonly Account
   const signIn = cli && SIGN_IN[account.provider] !== undefined;
   const plan = cli && isPlanProvider(account.provider);
   const repair = account.state === 'needs_login' && !signIn ? repairText(account) : undefined;
-  const hint = hintOf(account, repair, listed.length);
+  const hint = hintOf(account, repair, listed.length, props.mask ?? emailMasker(siblings.map((entry) => entry.email)));
+  const fullHint = hintOf(account, repair, listed.length, (email) => email);
   const extra = extraUsageView(account); // a plan login: the switch for the provider's extra usage, or why it has none
   const credits = creditsPossible(account); // an Anthropic/OpenAI key: no sign-in, no reset in its slot
   const menu = (): MenuSection[] => {
@@ -187,7 +190,7 @@ export function AccountRow(props: { account: Account; siblings: readonly Account
       class={`account-row provider-${account.provider}${plan ? ' plan' : ''}`} menu={menu}
       label={<><span>{account.label}</span> <span class={`state-chip ${account.state}`}>{stateLabel(account)}</span></>}
       hint={<>
-        <div class="account-hint" title={hint}>{hint}</div>
+        <div class="account-hint" title={fullHint}>{hint}</div>
         {credits && <div class="account-credits-hint">{CREDITS_HINT}</div>}
         {plan && <LimitBars account={account} />}
         {showModels && listed.length > 0 && <div class="account-models">{listed.map((model) => shortModelName(model.name) || model.model).join(' · ')}</div>}
