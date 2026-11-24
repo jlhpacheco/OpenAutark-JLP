@@ -136,7 +136,9 @@ function quotaText(s: RuntimeServices): string {
   const now = s.clock.now();
   let accounts: Account[] = [];
   try { accounts = s.accounts.list().filter((account) => account.provider === 'codex' && account.enabled && accountCharge(account) === 'plan'); } catch { /* none */ }
-  return accounts.map((account) => { const left = headroom(account, now); return `${account.label} ${left === undefined ? '? %' : `${Math.round(left)} %`}`; }).join(', ') || 'no Codex plan login';
+  // A label that is an e-mail address shows masked ("s…@gmail.com"): the log goes along with feedback diagnostics.
+  const name = (label: string) => label.replace(/([^\s@])[^\s@]*@/g, '$1…@');
+  return accounts.map((account) => { const left = headroom(account, now); return `${name(account.label)} ${left === undefined ? '? %' : `${Math.round(left)} %`}`; }).join(', ') || 'no Codex plan login';
 }
 
 /** Why the helper default is not in use: the plan's headroom against the minimum, else what else keeps it out. */
