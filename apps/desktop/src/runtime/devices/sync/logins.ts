@@ -29,9 +29,7 @@
 // person's own plans, and from a PC that is no 'ceo' link only the login of that very account is taken. A plan whose login
 // is rejected here (it turns 'needs_login') asks the PCs that share it for theirs at once (`want`, at most every ASK_MS
 // per plan, answered at most that often per PC); each sends it when it differs from what that PC last took.
-// 24.11.2026 (ORENDA find: 231 sends in an hour to a PC that answered 'forbidden'): such a PC gets no more logins until a new
-// connection, its role or version there changes, or a plan it was not tried with turns up (refuse/held below; the log says it
-// once); Settings › Devices says on its row that this PC's sign-ins are not shared there (logins-refused.ts).
+// 24.11.2026 (ORENDA find): a PC that answers 'forbidden' gets no more logins until something relevant changes (login-refusals.ts).
 // Owns: reading, sending and writing these files. Never: logs, journals or returns their content, shows them to
 // an agent, a tool or the UI, or sends them to a PC that does not share the plan.
 
@@ -45,7 +43,7 @@ import type { Account } from '../../../shared/model/providers.ts';
 import { WorkforceError } from '../../../shared/errors.ts';
 import { defaultHome, homeKey, loginFiles, ownHomes, sharedLogins, signedOut } from '../../accounts/cli-homes.ts';
 import { MAX_LOGIN_FILE, identity, loginTime, parseLogin, refreshToken, signedIn, type Json } from '../../accounts/login-file.ts';
-import { clearLoginsRefused, noteLoginsRefused } from '../logins-refused.ts';
+import { LoginRefusals } from './login-refusals.ts';
 import { replaceWith } from './file-io.ts';
 import { linkOf } from './home.ts';
 import { DevicesRepo } from '../repo.ts';
@@ -121,14 +119,13 @@ export class LoginSync {
   private readonly answered = new Map<string, number>();
   /** Per plan: its last state here (an ask goes once when the login turns rejected, not on every change of the row). */
   private readonly states = new Map<string, string>();
-  /** Per PC that answered 'forbidden': what it was and refused then (post: nothing goes there until that changes). */
-  private readonly refused = new Map<string, { sig: string; accounts: Set<string> }>();
-  /** Per PC: the state (sig) its refusal was last logged for – the log says it once, not on every try. */
-  private readonly told = new Map<string, string>();
+  /** The PCs that answered 'forbidden' (post: nothing goes there until something relevant changes). */
+  private readonly refusals: LoginRefusals;
 
   constructor(s: RuntimeServices, deps: LoginDeps = {}) {
     this.s = s;
     this.deps = deps;
+    this.refusals = new LoginRefusals(s);
   }
 
   private get platform(): NodeJS.Platform { return this.deps.platform ?? process.platform; }
@@ -156,7 +153,7 @@ export class LoginSync {
     if (account.thisPcOnly || account.auth !== 'cli' || now - (this.asked.get(account.id) ?? 0) < ASK_MS) return;
     this.asked.set(account.id, now);
     for (const peer of planPeers(this.s.db)) {
-      if (!this.s.devices.online(peer) || !planLink(this.s.db, peer, account) || this.held(peer)) continue; // a PC that refuses logins is not asked either
+      if (!this.s.devices.online(peer) || !planLink(this.s.db, peer, account) || this.refusals.held(peer)) continue; // a PC that refuses logins is not asked either
       void this.s.devices.call(peer, 'sync.login', { logins: [], want: [account.id] })
         .catch((error: unknown) => this.s.log.info('login not asked for', { peer, error: code(error) }));
     }
@@ -190,7 +187,7 @@ export class LoginSync {
         if (account.enabled && account.state === 'needs_login' && was !== undefined && was !== 'needs_login') this.ask(account);
       }),
       this.s.bus.on('account.removed', ({ id }) => { signedOut.clear(this.s.db, { id }); this.watchHomes(); }), // a home's mark stays: it is the login's
-      this.s.bus.on('device.removed', ({ id }) => { this.refused.delete(id); this.told.delete(id); clearLoginsRefused(id); }),
+      this.s.bus.on('device.removed', ({ id }) => this.refusals.forget(id)),
     ];
     this.watchHomes();
     try { for (const account of this.s.accounts.list()) this.states.set(account.id, account.state); } catch { /* the next change tells */ }
@@ -265,58 +262,18 @@ export class LoginSync {
     return read;
   }
 
-  /**
-   * 24.11.2026 (ORENDA find: 231 sends in an hour to a PC that answered 'forbidden', and nobody was told): a PC that refuses
-   * our logins gets none again – not on each catch-up round, not on each change of a login – until something relevant
-   * changes: a new connection (catchUp at a link-up), its role or version there (`sig`), or a plan it was not tried with.
-   * Settings › Devices says so on its row (logins-refused.ts).
-   */
-  private refuse(peer: string, accounts: readonly string[]): void {
-    const sig = this.sigOf(peer);
-    const entry = this.refused.get(peer);
-    if (entry) for (const id of accounts) entry.accounts.add(id);
-    else this.refused.set(peer, { sig, accounts: new Set(accounts) });
-    if (noteLoginsRefused(peer)) this.announce(peer);
-    if (this.told.get(peer) !== sig) { // once per PC and reason, not per try
-      this.told.set(peer, sig);
-      this.s.log.info('logins not sent: that PC takes none from this one', { peer, count: accounts.length, error: 'forbidden' });
-    }
-  }
-
-  /** What `peer` is by now – a change of it (its role or its version there) ends a refusal. */
-  private sigOf(peer: string): string {
-    const record = new DevicesRepo(this.s.db).get(peer);
-    return record ? [record.personId ?? '', record.joinedAs ?? '', record.caps?.version ?? ''].join('|') : '';
-  }
-
-  /** The plans `peer` refused, while its refusal holds (undefined: it refuses nothing now). */
-  private held(peer: string): ReadonlySet<string> | undefined {
-    const entry = this.refused.get(peer);
-    if (entry && entry.sig !== this.sigOf(peer)) { this.refused.delete(peer); this.told.delete(peer); if (clearLoginsRefused(peer)) this.announce(peer); return undefined; }
-    return entry?.accounts;
-  }
-
-  /** Tells the windows that a device's row changed (its refusal began or ended). */
-  private announce(peer: string): void {
-    try {
-      const device = this.s.devices.list?.().find((entry) => entry.id === peer);
-      if (device) this.s.bus.emit('device.upserted', device);
-    } catch { /* the row shows it at the next change */ }
-  }
-
   /** Sends `peer` each of `reads` it has not taken yet; false when the call failed (they go at the next catch-up). */
   private async post(peer: string, reads: readonly Read[]): Promise<boolean> {
-    const refused = this.held(peer);
+    const refused = this.refusals.held(peer); // ORENDA 24.11.2026: a PC that refuses logins gets none until something relevant changes (login-refusals.ts)
     const fresh = reads.filter(({ login, digest }) => this.took.get(`${peer}/${login.account}`) !== digest && !refused?.has(login.account) && this.shares(peer, login));
     if (!fresh.length) return true;
     try {
       await this.s.devices.call(peer, 'sync.login', { logins: fresh.map(({ login }) => login) });
       for (const { login, digest } of fresh) this.took.set(`${peer}/${login.account}`, digest);
-      this.refused.delete(peer);
-      if (clearLoginsRefused(peer)) this.announce(peer);
+      this.refusals.accepted(peer);
       return true;
     } catch (error) {
-      if (code(error) === 'forbidden') { this.refuse(peer, fresh.map(({ login }) => login.account)); return true; } // not a miss a later round could make good
+      if (code(error) === 'forbidden') { this.refusals.refuse(peer, fresh.map(({ login }) => login.account)); return true; } // not a miss a later round could make good
       this.s.log.info('logins not sent', { peer, count: fresh.length, error: code(error) });
       return false;
     }
@@ -325,9 +282,9 @@ export class LoginSync {
   /** What a catch-up owes a linked PC: every shared plan's login it has not taken – at a link-up (`again` false) every one (the other PC keeps what is newer there). */
   async catchUp(peer: string, again = false): Promise<boolean> {
     if (!linkOf(new DevicesRepo(this.s.db).get(peer))) return true;
-    if (!again) { // a new connection: what that PC took is open again, and so is a refusal (one try; its row stays marked until the PC takes a login or its role changes)
+    if (!again) { // a new connection: what that PC took is open again, and so is a refusal (one try)
       for (const key of [...this.took.keys()]) if (key.startsWith(`${peer}/`)) this.took.delete(key);
-      this.refused.delete(peer);
+      this.refusals.reopen(peer);
     }
     const reads: Read[] = [];
     for (const account of this.plans()) {
