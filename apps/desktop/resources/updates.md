@@ -5,6 +5,17 @@ PC, how it shows, how I check for it and how I fix it. With every new version th
 since the version its PC ran before, looks through its company and puts right what it finds. A release adds its section
 here before it ships (the release check looks for it).
 
+## 0.3.20
+
+What changed: the left rail's destinations follow an order the person sets (drag, Alt+Arrow or the right-click menu;
+kept in settings.preferences.navOrder, so it holds on their PCs and the phone tabs follow it), and its plan badges
+show every plan, scrolling with a soft edge when they do not all fit. A CSV or TSV opens in the File tab as a table
+to read. Model setup shows the e-mail addresses of plan logins masked. A wait that names a colleague hands the task
+back to its owner and wakes them. shell.exec ends at a total limit of 3600 s however often a review extends it, and
+secrets.import takes a long client id and names every entry it leaves out with its reason. After a Codex or Claude
+Code update to a version not on the verified list, the runtime log warns that sessions start anew after a restart.
+Nothing of this leaves data behind on an older install that needs a check or a fix.
+
 ## 0.3.19
 
 What changed: on Windows the desktop broker's check at each start really runs now. Up to 0.3.18 it started
