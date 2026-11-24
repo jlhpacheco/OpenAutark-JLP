@@ -180,6 +180,13 @@ export class TaskServiceImpl implements TaskService {
       } else if (patch.waitingOn && draft.status === 'waiting') {
         draft.waitingOn = { ...patch.waitingOn, since: draft.waitingOn?.since ?? now };
       }
+      // 24.11.2026 (Demo Workshop, task_1rv87q8g): the Developer the Reviewer waited on set the wait to "Reviewer: round 2" –
+      // a wait on the owner itself, which wakes nobody; the task stood 6 min. Whoever hands a wait back to its agent owner ends it.
+      if (draft.status === 'waiting' && draft.waitingOn?.on === 'who' && draft.assigneeKind === 'agent' && draft.waitingOn.who === draft.assigneeId && by !== draft.assigneeId) {
+        draft.status = 'open';
+        delete draft.waitingOn;
+        moved = true;
+      }
       if (after) applyDepends(this.repo, draft, after, now);
       if (moved) draft.ledger = { ...draft.ledger, movedAt: now };
       recordChange(draft, current, by, 'update', now); // the change log (tasks/changes.ts): the person's "Undo"

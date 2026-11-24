@@ -65,9 +65,13 @@ export class TaskLifecycle {
       const where = this.whereOf(task, awaits); // never inside the other's task: my turn runs where my own work lives
       tell(this.t.s, awaits, { reason: where.taskId ? 'task' : 'message', ...where, key: `waits:${task.id}`, note: `${nameOf(this.t.s, task.assigneeId ?? by)} waits on me for "${excerpt(task.title, 120)}": ${excerpt(task.waitingOn?.why ?? '', 240)}` });
     }
-    const awaited = before.status === 'waiting' && before.waitingOn?.on === 'who' && before.waitingOn.who === by; // their own line reaches the owner
-    if (task.status === 'open' && before.status !== 'open' && task.assigneeKind === 'agent' && task.assigneeId && by !== task.assigneeId && !awaited) {
-      tell(this.t.s, task.assigneeId, { reason: 'task', taskId: task.id, conversationId: task.conversationId, note: `${nameOf(this.t.s, by)} ${isFinished(before.status) ? 'reopened' : 'opened'} my task "${excerpt(task.title, 120)}" again.` });
+    // The one a wait named ending it wakes the owner too: a status change writes no line of theirs that would (24.11.2026,
+    // task_1rv87q8g – the Developer handed round 2 back by tasks.update alone, the Reviewer slept 6 min).
+    const awaited = before.status === 'waiting' && before.waitingOn?.on === 'who' && before.waitingOn.who === by;
+    if (task.status === 'open' && before.status !== 'open' && task.assigneeKind === 'agent' && task.assigneeId && by !== task.assigneeId) {
+      const what = awaited ? `ended my wait on them in "${excerpt(task.title, 120)}" – it is mine to move again.`
+        : `${isFinished(before.status) ? 'reopened' : 'opened'} my task "${excerpt(task.title, 120)}" again.`;
+      tell(this.t.s, task.assigneeId, { reason: 'task', taskId: task.id, conversationId: task.conversationId, note: `${nameOf(this.t.s, by)} ${what}` });
     }
     if (task.kind === 'quest' && isFinished(before.status) && !isFinished(task.status)) this.questReopened(task, before.completedAt, by);
   }

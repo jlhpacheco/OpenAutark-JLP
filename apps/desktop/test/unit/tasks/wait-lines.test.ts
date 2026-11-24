@@ -58,3 +58,29 @@ test('the agent a wait names is woken at once with the task (feedback FCMWNRKJ, 
   h.tasks.update(task.id, waitOn('human', 'Which account?'), 'ag_ava');
   assert.ok(!h.wakeRows().some((row) => row.agent_id === 'human'), 'a wait on the person wakes no agent');
 });
+
+test('the colleague a wait names hands it back to the owner: the wait ends and the owner is woken (task_1rv87q8g, Demo Workshop 24.11.2026)', () => {
+  const { h, task, lines } = setup();
+  const avaWakes = () => h.wakeRows().filter((row) => row.agent_id === 'ag_ava' && row.task_id === task.id);
+  h.tasks.update(task.id, waitOn('ag_bob', 'Bob: fixes for review round 1'), 'ag_ava');
+  h.db.run('DELETE FROM wakes'); // Ava's wake for the new task ran
+  const before = avaWakes().length;
+  h.tasks.update(task.id, waitOn('ag_ava', 'Ava: round 2 review / explicit OK'), 'ag_bob'); // what the Developer did
+  const fresh = h.tasks.get(task.id)!;
+  assert.equal(fresh.status, 'open', 'a wait on the owner itself is no wait');
+  assert.equal(fresh.waitingOn, undefined);
+  assert.equal(avaWakes().length, before + 1, 'the owner is woken with the task');
+  assert.match(String(avaWakes().at(-1)!.note), /Bob ended my wait on them/);
+  assert.equal(lines().at(-1), 'Open again: Social media start');
+});
+
+test('the colleague a wait names ending it by status alone wakes the owner; the owner\'s own wait on itself stays as set', () => {
+  const { h, task } = setup();
+  h.tasks.update(task.id, waitOn('ag_bob', 'The logo file'), 'ag_ava');
+  h.db.run('DELETE FROM wakes');
+  const before = h.wakeRows().filter((row) => row.agent_id === 'ag_ava').length;
+  h.tasks.update(task.id, { status: 'open' }, 'ag_bob');
+  assert.equal(h.wakeRows().filter((row) => row.agent_id === 'ag_ava').length, before + 1, 'Bob\'s status change writes no line of his that would wake Ava');
+  h.tasks.update(task.id, waitOn('ag_ava', 'my own note'), 'ag_ava');
+  assert.equal(h.tasks.get(task.id)!.status, 'waiting', 'only someone else hands a wait back');
+});
