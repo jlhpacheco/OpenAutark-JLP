@@ -3,18 +3,26 @@
 // a long build log lost its error at the end) only its first and its last EDGE characters are kept; each is masked as a
 // whole, and then MARGIN characters are cut off at its inner edge – where the middle was left out, a stored value or a key
 // shape may be cut in two and its part not recognised. MARGIN is longer than any stored value in any spelling the masker
-// knows: a value has at most 4096 characters (secrets/groups.ts), its hex form at most 24 576, its grouped form at most
-// four times its length; a PEM key is a few KB. The outer ends are the output's own start and end; what remains of each
-// side is SIDE characters, so one overflowing pipe fits MAX_RESULT with its note on the middle.
+// knows: a value has at most 4096 characters (secrets/groups.ts) of at most 3 UTF-8 bytes each, so its URL-encoded form –
+// the longest – at most 36 864 characters, its hex form at most 24 576, its grouped form at most four times its length; a
+// PEM key is a few KB. MARGIN must stay above 36 864. The outer ends are the output's own start and end; what remains of
+// each side is SIDE characters, so one overflowing pipe fits MAX_RESULT with its note on the middle. Every visible cut
+// keeps whole characters: a half of a surrogate pair is no valid UTF-8, and a strict provider could refuse the text.
 /** Store only bounded output. Never give a redactor a raw prefix/tail as if it were the full value. */
 export const MAX_CAPTURE = 1024 * 1024; // both pipes together, kept whole (half each)
 const WHOLE = MAX_CAPTURE / 2;
 const MAX_RESULT = 64 * 1024;
 const SIDE = 30 * 1024;
-const MARGIN = 48 * 1024;
-const EDGE = SIDE + MARGIN;
+export const MARGIN = 48 * 1024;
+export const EDGE = SIDE + MARGIN;
 export const WITHHELD = '[command output withheld]';
 type Redactor = (text: string) => string;
+const high = (text: string, at: number) => { const c = text.charCodeAt(at); return c >= 0xd800 && c <= 0xdbff; };
+const low = (text: string, at: number) => { const c = text.charCodeAt(at); return c >= 0xdc00 && c <= 0xdfff; };
+/** The first n characters of text, one less where the cut would leave the high half of a surrogate pair. */
+const first = (text: string, n: number) => text.slice(0, n > 0 && n < text.length && high(text, n - 1) ? n - 1 : n);
+/** text from index k on, one later where the cut would leave the low half of a surrogate pair. */
+const from = (text: string, k: number) => text.slice(k > 0 && k < text.length && low(text, k) ? k + 1 : k);
 
 export class ShellOutput {
   private parts: string[] = [];
@@ -46,8 +54,8 @@ export class ShellOutput {
       if (this.head === undefined) return redact(this.parts.join(''));
       const head = redact(this.head);
       const tail = redact(this.tail.join('').slice(-EDGE));
-      const start = head.slice(0, Math.min(SIDE, Math.max(0, head.length - MARGIN)));
-      const end = tail.slice(Math.max(MARGIN, tail.length - SIDE));
+      const start = first(head, Math.min(SIDE, Math.max(0, head.length - MARGIN)));
+      const end = from(tail, Math.max(MARGIN, tail.length - SIDE));
       return `${start}\n… [output too long: ${this.total} characters, the middle left out] …\n${end}`;
     } catch { return null; }
   }
@@ -55,7 +63,7 @@ export class ShellOutput {
   static cap(safe: string): string {
     if (safe.length <= MAX_RESULT) return safe;
     const half = MAX_RESULT / 2;
-    return `${safe.slice(0, half)}\n… [output capped] …\n${safe.slice(-half)}`;
+    return `${first(safe, half)}\n… [output capped] …\n${from(safe, safe.length - half)}`;
   }
   view(completed: boolean, redact: Redactor): string {
     const safe = this.safe(completed, redact);

@@ -5,7 +5,7 @@
 // Owns: these assertions only. Never: a real key.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ShellOutput, WITHHELD } from '../../../src/runtime/tools/builtin/shell-output.ts';
+import { EDGE, MARGIN, ShellOutput, WITHHELD } from '../../../src/runtime/tools/builtin/shell-output.ts';
 
 const value = 'synthetic-catalog-test-value-not-a-key';
 const marked = (text: string) => text.replaceAll(value, 'secret://fixture');
@@ -33,8 +33,28 @@ test('unfinished or a failing redactor cannot release a raw prefix, also over bu
 
 // 0.3.19 (Noah's review 24.11.2026): over budget a pipe keeps its start and its end – a long build log's error is at the end –
 // each masked whole, and the inner edges cut by the margin, so a value the cut split in two never shows in part.
-const EDGE = 78 * 1024; // SIDE 30 KB + MARGIN (shell-output.ts)
-const MARGIN = 48 * 1024;
+test('the margin outlasts the longest spelling of the longest stored value (URL-encoded, 4096 three-byte characters)', () => {
+  const longest = '€'.repeat(4096); // MAX_FIELD_VALUE characters of 3 UTF-8 bytes each
+  assert.equal(encodeURIComponent(longest).length, 36_864);
+  assert.ok(MARGIN > encodeURIComponent(longest).length);
+  assert.ok(MARGIN > Buffer.from(longest).toString('hex').length && MARGIN > Buffer.from(longest).toString('base64').length);
+});
+
+// A visible cut never leaves half of a surrogate pair: no valid UTF-8, a strict provider could refuse the text (Noah, 24.11.).
+const halfPair = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+test('over budget and over the visible cap: every cut keeps whole characters', () => {
+  const pairs = (n: number) => '😀'.repeat(n);
+  const capture = new ShellOutput();
+  capture.append('x' + pairs(400 * 1024) + 'y'); // odd offsets: each cut would otherwise fall inside a pair
+  const shown = capture.view(true, (text) => text);
+  assert.match(shown, /\[output too long/);
+  assert.ok(!halfPair.test(shown), 'no half pair at the cuts of start and end');
+  const capped = ShellOutput.cap('x' + pairs(40 * 1024) + 'y');
+  assert.match(capped, /\[output capped\]/);
+  assert.ok(!halfPair.test(capped), 'no half pair at the visible cap');
+  assert.ok(capped.startsWith('x😀') && capped.endsWith('😀y'));
+});
+
 test('over budget: the start and the end remain, masked, with the middle left out', () => {
   const capture = new ShellOutput();
   capture.append('START ' + value + '\n');
