@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { AccountMonitor, QUIET_MS, REFRESH_MS, WORK_TAIL_MS } from '../../../src/runtime/accounts/monitor.ts';
+import { AccountMonitor, QUIET_MS, REFRESH_MS, RESERVE_MS, STALE_MS, WORK_TAIL_MS } from '../../../src/runtime/accounts/monitor.ts';
 import { Bus } from '../../../src/runtime/bus.ts';
 import { ManualClock } from '../fakes.ts';
 import type { Account, AccountLimits, UsageSummary } from '../../../src/shared/model/providers.ts';
@@ -187,5 +187,45 @@ test('no turn: one read per QUIET_MS and stale only past it; a starting turn rea
   assert.equal(h.reads.length, settled);
   await h.advance(1);
   assert.ok(h.reads.length > settled);
+  h.monitor.stop();
+});
+
+// 0.3.19 (task_0c6aet8h): three Claude plans, read each minute while working, were most of the app's program starts on
+// teydra-server (a Claude reading is a cold CLI start). A plan in reserve – not its engine's next, no turn on it – is read
+// every RESERVE_MS while working and counts as stale only past RESERVE_MS + STALE_MS; the next plan and a plan a turn
+// runs on keep the minute, and the quota details the person opens read every plan as before.
+test('working: the next Claude plan is read each minute, plans in reserve every RESERVE_MS – not stale in between', async () => {
+  const h = harness([plan('a', 'claude'), plan('b', 'claude', { priority: 1 }), plan('c', 'claude', { priority: 2 })]);
+  h.monitor.start(); await h.monitor.idle();
+  assert.deepEqual(h.reads, ['a', 'b', 'c'], 'startup reads every plan');
+  h.turn(true); await h.monitor.idle();
+  const from = h.reads.length;
+  for (let minute = 0; minute < 10; minute++) await h.advance(REFRESH_MS.claude);
+  const count = (id: string) => h.reads.slice(from).filter((read) => read === id).length;
+  assert.equal(count('a'), 10, 'the plan Claude turns take next: each minute');
+  assert.equal(count('b'), 10 * 60_000 / RESERVE_MS, 'in reserve: every RESERVE_MS');
+  assert.equal(count('c'), 10 * 60_000 / RESERVE_MS);
+  await h.advance(RESERVE_MS - REFRESH_MS.claude); // the reserve readings are just under RESERVE_MS old
+  const stale = Object.fromEntries(h.monitor.summaries().map((entry) => [entry.accountId, entry.limits?.stale]));
+  assert.deepEqual(stale, { a: false, b: false, c: false }, 'a reserve reading within its cadence is not stale');
+  h.monitor.stop();
+});
+
+test('working: a plan a turn runs on keeps the minute; the quota details read every plan at the working cadence', async () => {
+  const h = harness([plan('a', 'claude'), plan('b', 'claude', { priority: 1 }), plan('c', 'claude', { priority: 2 })]);
+  h.monitor.start(); await h.monitor.idle();
+  h.bus.emit('run.upserted', { id: 'run_c', status: 'running', accountId: 'c' } as never); await h.monitor.idle();
+  let from = h.reads.length;
+  for (let minute = 0; minute < 5; minute++) await h.advance(REFRESH_MS.claude);
+  const count = (id: string) => h.reads.slice(from).filter((read) => read === id).length;
+  assert.equal(count('c'), 5, 'the plan the turn runs on: each minute');
+  assert.equal(count('b'), 1, 'b stays in reserve');
+  h.bus.emit('run.upserted', { id: 'run_c', status: 'done', accountId: 'c' } as never); await h.monitor.idle();
+  await h.advance(REFRESH_MS.claude);
+  from = h.reads.length;
+  await h.advance(REFRESH_MS.claude);
+  await h.monitor.refreshAll();
+  assert.deepEqual([...h.reads.slice(from)].sort(), ['a', 'b', 'c'], 'the person opened the quota details: every plan older than the minute');
+  assert.ok(STALE_MS < RESERVE_MS);
   h.monitor.stop();
 });

@@ -5,7 +5,10 @@
 // work – a Claude read starts two CLI processes of ~120 MB, measured). A turn that starts, and the
 // window brought to the front (usage.list), read what is older than the working cadence at once. Startup always checks
 // again. All checks share one serial queue; failures back off to 5 min. Signed-out/disabled accounts
-// have no timer.
+// have no timer. 0.3.19 (task_0c6aet8h): while working, a plan in reserve – neither the one its engine takes next nor
+// running a turn – is read every RESERVE_MS: its limits move only through use elsewhere, and a Claude reading is a cold
+// CLI start (on teydra-server three plans read each minute were most of the app's program starts). Its reading counts as
+// stale only past RESERVE_MS + STALE_MS. The quota details the person opens (refreshAll) read every plan as before.
 // B-044: these background reads ask Codex for its banked resets' count only (excludeResetCreditDetails);
 // the credit details come with the reads the person asks for – checkNow (a sign-in, a used reset) and
 // refreshAll (the quota details or Settings › Models opened), which also reads a Codex plan
@@ -17,7 +20,7 @@ import type { Clock, Logger } from '../contracts.ts';
 import type { Bus } from '../bus.ts';
 import type { Account, AccountLimits, EngineId, UsageSummary } from '../../shared/model/providers.ts';
 import { isPlanProvider } from '../../shared/model/plan-roles.ts';
-import { selectCandidates } from './candidates.ts';
+import { engineFor, selectCandidates } from './candidates.ts';
 import { weeklyWindow } from './limits.ts';
 import { planNames } from '../../shared/model/plan-names.ts';
 import { PROVIDER_LABELS } from './service-shape.ts';
@@ -30,6 +33,8 @@ export const QUIET_MS = 10 * MINUTE;
 export const WORK_TAIL_MS = 2 * MINUTE;
 /** Failed reads become visibly stale instead of looking current for half an hour (while quiet: past QUIET_MS plus this). */
 export const STALE_MS = 2 * MINUTE;
+/** While working, the cadence of a plan in reserve (not next in line for its engine, no turn running on it). */
+export const RESERVE_MS = 5 * MINUTE;
 
 const ENDED = new Set(['done', 'failed', 'interrupted']);
 
@@ -61,8 +66,9 @@ export function isStale(limits: AccountLimits, now: number, staleMs = STALE_MS):
  * Quota rail entries: every enabled plan with its short name (B-078, shared/model/plan-names.ts), weekly headroom, all
  * windows and the stale flag. Feedback 16.11.2026 (F24): a switched-off plan runs no turn here, so its last reading
  * (headroom it cannot give) is not shown – the rail said "plenty left" while every turn here waited.
+ * `reserveStaleMs`: the stale age of a plan that is not its engine's next (read at the reserve cadence while working).
  */
-export function usageSummaries(accounts: Account[], now: number, staleMs = STALE_MS): UsageSummary[] {
+export function usageSummaries(accounts: Account[], now: number, staleMs = STALE_MS, reserveStaleMs = staleMs): UsageSummary[] {
   const active = new Set<string>();
   for (const engine of ['codex', 'claude'] as EngineId[]) {
     const first = selectCandidates(accounts, engine, now)[0];
@@ -76,7 +82,8 @@ export function usageSummaries(accounts: Account[], now: number, staleMs = STALE
     return {
       accountId: account.id, provider: account.provider, label: account.label, ...(name ? { name } : {}), active: active.has(account.id),
       weeklyRemainingPercent: weekly ? Math.max(0, 100 - weekly.usedPercent) : undefined, weeklyResetsAt: weekly?.resetsAt,
-      limits: account.limits && { ...account.limits, stale: isStale(account.limits, now, staleMs) },
+      // in reserve: read, but at the reserve cadence – a signed-out plan is not read at all, its readings age as before
+      limits: account.limits && { ...account.limits, stale: isStale(account.limits, now, active.has(account.id) || account.state === 'needs_login' ? staleMs : Math.max(staleMs, reserveStaleMs)) },
     };
   });
 }
@@ -98,6 +105,8 @@ export class AccountMonitor {
   private cancelTimer: (() => void) | undefined;
   /** Agent turns queued or running now, and when the last one ended. */
   private readonly turns = new Set<string>();
+  /** The account of each queued or running turn that names one (such a plan is read at the working cadence). */
+  private readonly turnAccounts = new Map<string, string>();
   private lastTurnAt = 0;
   /** When the working cadence began (its first STALE_MS still judge readings by the quiet cadence: their reads are on the way). */
   private workingSince = 0;
@@ -116,8 +125,10 @@ export class AccountMonitor {
       if (run.status === 'queued' || run.status === 'running') {
         if (!this.working()) this.workingSince = this.now();
         this.turns.add(run.id);
+        if (run.accountId) this.turnAccounts.set(run.id, run.accountId);
       }
       else if (this.turns.delete(run.id) || ENDED.has(run.status)) this.lastTurnAt = this.now();
+      if (run.status !== 'queued' && run.status !== 'running') this.turnAccounts.delete(run.id);
       if (run.accountId && ENDED.has(run.status)) this.afterTurn(run.accountId);
       this.activity();
     });
@@ -178,7 +189,7 @@ export class AccountMonitor {
     for (const account of this.plans()) {
       const resets = account.limits?.resets;
       const missing = account.provider === 'codex' && resets !== undefined && resets.available > 0 && resets.credits === undefined;
-      if (now >= this.dueAt(account, true) || (missing && account.state !== 'needs_login')) this.enqueue(account.id, true, undefined, true);
+      if (now >= this.dueAt(account, true, false) || (missing && account.state !== 'needs_login')) this.enqueue(account.id, true, undefined, true);
     }
     await this.idle();
   }
@@ -190,7 +201,8 @@ export class AccountMonitor {
 
   summaries(): UsageSummary[] {
     const now = this.now();
-    return usageSummaries(this.deps.accounts.list(), now, this.working() && now - this.workingSince > STALE_MS ? STALE_MS : QUIET_MS + STALE_MS);
+    const working = this.working() && now - this.workingSince > STALE_MS;
+    return usageSummaries(this.deps.accounts.list(), now, working ? STALE_MS : QUIET_MS + STALE_MS, working ? RESERVE_MS + STALE_MS : QUIET_MS + STALE_MS);
   }
 
   /** Emits usage.updated with the current summaries (also used by the account service). */
@@ -217,10 +229,18 @@ export class AccountMonitor {
     return this.turns.size > 0 || this.now() - this.lastTurnAt < WORK_TAIL_MS;
   }
 
-  private dueAt(account: Account, working = this.working()): number {
+  /** `reserve`: a plan in reserve keeps the reserve cadence while working (not for the quota details the person opens). */
+  private dueAt(account: Account, working = this.working(), reserve = true): number {
     if (!working) return this.lastCheck(account) + QUIET_MS;
-    const gap = REFRESH_MS[account.provider === 'codex' ? 'codex' : 'claude'];
+    const gap = reserve && !this.inFront(account) ? RESERVE_MS : REFRESH_MS[account.provider === 'codex' ? 'codex' : 'claude'];
     return this.lastCheck(account) + Math.min(5 * MINUTE, gap * 2 ** (this.failures.get(account.id) ?? 0));
+  }
+
+  /** The plan its engine takes next, or one a queued or running turn uses. */
+  private inFront(account: Account): boolean {
+    for (const id of this.turnAccounts.values()) if (id === account.id) return true;
+    const engine = engineFor(account.provider);
+    return engine !== undefined && selectCandidates(this.deps.accounts.list(), engine, this.now())[0]?.id === account.id;
   }
 
   private arm(): void {
