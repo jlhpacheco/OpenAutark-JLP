@@ -63,9 +63,11 @@ async function releaseFacts() {
   rel.history.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
   // GitHub's own "latest" of the current channel decides the PC version, not the newest list entry: a phone-only tag
   // (android-v0.3.7, not marked latest) can be newer and stays in the history only.
+  let tagVersion = null;
   try {
     const latest = JSON.parse((await fetchText(`${release.api}/latest`)) || 'null');
     if (latest?.tag_name) {
+      tagVersion = latest.tag_name.replace(/^v/, '');
       const size = (name) => latest.assets.find((a) => a.name === name)?.size;
       const exe = size(release.files.windows); const apk = size(release.files.android);
       rel.windows = { version: latest.tag_name.replace(/^v/, ''), date: vienna(latest.published_at), sizeMb: exe ? Math.round(exe / 1e6) : rel.windows.sizeMb };
@@ -81,6 +83,9 @@ async function releaseFacts() {
   for (const [os, file, asset] of [['mac', 'latest-mac.yml', release.files.macDmg], ['linux', 'latest-linux.yml', release.files.linux]]) {
     const y = await fetchText(release.asset(file));
     const v = y?.match(/^version:\s*(.+)$/m)?.[1]?.trim();
+    // The site shows the version of the file that is really published. A release can ship an older Mac or Linux build
+    // under its newer tag (v0.3.19 kept the 0.3.14 Mac files, same SHA-256, 24.11.2026): say so instead of hiding it.
+    if (v && tagVersion && v !== tagVersion) console.warn(`WARNING: ${file} of the newest release says ${v}, its tag says ${tagVersion}: the page shows ${v}, the file is older than the release.`);
     const d = y?.match(/^releaseDate:\s*'?([\d-]{10})/m)?.[1];
     const size = y?.match(new RegExp(`url:\\s*${asset.replace(/\./g, '\\.')}[\\s\\S]*?size:\\s*(\\d+)`))?.[1];
     if (v) rel[os] = { version: v, date: d || rel[os].date, sizeMb: size ? Math.round(Number(size) / 1e6) : rel[os].sizeMb };
