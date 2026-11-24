@@ -12,6 +12,9 @@ import { b64url, fingerprintOf, fromB64url } from '../../../src/runtime/devices/
 import { mac, macOk } from '../../../src/runtime/devices/pair-proof.ts';
 import { isPhoneStep, RemoteWithPhones } from '../../../src/runtime/devices/rendezvous/phone-pair.ts';
 import { phoneInfo, TargetRequests } from '../../../src/runtime/remote/requests.ts';
+import { openCodes } from '../../../src/runtime/remote/code.ts';
+import { remoteIdOf } from '../../../src/runtime/remote/id.ts';
+import { phonePairLink } from '../../../src/shared/api/methods-phone.ts';
 import { bytes, commitment, matchCode, newEphemeral, newNonce, sessionKey, signedBytes, transcript, verifySide } from '../../../src/runtime/remote/sas.ts';
 import { PwaService } from '../../../src/runtime/pwa/service.ts';
 import { PeopleRepo, cleanScopes } from '../../../src/runtime/people/repo.ts';
@@ -46,13 +49,13 @@ async function pcWithPhones(deps: Partial<RemoteDeps> = {}) {
   return { remote, pwa, repo: new DevicesRepo(db), identity, events, shown, notes, mesh, db, clock, admitted };
 }
 
-/** The Android app's side of the exchange. */
-async function phoneAsks(target: { handle(body: Record<string, unknown>, from: { address?: string }): Promise<unknown> }, name = 'Pixel 8') {
+/** The Android app's side of the exchange; `remoteId` the ID it asks for (RemotePair.java sends it as `target`). */
+async function phoneAsks(target: { handle(body: Record<string, unknown>, from: { address?: string }): Promise<unknown> }, name = 'Pixel 8', remoteId?: string) {
   const key = await DeviceIdentity.load({ db: memoryDb(), host: fakeHost(), clock: new ManualClock(), name: 'phone' });
   const info = { id: `dev_${randomBytes(8).toString('hex')}`, name, role: 'client', pub: b64url(key.publicKey), addresses: [] as string[] };
   const eph = newEphemeral();
   const call = async (body: Record<string, unknown>) => json(await target.handle(json(body), { address: 'relay:phone' })) as Record<string, unknown>;
-  const first = await call({ kind: 'remote1', v: 1, role: 'phone', device: info, eph: b64url(eph.pub) });
+  const first = await call({ kind: 'remote1', v: 1, role: 'phone', device: info, eph: b64url(eph.pub), ...(remoteId ? { target: { remoteId } } : {}) });
   assert.equal(first.ok, true, JSON.stringify(first));
   const pc = first.device as { pub: string };
   const ephA = bytes(first.eph)!;
@@ -190,6 +193,35 @@ test('a declined phone gets no token; a wrong session key cannot collect the ans
   assert.equal(answer.status, 'declined');
   assert.equal(answer.token, undefined);
   assert.equal(pc.repo.get(phone.info.id), undefined);
+});
+
+// Two IDs, 24.11.2026 (owner: "ein QR-Code einfach neben My ID … Das Handy kann ja auch einfach den Code nehmen"): the QR
+// beside My ID carries this PC's own Remote ID (phone.pairLink, F17), the digits shown are My ID – a phone that scans and a
+// phone that types both end in a request to accept here, as my phone; a number that is neither is refused.
+test('two IDs: a phone asking by the QR\'s Remote ID or by the My ID typed shows here to accept; another number is refused', async () => {
+  const pc = await pcWithPhones();
+  const myId = openCodes(pc.db, pc.identity, () => 1).me.code();
+  const qrId = remoteIdOf(pc.identity.fingerprint);
+  assert.notEqual(myId, qrId, 'My ID is not the number inside the QR');
+  assert.equal(phonePairLink(qrId), `https://openautark.com/pair/#${qrId}`, 'the QR the Android app reads since 0.3.x');
+  for (const [asked, name] of [[qrId, 'Scanned'], [myId, 'Typed']] as const) {
+    const phone = await phoneAsks(pc.remote, name, asked);
+    const request = pc.remote.state().incoming.find((entry) => entry.name === name)!;
+    assert.equal(request.role as string, 'phone', `${name}: a phone request, whichever ID it asked`);
+    assert.equal(request.code, phone.code);
+    const waiting = phone.wait();
+    pc.remote.decide(request.id, true);
+    const answer = await waiting;
+    assert.equal(answer.status, 'accepted', name);
+    assert.equal(pc.repo.get(phone.info.id)?.kind, 'phone', `${name}: linked as my phone`);
+    assert.equal(pc.pwa.authenticate(answer.token as string)?.kind, 'device');
+  }
+  const key = await DeviceIdentity.load({ db: memoryDb(), host: fakeHost(), clock: new ManualClock(), name: 'stranger' });
+  const stranger = { id: 'dev_stranger000001', name: 'Other', role: 'client', pub: b64url(key.publicKey), addresses: [] };
+  const wrong = String((Number(myId) + 1) % 1e9).padStart(9, '0');
+  const refused = await pc.remote.handle({ kind: 'remote1', v: 1, role: 'phone', device: stranger, eph: b64url(newEphemeral().pub), target: { remoteId: wrong } }, { address: 'relay:x' });
+  assert.equal(refused.ok, false, 'not an ID of this PC');
+  assert.equal(pc.remote.state().incoming.length, 0);
 });
 
 test('PC requests never take the phone role and phone requests never become PC links', async () => {

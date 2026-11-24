@@ -1,6 +1,7 @@
 // RPC contract part (B-078, D5/D6): the owner's Android phone as a member of the company and as hands for agents.
-// Pairing: the phone types this PC's Remote ID or opens the QR's link (PHONE_PAIR_LINK + the ID – the only thing it
-// carries), then the normal connect request runs (runtime/devices/rendezvous/phone-pair.ts). Phone use: the app's own
+// Pairing: the phone opens the QR's link (PHONE_PAIR_LINK + this PC's Remote ID – the only thing it carries) or types
+// My ID (two IDs 24.11.2026: the QR sits beside My ID, its own ID is no longer shown as digits), then the normal connect
+// request runs (runtime/devices/rendezvous/phone-pair.ts). Phone use: the app's own
 // second socket (apps/android phoneuse/UseLink) calls phoneUse.attach – the answer lists my PCs, so the phone tunnels to
 // the first one online when this one is off – and then hears `phoneUse.request` (only its own: the event names its
 // deviceId and reaches only that device, runtime/rpc/scopes.ts) and answers each with phoneUse.reply. The app reads
@@ -105,7 +106,7 @@ declare module '../api/methods.ts' {
     'phone.pcs': { params: void; result: { pcs: PhonePc[] } };
     /** The paired phone itself ("Forget this phone"): its own row, token and push subscriptions end, on every PC of the roster. */
     'phone.forget': { params: void; result: { ok: true } };
-    /** Owner: what "Connect a phone" shows – this PC's Remote ID and the QR of its pair link. */
+    /** Owner: the phone QR beside My ID (Settings › Devices) – this PC's Remote ID and the QR of its pair link. */
     'phone.pairLink': { params: void; result: { remoteId: string; url: string; qrDataUrl: string } };
   }
 }

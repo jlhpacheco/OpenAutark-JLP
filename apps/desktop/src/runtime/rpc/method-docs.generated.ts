@@ -204,7 +204,7 @@ export const METHOD_DOCS: Record<string, { params: string; note?: string }> = {
   "people.revoke": {"params":"{ id: string }","note":"Owner: ends a person's access at once – devices cut, chats left, their open work back to the team."},
   "people.save": {"params":"{ id?: string; name?: string; title?: string; avatar?: Avatar; managerId?: string | null; scopes?: PersonScopes; role?: PersonRole }","note":"Owner: a new person (status invited) or changes to one (name, title, avatar, manager, scopes, role – F13 'ceo' puts them at the top unless a manager is named). F13: a CEO adds and edits members, never the owner, another CEO or a role."},
   "phone.forget": {"params":"void","note":"The paired phone itself (\"Forget this phone\"): its own row, token and push subscriptions end, on every PC of the roster."},
-  "phone.pairLink": {"params":"void","note":"Owner: what \"Connect a phone\" shows – this PC's Remote ID and the QR of its pair link."},
+  "phone.pairLink": {"params":"void","note":"Owner: the phone QR beside My ID (Settings › Devices) – this PC's Remote ID and the QR of its pair link."},
   "phone.pcs": {"params":"void","note":"The paired phone itself (the iPhone web app, which has no phone use): my PCs it pins and tunnels to."},
   "phoneUse.attach": {"params":"PhoneUseAttach","note":"The Android app's own socket: phone use is reachable on this connection until it closes; the answer lists my PCs."},
   "phoneUse.reply": {"params":"PhoneUseReply","note":"The answer to one phoneUse.request."},

@@ -79,8 +79,8 @@ function useDevices() {
 /**
  * The phone QR beside My ID (two IDs, 23.11.2026 – owner: "nicht drei IDs … ein QR-Code einfach neben My ID"): the QR of
  * this PC's pair link (phone.pairLink). F17: the link carries this PC's own ID, so a scanning phone's request comes to the
- * PC whose screen shows the QR; that ID is no longer shown as digits – a phone that types My ID asks my PCs the same way
- * and is accepted on the one that answers.
+ * PC whose screen shows the QR; that ID is no longer shown as digits – a phone that types My ID asks the first of my PCs
+ * instead, and its request shows on every PC of mine to accept (remote/mirror.ts; test/unit/rendezvous/phone-pair.test.ts).
  */
 function MyIdQr(props: { remote?: RemoteState }) {
   const remoteId = props.remote?.self.remoteId;

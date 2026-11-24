@@ -27,6 +27,13 @@ test('Settings › Devices: Company ID first, then My ID – each only when it i
   // two IDs, 23.11.2026: no third number and no own "Connect a phone" row – the QR beside My ID carries this PC's link
   assert.doesNotMatch(group, /label="Connect a phone"|PhoneQr|remote-slot-code|groupDigits\(digits\)/);
   assert.match(group, /rpc\.call\('phone\.pairLink'\)/);
+  // two IDs, 24.11.2026: exactly two ID rows in "Add a device", and the QR shows no digits of its own (only an image)
+  assert.equal(rows.match(/<IdRow /g)?.length, 2, 'Company ID and My ID, nothing else');
+  assert.equal(group.match(/<IdRows /g)?.length, 1, 'the ID rows once in "Add a device"');
+  const qr = group.slice(group.indexOf('function MyIdQr'), group.indexOf('type UpdateResult'));
+  assert.match(qr, /<img class="remote-qr-code"/);
+  assert.doesNotMatch(qr, /remoteId\}|groupDigits|\.remoteId\s*\)/, 'the QR\'s own ID is never written as text');
+  assert.match(code('styles/remote.css'), /\.remote-qr\b[^{]*\{[^}]*(width|height)/, 'the QR box reserves its size before the image loads');
 });
 
 test('no role anywhere a PC connects: the ID typed decides; my profile name goes with the request', () => {

@@ -1,5 +1,6 @@
-// B-078 (D5): the owner's phone pairs like a PC – by this PC's Remote ID (typed in the Android app, or the QR that only
-// carries it), the same 4-digit code on both screens, Accept on the PC. The phone sends the normal connect request
+// B-078 (D5): the owner's phone pairs like a PC – by this PC's Remote ID (the QR beside My ID only carries it) or by
+// My ID typed in the Android app (two IDs 24.11.2026: remote/requests.ts decided() takes either; the phone asks the
+// first of my PCs the meeting server names), the same 4-digit code on both screens, Accept on the PC. The phone sends the normal connect request
 // (remote1…remote3, remote/sas.ts) with role 'phone' and its own key; this file keeps those requests in a TargetRequests of
 // their own (roles ['phone']) beside the PCs' and shows them in the same list (remote.state incoming, remote.decide).
 // On Accept the phone is stored as a phone with its key (pwa/service.ts pairPhone) – the meeting server then pins it

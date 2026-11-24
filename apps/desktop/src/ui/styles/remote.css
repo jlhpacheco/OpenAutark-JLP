@@ -5,7 +5,7 @@
    Owns: `remote-*`, `scan-actions` and `access-code-input`. Never: literal colors (tokens only). */
 #settings-devices .set-row-hint, #settings-add-device .set-row-hint { text-wrap: pretty; }
 
-/* the QR box is the last cell of the "Connect a phone" row */
+/* the QR box is the last cell of the My ID row (two IDs, 23.11.2026: no own "Connect a phone" row) */
 .remote-phone-row > .set-row-control { flex-wrap: nowrap; }
 .remote-id { display: inline-block; min-width: 11ch; color: var(--text); font-size: calc(14px * var(--ui-text, 1)); line-height: 1.4; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .remote-phone-row .set-row-hint { display: -webkit-box; height: 36px; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }

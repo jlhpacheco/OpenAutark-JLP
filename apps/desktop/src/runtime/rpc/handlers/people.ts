@@ -1,7 +1,7 @@
 // RPC handlers: people of the organisation (F-52, runtime/people). The owner manages people
 // (list, add/edit, invite, revoke, remove one who never joined, devices, audit, a person's chats as metadata; the owner's own phones
 // may read the list to name people and – B-084 (D6), on a secure transport ('settings' + secure) – open and close a
-// person's invite for "Connect a phone": the same person-scoped invite as on the PC);
+// person's invite (their page's "Invite a device"): the same person-scoped invite as on the PC);
 // a person's device joins with the tokenless people.join / people.awaitJoin (rpc/tokenless.ts) and
 // then reaches only the person variants (runtime/people/rpc-*.ts, table.addPerson). F13: the owner gives a person the
 // role 'ceo' with people.save; a CEO person manages the members through their own variants (people/rpc-ceo.ts).

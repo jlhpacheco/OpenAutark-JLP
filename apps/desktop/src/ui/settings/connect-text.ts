@@ -1,9 +1,9 @@
 // Texts of Settings › Devices (DevicesGroup.tsx, connect-rows.tsx – also the first run's Connect card): Remote IDs in
 // groups of three, the Remote ID row's hint, what this PC's own connect request shows (the line under "Connect"), the
 // hint of each device row, a phone's dot, the hint of a browser's Notifications row (B-084: inside the Android app the
-// app's own notifications) and "Forget this phone", and – B-078 – the "Connect a phone" hint and the words of a phone's
-// request (role 'phone'). F09: the PCs on this network grouped by PC (nearbyGroups: a PC's companies under it). F17: a
-// request waiting on another of my PCs names that PC; the QR hint says the digits are this PC's. F29: a phone's
+// app's own notifications) and "Forget this phone", and – B-078 – the phone QR's hint (two IDs 23.11.2026: the QR beside
+// My ID, scan it or type My ID) and the words of a phone's request (role 'phone'). F09: the PCs on this network grouped
+// by PC (nearbyGroups: a PC's companies under it). F17: a request waiting on another of my PCs names that PC. F29: a phone's
 // connection row (direct or via the meeting server, bytes of each today) and the iPhone web app's line. Sicher-Runde
 // 19.11.2026: a PC that said goodbye (device.bye, Device.away) reads "App closed · 14:02" / "Updating… · since 14:02" /
 // "Signed out or shut down · 14:02" instead of "Not reachable".
