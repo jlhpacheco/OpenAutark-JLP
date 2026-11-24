@@ -59,7 +59,7 @@ function bigButton(p, rel) {
   if (!p.file) return `<a class="btn btn--ink btn--lg" href="${appUrl}/" data-app-link>${icon('phone')}<span>Open the iPhone app</span></a><a class="btn btn--ghost btn--lg" href="#steps">${icon('arrowDown')}<span>How to add it</span></a>`;
   const v = rel[p.id];
   const meta = v ? `<span class="btn__meta"${p.id === 'windows' ? ' data-rel="windows-meta"' : ''}>v${esc(v.version)} · ${v.sizeMb} MB</span>` : '';
-  return `<a class="btn btn--ink btn--lg plat-hero__btn" href="${release.latestUrl}" data-dl="${p.id}" rel="noopener">${icon(p.icon)}<span>Download for ${p.short || p.os}</span>${meta}</a>${p.alt ? `<a class="btn btn--ghost btn--lg" href="${release.latestUrl}" rel="noopener">${p.alt.label}</a>` : ''}`;
+  return `<a class="btn btn--ink btn--lg plat-hero__btn" href="${site.url}/get/${p.id}" data-dl="${p.id}">${icon(p.icon)}<span>Download for ${p.short || p.os}</span>${meta}</a>${p.alt ? `<a class="btn btn--ghost btn--lg" href="${site.url}/get/${p.id}-zip">${p.alt.label}</a>` : ''}`;
 }
 
 function fileFacts(p, rel) {

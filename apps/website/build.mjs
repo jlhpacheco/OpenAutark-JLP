@@ -145,8 +145,7 @@ console.log('app', `${appUrl}/`, '→', appDir);
 // ── 3. stable file links ──
 // /get/<id> (and the old /download/checksums) answer with the newest file: vercel.json redirects them
 // on Vercel; these small pages do the same on any other host.
-// 18.11.2026: no address of this site answers with an installer any more: /get/<id> leads to that platform's page, whose button
-// goes to the release page on GitHub. Only the checksum list, a text file, is still sent as itself.
+// 24.11.2026: on openautark.com the Cloudflare worker (worker/worker.mjs) answers /get/<id> with a redirect to the newest file, and the\n// platform pages' buttons point there. These pages are what any other static host serves: /get/<id> leads to that platform's page.
 const fileTarget = (d) => (d.id === 'checksums' ? release.asset(d.file) : `${site.url}/download/${d.id === 'mac-zip' ? 'mac' : d.id}/`);
 const fileRedirect = (d) => {
   const target = fileTarget(d);

@@ -59,7 +59,7 @@ test('one page per platform with a canonical address, one h1, a big button and v
     const p = platforms.find((x) => `download/${x.id}` === slug);
     assert.ok(html.includes(`<link rel="canonical" href="${site.url}/${slug}/">`), slug);
     assert.equal((html.match(/<h1[\s>]/g) || []).length, 1, slug);
-    if (p.file) assert.ok(html.includes(`href="${release.latestUrl}" data-dl="${p.id}"`), `${slug} button leads to the release page on GitHub, not to the file`);
+    if (p.file) assert.ok(html.includes(`href="${site.url}/get/${p.id}" data-dl="${p.id}"`), `${slug} button is the site's own /get/${p.id} address (a worker answers it with the newest file; no file name in the page)`);
     else assert.ok(!html.includes('.apk"') && html.includes('href="#steps"'), 'iPhone has no file, only the way to set it up');
     const graph = ldOf(html).flatMap((g) => g['@graph']);
     assert.ok(graph.some((n) => n['@type'] === 'HowTo' && n.step.length >= 2), `${slug} HowTo`);
@@ -194,8 +194,9 @@ test('download overview lists every platform page', () => {
 });
 
 // 18.11.2026 (a mail gateway marked mails with a link to the site as suspicious – a direct link to an installer): no address
-// of the site answers with an installer, and no page links to one. The buttons lead to a platform page here or to the release
-// page on GitHub; /get/<id> leads to the platform page; only the text file of checksums is still sent as itself.
+// 24.11.2026 (owner): the platform pages' big button downloads in one click. It points at /get/<id>, an address without a file name;
+// the Cloudflare worker (worker/worker.mjs) answers it with a redirect to the newest release file. The pages still name no file,
+// and mails and posts keep linking to the platform page, not to /get/.
 const FILE_LINK = /(?:https?:)?\/\/[^"'\s<>)]*\.(?:exe|apk|dmg|AppImage|zip|msi)|releases\/(?:latest\/)?download\/(?!SHA256SUMS\.txt)[^"'\s<>)]*/i;
 test('no page links to an installer file; the buttons lead to a page here or to the release page', async () => {
   const pages = [home(rel), await download(rel), ...platformPages(rel).map((p) => p.html)];

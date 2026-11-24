@@ -31,7 +31,7 @@ For AI crawlers the build writes `llms.txt`, `llms-full.txt`, `facts.json`, `rob
 
 ## Download links
 
-Release files carry no version number, so `https://github.com/teydra/OpenAutark/releases/latest/download/<file>` always gives the newest one. The site offers platform pages (`/download/windows/` …) and fixed file addresses (`/get/windows`, `/get/mac`, `/get/linux`, `/get/android`, `/get/checksums`) that redirect to the newest file.
+Release files carry no version number, so `https://github.com/teydra/OpenAutark/releases/latest/download/<file>` always gives the newest one. The site offers platform pages (`/download/windows/` …) and fixed file addresses (`/get/windows`, `/get/mac`, `/get/linux`, `/get/android`, `/get/checksums`) that redirect to the newest file. On openautark.com the Cloudflare worker in worker/ makes /get/<id> a real 302 to the newest release file (the platform pages' buttons use it: one click downloads); other hosts get the small page that leads to the platform page.
 
 ## Hosting
 
