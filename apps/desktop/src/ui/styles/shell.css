@@ -229,9 +229,14 @@
    (only for a plan with a 5-hour window) with the weekly % in its middle, both in the provider's colour (no provider
    name in text), the minutes to the 5-hour reset, the plan's name; 10 px is the rail's smallest text; details on hover */
 .usage-stack {
-  display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 0 1 auto; min-height: 0;
-  max-height: min(45vh, 300px); overflow: hidden auto; scrollbar-width: none;
+  /* 24.11.2026 (BCAC2C92): every plan – the stack takes the rail's free height and scrolls past it; a soft edge where
+     badges are hidden (more-above / more-below) */
+  display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 0 1 auto; min-height: 50px;
+  overflow: hidden auto; overscroll-behavior: contain; scrollbar-width: none;
 }
+.usage-stack.more-below { mask-image: var(--mask-fade-stack-below); }
+.usage-stack.more-above { mask-image: var(--mask-fade-stack-above); }
+.usage-stack.more-above.more-below { mask-image: var(--mask-fade-stack-both); }
 .usage-badge { --ui-text: 1; /* 21.11.2026: the rail's compact badge keeps its size (the number sits inside the ring) */
  
   --plan: var(--provider-codex); --plan-bar: var(--provider-codex-bar);
@@ -250,11 +255,11 @@
 .usage-ring circle { fill: none; stroke-width: 2.5; }
 .usage-ring-track { stroke: var(--line); }
 .usage-ring-arc { stroke: var(--plan-bar); stroke-linecap: round; }
+.usage-value.full { letter-spacing: -.4px; }
 .usage-value { position: relative; color: var(--plan); font-size: calc(9.5px * var(--ui-text, 1)); font-weight: 600; line-height: max(11px, calc(11px * var(--ui-text, 1))); letter-spacing: -.2px; }
 .usage-wait, .usage-name { display: block; flex: none; align-self: stretch; height: 11px; overflow: hidden; font-size: calc(10px * var(--ui-text, 1)); line-height: max(11px, calc(11px * var(--ui-text, 1))); text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .usage-wait { color: var(--secondary); }
 .usage-name { color: var(--muted); }
-.usage-more { flex: none; color: var(--muted); font-size: calc(11px * var(--ui-text, 1)); line-height: max(16px, calc(16px * var(--ui-text, 1))); cursor: default; }
 .popover.usage-popover { padding: 14px 16px; font-size: calc(12px * var(--ui-text, 1)); }
 .usage-card { --plan: var(--provider-codex); --plan-bar: var(--provider-codex-bar); }
 .usage-card h4 { margin: 0 0 8px; color: var(--plan); font-size: calc(13px * var(--ui-text, 1)); font-weight: 600; }

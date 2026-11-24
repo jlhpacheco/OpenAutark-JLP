@@ -8,7 +8,11 @@
 //   one line with the time to the ring's reset ("42m", "2h 5m"; the weekly one "3d 4h");
 //   one line with the plan's name (the runtime's UsageSummary.name – a label of the person's own, else the e-mail's local
 //   part, shared/model/plan-names.ts – else the label).
-// The plan in use first, then by weekly share; max 4 + "+n". A stale reading dims the badge.
+// The plan in use first, then by weekly share. 24.11.2026 (owner, BCAC2C92: "unten links unbedingt alle Pläne sehen – nicht nur
+// +1 – multiple Subscription Management ist am wichtigsten"): every plan has its badge, no "+n"; the stack takes the rail's
+// free height and scrolls past it, a soft edge at the top or bottom says more is there. 1BDDA1B3 ("100% geht aus dem Kreis
+// raus"): a full weekly share reads "100" in the ring – the ring's inside holds three digits, not four characters.
+// A stale reading dims the badge.
 // Details on hover/focus/click: every limit window with bar, share left and "resets in 42 min", the next plan and
 // – B-044 – a Codex plan's banked resets with the next one's expiry (labels and shares from the shared helper, lib/limits.ts).
 // Opening the details asks the runtime for fresh readings (lib/usage-refresh.ts: usage.list refresh – with
@@ -18,7 +22,7 @@
 // monitor then re-reads plans that are due. A runtime timer covers usage in other apps too.
 // Owns: the badges and the details card. Never: invents values (unknown or a passed reset → "–"), polls, or names the provider in text.
 
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { UsageSummary } from '../../shared/model/providers.ts';
 import { Popover } from '../lib/ui.tsx';
 import { usage } from '../lib/store.ts';
@@ -27,10 +31,9 @@ import { rpc } from '../lib/rpc.ts';
 import { can } from '../lib/session.ts';
 import { countdown, fiveHourOf, leftOf, nextCredit, resetCount, resetsAvailableText, shortWait, windowLabel } from '../lib/limits.ts';
 import { USAGE_REFRESH_MS, refreshUsage } from '../lib/usage-refresh.ts';
+import { hiddenEdges, ringText } from './quota-stack.ts';
 
 let signalledAt = 0;
-/** Badges shown before "+n". */
-const VISIBLE = 4;
 /** The ring: radius and stroke in a 28 px box. */
 const RING_R = 12.5;
 const RING_C = 2 * Math.PI * RING_R;
@@ -143,7 +146,7 @@ function Badge(props: { entry: UsageSummary; next?: UsageSummary }) {
       >
         <span class="usage-dial">
           <Ring left={five ? five.left : weekly} />
-          <span class="usage-value tabular">{weekly === undefined ? '–' : `${weekly}%`}</span>
+          <span class={`usage-value tabular${weekly !== undefined && weekly >= 100 ? ' full' : ''}`}>{ringText(weekly)}</span>
         </span>
         <span class="usage-wait tabular">{wait ?? ''}</span>
         <span class="usage-name">{name}</span>
@@ -163,15 +166,27 @@ export function QuotaRail() {
     window.addEventListener('focus', front);
     return () => { document.removeEventListener('visibilitychange', front); window.removeEventListener('focus', front); };
   }, []);
+  const stack = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ above: false, below: false });
   const list = sorted(usage.value);
+  useLayoutEffect(() => {
+    const element = stack.current;
+    if (!element) return;
+    const measure = () => {
+      const next = hiddenEdges(element.scrollTop, element.clientHeight, element.scrollHeight);
+      setEdges((last) => (last.above === next.above && last.below === next.below ? last : next));
+    };
+    measure();
+    element.addEventListener('scroll', measure, { passive: true });
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : undefined;
+    observer?.observe(element);
+    return () => { element.removeEventListener('scroll', measure); observer?.disconnect(); };
+  }, [list.length]);
   if (!list.length) return null;
-  const visible = list.slice(0, VISIBLE);
-  const rest = list.length - visible.length;
   const next = list.find((entry) => !entry.active);
   return (
-    <div class="usage-stack">
-      {visible.map((entry) => <Badge key={entry.accountId} entry={entry} next={next} />)}
-      {rest > 0 && <span class="usage-more tabular" title={list.slice(VISIBLE).map(planName).join(', ')}>+{rest}</span>}
+    <div ref={stack} class={`usage-stack${edges.above ? ' more-above' : ''}${edges.below ? ' more-below' : ''}`} aria-label={`${list.length} plans`} role="group">
+      {list.map((entry) => <Badge key={entry.accountId} entry={entry} next={next} />)}
     </div>
   );
 }

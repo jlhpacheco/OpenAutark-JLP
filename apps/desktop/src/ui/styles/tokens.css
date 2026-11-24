@@ -86,6 +86,10 @@
   /* a height-limited list's foot (team.css .new-agent .template-list): its content fades out over 20 px above
      a 6 px foot (the divider under it is drawn outside the mask, by the list's frame) */
   --mask-fade-foot: linear-gradient(to bottom, #000 calc(100% - 26px), transparent calc(100% - 6px));
+  /* the rail's plan stack (shell.css .usage-stack): an 18 px soft edge where badges are scrolled out of view */
+  --mask-fade-stack-below: linear-gradient(to bottom, #000 calc(100% - 18px), transparent);
+  --mask-fade-stack-above: linear-gradient(to top, #000 calc(100% - 18px), transparent);
+  --mask-fade-stack-both: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
   /* drawn edges (resolved per theme on the root, where --line and --surface are set): a 1 px divider as a
      background image the area sizes and places (a scroll list's fixed top or bottom edge, as wide as its
      column), and covered content fading into the page beside a drawer (tasks.css .tasks-detail::after) */
