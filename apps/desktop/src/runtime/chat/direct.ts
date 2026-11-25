@@ -15,9 +15,15 @@
 // 1:1 with every active agent – sub-agents too – exists from the start (keepOwnerDirects: backfilled at start in
 // one transaction, a hire or a restored agent gets it right after the org announces it); an empty one posts no line,
 // counts nothing unread and wakes nobody. Every other pair – a person and an agent too – gets it when first used.
-// Owns: finding, adopting and creating the default 1:1, the owner's with every active agent. Never: adds a
-// third member, renames or unarchives a chat, adopts a chat named after a topic, gives an archived agent a
-// new one by itself, or knows an agent without the org service.
+// 25.11.2026 (Konrad): an archived agent takes its default 1:1 with the owner out of the list with it – chat/lifecycle.ts
+// archive, so the windows and the phone's list drop it, the history stays under "archived" – and a restored agent brings
+// the same chat back (unarchive; found, not made anew): the start archives the 1:1 of every archived agent still listed,
+// and the org's announcements (agent.upserted) do the rest. Only that one chat – a group chat with the agent, a task's
+// thread and the 1:1 with another agent stay as they are.
+// Owns: finding, adopting and creating the default 1:1, the owner's with every active agent, and keeping it hidden while its
+// agent is archived. Never: adds a third member, renames a chat, adopts a chat named after a topic, gives an archived agent
+// a new one by itself, or knows an agent without the org service.
+
 
 import { WorkforceError } from '../../shared/errors.ts';
 import { HUMAN_ID, SYSTEM_ID } from '../../shared/ids.ts';
@@ -129,34 +135,56 @@ export function workRoomFor(s: DirectDeps, chatId: string | undefined, by: strin
 }
 
 /**
- * The members that have a default 1:1 with the owner – findDirect's rule for every partner at once, in one
+ * The members that have a default 1:1 with the owner (value: one of them is still listed, not archived) – findDirect's rule for every partner at once, in one
  * query over the owner's own memberships (members_member index), so a start stays cheap on a large database.
  */
-function ownerPartners(s: Pick<RuntimeServices, 'db'>): Set<string> {
-  const rows = s.db.all<{ id: string }>(
-    `SELECT DISTINCT m.member_id AS id FROM members h
+function ownerPartners(s: Pick<RuntimeServices, 'db'>): Map<string, boolean> {
+  const rows = s.db.all<{ id: string; listed: number }>(
+    `SELECT m.member_id AS id, MAX(c.archived_at IS NULL) AS listed FROM members h
        JOIN conversations c ON c.id = h.conversation_id
        JOIN members m ON m.conversation_id = c.id AND m.member_id <> h.member_id AND m.left_at IS NULL
      WHERE h.member_id = ? AND h.left_at IS NULL AND json_extract(c.settings, '$.direct') = 1 AND json_extract(c.settings, '$.system') IS NULL
        AND ((json_extract(c.settings, '$.directPair[0]') = min(m.member_id, h.member_id) AND json_extract(c.settings, '$.directPair[1]') = max(m.member_id, h.member_id))
-         OR (json_extract(c.settings, '$.directPair') IS NULL AND ${COUNT} = 2))`,
+         OR (json_extract(c.settings, '$.directPair') IS NULL AND ${COUNT} = 2))
+     GROUP BY m.member_id`,
     [HUMAN_ID],
   );
-  return new Set(rows.map((row) => row.id));
+  return new Map(rows.map((row) => [row.id, row.listed === 1]));
 }
 
 /**
  * B-050 K1, Nachtrag Runde 4: every active agent without the owner's default 1:1 gets it now (findOrCreateDirect:
  * an older chat of the two adopted, else a new empty one), all in one transaction; returns those agents' ids.
- * Idempotent: a second call finds them all. Archived agents get none; people keep getting theirs when first used.
+ * Idempotent: a second call finds them all. Archived agents get none – and the one they have is archived with them
+ * (hideArchivedDirects); people keep getting theirs when first used.
  */
 export function ensureOwnerDirects(s: Omit<OwnerDeps, 'bus'>): string[] {
   return s.db.tx(() => {
     const have = ownerPartners(s);
     const missing = s.org.list().filter((agent) => !agent.archivedAt && !have.has(agent.id));
     for (const agent of missing) findOrCreateDirect(s, HUMAN_ID, agent.id, { createdBy: HUMAN_ID });
+    hideArchivedDirects(s, s.org.list({ includeArchived: true }).filter((agent) => agent.archivedAt && have.get(agent.id)).map((agent) => agent.id));
     return missing.map((agent) => agent.id);
   });
+}
+
+/** The owner's default 1:1 with an archived agent leaves the list (archive: history kept; events as the person's own archive); returns whether it did. */
+function hideDirect(s: Pick<DirectDeps, 'db' | 'chats'>, agentId: string): boolean {
+  const id = findDirect(s, HUMAN_ID, agentId);
+  if (!id || s.chats.get(id)?.archivedAt !== undefined) return false;
+  s.chats.archive(id);
+  return true;
+}
+
+/** Archives the default 1:1 of each given archived agent that is still listed; idempotent (a second call changes nothing). */
+function hideArchivedDirects(s: Pick<DirectDeps, 'db' | 'chats'>, agentIds: string[]): void {
+  for (const agentId of agentIds) hideDirect(s, agentId);
+}
+
+/** A restored agent's default 1:1 is back in the list – the same chat (findDirect), never a new one. */
+function showDirect(s: Pick<DirectDeps, 'db' | 'chats'>, agentId: string): void {
+  const id = findDirect(s, HUMAN_ID, agentId);
+  if (id && s.chats.get(id)?.archivedAt !== undefined) s.chats.unarchive(id);
 }
 
 /**
@@ -180,16 +208,23 @@ export function keepOwnerDirects(s: OwnerDeps): () => void {
   const make = (agentId: string): void => {
     queued.delete(agentId);
     const agent = s.org.get(agentId);
-    if (stopped || !agent || agent.archivedAt || known.has(agentId)) return;
+    if (stopped || !agent) return;
     try {
+      if (agent.archivedAt) {
+        known.delete(agentId); // restored later: its chat comes back (below)
+        hideDirect(s, agentId);
+        return;
+      }
+      if (known.has(agentId)) return;
+      showDirect(s, agentId);
       findOrCreateDirect(s, HUMAN_ID, agentId, { createdBy: HUMAN_ID });
       known.add(agentId);
     } catch (error) {
-      s.log?.warn('default chat with the agent not made', { agentId, error: String(error) });
+      s.log?.warn('default chat with the agent not kept', { agentId, error: String(error) });
     }
   };
   const off = s.bus.on('agent.upserted', (agent) => {
-    if (agent.archivedAt || known.has(agent.id) || queued.has(agent.id)) return;
+    if (queued.has(agent.id) || (!agent.archivedAt && known.has(agent.id))) return;
     queued.add(agent.id);
     queueMicrotask(() => make(agent.id));
   });
